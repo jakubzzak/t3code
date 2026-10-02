@@ -152,7 +152,9 @@ export function FileFilterControl({
                 size="icon-sm"
                 variant="ghost"
                 aria-label="Stop generation"
-                onClick={() => {
+                onClick={(event) => {
+                  // Canceling turns this same button into a submit button before the click ends.
+                  event.preventDefault();
                   if (state.pending) useFileFilterStore.getState().cancel(scopeKey, state.pending);
                 }}
               >
