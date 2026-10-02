@@ -23,6 +23,7 @@ import { expandHomePath } from "../pathExpansion.ts";
 import { codexExecLaunchArgs, resolveCodexLaunchArgs } from "../provider/Layers/codexLaunchArgs.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
+  buildFileFilterPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -108,6 +109,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateFileFilter"
       | "generateThreadTitle",
     value: unknown,
   ): Effect.Effect<string, TextGenerationError> =>
@@ -127,6 +129,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateFileFilter"
       | "generateThreadTitle",
     attachments: TextGeneration.BranchNameGenerationInput["attachments"],
   ): Effect.fn.Return<MaterializedImageAttachments, TextGenerationError> {
@@ -169,6 +172,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateFileFilter"
       | "generateThreadTitle";
     cwd: string;
     prompt: string;
@@ -406,6 +410,18 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       };
     });
 
+  const generateFileFilter: TextGeneration.TextGeneration["Service"]["generateFileFilter"] =
+    Effect.fn("CodexTextGeneration.generateFileFilter")(function* (input) {
+      const { prompt, outputSchema } = buildFileFilterPrompt(input);
+      return yield* runCodexJson({
+        operation: "generateFileFilter",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+    });
+
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
     Effect.fn("CodexTextGeneration.generateThreadTitle")(function* (input) {
       const { imagePaths } = yield* materializeImageAttachments(
@@ -439,5 +455,6 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateFileFilter,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

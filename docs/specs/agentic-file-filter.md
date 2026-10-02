@@ -19,7 +19,7 @@ This changes file visibility, not file contents or review status. Filtering must
 - Submitting the prompt asks the agent to update the regex. Include the current expression so requests such as “also hide snapshots” can refine it. Display the generated expression in the same editable field and apply it after validation.
 - Disable regex editing while generation is running. Provide a Stop action. Completion, failure, or cancellation unlocks editing; failure or cancellation preserves the previous filter and reports the outcome inline. A late result must not overwrite a newer filter or affect another chat/view.
 - Closing the modal does not clear the applied filter. Keep the toolbar icon visibly active while filtering, show the visible/total file count, and keep the filter accessible when no files match. A zero-match result is distinct from an empty diff.
-- Editing or clearing PR Code's filter does not change Diff's filter, and vice versa. Retain both while using that chat; each new chat always starts with the default.
+- Editing or clearing PR Code's filter does not change Diff's filter, and vice versa. Retain both while using that chat in the current client session; each new chat always starts with the default. Restarting the app resets filters; they do not synchronize between devices.
 
 ## Acceptance criteria
 
@@ -37,5 +37,4 @@ This changes file visibility, not file contents or review status. Filtering must
 
 ## Open questions
 
-- Does a customized filter survive reopening an existing chat after an app restart, and should it synchronize between devices? Only new-chat initialization and isolation between chats/views are settled; persistence needs a decision before implementation.
 - The agreed placement covers the web/desktop toolbars. Native mobile placement and behavior need a scope decision before claiming feature parity.

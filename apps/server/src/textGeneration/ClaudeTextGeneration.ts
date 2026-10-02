@@ -21,6 +21,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { TextGenerationError } from "@t3tools/contracts";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
+  buildFileFilterPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -102,6 +103,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateFileFilter"
       | "generateThreadTitle",
     value: unknown,
     detail: string,
@@ -132,6 +134,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateFileFilter"
       | "generateThreadTitle";
     cwd: string;
     prompt: string;
@@ -387,6 +390,18 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       };
     });
 
+  const generateFileFilter: TextGeneration.TextGeneration["Service"]["generateFileFilter"] =
+    Effect.fn("ClaudeTextGeneration.generateFileFilter")(function* (input) {
+      const { prompt, outputSchema } = buildFileFilterPrompt(input);
+      return yield* runClaudeJson({
+        operation: "generateFileFilter",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+    });
+
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
     Effect.fn("ClaudeTextGeneration.generateThreadTitle")(function* (input) {
       const { prompt, outputSchema } = buildThreadTitlePrompt({
@@ -415,5 +430,6 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateFileFilter,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

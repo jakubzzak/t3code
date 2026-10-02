@@ -55,6 +55,8 @@ import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { fileFilterKey, useFileFilter } from "~/fileFilterStore";
+import { FileFilterControl } from "./diffs/FileFilterControl";
 import { DiffFileTree } from "./diffs/DiffFileTree";
 import { diffFileTreeEntries } from "./diffs/diffFileTree.logic";
 import { Button } from "./ui/button";
@@ -153,6 +155,8 @@ export default function DiffPanel({
     strict: false,
     select: (params) => resolveThreadRouteRef(params),
   });
+  const filterScopeKey = routeThreadRef ? fileFilterKey(routeThreadRef, "diff") : "diff:no-thread";
+  const fileFilter = useFileFilter(filterScopeKey);
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useThread(routeThreadRef);
   const activeProjectId = activeThread?.projectId ?? null;
@@ -458,6 +462,11 @@ export default function DiffPanel({
     () => renderableFiles.map(getCachedFileEntry),
     [renderableFiles],
   );
+  const visibleFiles = useMemo(
+    () => renderableFiles.filter((file) => fileFilter.matchesPath(resolveFileDiffPath(file))),
+    [renderableFiles, fileFilter],
+  );
+  const visibleFileEntries = useMemo(() => visibleFiles.map(getCachedFileEntry), [visibleFiles]);
   const defaultCollapsedDiffFileKeys = useMemo(
     () =>
       settings.diffFilesCollapsed
@@ -481,7 +490,7 @@ export default function DiffPanel({
   );
   const codeViewFiles = useMemo(
     () =>
-      renderableFileEntries
+      visibleFileEntries
         .filter(({ fileDiff }) => !lazySource || readyFilePaths.has(resolveFileDiffPath(fileDiff)))
         .map(({ fileDiff, fileKey, fileVersion }) => {
           return {
@@ -495,11 +504,11 @@ export default function DiffPanel({
               fileDiff.cacheKey?.endsWith(":pending") === true,
           };
         }),
-    [collapsedDiffFileKeys, renderableFileEntries, lazySource, readyFilePaths],
+    [collapsedDiffFileKeys, visibleFileEntries, lazySource, readyFilePaths],
   );
   const diffFileKeys = useMemo(
-    () => renderableFileEntries.map((file) => file.fileKey),
-    [renderableFileEntries],
+    () => visibleFileEntries.map((file) => file.fileKey),
+    [visibleFileEntries],
   );
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
   const diffLineStat = useMemo(() => {
@@ -514,7 +523,7 @@ export default function DiffPanel({
     }
     return getDiffLineStat(renderableFiles);
   }, [renderableFiles, selectedGitSource, selectedTurn]);
-  const fileTreeEntries = useMemo(() => diffFileTreeEntries(renderableFiles), [renderableFiles]);
+  const fileTreeEntries = useMemo(() => diffFileTreeEntries(visibleFiles), [visibleFiles]);
   const selectedDiffFileKey = selectedFilePath
     ? (codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey ?? null)
     : null;
@@ -837,6 +846,11 @@ export default function DiffPanel({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        {fileFilter.active && renderableFiles.length > 0 ? (
+          <span className="text-2xs text-muted-foreground tabular-nums">
+            {visibleFiles.length} of {renderableFiles.length} files
+          </span>
+        ) : null}
         {codeViewFiles.length > 0 || (!selectedTurn && selectedGitSource?.files?.length) ? (
           <DiffStatLabel
             additions={diffLineStat.additions}
@@ -889,6 +903,15 @@ export default function DiffPanel({
             </TooltipPopup>
           </Tooltip>
         )}
+        {activeThread ? (
+          <FileFilterControl
+            key={filterScopeKey}
+            scopeKey={filterScopeKey}
+            environmentId={activeThread.environmentId}
+            visibleCount={visibleFiles.length}
+            totalCount={renderableFiles.length}
+          />
+        ) : null}
         <ToggleGroup
           aria-label="Diff layout"
           className="shrink-0"
@@ -1022,6 +1045,12 @@ export default function DiffPanel({
                   </p>
                 </div>
               )
+            ) : (lazySource || renderablePatch?.kind === "files") &&
+              renderableFiles.length > 0 &&
+              visibleFiles.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center px-4 py-5 text-xs text-muted-foreground">
+                No files match this filter.
+              </div>
             ) : lazySource || renderablePatch?.kind === "files" ? (
               <div className="flex min-h-0 flex-1 overflow-hidden">
                 <div

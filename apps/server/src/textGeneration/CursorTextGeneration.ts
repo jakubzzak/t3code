@@ -12,6 +12,7 @@ import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import { TextGenerationError } from "@t3tools/contracts";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
+  buildFileFilterPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -54,6 +55,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateFileFilter"
       | "generateThreadTitle";
     cwd: string;
     prompt: string;
@@ -238,6 +240,18 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       };
     });
 
+  const generateFileFilter: TextGeneration.TextGeneration["Service"]["generateFileFilter"] =
+    Effect.fn("CursorTextGeneration.generateFileFilter")(function* (input) {
+      const { prompt, outputSchema } = buildFileFilterPrompt(input);
+      return yield* runCursorJson({
+        operation: "generateFileFilter",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+    });
+
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
     Effect.fn("CursorTextGeneration.generateThreadTitle")(function* (input) {
       const { prompt, outputSchema } = buildThreadTitlePrompt({
@@ -266,5 +280,6 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateFileFilter,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

@@ -660,6 +660,30 @@ describe("Atom.fn mutation semantics", () => {
 });
 
 describe("executeAtomQuery", () => {
+  it.effect("aborting an ephemeral query interrupts its operation", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const interrupted = yield* Deferred.make<void>();
+      const registry = AtomRegistry.make();
+      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+      const controller = new AbortController();
+      const runtime = Atom.runtime(Layer.empty);
+      const atom = runtime
+        .atom(
+          Deferred.succeed(started, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+          ),
+        )
+        .pipe(Atom.setIdleTTL(0));
+      const pending = executeAtomQuery(registry, atom, { signal: controller.signal });
+      yield* Deferred.await(started);
+      controller.abort();
+      const result = yield* Effect.promise(() => pending);
+      expect(isAtomCommandInterrupted(result)).toBe(true);
+      yield* Deferred.await(interrupted);
+    }),
+  );
   it("keeps concurrent query results correlated to their atoms", async () => {
     const firstLatch = Latch.makeUnsafe();
     const secondLatch = Latch.makeUnsafe();
