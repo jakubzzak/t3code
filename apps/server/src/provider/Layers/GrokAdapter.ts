@@ -1,3 +1,4 @@
+import { withThreadProcessOwner } from "../../process/threadProcessOwnership.ts";
 import {
   ApprovalRequestId,
   type GrokSettings,
@@ -998,14 +999,14 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
           const acp = yield* makeGrokAcpRuntime({
             grokSettings,
-            ...(options?.environment || mcpSession?.agentDeviceEnvironment
-              ? {
-                  environment: McpProviderSession.withAgentDeviceEnvironment(
-                    options?.environment ?? process.env,
-                    mcpSession,
-                  ),
-                }
-              : {}),
+            environment: withThreadProcessOwner(
+              McpProviderSession.withAgentDeviceEnvironment(
+                options?.environment ?? process.env,
+                mcpSession,
+              ),
+              input.threadId,
+              serverConfig.stateDir,
+            ),
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,

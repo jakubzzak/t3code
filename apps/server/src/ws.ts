@@ -1,3 +1,4 @@
+import * as ThreadCleanup from "./orchestration/ThreadCleanup.ts";
 import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
@@ -561,6 +562,7 @@ const makeWsRpcLayer = (
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const review = yield* ReviewService.ReviewService;
       const fileFilter = yield* FileFilterService.FileFilterService;
+      const threadCleanup = yield* ThreadCleanup.ThreadCleanup;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
@@ -2139,6 +2141,8 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.threadCleanupStart]: (input) => threadCleanup.start(input),
+        [WS_METHODS.threadCleanupSubscribe]: (input) => threadCleanup.subscribe(input.threadId),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,

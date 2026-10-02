@@ -1,3 +1,4 @@
+import { ThreadCleanupModal } from "./features/threads/ThreadCleanupModal";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -88,6 +89,7 @@ function AppContent() {
               </IncomingShareProvider>
               <ConfirmDialogHost />
               <ThreadArrangementHost />
+              <ThreadCleanupModal />
             </View>
             {/* Anchored-menu overlays render here — in-window, so the
                 keyboard stays up while a dropdown is open. */}

@@ -1,3 +1,4 @@
+import { withThreadProcessOwner } from "../../process/threadProcessOwnership.ts";
 /**
  * CodexAdapterLive - Scoped live implementation for the Codex provider adapter.
  *
@@ -2347,7 +2348,14 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         // it and read it when a turn fails on the limit.
         let rateLimits: CodexRateLimitSnapshot | undefined;
         const createRuntime = options?.makeRuntime ?? makeCodexSessionRuntime;
-        const runtime = yield* createRuntime(runtimeInput).pipe(
+        const runtime = yield* createRuntime({
+          ...runtimeInput,
+          environment: withThreadProcessOwner(
+            runtimeInput.environment ?? process.env,
+            input.threadId,
+            serverConfig.stateDir,
+          ),
+        }).pipe(
           Effect.provideService(Scope.Scope, sessionScope),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
           Effect.provideService(Crypto.Crypto, crypto),

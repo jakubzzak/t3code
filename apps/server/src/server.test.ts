@@ -1,3 +1,5 @@
+import * as ThreadCleanup from "./orchestration/ThreadCleanup.ts";
+import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -773,6 +775,7 @@ const buildAppUnderTest = (options?: {
       // Viewed-file marks for a host that keeps none of its own are rows, so the routes want a
       // database. Its own, in memory: nothing here shares a table with the auth store.
       makeRoutesLayer.pipe(
+        Layer.provide(PreviewAutomationBroker.layer),
         Layer.provide(Layer.mergeAll(serviceLauncherClientLayer, SqlitePersistenceMemory)),
       ),
       {
@@ -1091,68 +1094,56 @@ const buildAppUnderTest = (options?: {
       ),
     );
 
-    const appLayer = servedRoutesLayer.pipe(
-      Layer.provide(resourceTelemetryLayer),
-      Layer.provide(UsageService.layerTest),
-      Layer.provide(
-        Layer.mock(AnalyticsService.AnalyticsService)({
-          record: () => Effect.void,
-          flush: Effect.void,
-          ...options?.layers?.analyticsService,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
-          record: () => Effect.void,
-          ...options?.layers?.browserTraceCollector,
-        }),
-      ),
-      Layer.provide(otlpSerializationLayer(config.otlpTracesExport.protocol)),
-      Layer.provide(
-        Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
-          publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
-          snapshot: Effect.succeed({ sequence: 0, events: [] }),
-          stream: Stream.empty,
-          ...options?.layers?.serverLifecycleEvents,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({
-          awaitCommandReady: Effect.void,
-          markHttpListening: Effect.void,
-          markRunningProviderSessionsForContinuation: Effect.succeed([]),
-          clearProviderSessionContinuationMarkers: () => Effect.void,
-          enqueueCommand: (effect) => effect,
-          ...options?.layers?.serverRuntimeStartup,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(BackgroundPolicy.BackgroundPolicy)({
-          reportClientActivity: () => Effect.void,
-          removeRpcClient: () => Effect.void,
-          reportHostPowerState: () => Effect.void,
-          snapshot: Effect.succeed({
-            hostPower: {
-              source: "unknown",
-              idle: "unknown",
-              idleSeconds: null,
-              locked: "unknown",
-              suspended: false,
-              onBattery: "unknown",
-              lowPowerMode: "unknown",
-              thermalState: "unknown",
-              stale: true,
-              updatedAt: TEST_EPOCH,
-            },
-            leases: [],
-            activeForegroundLeaseCount: 0,
-            activeScopeKeys: [],
-            shouldRunOpportunisticWork: false,
-            updatedAt: TEST_EPOCH,
+    const appLayer = servedRoutesLayer
+      .pipe(
+        Layer.provide(
+          Layer.succeed(ThreadCleanup.ThreadCleanup, {
+            start: () => Effect.die("Cleanup not stubbed in this test"),
+            subscribe: () => Stream.empty,
           }),
-          streamChanges: Stream.empty,
-          subscribe: Effect.succeed({
-            latest: {
+        ),
+      )
+      .pipe(
+        Layer.provide(resourceTelemetryLayer),
+        Layer.provide(UsageService.layerTest),
+        Layer.provide(
+          Layer.mock(AnalyticsService.AnalyticsService)({
+            record: () => Effect.void,
+            flush: Effect.void,
+            ...options?.layers?.analyticsService,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
+            record: () => Effect.void,
+            ...options?.layers?.browserTraceCollector,
+          }),
+        ),
+        Layer.provide(otlpSerializationLayer(config.otlpTracesExport.protocol)),
+        Layer.provide(
+          Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
+            publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
+            snapshot: Effect.succeed({ sequence: 0, events: [] }),
+            stream: Stream.empty,
+            ...options?.layers?.serverLifecycleEvents,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({
+            awaitCommandReady: Effect.void,
+            markHttpListening: Effect.void,
+            markRunningProviderSessionsForContinuation: Effect.succeed([]),
+            clearProviderSessionContinuationMarkers: () => Effect.void,
+            enqueueCommand: (effect) => effect,
+            ...options?.layers?.serverRuntimeStartup,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+            reportClientActivity: () => Effect.void,
+            removeRpcClient: () => Effect.void,
+            reportHostPowerState: () => Effect.void,
+            snapshot: Effect.succeed({
               hostPower: {
                 source: "unknown",
                 idle: "unknown",
@@ -1170,97 +1161,119 @@ const buildAppUnderTest = (options?: {
               activeScopeKeys: [],
               shouldRunOpportunisticWork: false,
               updatedAt: TEST_EPOCH,
-            },
-            changes: Stream.empty,
+            }),
+            streamChanges: Stream.empty,
+            subscribe: Effect.succeed({
+              latest: {
+                hostPower: {
+                  source: "unknown",
+                  idle: "unknown",
+                  idleSeconds: null,
+                  locked: "unknown",
+                  suspended: false,
+                  onBattery: "unknown",
+                  lowPowerMode: "unknown",
+                  thermalState: "unknown",
+                  stale: true,
+                  updatedAt: TEST_EPOCH,
+                },
+                leases: [],
+                activeForegroundLeaseCount: 0,
+                activeScopeKeys: [],
+                shouldRunOpportunisticWork: false,
+                updatedAt: TEST_EPOCH,
+              },
+              changes: Stream.empty,
+            }),
+            hasDemand: () => Effect.succeed(false),
+            shouldRunScopeWork: () => Effect.succeed(false),
+            shouldRunOpportunisticWork: Effect.succeed(false),
           }),
-          hasDemand: () => Effect.succeed(false),
-          shouldRunScopeWork: () => Effect.succeed(false),
-          shouldRunOpportunisticWork: Effect.succeed(false),
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ServerEnvironment.ServerEnvironment)({
-          getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),
-          getDescriptor: Effect.succeed(testEnvironmentDescriptor),
-          ...options?.layers?.serverEnvironment,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
-          resolve: () => Effect.succeed(null),
-          ...options?.layers?.repositoryIdentityResolver,
-        }),
-      ),
-      Layer.provide(
-        Layer.mergeAll(
+        ),
+        Layer.provide(
+          Layer.mock(ServerEnvironment.ServerEnvironment)({
+            getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),
+            getDescriptor: Effect.succeed(testEnvironmentDescriptor),
+            ...options?.layers?.serverEnvironment,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
+            resolve: () => Effect.succeed(null),
+            ...options?.layers?.repositoryIdentityResolver,
+          }),
+        ),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(
+              CloudManagedEndpointRuntime.CloudManagedEndpointRuntime,
+              CloudManagedEndpointRuntime.CloudManagedEndpointRuntime.of({
+                applyConfig: () => Effect.succeed({ status: "disabled" }),
+                recoveryRequests: Stream.empty,
+                requestRecovery: () => Effect.void,
+                withLinkStateLock: (effect) => effect,
+                ...options?.layers?.cloudManagedEndpointRuntime,
+              }),
+            ),
+            Layer.mock(AgentAwarenessRelay.AgentAwarenessRelay)({
+              requestCatchUp: () => Effect.void,
+              ...options?.layers?.agentAwarenessRelay,
+            }),
+          ),
+        ),
+        Layer.provide(
           Layer.succeed(
-            CloudManagedEndpointRuntime.CloudManagedEndpointRuntime,
-            CloudManagedEndpointRuntime.CloudManagedEndpointRuntime.of({
-              applyConfig: () => Effect.succeed({ status: "disabled" }),
-              recoveryRequests: Stream.empty,
-              requestRecovery: () => Effect.void,
-              withLinkStateLock: (effect) => effect,
-              ...options?.layers?.cloudManagedEndpointRuntime,
+            RelayClient.RelayClient,
+            RelayClient.RelayClient.of({
+              resolve: Effect.succeed({
+                status: "missing",
+                version: RelayClient.CLOUDFLARED_VERSION,
+              }),
+              install: Effect.die("unused relay-client install"),
+              installWithProgress: () => Effect.die("unused relay-client install"),
+              ...options?.layers?.relayClient,
             }),
           ),
-          Layer.mock(AgentAwarenessRelay.AgentAwarenessRelay)({
-            requestCatchUp: () => Effect.void,
-            ...options?.layers?.agentAwarenessRelay,
+        ),
+        Layer.provide(
+          Layer.mock(CloudCliTokenManager.CloudCliTokenManager)({
+            get: Effect.die(new Error("Unexpected T3 Connect CLI authorization request.")),
+            getExisting: Effect.succeedNone,
+            hasCredential: Effect.succeed(false),
+            clear: Effect.void,
+            ...options?.layers?.cloudCliTokenManager,
           }),
         ),
-      ),
-      Layer.provide(
-        Layer.succeed(
-          RelayClient.RelayClient,
-          RelayClient.RelayClient.of({
-            resolve: Effect.succeed({
-              status: "missing",
-              version: RelayClient.CLOUDFLARED_VERSION,
-            }),
-            install: Effect.die("unused relay-client install"),
-            installWithProgress: () => Effect.die("unused relay-client install"),
-            ...options?.layers?.relayClient,
-          }),
-        ),
-      ),
-      Layer.provide(
-        Layer.mock(CloudCliTokenManager.CloudCliTokenManager)({
-          get: Effect.die(new Error("Unexpected T3 Connect CLI authorization request.")),
-          getExisting: Effect.succeedNone,
-          hasCredential: Effect.succeed(false),
-          clear: Effect.void,
-          ...options?.layers?.cloudCliTokenManager,
+        Layer.updateService(PairingGrantStore.PairingGrantStore, (grants) => {
+          const subscribed = options?.onPairingChangesSubscribed;
+          if (!subscribed) return grants;
+          return {
+            ...grants,
+            streamChanges: Stream.unwrap(
+              Effect.gen(function* () {
+                const changes =
+                  yield* Queue.unbounded<PairingGrantStore.BootstrapCredentialChange>();
+                yield* grants.streamChanges.pipe(
+                  Stream.runForEach((change) => Queue.offer(changes, change)),
+                  Effect.forkScoped({ startImmediately: true }),
+                );
+                yield* subscribed;
+                return Stream.fromQueue(changes);
+              }),
+            ),
+          };
         }),
-      ),
-      Layer.updateService(PairingGrantStore.PairingGrantStore, (grants) => {
-        const subscribed = options?.onPairingChangesSubscribed;
-        if (!subscribed) return grants;
-        return {
-          ...grants,
-          streamChanges: Stream.unwrap(
-            Effect.gen(function* () {
-              const changes = yield* Queue.unbounded<PairingGrantStore.BootstrapCredentialChange>();
-              yield* grants.streamChanges.pipe(
-                Stream.runForEach((change) => Queue.offer(changes, change)),
-                Effect.forkScoped({ startImmediately: true }),
-              );
-              yield* subscribed;
-              return Stream.fromQueue(changes);
-            }),
-          ),
-        };
-      }),
-      Layer.provideMerge(makeAuthTestLayer()),
-      Layer.provideMerge(ServerSecretStore.layer),
-      Layer.provide(workspaceAndProjectServicesLayer),
-      Layer.provideMerge(
-        options?.layers?.httpClient === undefined
-          ? FetchHttpClient.layer
-          : Layer.succeed(HttpClient.HttpClient, options.layers.httpClient),
-      ),
-      Layer.provide(GitHubCli.layer.pipe(Layer.provideMerge(VcsProcess.layer))),
-      Layer.provide(layerConfig),
-    );
+        Layer.provideMerge(makeAuthTestLayer()),
+        Layer.provideMerge(ServerSecretStore.layer),
+        Layer.provide(workspaceAndProjectServicesLayer),
+        Layer.provideMerge(
+          options?.layers?.httpClient === undefined
+            ? FetchHttpClient.layer
+            : Layer.succeed(HttpClient.HttpClient, options.layers.httpClient),
+        ),
+        Layer.provide(GitHubCli.layer.pipe(Layer.provideMerge(VcsProcess.layer))),
+        Layer.provide(layerConfig),
+      );
 
     yield* Layer.build(appLayer);
     return config;

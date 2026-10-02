@@ -682,7 +682,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   >(new Map());
   const pictureInPictureAspectRatiosRef = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
   const pictureInPictureMutationSemaphore = yield* Semaphore.make(1);
-  const closingTabIdsRef = yield* Ref.make<ReadonlySet<string>>(new Set());
+  const closingTabIdsRef = yield* Ref.make<
+    ReadonlyMap<string, Deferred.Deferred<void, PreviewManagerError>>
+  >(new Map());
   // Tab recording uses `setDisplayMediaRequestHandler` because Electron's legacy
   // `getMediaSourceId` + `chromeMediaSource: "tab"` capture path was removed upstream
   // (electron#44618) and now always rejects with NotAllowedError.
@@ -2191,6 +2193,24 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         discard: true,
       },
     );
+    const ownedTab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+    const contents =
+      ownedTab?.webContentsId == null ? undefined : webContents.fromId(ownedTab.webContentsId);
+    if (contents && !contents.isDestroyed()) {
+      yield* Effect.tryPromise({
+        try: () =>
+          new Promise<void>((resolve) => {
+            contents.once("destroyed", resolve);
+            contents.close({ waitForBeforeUnload: false });
+          }),
+        catch: (cause) => new PreviewOperationError({ operation: "closeTab", tabId, cause }),
+      }).pipe(
+        Effect.timeout("5 seconds"),
+        Effect.mapError(
+          (cause) => new PreviewOperationError({ operation: "closeTab", tabId, cause }),
+        ),
+      );
+    }
     const tab = yield* SynchronizedRef.modify(tabsRef, (tabs) => {
       const current = tabs.get(tabId);
       if (!current) return [Option.none<PreviewTabState>(), tabs] as const;
@@ -2227,23 +2247,30 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     yield* emit(tabId, closed);
   });
 
-  const closeTab = Effect.fn("PreviewManager.closeTab")(function* (tabId: string) {
-    const claimed = yield* Ref.modify(closingTabIdsRef, (closingTabIds) => {
-      if (closingTabIds.has(tabId)) return [false, closingTabIds] as const;
-      return [true, new Set([...closingTabIds, tabId])] as const;
-    });
-    if (!claimed) return;
-    return yield* withTabLifecycleLock(tabId, closeTabUnlocked(tabId)).pipe(
-      Effect.ensuring(
-        Ref.update(closingTabIdsRef, (closingTabIds) => {
-          if (!closingTabIds.has(tabId)) return closingTabIds;
-          const next = new Set(closingTabIds);
-          next.delete(tabId);
-          return next;
-        }),
-      ),
-    );
-  });
+  const closeTab = Effect.fn("PreviewManager.closeTab")((tabId: string) =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const { completion, claimed } = yield* Ref.modify(closingTabIdsRef, (closing) => {
+          const existing = closing.get(tabId);
+          if (existing)
+            return [{ completion: existing, claimed: false as boolean }, closing] as const;
+          const completion = Deferred.makeUnsafe<void, PreviewManagerError>();
+          return [{ completion, claimed: true }, new Map(closing).set(tabId, completion)] as const;
+        });
+        if (!claimed) return yield* restore(Deferred.await(completion));
+        return yield* restore(withTabLifecycleLock(tabId, closeTabUnlocked(tabId))).pipe(
+          Effect.onExit((exit) => Deferred.done(completion, exit)),
+          Effect.ensuring(
+            Ref.update(closingTabIdsRef, (closing) => {
+              const next = new Map(closing);
+              next.delete(tabId);
+              return next;
+            }),
+          ),
+        );
+      }),
+    ),
+  );
 
   const registerWebviewUnlocked = Effect.fn("PreviewManager.registerWebviewUnlocked")(function* (
     tabId: string,

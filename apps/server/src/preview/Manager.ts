@@ -1,3 +1,4 @@
+import { withThreadResourceLease } from "../process/threadResourceLease.ts";
 /**
  * In-memory PreviewManager implementation.
  *
@@ -446,7 +447,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   );
 
   return PreviewManager.of({
-    open,
+    open: (input) => withThreadResourceLease(input.threadId, open(input)),
     navigate,
     reportStatus,
     resize,

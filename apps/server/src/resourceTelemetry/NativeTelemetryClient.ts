@@ -198,6 +198,9 @@ export class NativeTelemetryClient extends Context.Service<
       ReadonlyArray<ResourceMonitorProcessTableEntry>,
       NativeTelemetryClientError
     >;
+    readonly ownedProcesses: (
+      ownerToken: string,
+    ) => Effect.Effect<ReadonlyArray<ResourceMonitorProcessTableEntry>, NativeTelemetryClientError>;
     readonly retry: Effect.Effect<boolean>;
     readonly health: Effect.Effect<NativeTelemetryClientHealth>;
     readonly subscribeHealth: Effect.Effect<
@@ -968,7 +971,9 @@ export const make = Effect.fn("resourceTelemetry.nativeTelemetryClient.make")(fu
     );
   });
 
-  const processTable: NativeTelemetryClient["Service"]["processTable"] = Effect.gen(function* () {
+  const readProcessTable = Effect.fn("NativeTelemetryClient.readProcessTable")(function* (
+    ownerToken?: string,
+  ) {
     const current = yield* Ref.get(state);
     if (!canCommandNativeTelemetrySidecar(current.status, Option.isSome(current.handle))) {
       return yield* new NativeTelemetryUnavailable({
@@ -994,6 +999,7 @@ export const make = Effect.fn("resourceTelemetry.nativeTelemetryClient.make")(fu
       version: RESOURCE_MONITOR_PROTOCOL_VERSION,
       type: "processTable",
       requestId,
+      ...(ownerToken === undefined ? {} : { ownerToken }),
     }).pipe(
       Effect.andThen(
         Deferred.await(deferred).pipe(
@@ -1043,7 +1049,8 @@ export const make = Effect.fn("resourceTelemetry.nativeTelemetryClient.make")(fu
     setExternalProcesses,
     setHostPowerState,
     sampleNow,
-    processTable,
+    processTable: readProcessTable(),
+    ownedProcesses: readProcessTable,
     retry: Ref.get(state).pipe(
       Effect.flatMap((current) =>
         !canRequestNativeTelemetryRetry(current.status, Option.isSome(current.handle))
@@ -1097,6 +1104,12 @@ export const layerTest = (
           reason: "No resource monitor sample was configured for this test.",
         }),
       ),
+      ownedProcesses: () =>
+        Effect.fail(
+          new NativeTelemetryUnavailable({
+            reason: "No owned process scan was configured for this test.",
+          }),
+        ),
       processTable: Effect.fail(
         new NativeTelemetryUnavailable({
           reason: "No resource monitor process table was configured for this test.",

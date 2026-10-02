@@ -13,6 +13,7 @@ import {
   createAtomCommandScheduler,
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
+  createEnvironmentRpcSubscriptionAtomFamily,
 } from "./runtime.ts";
 import {
   type ArchiveThreadInput,
@@ -267,6 +268,17 @@ export function createThreadEnvironmentAtoms<R, E>(
   const optimistic = createOptimisticThreadLifecycle(snapshotAtom);
   return {
     ...commands,
+    cleanupStart: createEnvironmentRpcCommand(runtime, {
+      label: "thread:cleanup:start",
+      tag: WS_METHODS.threadCleanupStart,
+      scheduler,
+      concurrency,
+    }),
+    cleanupState: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "thread:cleanup:state",
+      tag: WS_METHODS.threadCleanupSubscribe,
+      idleTtlMs: 0,
+    }),
     snapshotAtom: optimistic.snapshotAtom,
     settle: optimistic.wrap(commands.settle, (thread, _input, now, accepted) =>
       !accepted &&
