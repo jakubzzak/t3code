@@ -168,6 +168,28 @@ function withFakeCodexEnv<A, E, R>(
 }
 
 it.layer(CodexTextGenerationTestLayer)("CodexTextGeneration", (it) => {
+  it.effect("returns generated filename regex without sanitizing its syntax", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({ regex: String.raw`^(?!.*\.(spec|test)\.).*\.ts$` }),
+        stdinMustContain: "Matching filenames are SHOWN",
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const result = yield* textGeneration.generateFileFilter({
+            cwd: process.cwd(),
+            prompt: "Only TypeScript files, excluding tests",
+            currentRegex: "",
+            modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5"),
+          });
+          const regex = new RegExp(result.regex);
+          expect(["app.ts", "app.test.ts", "app.js"].filter((name) => regex.test(name))).toEqual([
+            "app.ts",
+          ]);
+        }),
+    ),
+  );
+
   for (const selectedModel of ["gpt-5.6-luna", "openai.gpt-5.6-luna"]) {
     it.effect(`dispatches the qualified live model for ${selectedModel}`, () =>
       withFakeCodexEnv(

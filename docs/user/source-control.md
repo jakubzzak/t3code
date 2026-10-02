@@ -135,6 +135,16 @@ PR creation from Git actions continue to use the project's environment.
 For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
 declined pull request.
 
+### Filter changed files
+
+In web and desktop, open **Filter files** in the PR Code tab or Diff panel. Enter a filename
+regex or describe the files you want to see; the agent updates the regex for you. Matching
+filenames stay visible. Use **Clear filter** to show everything.
+
+Each chat starts by hiding filenames containing `.spec.` or `.test.`. PR Code and Diff keep
+separate filters for that chat during the current app session. Hidden files are not marked as
+viewed. Restarting the app restores the default filters.
+
 ### Mark files as viewed
 
 Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a

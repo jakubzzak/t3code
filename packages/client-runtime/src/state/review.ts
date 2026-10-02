@@ -1,4 +1,6 @@
 import {
+  type FileFilterGenerationInput,
+  type EnvironmentId,
   type ReviewDiffPreviewInput,
   VcsUnsupportedOperationError,
   WS_METHODS,
@@ -9,6 +11,7 @@ import { request } from "../rpc/client.ts";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
+  runInEnvironment,
   createAtomCommandScheduler,
   createEnvironmentRpcCommand,
   createEnvironmentQueryAtomFamily,
@@ -22,6 +25,18 @@ export function createReviewEnvironmentAtoms<R, E>(
   const patchReads = Semaphore.makeUnsafe(4);
   const diffFileScheduler = createAtomCommandScheduler();
   return {
+    generateFileFilter: (target: {
+      environmentId: EnvironmentId;
+      input: FileFilterGenerationInput;
+    }) =>
+      runtime
+        .atom(
+          runInEnvironment(
+            target.environmentId,
+            request(WS_METHODS.reviewGenerateFileFilter, target.input),
+          ),
+        )
+        .pipe(Atom.setIdleTTL(0), Atom.withLabel("environment-data:review:generate-file-filter")),
     diffPreview: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:review:diff-preview",
       tag: WS_METHODS.reviewGetDiffPreview,

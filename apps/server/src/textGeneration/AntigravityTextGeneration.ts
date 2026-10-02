@@ -22,6 +22,7 @@ import { removeAntigravitySessionFiles } from "../provider/acp/AntigravitySessio
 import type { AcpSessionRuntime } from "../provider/acp/AcpSessionRuntime.ts";
 import type * as TextGeneration from "./TextGeneration.ts";
 import {
+  buildFileFilterPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -387,6 +388,18 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
       return { branch: sanitizeBranchFragment(generated.branch) };
     });
 
+  const generateFileFilter: TextGeneration.TextGeneration["Service"]["generateFileFilter"] =
+    Effect.fn("AntigravityTextGeneration.generateFileFilter")(function* (input) {
+      const { prompt, outputSchema } = buildFileFilterPrompt(input);
+      return yield* runAntigravityJson({
+        operation: "generateFileFilter",
+
+        prompt,
+        outputSchema,
+        modelSelection: input.modelSelection,
+      });
+    });
+
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
     Effect.fn("AntigravityTextGeneration.generateThreadTitle")(function* (input) {
       const generated = yield* runAntigravityJson({
@@ -410,5 +423,6 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateFileFilter,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

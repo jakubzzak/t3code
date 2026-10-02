@@ -308,6 +308,7 @@ function createTextGeneration(
       Effect.succeed({
         branch: "update-workflow",
       }),
+    generateFileFilter: () => Effect.succeed({ regex: "" }),
     generateThreadTitle: () =>
       Effect.succeed({
         title: "Update workflow",
@@ -346,6 +347,17 @@ function createTextGeneration(
               operation: "generateBranchName",
               detail: "fake text generation failed",
               ...(cause !== undefined ? { cause } : {}),
+            }),
+        ),
+      ),
+    generateFileFilter: (input) =>
+      implementation.generateFileFilter(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new TextGenerationError({
+              operation: "generateFileFilter",
+              detail: "fake text generation failed",
+              cause,
             }),
         ),
       ),
