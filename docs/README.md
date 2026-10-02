@@ -7,7 +7,7 @@ Add each new spec here with a short summary and its current status.
 
 | Spec | Summary | Status |
 | --- | --- | --- |
-| [01 — Resolve chat cleanup](./specs/01-resolve-chat-cleanup.md) | Resolve a chat by stopping its agent, tools, and owned processes while preserving conversation and code changes. | Agreed; not implemented |
+| [01 — Resolve chat cleanup](./specs/01-resolve-chat-cleanup.md) | Stop a chat's agent, tools, and owned processes with a cleanup progress modal; preserve conversation and code changes. | Agreed; not implemented |
 
 ## Using T3 Code
 

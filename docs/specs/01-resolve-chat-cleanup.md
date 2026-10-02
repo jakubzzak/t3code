@@ -24,6 +24,34 @@ Add a **Resolve** action at the top of the chat.
 7. If cleanup fails, keep the chat unresolved, show what remains running, and offer
    **Retry**.
 
+## Cleanup progress modal
+
+- Once cleanup starts, show a simple, compact modal titled **Resolving chat**.
+  Show it after any required active-agent confirmation; it adds no confirmation
+  step when the agent is idle.
+- List all processes and tools targeted for closure, including the agent,
+  terminals, background jobs, and embedded browser tabs. Use readable names and
+  enough detail to distinguish similar entries.
+- Keep a status indicator beside each entry: a loading indicator while it is
+  running or closing, then a checkmark once shutdown is confirmed. The indicator
+  is not an action button. Keep completed entries visible until the modal closes.
+- Drive status from actual cleanup results; do not show success based on elapsed
+  time or a shutdown request alone.
+- The progress modal cannot be dismissed manually: no close or cancel button,
+  outside-click dismissal, Escape dismissal, or mobile back dismissal. The earlier
+  active-agent confirmation remains cancelable before cleanup starts.
+- If cleanup fails, keep the modal open and the chat unresolved. Mark affected
+  entries with a clear error and offer **Retry** for the remaining cleanup. Stop
+  loading indicators for failed entries.
+- When every entry is confirmed closed and the chat is resolved, briefly show the
+  completed state, then automatically dismiss the modal.
+- Use subtle, short animations for modal entry, loading, the transition to a
+  checkmark, and modal exit. Animate loading only while cleanup is pending; avoid
+  unnecessary repainting. Respect reduced-motion preferences with static status
+  indicators and immediate or minimal transitions.
+- Keep keyboard focus within the modal, announce progress accessibly, and restore
+  focus to the chat or the next appropriate destination after automatic dismissal.
+
 ## Preserved state
 
 Keep conversation history and code changes. Returning to or reopening the chat
@@ -49,6 +77,14 @@ processes must stop on the environment hosting them.
 - Idle-agent resolution needs no confirmation, including when terminal jobs are running.
 - Stubborn processes are force-stopped automatically after a grace period.
 - Failed cleanup is visible and retryable; the chat remains unresolved.
+- Cleanup displays a modal listing every targeted process and tool, with loading
+  indicators that become checkmarks only after confirmed shutdown.
+- The progress modal cannot be dismissed manually and remains open on failure
+  with errors and Retry available.
+- Successful cleanup shows the completed state and automatically dismisses the
+  modal with a short exit animation.
+- Modal and status transitions respect reduced-motion preferences and remain
+  keyboard and screen-reader accessible.
 - Conversation and code changes survive resolution.
 - Reopening the chat starts no tools or processes automatically.
 - Resolving one chat does not affect another chat's resources.
