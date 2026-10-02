@@ -1,3 +1,4 @@
+import { ThreadCleanupInput, ThreadCleanupSnapshot, ThreadCleanupError } from "./threadCleanup.ts";
 import {
   ChatGptReconnectProfileInput,
   ChatGptReconnectProfile,
@@ -366,6 +367,8 @@ export const WS_METHODS = {
   previewResize: "preview.resize",
   previewRefresh: "preview.refresh",
   previewClose: "preview.close",
+  threadCleanupStart: "thread.cleanup.start",
+  threadCleanupSubscribe: "thread.cleanup.subscribe",
   previewList: "preview.list",
   previewReportStatus: "preview.reportStatus",
   previewAutomationConnect: "previewAutomation.connect",
@@ -1459,7 +1462,21 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
   stream: true,
 });
 
+const WsThreadCleanupStart = Rpc.make(WS_METHODS.threadCleanupStart, {
+  payload: ThreadCleanupInput,
+  success: ThreadCleanupSnapshot,
+  error: Schema.Union([ThreadCleanupError, EnvironmentAuthorizationError]),
+});
+const WsThreadCleanupSubscribe = Rpc.make(WS_METHODS.threadCleanupSubscribe, {
+  payload: ThreadCleanupInput,
+  success: Schema.NullOr(ThreadCleanupSnapshot),
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 export const WsRpcGroup = RpcGroup.make(
+  WsThreadCleanupStart,
+  WsThreadCleanupSubscribe,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

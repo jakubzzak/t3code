@@ -2258,3 +2258,19 @@ html[data-selected-section="surfaces"]
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .thread-cleanup-check {
+    animation: thread-cleanup-check-in 160ms ease-out;
+  }
+}
+@keyframes thread-cleanup-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

@@ -1,3 +1,5 @@
+import { withThreadResourceLease } from "../process/threadResourceLease.ts";
+import { withThreadProcessOwner } from "../process/threadProcessOwnership.ts";
 /**
  * TerminalManager - Terminal session orchestration service interface.
  *
@@ -196,6 +198,9 @@ export class TerminalManager extends Context.Service<
      *
      * When `terminalId` is omitted, closes all sessions for the thread.
      */
+    readonly listForThread: (
+      threadId: string,
+    ) => Effect.Effect<ReadonlyArray<TerminalSessionSnapshot>>;
     readonly close: (input: TerminalCloseInput) => Effect.Effect<void, TerminalError>;
 
     /**
@@ -1336,6 +1341,7 @@ function normalizedRuntimeEnv(
 }
 
 interface TerminalManagerOptions {
+  readonly stateDir?: string;
   logsDir: string;
   historyLineLimit?: number;
   historyByteLimit?: number;
@@ -1411,7 +1417,7 @@ export const resolveProviderInstanceTerminalEnvironment = Effect.fn(
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.fn("TerminalManager.make")(function* () {
-  const { terminalLogsDir } = yield* ServerConfig.ServerConfig;
+  const { terminalLogsDir, stateDir } = yield* ServerConfig.ServerConfig;
   const ptyAdapter = yield* PtyAdapter.PtyAdapter;
   const portDiscovery = yield* PortScanner.PortDiscovery;
   const nativeTelemetry = yield* NativeTelemetryClient.NativeTelemetryClient;
@@ -1429,6 +1435,7 @@ export const make = Effect.fn("TerminalManager.make")(function* () {
   );
   return yield* makeWithOptions({
     logsDir: terminalLogsDir,
+    stateDir,
     ptyAdapter,
     processTable: nativeTelemetry.processTable.pipe(
       Effect.mapError(
@@ -2179,7 +2186,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         cwd: session.cwd,
         cols: session.cols,
         rows: session.rows,
-        env: spawnEnv,
+        env: withThreadProcessOwner(
+          spawnEnv,
+          session.threadId,
+          options.stateDir ?? options.logsDir,
+        ),
       }),
     );
 
@@ -3118,12 +3129,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     );
 
   return TerminalManager.of({
-    open,
-    attachStream,
-    write,
+    listForThread: (threadId) =>
+      sessionsForThread(threadId).pipe(Effect.map((sessions) => sessions.map(snapshot))),
+    open: (input) => withThreadResourceLease(input.threadId, open(input)),
+    attachStream: (input, listener) =>
+      withThreadResourceLease(input.threadId, attachStream(input, listener)),
+    write: (input) => withThreadResourceLease(input.threadId, write(input)),
     resize,
     clear,
-    restart,
+    restart: (input) => withThreadResourceLease(input.threadId, restart(input)),
     close,
     closeIdle,
     subscribe,

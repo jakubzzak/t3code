@@ -1658,7 +1658,14 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
   stack: Schema.NullOr(ThreadPullRequestStack),
 });
 
+const ThreadCleanupCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.cleanup.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadCleanupCompleteCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,

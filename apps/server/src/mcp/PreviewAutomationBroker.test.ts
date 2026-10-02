@@ -46,6 +46,82 @@ const makeHost = (overrides: Partial<PreviewAutomationHost> = {}): PreviewAutoma
   ...overrides,
 });
 
+it.effect("cleanup waits for every owning browser host and leaves other tabs alone", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const tabId = PreviewTabId.make("cleanup-tab");
+      const secondReceived = yield* Deferred.make<void>();
+      const releaseSecond = yield* Deferred.make<void>();
+      const requests: string[] = [];
+      for (const clientId of ["first", "second", "other"]) {
+        const connected = yield* Deferred.make<string>();
+        const events = yield* broker.connect(
+          makeHost({ clientId, supportedOperations: ["close"] }),
+        );
+        yield* events.pipe(
+          Stream.runForEach((event) => {
+            if (event.type === "connected") return Deferred.succeed(connected, event.connectionId);
+            requests.push(clientId);
+            return Effect.gen(function* () {
+              expect(event.request.operation).toBe("close");
+              expect(event.request.tabId).toBe(tabId);
+              if (clientId === "second") {
+                yield* Deferred.succeed(secondReceived, undefined);
+                yield* Deferred.await(releaseSecond);
+              }
+              yield* broker.respond({
+                clientId,
+                connectionId: event.connectionId,
+                requestId: event.request.requestId,
+                ok: true,
+                result: { closed: true },
+              });
+            });
+          }),
+          Effect.forkScoped,
+        );
+        yield* broker.focusHost({
+          clientId,
+          connectionId: yield* Deferred.await(connected),
+          environmentId: scope.environmentId,
+          focused: true,
+          liveTabs: [
+            {
+              threadId: clientId === "other" ? ThreadId.make("other-chat") : scope.threadId,
+              tabId,
+            },
+          ],
+        });
+      }
+      let complete = false;
+      const closing = yield* broker.closeTab(scope.threadId, tabId).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            complete = true;
+          }),
+        ),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(secondReceived);
+      expect(complete).toBe(false);
+      yield* Deferred.succeed(releaseSecond, undefined);
+      yield* Fiber.join(closing);
+      expect(requests.sort()).toEqual(["first", "second"]);
+      expect(complete).toBe(true);
+    }),
+  ),
+);
+
+it.effect("cleanup cannot confirm a browser whose host is disconnected", () =>
+  Effect.gen(function* () {
+    const broker = yield* makeBroker;
+    const error = yield* broker.closeTab(scope.threadId, "missing-tab").pipe(Effect.flip);
+    expect(error._tag).toBe("ThreadCleanupError");
+    expect(error.message).toContain("Reconnect");
+  }),
+);
+
 type RoutedRequest = PreviewAutomationRequest & {
   readonly connectionId: PreviewAutomationStreamEvent["connectionId"];
 };

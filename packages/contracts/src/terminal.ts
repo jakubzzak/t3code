@@ -1,3 +1,4 @@
+import { ThreadCleanupError } from "./threadCleanup.ts";
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
@@ -369,6 +370,7 @@ export class TerminalResizeError extends Schema.TaggedError<TerminalResizeError>
 }
 
 export const TerminalError = Schema.Union([
+  ThreadCleanupError,
   TerminalCwdError,
   TerminalHistoryError,
   TerminalSessionLookupError,

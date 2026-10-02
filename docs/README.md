@@ -5,9 +5,9 @@
 Specifications for this fork live in `docs/specs/`, named `NN-short-feature-name.md`.
 Add each new spec here with a short summary and its current status.
 
-| Spec | Summary | Status |
-| --- | --- | --- |
-| [01 — Resolve chat cleanup](./specs/01-resolve-chat-cleanup.md) | Stop a chat's agent, tools, and owned processes with a cleanup progress modal; preserve conversation and code changes. | Agreed; not implemented |
+| Spec                                                            | Summary                                                                                                                       | Status                                             |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| [01 — Resolve chat cleanup](./specs/01-resolve-chat-cleanup.md) | Stop a chat's managed tools and identifiable processes with a cleanup progress modal; preserve conversation and code changes. | Implemented; native mobile UI verification pending |
 
 ## Using T3 Code
 

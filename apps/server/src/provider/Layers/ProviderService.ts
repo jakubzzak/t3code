@@ -1,3 +1,4 @@
+import { withThreadResourceLease } from "../../process/threadResourceLease.ts";
 /**
  * ProviderServiceLive - Cross-provider orchestration layer.
  *
@@ -1843,7 +1844,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         threadId,
         operation: "ProviderService.compactThread",
         allowRecovery: true,
-      });
+      }).pipe((effect) => withThreadResourceLease(threadId, effect));
       yield* Effect.annotateCurrentSpan({
         "provider.operation": "compact-thread",
         "provider.kind": routed.adapter.provider,
@@ -1892,7 +1893,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           pendingCompactions.delete(threadId);
         }
       });
-      const awaitNativeCompaction = (start: Effect.Effect<void, ProviderAdapterError>) =>
+      const awaitNativeCompaction = <E>(start: Effect.Effect<void, E>) =>
         start.pipe(
           Effect.andThen(Deferred.await(completion)),
           Effect.timeout(COMPACTION_COMPLETION_TIMEOUT),
@@ -1927,13 +1928,18 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
       const terminal = yield* (
         compaction.type === "native"
-          ? awaitNativeCompaction(compaction.start(routed.threadId, modelSelection))
+          ? awaitNativeCompaction(
+              withThreadResourceLease(threadId, compaction.start(routed.threadId, modelSelection)),
+            )
           : Effect.gen(function* () {
-              const turn = yield* sendTurn({
+              const turn = yield* withThreadResourceLease(
                 threadId,
-                input: compaction.command,
-                ...(modelSelection !== undefined ? { modelSelection } : {}),
-              }).pipe(
+                sendTurn({
+                  threadId,
+                  input: compaction.command,
+                  ...(modelSelection !== undefined ? { modelSelection } : {}),
+                }),
+              ).pipe(
                 Effect.onError(() =>
                   Effect.forEach(pending.earlyEvents.splice(0), publishRuntimeEvent, {
                     discard: true,
@@ -2450,19 +2456,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   );
 
   return {
-    startSession,
-    sendTurn,
+    startSession: (threadId, input) =>
+      withThreadResourceLease(threadId, startSession(threadId, input)),
+    sendTurn: (input) => withThreadResourceLease(input.threadId, sendTurn(input)),
     compactThread,
-    interruptTurn,
-    respondToRequest,
-    respondToUserInput,
+    interruptTurn: (input) => withThreadResourceLease(input.threadId, interruptTurn(input)),
+    respondToRequest: (input) => withThreadResourceLease(input.threadId, respondToRequest(input)),
+    respondToUserInput: (input) =>
+      withThreadResourceLease(input.threadId, respondToUserInput(input)),
     stopSession,
     listSessions,
     getCapabilities,
     getInstanceInfo,
     assertConversationRollbackSupported,
-    rollbackConversation,
-    uploadFeedback,
+    rollbackConversation: (input) =>
+      withThreadResourceLease(input.threadId, rollbackConversation(input)),
+    uploadFeedback: (input) => withThreadResourceLease(input.threadId, uploadFeedback(input)),
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each
     // independently receive all runtime events.
