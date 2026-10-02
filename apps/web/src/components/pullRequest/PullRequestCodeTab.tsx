@@ -2,6 +2,7 @@ import type { CodeViewItem, DiffLineAnnotation, SelectedLineRange } from "@pierr
 import type { CodeViewDiffItem, CodeViewHandle } from "@pierre/diffs/react";
 import type {
   EnvironmentId,
+  ScopedThreadRef,
   PullRequestDetailView,
   PullRequestDiffSide,
   PullRequestOmittedFileStat,
@@ -59,6 +60,8 @@ import { useAtomCommand } from "~/state/use-atom-command";
 
 import { DiffPanelLoadingState } from "../DiffPanelShell";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
+import { fileFilterKey, useFileFilter } from "~/fileFilterStore";
+import { FileFilterControl } from "../diffs/FileFilterControl";
 import { DiffFileTree } from "../diffs/DiffFileTree";
 import { useCodeViewFileReveal } from "../diffs/useCodeViewFileReveal";
 import { diffFileTreeEntries } from "../diffs/diffFileTree.logic";
@@ -193,6 +196,7 @@ function getReviewPositionAnchor(position: PullRequestReviewPosition): {
  */
 function PullRequestCodeTab({
   environmentId,
+  threadRef,
   reference,
   detail,
   selectedCommitOid,
@@ -205,6 +209,7 @@ function PullRequestCodeTab({
   refreshToken = 0,
 }: {
   environmentId: EnvironmentId;
+  threadRef?: ScopedThreadRef | null;
   reference: PullRequestRef;
   detail: PullRequestDetailView;
   /** Commit whose diff is open. Null keeps the whole pull-request diff selected. */
@@ -257,6 +262,10 @@ function PullRequestCodeTab({
   const [viewer, setViewer] = useState<CodeViewHandle<ReviewAnnotationGroup> | null>(null);
 
   const referenceKey = pullRequestReviewKey(reference);
+  const filterScopeKey = threadRef
+    ? fileFilterKey(threadRef, "pull-request")
+    : JSON.stringify([environmentId, referenceKey, "file-filter"]);
+  const fileFilter = useFileFilter(filterScopeKey);
   const commit = selectedCommitOid;
   // One commit's own changes and the whole change are two different diffs, paged separately, so
   // everything below is keyed by both.
@@ -408,6 +417,10 @@ function PullRequestCodeTab({
       ),
     [parsedSlices],
   );
+  const visibleFiles = useMemo(
+    () => files.filter((file) => fileFilter.matchesPath(resolveFileDiffPath(file))),
+    [files, fileFilter],
+  );
   const filePaths = useMemo(() => files.map((file) => resolveFileDiffPath(file)), [files]);
   // Offered under a commit scope as well as from the whole change, because reading a change one
   // commit at a time is what the scope is for. The tick is kept against the change request rather
@@ -473,7 +486,7 @@ function PullRequestCodeTab({
   // moves when a file is ticked or folded, so it is kept apart from the two that do.
   const annotatedFiles = useMemo(
     () =>
-      files.map((fileDiff) => {
+      visibleFiles.map((fileDiff) => {
         const fileKey = buildFileDiffRenderKey(fileDiff);
         const path = resolveFileDiffPath(fileDiff);
         // One annotation per line, so a line that already carries a conversation shows a new
@@ -555,7 +568,7 @@ function PullRequestCodeTab({
           ),
         };
       }),
-    [commit, detail.reviewThreads, draft, files, pendingComments, placedThreadIds],
+    [commit, detail.reviewThreads, draft, visibleFiles, pendingComments, placedThreadIds],
   );
 
   const items = useMemo<CodeViewDiffItem<ReviewAnnotationGroup>[]>(
@@ -600,7 +613,7 @@ function PullRequestCodeTab({
     [items],
   );
   const allFilesCollapsed = areAllDiffFilesCollapsed(fileKeys, collapsedFileKeys);
-  const fileTreeEntries = useMemo(() => diffFileTreeEntries(files), [files]);
+  const fileTreeEntries = useMemo(() => diffFileTreeEntries(visibleFiles), [visibleFiles]);
 
   // A failed slice must not be asked for again on its own. The files already loaded keep the
   // sentinel on screen, so re-arming it after a failure would request the same slice forever.
@@ -1123,6 +1136,7 @@ function PullRequestCodeTab({
             competed for a strip this narrow and every one of them truncated to nothing. */}
         <PullRequestMetaLine className="shrink-0">
           <span className="shrink-0 tabular-nums">
+            {fileFilter.active ? `${visibleFiles.length} of ` : ""}
             {files.length} {files.length === 1 ? "file" : "files"}
             {nextCursor === null ? "" : "+"}
           </span>
@@ -1260,6 +1274,14 @@ function PullRequestCodeTab({
             </TooltipPopup>
           </Tooltip>
         ) : null}
+        <FileFilterControl
+          key={filterScopeKey}
+          scopeKey={filterScopeKey}
+          environmentId={environmentId}
+          visibleCount={visibleFiles.length}
+          totalCount={files.length}
+          hasMore={nextCursor !== null}
+        />
         <ToggleGroup
           aria-label="Diff layout"
           className="shrink-0"
@@ -1366,17 +1388,26 @@ function PullRequestCodeTab({
     );
   }
 
-  if (items.length === 0 && nextCursor === null) {
+  if (items.length === 0) {
     return withToolbar(
-      <p className="px-4 py-5 text-sm text-muted-foreground">
-        {commit === null
-          ? "This pull request has no file changes."
-          : "This commit has no file changes."}
-      </p>,
+      <>
+        <p className="px-4 py-5 text-sm text-muted-foreground">
+          {nextCursor !== null
+            ? "No matching files loaded yet."
+            : files.length > 0
+              ? "No files match this filter."
+              : commit === null
+                ? "This pull request has no file changes."
+                : "This commit has no file changes."}
+        </p>
+        {renderCodeViewFooter()}
+      </>,
     );
   }
 
-  const orphanThreads = detail.reviewThreads.filter((thread) => !placedThreadIds.has(thread.id));
+  const orphanThreads = detail.reviewThreads.filter(
+    (thread) => !placedThreadIds.has(thread.id) && fileFilter.matchesPath(thread.path),
+  );
   // A file carrying five stranded conversations should read as that file once rather than as
   // five copies of its path.
   const orphanFiles = new Map<string, PullRequestReviewThread[]>();

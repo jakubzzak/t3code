@@ -68,3 +68,14 @@ export type ReviewDiffPreviewResult = typeof ReviewDiffPreviewResult.Type;
 
 export const ReviewDiffPreviewError = Schema.Union([VcsError, GitCommandError]);
 export type ReviewDiffPreviewError = typeof ReviewDiffPreviewError.Type;
+
+export const FileFilterGenerationInput = Schema.Struct({
+  prompt: TrimmedNonEmptyString.pipe(Schema.check(Schema.isMaxLength(4000))),
+  currentRegex: Schema.String.pipe(Schema.check(Schema.isMaxLength(2000))),
+});
+export type FileFilterGenerationInput = typeof FileFilterGenerationInput.Type;
+
+export const FileFilterGenerationResult = Schema.Struct({
+  regex: Schema.String.pipe(Schema.check(Schema.isMaxLength(2000))),
+});
+export type FileFilterGenerationResult = typeof FileFilterGenerationResult.Type;

@@ -15,6 +15,7 @@ import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import * as ServerConfig from "../config.ts";
 import { resolveAttachmentPath } from "../attachmentStore.ts";
 import {
+  buildFileFilterPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -34,6 +35,7 @@ const OpenCodeTextGenerationOperation = Schema.Literals([
   "generatePrContent",
   "generateBranchName",
   "generateThreadTitle",
+  "generateFileFilter",
 ]);
 
 type OpenCodeTextGenerationOperation = typeof OpenCodeTextGenerationOperation.Type;
@@ -430,6 +432,18 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       };
     });
 
+  const generateFileFilter: TextGeneration.TextGeneration["Service"]["generateFileFilter"] =
+    Effect.fn("OpenCodeTextGeneration.generateFileFilter")(function* (input) {
+      const { prompt, outputSchema } = buildFileFilterPrompt(input);
+      return yield* runOpenCodeJson({
+        operation: "generateFileFilter",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+    });
+
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
     Effect.fn("OpenCodeTextGeneration.generateThreadTitle")(function* (input) {
       const { prompt, outputSchema } = buildThreadTitlePrompt({
@@ -458,5 +472,6 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateFileFilter,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

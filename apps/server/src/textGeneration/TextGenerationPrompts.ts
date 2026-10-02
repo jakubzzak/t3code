@@ -9,7 +9,11 @@
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import { limitTitleMessage } from "./ThreadTitleContext.ts";
-import type { ChatAttachment } from "@t3tools/contracts";
+import {
+  FileFilterGenerationResult,
+  type FileFilterGenerationInput,
+  type ChatAttachment,
+} from "@t3tools/contracts";
 
 import { limitSection } from "./TextGenerationUtils.ts";
 import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
@@ -326,4 +330,21 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
   });
 
   return { prompt, outputSchema };
+}
+
+export function buildFileFilterPrompt(input: FileFilterGenerationInput) {
+  return {
+    prompt: [
+      "Update a filename filter from the user's request. Return only the structured result.",
+      "The regex is JavaScript RegExp source, without slash delimiters or flags. Matching filenames are SHOWN.",
+      "Match the basename only, never parent directories. Use escaped literal dots for extensions and filename markers.",
+      "Support inclusion, exclusion (using negative lookahead), and combinations. Empty regex shows all files.",
+      "Refine the current regex for additive requests such as 'also hide snapshots'; replace it when asked.",
+      "Keep expressions simple and bounded in complexity; avoid nested quantifiers and ambiguous repeated alternatives.",
+      "Do not inspect files, run tools, or change the workspace. Everything needed is below.",
+      `Current regex: ${JSON.stringify(input.currentRegex)}`,
+      `User request: ${JSON.stringify(input.prompt)}`,
+    ].join("\n"),
+    outputSchema: FileFilterGenerationResult,
+  };
 }
