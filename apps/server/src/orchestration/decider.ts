@@ -477,6 +477,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.cleanup.complete":
     case "thread.settle":
     case "thread.auto-settle": {
       const thread = yield* requireThreadNotArchived({
@@ -502,6 +503,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // Manual settlement dismisses async questions without answering them.
       // Native callbacks and approvals still need a response or interruption.
       if (
+        command.type !== "thread.cleanup.complete" &&
         Array.from(pendingRequests.values()).some(
           (activity) =>
             command.type === "thread.auto-settle" ||
@@ -514,7 +516,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
       const occurredAt = yield* nowIso;
       // Settling inside the adoption window would hide just-requested work.
-      if (hasQueuedTurnStartForThread(thread, occurredAt)) {
+      if (
+        command.type !== "thread.cleanup.complete" &&
+        hasQueuedTurnStartForThread(thread, occurredAt)
+      ) {
         return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
       }
       // Settling an already-settled thread re-emits with the original
@@ -558,12 +563,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: command.threadId,
             activity: {
               id: EventId.make(`settle:${command.commandId}:${requestId}`),
-              kind: "user-input.resolved",
-              summary: "User input dismissed",
+              kind:
+                request.kind === "approval.requested" ? "approval.resolved" : "user-input.resolved",
+              summary:
+                request.kind === "approval.requested"
+                  ? "Approval dismissed"
+                  : "User input dismissed",
               tone: "info",
               turnId: request.turnId,
               createdAt: occurredAt,
-              payload: { requestId, responseMode: "message" },
+              payload: {
+                requestId,
+                ...(request.kind === "approval.requested"
+                  ? { decision: "cancel" }
+                  : { responseMode: "message" }),
+              },
             },
           },
         });

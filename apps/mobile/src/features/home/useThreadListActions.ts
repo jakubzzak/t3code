@@ -1,3 +1,6 @@
+import { requestThreadCleanup } from "@t3tools/client-runtime/state/thread-cleanup";
+import { confirmCleanupAgent } from "../threads/ThreadCleanupModal";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
@@ -114,7 +117,6 @@ function useThreadActionExecutor(
   const archiveMutation = useAtomCommand(threadEnvironment.archive, { reportFailure: false });
   const unarchiveMutation = useAtomCommand(threadEnvironment.unarchive, { reportFailure: false });
   const deleteMutation = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
-  const settleMutation = useAtomCommand(threadEnvironment.settle, { reportFailure: false });
   const unsettleMutation = useAtomCommand(threadEnvironment.unsettle, { reportFailure: false });
   const inFlightThreadKeys = useRef(new Set<string>());
 
@@ -151,6 +153,17 @@ function useThreadActionExecutor(
           );
           return false;
         }
+        if (action === "settle") {
+          const working =
+            thread.session?.status === "running" || thread.session?.status === "starting";
+          if (working && !(await confirmCleanupAgent())) return false;
+          if (
+            !(await requestThreadCleanup(scopeThreadRef(thread.environmentId, thread.id), working))
+          )
+            return false;
+          onCompleted?.(action, thread);
+          return true;
+        }
         const result = await withThreadDismissal(
           key,
           async () =>
@@ -162,13 +175,11 @@ function useThreadActionExecutor(
                   input: { threadId: thread.id, reason: "user" },
                 })
               : await (
-                  action === "settle"
-                    ? settleMutation
-                    : action === "archive"
-                      ? archiveMutation
-                      : action === "unarchive"
-                        ? unarchiveMutation
-                        : deleteMutation
+                  action === "archive"
+                    ? archiveMutation
+                    : action === "unarchive"
+                      ? unarchiveMutation
+                      : deleteMutation
                 )({
                   environmentId: thread.environmentId,
                   input: { threadId: thread.id },
@@ -190,14 +201,7 @@ function useThreadActionExecutor(
         inFlightThreadKeys.current.delete(key);
       }
     },
-    [
-      archiveMutation,
-      deleteMutation,
-      onCompleted,
-      settleMutation,
-      unarchiveMutation,
-      unsettleMutation,
-    ],
+    [archiveMutation, deleteMutation, onCompleted, unarchiveMutation, unsettleMutation],
   );
 
   return executeAction;

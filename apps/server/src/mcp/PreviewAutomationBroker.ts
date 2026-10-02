@@ -1,3 +1,4 @@
+import { ThreadCleanupError, ThreadId, ProviderInstanceId } from "@t3tools/contracts";
 import {
   PREVIEW_AUTOMATION_V1_OPERATIONS,
   PreviewAutomationClientDisconnectedError,
@@ -47,6 +48,7 @@ export interface PreviewAutomationInvokeInput {
   readonly timeoutMs?: number;
   /** Background metadata reads must not change the agent's current tab. */
   readonly updateCurrentTab?: boolean;
+  readonly clientId?: string;
   /** Capture the routed tab before another request changes the current assignment. */
   readonly onTargetTab?: (tabId: PreviewTabId | undefined) => void;
 }
@@ -61,6 +63,10 @@ export class PreviewAutomationBroker extends Context.Service<
     readonly respond: (
       response: PreviewAutomationResponse,
     ) => Effect.Effect<void, PreviewAutomationError>;
+    readonly closeTab: (
+      threadId: ThreadId,
+      tabId: string,
+    ) => Effect.Effect<void, ThreadCleanupError>;
     readonly invoke: <A = unknown>(
       request: PreviewAutomationInvokeInput,
     ) => Effect.Effect<A, PreviewAutomationError>;
@@ -503,24 +509,30 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             (input.tabId === undefined || tab.tabId === input.tabId),
         );
       const connection =
-        hasLiveAssignment && supportsOperation(assignedConnection, input.operation)
-          ? assignedConnection
-          : hasLiveAssignment
-            ? undefined
-            : Array.from(current.clients.values())
-                .filter(
-                  (host) =>
-                    host.environmentId === input.scope.environmentId &&
-                    supportsOperation(host, input.operation),
-                )
-                .sort(
-                  (left, right) =>
-                    Number(ownsTargetTab(right, true)) - Number(ownsTargetTab(left, true)) ||
-                    Number(ownsTargetTab(right)) - Number(ownsTargetTab(left)) ||
-                    Number(right.focused) - Number(left.focused) ||
-                    right.focusOrder - left.focusOrder,
-                )[0];
-      if (!connection) {
+        input.clientId !== undefined
+          ? current.clients.get(input.clientId)
+          : hasLiveAssignment && supportsOperation(assignedConnection, input.operation)
+            ? assignedConnection
+            : hasLiveAssignment
+              ? undefined
+              : Array.from(current.clients.values())
+                  .filter(
+                    (host) =>
+                      host.environmentId === input.scope.environmentId &&
+                      supportsOperation(host, input.operation),
+                  )
+                  .sort(
+                    (left, right) =>
+                      Number(ownsTargetTab(right, true)) - Number(ownsTargetTab(left, true)) ||
+                      Number(ownsTargetTab(right)) - Number(ownsTargetTab(left)) ||
+                      Number(right.focused) - Number(left.focused) ||
+                      right.focusOrder - left.focusOrder,
+                  )[0];
+      if (
+        !connection ||
+        connection.environmentId !== input.scope.environmentId ||
+        !supportsOperation(connection, input.operation)
+      ) {
         if (!hasLiveAssignment) assignments.delete(assignmentKey);
         return [undefined, { ...current, assignments }] as const;
       }
@@ -654,7 +666,49 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     return result;
   });
 
-  return PreviewAutomationBroker.of({ connect, focusHost, respond, invoke });
+  const confirmedClosedTabs = new Set<string>();
+  const closeTab = Effect.fn("PreviewAutomationBroker.closeTab")(
+    function* (threadId: ThreadId, tabId: string) {
+      const clients = [...(yield* SynchronizedRef.get(state)).clients.values()].filter((client) =>
+        client.liveTabs.some((tab) => tab.threadId === threadId && tab.tabId === tabId),
+      );
+      const key = `${threadId.length}:${threadId}${tabId}`;
+      if (clients.length === 0 && confirmedClosedTabs.has(key)) return;
+      if (clients.length === 0)
+        return yield* new ThreadCleanupError({
+          threadId,
+          detail: "Reconnect the browser host to finish closing this tab.",
+        });
+      yield* Effect.forEach(
+        clients,
+        (client) =>
+          invoke({
+            scope: {
+              environmentId: client.environmentId,
+              threadId,
+              providerSessionId: `cleanup:${threadId}:${client.clientId}`,
+              providerInstanceId: ProviderInstanceId.make("cleanup"),
+              capabilities: new Set(["preview"]),
+              issuedAt: 0,
+            },
+            operation: "close",
+            input: {},
+            tabId: PreviewTabId.make(tabId),
+            clientId: client.clientId,
+            timeoutMs: 10_000,
+          }),
+        { concurrency: "unbounded", discard: true },
+      );
+      confirmedClosedTabs.add(key);
+      if (confirmedClosedTabs.size > 512)
+        confirmedClosedTabs.delete(confirmedClosedTabs.values().next().value!);
+    },
+    (effect, threadId) =>
+      effect.pipe(
+        Effect.mapError((cause) => new ThreadCleanupError({ threadId, detail: cause.message })),
+      ),
+  );
+  return PreviewAutomationBroker.of({ connect, focusHost, respond, invoke, closeTab });
 }).pipe(Effect.withSpan("PreviewAutomationBroker.make"));
 
 export const layer = Layer.effect(PreviewAutomationBroker, make);

@@ -1,3 +1,4 @@
+import { ThreadCleanupError } from "./threadCleanup.ts";
 /**
  * Preview - Schemas for the in-app browser preview surface.
  *
@@ -350,5 +351,9 @@ export class PreviewInvalidUrlError extends Schema.TaggedError<PreviewInvalidUrl
   }
 }
 
-export const PreviewError = Schema.Union([PreviewSessionLookupError, PreviewInvalidUrlError]);
+export const PreviewError = Schema.Union([
+  PreviewSessionLookupError,
+  PreviewInvalidUrlError,
+  ThreadCleanupError,
+]);
 export type PreviewError = typeof PreviewError.Type;

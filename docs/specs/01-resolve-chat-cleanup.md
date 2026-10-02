@@ -1,10 +1,10 @@
 # 01 — Resolve chat cleanup
 
-**Status:** Agreed; not implemented.
+**Status:** Implemented; native mobile UI verification pending.
 
 ## Goal
 
-A resolved chat leaves no chat-owned tools or processes running, reducing memory
+A resolved chat leaves no managed chat-owned tools or identifiable processes running, reducing memory
 usage and preventing leftover terminal jobs.
 
 ## Behavior
@@ -15,8 +15,8 @@ Add a **Resolve** action at the top of the chat.
    the chat unchanged.
 2. If the agent is idle, proceed without confirmation, even when terminal jobs are
    running.
-3. Stop the agent and all chat-owned processes, including terminal commands,
-   servers, and detached background jobs launched outside visible terminals.
+3. Stop the agent, managed terminal commands, and identifiable descendants. Include
+   background jobs outside visible terminals when retained ownership markers identify them.
 4. Close all chat-owned right-bar tools, including the embedded browser.
 5. Attempt graceful shutdown, then automatically force-stop remaining processes
    after a short grace period.
@@ -60,8 +60,17 @@ must not restart resources automatically; tools start fresh when needed.
 ## Ownership and remote use
 
 Each chat owns its resources independently. Cleanup must target explicitly tracked
-chat-owned resources and leave other chats unaffected. For remote connections,
+chat-owned resources and leave other chats unaffected. Ownership comes from captured
+process handles, parent-child relationships, and inherited environment markers—not
+process names, workspace paths, or ports. For remote connections,
 processes must stop on the environment hosting them.
+
+**Agreed ownership limit:** arbitrarily detached processes are not guaranteed to be
+identifiable. macOS hides environment markers on protected system programs, and
+commands may discard their inherited markers. Report this limit in the cleanup
+modal and user guidance. Resolve succeeds after all identified resources are
+confirmed closed; it must not claim that untracked detached jobs were stopped.
+Stronger per-chat isolation is a future enhancement.
 
 ## Out of scope
 
@@ -72,7 +81,7 @@ processes must stop on the environment hosting them.
 
 ## Acceptance criteria
 
-- Successful Resolve leaves no chat-owned processes running or right-bar tools open.
+- Successful Resolve leaves no managed processes or identifiable descendants running, or chat right-bar tools open.
 - Active-agent confirmation can be canceled without side effects.
 - Idle-agent resolution needs no confirmation, including when terminal jobs are running.
 - Stubborn processes are force-stopped automatically after a grace period.

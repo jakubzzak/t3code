@@ -1,3 +1,4 @@
+import { isThreadClosing } from "../../process/threadResourceLease.ts";
 import type {
   OrchestrationClientOrigin,
   OrchestrationEvent,
@@ -242,6 +243,29 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           envelope.command.type === "thread.user-input.dismiss"
             ? yield* projectionSnapshotQuery.getUserInputActivity(envelope.command)
             : Option.none();
+        if (
+          "threadId" in envelope.command &&
+          isThreadClosing(envelope.command.threadId) &&
+          ([
+            "thread.turn.start",
+            "thread.unsettle",
+            "thread.auto-settle",
+            "thread.archive",
+            "thread.delete",
+            "thread.pin",
+            "thread.snooze",
+            "thread.runtime-mode.set",
+            "thread.approval.respond",
+            "thread.user-input.respond",
+          ].includes(envelope.command.type) ||
+            (envelope.command.type === "thread.session.set" &&
+              ["starting", "running"].includes(envelope.command.session.status)))
+        ) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: envelope.command.type,
+            detail: "Chat cleanup is in progress. Retry cleanup before starting more work.",
+          });
+        }
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,

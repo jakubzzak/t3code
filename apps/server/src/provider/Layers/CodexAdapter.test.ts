@@ -1,3 +1,4 @@
+import { threadProcessOwner } from "../../process/threadProcessOwnership.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeAssert from "node:assert/strict";
 import * as NodeFS from "node:fs";
@@ -286,7 +287,15 @@ validationLayer("CodexAdapterLive validation", (it) => {
         runtimeMode: "full-access",
       });
 
-      NodeAssert.deepStrictEqual(validationRuntimeFactory.factory.mock.calls[0]?.[0], {
+      const runtimeInput = validationRuntimeFactory.factory.mock.calls[0]?.[0];
+      NodeAssert.ok(runtimeInput);
+      const { environment, ...launchInput } = runtimeInput;
+      const config = yield* ServerConfig;
+      NodeAssert.equal(
+        environment?.T3CODE_PROCESS_OWNER,
+        threadProcessOwner("thread-1", config.stateDir),
+      );
+      NodeAssert.deepStrictEqual(launchInput, {
         binaryPath: "codex",
         cwd: process.cwd(),
         launchArgs: "",

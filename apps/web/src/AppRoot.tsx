@@ -1,3 +1,4 @@
+import { ThreadCleanupDialog } from "./components/ThreadCleanupDialog";
 import { RouterProvider } from "@tanstack/react-router";
 
 import { ElectronBrowserHost } from "./browser/ElectronBrowserHost";
@@ -18,6 +19,7 @@ export function AppRoot({ router }: { readonly router: AppRouter }) {
       <PreviewAutomationHosts />
       <ElectronBrowserHost />
       <QuitHoldOverlay />
+      <ThreadCleanupDialog />
     </AppAtomRegistryProvider>
   );
 }
