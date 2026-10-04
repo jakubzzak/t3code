@@ -100,12 +100,14 @@ function CleanupProgress({ request }: { request: CleanupRequest }) {
   return (
     <Dialog
       open={open}
-      onOpenChange={() => {}}
+      onOpenChange={(visible, details) => {
+        if (!visible && failed && details.reason !== "outside-press") setOpen(false);
+      }}
       onOpenChangeComplete={(visible) => {
-        if (!visible && complete) request.done();
+        if (!visible) request.done(complete);
       }}
     >
-      <DialogPopup showCloseButton={false} bottomStickOnMobile={false}>
+      <DialogPopup showCloseButton={failed} bottomStickOnMobile={false}>
         <DialogHeader>
           <DialogTitle>{complete ? "Chat resolved" : "Resolving chat"}</DialogTitle>
           <DialogDescription>

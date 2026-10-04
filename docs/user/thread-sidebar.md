@@ -119,7 +119,9 @@ embedded browser tabs. A working agent requires confirmation first. Conversation
 history and code changes are kept; unanswered questions and approvals are dismissed.
 
 Cleanup must finish before the thread settles. If something cannot close, use
-**Retry** to finish. Untracked detached jobs may remain running, especially when
+**Retry** to finish, or dismiss the error with **Close** or **Escape** and use
+Resolve again later. Dismissing an error leaves the thread unresolved.
+Untracked detached jobs may remain running, especially when
 macOS hides their ownership markers; external browser tabs stay open.
 
 **Un-settle thread** restores it to active work without restarting tools and

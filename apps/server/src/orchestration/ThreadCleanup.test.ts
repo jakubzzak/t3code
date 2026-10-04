@@ -88,6 +88,84 @@ const finished = (service: Cleanup.ThreadCleanup["Service"]) =>
     Effect.map(Option.getOrThrow),
   );
 
+it.effect("leaves the chat usable when the resource monitor is missing, then permits retry", () =>
+  Effect.gen(function* () {
+    const active = yield* Deferred.make<void>();
+    let interrupted = false;
+    let available = false;
+    let stopped = false;
+    const commands: string[] = [];
+    yield* Effect.gen(function* () {
+      const service = yield* Cleanup.ThreadCleanup;
+      const turn = yield* withThreadTurnLease(
+        threadId,
+        Deferred.succeed(active, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(
+            Effect.sync(() => {
+              interrupted = true;
+            }),
+          ),
+        ),
+      ).pipe(Effect.exit, Effect.forkChild);
+      yield* Deferred.await(active);
+      const error = yield* service.start({ threadId, interruptAgent: true }).pipe(Effect.flip);
+      expect(error.detail).toContain("Resource monitor binary was not found for darwin/arm64");
+      expect(isThreadClosing(threadId)).toBe(false);
+      expect(stopped).toBe(false);
+      expect(interrupted).toBe(false);
+      expect(commands).toEqual([]);
+      yield* withThreadResourceLease(threadId, Effect.void);
+      expect(yield* service.subscribe(threadId).pipe(Stream.runHead)).toEqual(Option.some(null));
+      available = true;
+      yield* service.start({ threadId, interruptAgent: true });
+      expect((yield* finished(service))?.status).toBe("complete");
+      expect((yield* Fiber.join(turn))._tag).toBe("Failure");
+      expect(stopped).toBe(true);
+      expect(commands).toEqual(["thread.session.set", "thread.cleanup.complete"]);
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          thread: {
+            ...shell,
+            session: {
+              threadId,
+              status: "running",
+              providerName: "Codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: shell.updatedAt,
+            },
+          },
+          list: () =>
+            Effect.suspend(() =>
+              available
+                ? Effect.succeed([])
+                : Effect.fail(
+                    new ThreadCleanupError({
+                      threadId,
+                      detail:
+                        "Resource monitor is unavailable: Resource monitor binary was not found for darwin/arm64.",
+                    }),
+                  ),
+            ),
+          stop: () => Effect.void,
+          stopAgent: () =>
+            Effect.sync(() => {
+              stopped = true;
+            }),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              commands.push(command.type);
+              return { sequence: commands.length };
+            }),
+        }),
+      ),
+    );
+  }).pipe(Effect.ensuring(Effect.sync(() => finishThreadCleanup(threadId)))),
+);
+
 it.effect("waits for verified process exit, blocks new launches, then resolves", () =>
   Effect.gen(function* () {
     const release = yield* Deferred.make<void>();

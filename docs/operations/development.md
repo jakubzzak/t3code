@@ -21,6 +21,12 @@ Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron cl
 `dev:server` and `dev:web` start those processes separately.
 See the [mobile README](../../apps/mobile/README.md) for native builds and Metro.
 
+Backend dev modes build the native resource monitor with Cargo before starting, so
+Rust and the platform's native build tools are required. Cargo reuses unchanged builds.
+Use `T3CODE_RESOURCE_MONITOR_PATH` to supply a compatible prebuilt helper instead.
+`dev:web` does not build it. For a server that is already running, build a missing
+helper with `vp run build:resource-monitor`, then retry Resolve.
+
 Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`.
 Add `--browser` to open a browser automatically.
 
