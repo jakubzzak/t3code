@@ -154,6 +154,16 @@ function useThreadActionExecutor(
           return false;
         }
         if (action === "settle") {
+          if (
+            appAtomRegistry.get(environmentServerConfigsAtom).get(thread.environmentId)?.environment
+              .capabilities.threadCleanup !== true
+          ) {
+            Alert.alert(
+              "Resolve unavailable",
+              "Update this environment's server to resolve chats and stop their tools.",
+            );
+            return false;
+          }
           const working =
             thread.session?.status === "running" || thread.session?.status === "starting";
           if (working && !(await confirmCleanupAgent())) return false;

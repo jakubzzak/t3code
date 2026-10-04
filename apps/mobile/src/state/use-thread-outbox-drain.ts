@@ -888,6 +888,7 @@ export function useThreadOutboxDrain(): void {
         environmentId: queuedMessage.environmentId,
         input: {
           commandId: queuedMessage.commandId,
+          automatic: true,
           threadId: queuedMessage.threadId,
           message: {
             messageId: queuedMessage.messageId,
@@ -1174,6 +1175,7 @@ export function useThreadOutboxDrain(): void {
         threadExists: thread !== undefined,
         shellStatus,
         environmentConnected: environment?.connectionState === "connected",
+        threadSettled: thread?.settledOverride === "settled",
         threadBusy: thread?.session?.status === "running" || thread?.session?.status === "starting",
       });
       // The delivery action resolves first; capability checks apply only to
@@ -1288,6 +1290,7 @@ export function useThreadOutboxDrain(): void {
             shellStatus,
             environmentConnected: environment?.connectionState === "connected",
             threadBusy: liveThreadBusy,
+            threadSettled: liveThread?.settledOverride === "settled",
           });
           if (liveDeliveryAction !== "send") {
             return true;

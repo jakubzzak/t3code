@@ -1,4 +1,4 @@
-import { withThreadResourceLease } from "../../process/threadResourceLease.ts";
+import { withThreadResourceLease, withThreadTurnLease } from "../../process/threadResourceLease.ts";
 /**
  * ProviderServiceLive - Cross-provider orchestration layer.
  *
@@ -2458,7 +2458,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   return {
     startSession: (threadId, input) =>
       withThreadResourceLease(threadId, startSession(threadId, input)),
-    sendTurn: (input) => withThreadResourceLease(input.threadId, sendTurn(input)),
+    sendTurn: (input) => withThreadTurnLease(input.threadId, sendTurn(input)),
     compactThread,
     interruptTurn: (input) => withThreadResourceLease(input.threadId, interruptTurn(input)),
     respondToRequest: (input) => withThreadResourceLease(input.threadId, respondToRequest(input)),

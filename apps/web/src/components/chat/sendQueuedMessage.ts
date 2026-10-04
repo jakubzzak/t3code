@@ -48,6 +48,7 @@ async function run<W, A, E>(command: AtomCommand<W, A, E>, input: W): Promise<A>
 export async function sendQueuedMessage(
   threadRef: ScopedThreadRef,
   messageId: string,
+  options: { automatic?: boolean } = {},
 ): Promise<void> {
   const { environmentId, threadId } = threadRef;
   const threadKey = scopedThreadKey(threadRef);
@@ -163,6 +164,10 @@ export async function sendQueuedMessage(
     // Stop hands a preparing message back to the composer. Past this point
     // the send can no longer be taken back.
     const thread = readThread(threadRef) ?? undefined;
+    if (options.automatic && thread?.settledOverride === "settled") {
+      queue.failSend(threadKey, message.id);
+      return;
+    }
     if (!queue.markDispatching(threadKey, message.id, createLocalDispatchSnapshot(thread))) return;
     const context = buildMessageContext({
       terminalContexts: sendableTerminalContexts,
@@ -180,6 +185,7 @@ export async function sendQueuedMessage(
       environmentId,
       input: {
         threadId,
+        ...(options.automatic ? { automatic: true } : {}),
         message: {
           messageId: newMessageId(),
           role: "user",

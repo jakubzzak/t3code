@@ -1319,6 +1319,19 @@ describe("thread outbox", () => {
     ).toBe("send");
   });
 
+  it("holds offline queued work after another client resolves the thread", () => {
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        isCreation: false,
+        threadExists: true,
+        shellStatus: "live",
+        environmentConnected: true,
+        threadBusy: false,
+        threadSettled: true,
+      }),
+    ).toBe("wait");
+  });
+
   it("sends existing-thread messages whenever connected so queued messages can steer", () => {
     expect(
       resolveThreadOutboxDeliveryAction({

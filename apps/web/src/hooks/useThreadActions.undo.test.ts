@@ -1,10 +1,18 @@
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentServerConfigsAtom } from "../state/server";
+import { requestThreadCleanup } from "@t3tools/client-runtime/state/thread-cleanup";
 import { useThreadActions } from "./useThreadActions";
 import { threadEnvironment } from "../state/threads";
 import { toastManager } from "../components/ui/toast";
 import { useThreadUndoNotice } from "./showThreadUndoNotice";
+
+vi.mock("@t3tools/client-runtime/state/thread-cleanup", () => ({
+  requestThreadCleanup: vi.fn(async () => true),
+}));
+let cleanupSupported: boolean | undefined = true;
 
 const commands = vi.hoisted(() => ({
   pin: vi.fn(),
@@ -86,6 +94,19 @@ function currentUndo() {
 }
 
 beforeEach(() => {
+  cleanupSupported = true;
+  vi.mocked(requestThreadCleanup).mockClear();
+  const get = appAtomRegistry.get.bind(appAtomRegistry);
+  vi.spyOn(appAtomRegistry, "get").mockImplementation((atom) =>
+    atom === environmentServerConfigsAtom
+      ? (new Map([
+          [
+            target.environmentId,
+            { environment: { capabilities: { threadCleanup: cleanupSupported } } },
+          ],
+        ]) as ReturnType<typeof get>)
+      : get(atom),
+  );
   vi.useFakeTimers();
   for (const command of Object.values(commands)) {
     command.mockReset().mockResolvedValue({ _tag: "Success", value: undefined });
@@ -164,35 +185,30 @@ describe("archive Undo", () => {
 });
 
 describe("settle and snooze Undo", () => {
-  it("un-settles from the notice and expires the Undo after a manual un-settle", async () => {
+  it("resolves through cleanup without offering an undo that restarts tools", async () => {
     const add = vi.spyOn(toastManager, "add").mockReturnValue("toast");
-    const actions = useThreadActions();
-    await actions.settleThread(target);
-    expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Settled", count: 1 });
+    await useThreadActions().settleThread(target);
+    expect(requestThreadCleanup).toHaveBeenCalledExactlyOnceWith(target, false);
+    expect(commands.settle).not.toHaveBeenCalled();
     expect(add).not.toHaveBeenCalled();
-    const undo = currentUndo();
-    await actions.unsettleThread(target);
-    await undo();
-    expect(commands.unsettle).toHaveBeenCalledOnce();
   });
 
-  it("re-pins and re-snoozes a thread that settling had cleared", async () => {
-    const snoozedUntil = "2030-01-01T09:00:00.000Z";
-    threadShell.pinnedAt = "2026-01-01T00:00:00.000Z";
-    threadShell.snoozedUntil = snoozedUntil;
-    const actions = useThreadActions();
-    await actions.settleThread(target);
-    await currentUndo()();
-    expect(commands.unsettle).toHaveBeenCalledOnce();
-    expect(commands.pin).toHaveBeenCalledExactlyOnceWith({
-      environmentId: target.environmentId,
-      input: { threadId: target.threadId, orderKey: "a0" },
-    });
-    expect(commands.snooze).toHaveBeenCalledExactlyOnceWith({
-      environmentId: target.environmentId,
-      input: { threadId: target.threadId, snoozedUntil },
-    });
-  });
+  it.each([undefined, false])(
+    "reports unsupported cleanup (%s) before opening its modal",
+    async (supported) => {
+      cleanupSupported = supported;
+      const add = vi.spyOn(toastManager, "add").mockReturnValue("toast");
+      const result = await useThreadActions().settleThread(target);
+      expect(result._tag).toBe("Failure");
+      expect(requestThreadCleanup).not.toHaveBeenCalled();
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Resolve unavailable",
+          description: "Update this environment's server to resolve chats and stop their tools.",
+        }),
+      );
+    },
+  );
 
   it("expires an older unpin Undo when the thread is settled", async () => {
     const actions = useThreadActions();

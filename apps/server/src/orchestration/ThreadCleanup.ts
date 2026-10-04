@@ -5,6 +5,7 @@ import {
   type ThreadCleanupResource,
   type ThreadCleanupSnapshot,
   type ThreadId,
+  type ResourceMonitorProcessTableEntry,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -54,6 +55,19 @@ const make = Effect.gen(function* () {
   const queries = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const states = yield* SubscriptionRef.make(new Map<ThreadId, ThreadCleanupSnapshot>());
   const running = new Map<ThreadId, string>();
+  // A captured child can lose its ownership marker and ancestry when its parent exits.
+  // Keep its birth identity until verified stopped, including across Retry.
+  const pendingProcesses = new Map<ThreadId, Map<string, ResourceMonitorProcessTableEntry>>();
+  const rememberProcesses = (
+    threadId: ThreadId,
+    entries: readonly ResourceMonitorProcessTableEntry[],
+  ) => {
+    const pending =
+      pendingProcesses.get(threadId) ?? new Map<string, ResourceMonitorProcessTableEntry>();
+    for (const entry of entries) pending.set(`${entry.pid}:${entry.startTimeMs}`, entry);
+    pendingProcesses.set(threadId, pending);
+    return pending;
+  };
 
   const update = (threadId: ThreadId, f: (state: ThreadCleanupSnapshot) => ThreadCleanupSnapshot) =>
     SubscriptionRef.update(states, (map) => {
@@ -96,10 +110,11 @@ const make = Effect.gen(function* () {
       return yield* new ThreadCleanupError({ threadId, detail: "Chat no longer exists." });
     const thread = shell.value;
     const terminalList = yield* terminals.listForThread(threadId);
-    const owned = yield* processes.list(
+    const discovered = yield* processes.list(
       threadId,
       terminalList.flatMap((terminal) => (terminal.pid === null ? [] : [terminal.pid])),
     );
+    const owned = [...rememberProcesses(threadId, discovered).values()];
     const previewList = yield* previews.list({ threadId });
     const rows: ThreadCleanupResource[] = [
       ...(thread.session && thread.session.status !== "stopped"
@@ -150,11 +165,8 @@ const make = Effect.gen(function* () {
     }
     // Scan again after stopping the agent to include jobs launched during teardown.
     const remaining = yield* processes.list(threadId);
-    const targets = [
-      ...new Map(
-        [...owned, ...remaining].map((entry) => [`${entry.pid}:${entry.startTimeMs}`, entry]),
-      ).values(),
-    ];
+    const pending = rememberProcesses(threadId, remaining);
+    const targets = [...pending.values()];
     const stopped = yield* Effect.forEach(
       targets,
       (entry) =>
@@ -166,7 +178,13 @@ const make = Effect.gen(function* () {
             kind: "process",
             status: "closing",
           },
-          processes.stop(threadId, entry),
+          processes.stop(threadId, entry).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                pending.delete(`${entry.pid}:${entry.startTimeMs}`);
+              }),
+            ),
+          ),
         ),
       { concurrency: 4 },
     );
@@ -207,7 +225,7 @@ const make = Effect.gen(function* () {
       { concurrency: 4 },
     );
     succeeded = browsersClosed.every(Boolean) && succeeded;
-    if ((yield* processes.list(threadId)).length > 0) {
+    if (rememberProcesses(threadId, yield* processes.list(threadId)).size > 0 && succeeded) {
       return yield* new ThreadCleanupError({
         threadId,
         detail: "Some chat processes are still running. Retry cleanup.",
@@ -250,7 +268,10 @@ const make = Effect.gen(function* () {
         });
       }),
     );
-    if (finalized) finishThreadCleanup(threadId);
+    if (finalized) {
+      pendingProcesses.delete(threadId);
+      finishThreadCleanup(threadId);
+    }
     yield* update(threadId, (state) => ({ ...state, status: finalized ? "complete" : "failed" }));
   });
 

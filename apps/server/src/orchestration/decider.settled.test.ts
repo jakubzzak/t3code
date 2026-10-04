@@ -671,6 +671,33 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
+  it.effect("rejects automatic delivery to a resolved thread even from a stale client", () =>
+    Effect.gen(function* () {
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.make("queued-after-cleanup"),
+          threadId: ThreadId.make("thread-1"),
+          automatic: true,
+          message: {
+            messageId: MessageId.make("queued"),
+            role: "user",
+            text: "Follow up",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: NOW,
+        },
+        readModel: makeReadModel("settled"),
+      }).pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "OrchestrationCommandInvariantError",
+        detail: expect.stringContaining("Send the queued message manually"),
+      });
+    }),
+  );
+
   it.effect("prepends activity unsets for turn starts and live session updates", () =>
     Effect.gen(function* () {
       const turnResult = yield* decideOrchestrationCommand({

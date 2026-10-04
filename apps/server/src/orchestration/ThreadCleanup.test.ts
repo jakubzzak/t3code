@@ -10,6 +10,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
@@ -25,6 +26,7 @@ import {
   finishThreadCleanup,
   isThreadClosing,
   withThreadResourceLease,
+  withThreadTurnLease,
 } from "../process/threadResourceLease.ts";
 
 const threadId = ThreadId.make("cleanup-test");
@@ -205,6 +207,104 @@ it.effect("requires confirmation for an active agent before any cleanup", () =>
           stopAgent: () =>
             Effect.sync(() => {
               stopped = true;
+            }),
+          dispatch: () => Effect.succeed({ sequence: 1 }),
+        }),
+      ),
+    );
+  }).pipe(Effect.ensuring(Effect.sync(() => finishThreadCleanup(threadId)))),
+);
+
+it.effect("cancels an approval-blocked turn before draining its lease and stopping the agent", () =>
+  Effect.gen(function* () {
+    const active = yield* Deferred.make<void>();
+    let finalized = false;
+    let stopped = false;
+    yield* Effect.gen(function* () {
+      const service = yield* Cleanup.ThreadCleanup;
+      const send = yield* withThreadTurnLease(
+        threadId,
+        Deferred.succeed(active, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(
+            Effect.sync(() => {
+              finalized = true;
+            }),
+          ),
+        ),
+      ).pipe(Effect.exit, Effect.forkChild);
+      yield* Deferred.await(active);
+      yield* service.start({ threadId, interruptAgent: true });
+      expect((yield* finished(service))?.status).toBe("complete");
+      expect((yield* Fiber.join(send))._tag).toBe("Failure");
+      expect(stopped).toBe(true);
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          thread: {
+            ...shell,
+            session: {
+              threadId,
+              status: "running",
+              providerName: "Cursor",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: shell.updatedAt,
+            },
+          },
+          list: () => Effect.succeed([]),
+          stop: () => Effect.void,
+          stopAgent: () =>
+            Effect.sync(() => {
+              expect(finalized).toBe(true);
+              stopped = true;
+            }),
+          dispatch: () => Effect.succeed({ sequence: 1 }),
+        }),
+      ),
+    );
+  }).pipe(Effect.ensuring(Effect.sync(() => finishThreadCleanup(threadId)))),
+);
+
+it.effect("retries the captured birth identity of a child after its parent exits", () =>
+  Effect.gen(function* () {
+    const root = { ...processEntry, pid: 111, name: "shell" };
+    const child = { ...processEntry, pid: 222, ppid: 111, name: "protected child" };
+    let rootAlive = true;
+    let childAlive = true;
+    let attempts = 0;
+    yield* Effect.gen(function* () {
+      const service = yield* Cleanup.ThreadCleanup;
+      yield* service.start({ threadId });
+      expect((yield* finished(service))?.status).toBe("failed");
+      expect(childAlive).toBe(true);
+      yield* service.start({ threadId });
+      const retried = yield* finished(service);
+      expect(retried?.status).toBe("complete");
+      expect(childAlive).toBe(false);
+      expect(attempts).toBe(2);
+      expect(
+        retried?.resources.find((row) => row.id === `process:${child.pid}:${child.startTimeMs}`)
+          ?.status,
+      ).toBe("closed");
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          list: () => Effect.sync(() => (rootAlive ? [root, child] : [])),
+          stop: (_, entry) =>
+            Effect.suspend(() => {
+              if (entry.pid === root.pid) {
+                rootAlive = false;
+                return Effect.void;
+              }
+              expect(entry).toEqual(child);
+              if (++attempts === 1)
+                return Effect.fail(
+                  new ThreadCleanupError({ threadId, detail: "Transient process-table failure" }),
+                );
+              childAlive = false;
+              return Effect.void;
             }),
           dispatch: () => Effect.succeed({ sequence: 1 }),
         }),

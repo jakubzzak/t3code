@@ -7,7 +7,12 @@ import {
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
-import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type ScopedThreadRef,
+  ThreadId,
+  ThreadCleanupError,
+} from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
@@ -667,6 +672,17 @@ export function useThreadActions() {
   );
 
   const settleThread = useCallback(async (target: ScopedThreadRef) => {
+    if (
+      appAtomRegistry.get(environmentServerConfigsAtom).get(target.environmentId)?.environment
+        .capabilities.threadCleanup !== true
+    ) {
+      const error = new ThreadCleanupError({
+        threadId: target.threadId,
+        detail: "Update this environment's server to resolve chats and stop their tools.",
+      });
+      toastManager.add({ type: "error", title: "Resolve unavailable", description: error.message });
+      return AsyncResult.failure(Cause.fail(error));
+    }
     const thread = readThreadShell(target);
     const working = thread?.session?.status === "running" || thread?.session?.status === "starting";
     if (

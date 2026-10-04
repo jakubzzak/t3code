@@ -1413,6 +1413,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      if (command.automatic === true && targetThread.settledOverride === "settled") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "This chat was resolved. Send the queued message manually to start fresh.",
+        });
+      }
       const sourceProposedPlan = command.sourceProposedPlan;
       const sourceThread = sourceProposedPlan
         ? yield* requireThread({
