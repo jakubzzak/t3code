@@ -687,7 +687,7 @@ function eventPathContainsSelector(event: Event, selector: string): boolean {
  * paste-to-focus so both honour the same surfaces.
  */
 function shouldRedirectInputToComposer(event: Event): boolean {
-  if (event.defaultPrevented || selectedNavigationSection()) return false;
+  if (event.defaultPrevented || selectedNavigationSection() || isPreviewFocused()) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_EDITABLE_SELECTOR)) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_INTERACTIVE_SELECTOR)) return false;
   if (document.querySelector(TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR)) return false;

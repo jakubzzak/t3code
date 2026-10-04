@@ -1323,8 +1323,8 @@ export function hasServerAcknowledgedLocalDispatch(input: {
 }
 
 // Returning to the window should land the caret in the composer, so the reader can type right
-// away. The exceptions are places where focus is deliberate: another text field, a terminal in
-// the drawer or the right panel, or an open dialog or popup. A focused button outside those is
+// away. The exceptions are places where focus is deliberate: another text field, a terminal,
+// right-panel content, or an open dialog or popup. A focused button outside those is
 // not one of them, so it yields to the composer.
 export function shouldRefocusComposerOnWindowFocus(
   activeElement:
@@ -1345,7 +1345,7 @@ export function shouldRefocusComposerOnWindowFocus(
   }
   return (
     activeElement.closest(
-      '[role="dialog"], [role="alertdialog"], [data-slot$="-popup"], [data-terminal-owner]',
+      '[role="dialog"], [role="alertdialog"], [data-slot$="-popup"], [data-terminal-owner], [data-preview-panel-mode]',
     ) === null
   );
 }
