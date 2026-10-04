@@ -2235,3 +2235,26 @@ code {
 .composer-tiptap li[data-checked] > div > p {
   margin: 0;
 }
+
+/* Section selection is transient keyboard focus, not thread selection. */
+html[data-selected-section="chats"]
+  :is(
+    [data-navigation-section="conversation"],
+    [data-navigation-section="surfaces"],
+    [data-preview-viewport]
+  ),
+html[data-selected-section="conversation"]
+  :is(
+    [data-navigation-section="chats"],
+    [data-navigation-section="surfaces"],
+    [data-preview-viewport]
+  ),
+html[data-selected-section="surfaces"]
+  :is([data-navigation-section="chats"], [data-navigation-section="conversation"]) {
+  opacity: 0.45;
+}
+
+[data-section-highlight] {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}

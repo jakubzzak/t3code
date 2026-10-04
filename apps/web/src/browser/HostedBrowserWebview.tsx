@@ -1,5 +1,7 @@
 "use client";
 
+import { releaseBrowserSectionFocus } from "../sectionNavigation";
+
 import type { PreviewViewportSetting, ScopedThreadRef } from "@t3tools/contracts";
 import { useShallow } from "zustand/react/shallow";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -164,6 +166,12 @@ export function HostedBrowserWebview(props: {
         new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }),
       );
     };
+    const onGuestMessage = (event: Event) => {
+      if (!("channel" in event) || event.channel !== "t3:release-section-focus") return;
+      if (document.activeElement !== webview) return;
+      releaseBrowserSectionFocus();
+    };
+    webview.addEventListener("ipc-message", onGuestMessage);
     webview.addEventListener("did-attach", register);
     webview.addEventListener("dom-ready", register);
     webview.addEventListener("render-process-gone", recoverGuest);
@@ -172,6 +180,7 @@ export function HostedBrowserWebview(props: {
     return () => {
       disposed = true;
       if (recoveryTimeout !== null) clearTimeout(recoveryTimeout);
+      webview.removeEventListener("ipc-message", onGuestMessage);
       webview.removeEventListener("did-attach", register);
       webview.removeEventListener("dom-ready", register);
       webview.removeEventListener("render-process-gone", recoverGuest);

@@ -138,6 +138,7 @@ export function PreviewPanelShell(props: {
             }
           : undefined
       }
+      data-navigation-section="surfaces"
       data-preview-panel-mode={props.mode}
       data-preview-panel-maximized={maximized ? "true" : "false"}
     >

@@ -33,12 +33,13 @@ Add section navigation and focus transitions to the three-section layout. Reuse 
 - Reuse the shortcuts and availability checks in [RightPanelTabs](../../apps/web/src/components/RightPanelTabs.tsx). Preserve ordinary letter input inside active content.
 - Popup dismissal and nested surface Escape handling must be checked when implementing the double-Escape gesture; one key event must not accidentally cause both dismissal and an unrelated navigation transition.
 
-## Open questions
+- Stop section navigation at the outer edges rather than wrapping around.
+- Enable surface letter shortcuts only while the right section is selected, including when the empty launcher is visible. Outside section selection, preserve ordinary typing behavior.
+- Double Escape means two presses within 500 ms. Escape consumed by a popup or nested surface does not count toward the gesture or trigger a section transition.
+- Initially highlight the active chat if it is visible, otherwise the first visible chat. Traverse visible chats in display order and skip collapsed groups.
+- When no section has previously held focus, start navigation from the center section.
+- Use Command+Left/Right on macOS and Ctrl+Left/Right on Windows/Linux. This feature applies to the web and desktop three-section layout, excluding mobile and narrow layouts.
 
-These do not block publishing the spec, but must be settled before finalizing the affected behavior:
+## Tracking
 
-- Proposed default, not yet accepted: stop section navigation at the outer edges rather than wrap around.
-- Proposed default, not yet accepted: enable surface letter shortcuts only while the right section is selected. The existing empty launcher enables them outside typing contexts whenever it is visible. Decide whether default-mode behavior should change too.
-- Define the double-Escape timing window and precedence when a popup or embedded surface consumes Escape.
-- Define the initial chat highlight and traversal of collapsed chat groups, plus the starting section when none has previously held focus.
-- Platform scope is currently expressed with macOS Command keys. Confirm equivalent shortcuts for other desktop platforms and applicability beyond the three-section layout.
+Proceed intentionally without a Linear issue, as approved by the maintainer.

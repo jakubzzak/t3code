@@ -1,3 +1,10 @@
+import {
+  type NavigationSection,
+  installSectionNavigation,
+  selectedNavigationSection,
+  sectionNavigationOwnsFocus,
+} from "../sectionNavigation";
+import { useSidebar } from "./ui/sidebar";
 import { isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -680,7 +687,7 @@ function eventPathContainsSelector(event: Event, selector: string): boolean {
  * paste-to-focus so both honour the same surfaces.
  */
 function shouldRedirectInputToComposer(event: Event): boolean {
-  if (event.defaultPrevented) return false;
+  if (event.defaultPrevented || selectedNavigationSection()) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_EDITABLE_SELECTOR)) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_INTERACTIVE_SELECTOR)) return false;
   if (document.querySelector(TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR)) return false;
@@ -692,14 +699,6 @@ function shouldTypeToFocusComposer(event: KeyboardEvent): boolean {
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   if (event.key.length !== 1) return false;
   if (!shouldRedirectInputToComposer(event)) return false;
-
-  // The right-panel surface launcher claims its shortcut letters while it is
-  // visible (data attribute set in RightPanelTabs); those keys open surfaces
-  // instead of typing into the composer.
-  const launcherKeys = document
-    .querySelector("[data-surface-launcher-keys]")
-    ?.getAttribute("data-surface-launcher-keys");
-  if (launcherKeys && launcherKeys.toLowerCase().includes(event.key.toLowerCase())) return false;
 
   return true;
 }
@@ -3984,6 +3983,22 @@ export default function ChatView(props: ChatViewProps) {
     composerRef.current?.focusAtEnd();
   }, [composerRef]);
   useEffect(() => subscribeSnapShotComposerFocus(focusComposer), [focusComposer]);
+  const { setOpen: setLeftSidebarOpen } = useSidebar();
+  const revealNavigationSection = useEffectEvent((section: NavigationSection) => {
+    setMaximizedRightPanelThreadKey(null);
+    if (section === "chats") void setLeftSidebarOpen(true);
+    if (section === "surfaces" && activeThreadRef)
+      useRightPanelStore.getState().show(activeThreadRef);
+  });
+  useEffect(() => {
+    if (shouldUseRightPanelSheet || !activeThreadRef) return;
+    return installSectionNavigation({
+      platform: navigator.platform,
+      focusComposer,
+      reveal: revealNavigationSection,
+    });
+  }, [activeThreadRef, focusComposer, shouldUseRightPanelSheet]);
+
   const scheduleComposerFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
       focusComposer();
@@ -5767,7 +5782,11 @@ export default function ChatView(props: ChatViewProps) {
       frame = window.requestAnimationFrame(() => {
         frame = window.requestAnimationFrame(() => {
           frame = null;
-          if (shouldRefocusComposerOnWindowFocus(document.activeElement)) focusComposer();
+          if (
+            !sectionNavigationOwnsFocus() &&
+            shouldRefocusComposerOnWindowFocus(document.activeElement)
+          )
+            focusComposer();
         });
       });
     };
@@ -9735,6 +9754,7 @@ export default function ChatView(props: ChatViewProps) {
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
+        data-navigation-section="conversation"
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Top bar */}

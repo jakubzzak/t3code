@@ -304,6 +304,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           side="left"
           collapsible="offcanvas"
           data-app-sidebar=""
+          data-navigation-section="chats"
           role="navigation"
           aria-label={isOnSettings ? "Settings" : "Threads"}
           resizable={{
