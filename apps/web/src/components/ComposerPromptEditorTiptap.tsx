@@ -32,6 +32,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { handleContentSectionEscape } from "~/sectionNavigation";
 
 import {
   clampCollapsedComposerCursor,
@@ -1017,7 +1018,9 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             event.preventDefault();
             event.stopPropagation();
           }
-          return handled;
+          // ProseMirror consumes even an unused Escape. Let section navigation
+          // inspect it after autocomplete dismissal but before that fallback.
+          return handled || (key === "Escape" && handleContentSectionEscape(event));
         },
         handleTextInput: (view, from, to, text) => {
           if (text.length !== 1) return false;

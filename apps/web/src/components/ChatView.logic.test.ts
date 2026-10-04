@@ -2063,6 +2063,12 @@ describe("shouldRefocusComposerOnWindowFocus", () => {
     ).toBe(false);
   });
 
+  it.each(["DIV", "BUTTON"])("preserves a focused %s inside a non-terminal surface", (tagName) => {
+    expect(
+      shouldRefocusComposerOnWindowFocus(element(tagName, { within: "data-preview-panel-mode" })),
+    ).toBe(false);
+  });
+
   it("leaves focus inside a dialog or popup alone", () => {
     expect(shouldRefocusComposerOnWindowFocus(element("BUTTON", { within: "dialog" }))).toBe(false);
     expect(shouldRefocusComposerOnWindowFocus(element("BUTTON", { within: "-popup" }))).toBe(false);

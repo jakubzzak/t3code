@@ -1,5 +1,6 @@
 // @effect-diagnostics globalDate:off globalTimers:off - This isolated Electron preload does not run inside an Effect runtime.
 import { ipcRenderer } from "electron";
+import { createSectionEscapeHandler } from "./SectionEscape.ts";
 import { getElementContext } from "react-grab/primitives";
 import type {
   DesktopPreviewAnnotationTheme,
@@ -32,6 +33,32 @@ import {
   RECORDING_CONTROLLER_CHANNEL,
   START_PICK_CHANNEL,
 } from "./GuestProtocol.ts";
+const releaseSectionFocus = createSectionEscapeHandler(() => {
+  ipcRenderer.sendToHost("t3:release-section-focus");
+});
+const sectionEscapeBubbledEvents = new WeakSet<KeyboardEvent>();
+window.addEventListener("keydown", (event) => sectionEscapeBubbledEvents.add(event));
+// A task (not a microtask) runs after all native page event listeners, including window handlers.
+window.addEventListener(
+  "keydown",
+  (event) => {
+    if (!event.isTrusted) return;
+    setTimeout(() =>
+      releaseSectionFocus({
+        key: event.key,
+        repeat: event.repeat,
+        isComposing: event.isComposing,
+        defaultPrevented: event.defaultPrevented || !sectionEscapeBubbledEvents.has(event),
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+      }),
+    );
+  },
+  true,
+);
+
 const OVERLAY_ATTRIBUTE = "data-t3code-annotation-ui";
 const Z_INDEX_OVERLAY = 2147483646;
 const PRIMARY = "var(--t3-primary)";

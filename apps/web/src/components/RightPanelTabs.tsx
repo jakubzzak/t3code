@@ -1,3 +1,8 @@
+import {
+  clearSectionSelection,
+  selectedNavigationSection,
+  isSectionNavigationBlocked,
+} from "../sectionNavigation";
 import { pullRequestHostOf, type SourceControlProviderKind } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { useProjects, useServerConfigs, useThreadShells } from "~/state/entities";
@@ -34,6 +39,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -163,18 +169,6 @@ const SURFACE_DISABLED_REASONS = {
   agents: "Agents are only available from a thread.",
   device: "Devices are only available from a thread.",
 } as const;
-
-/** Overlays that must win over the launcher's letter shortcuts. */
-const LAUNCHER_SHORTCUT_BLOCKING_LAYERS = [
-  '[data-slot="dialog-popup"]',
-  '[data-slot="alert-dialog-popup"]',
-  '[data-slot="command-dialog-popup"]',
-  '[data-slot="menu-popup"]',
-  '[data-slot="select-popup"]',
-  '[data-slot="popover-popup"]',
-  '[data-slot="combobox-popup"]',
-  '[data-slot="autocomplete-popup"]',
-].join(",");
 
 /** One-line unavailability hints for the empty-state rows. */
 const SURFACE_UNAVAILABLE_HINTS = {
@@ -421,29 +415,6 @@ function RightPanelEmptyState(props: {
   const highlightIndex =
     availableActions.length === 0 ? -1 : Math.min(highlight, availableActions.length - 1);
 
-  // Letter shortcuts work while the launcher is visible, not only while it
-  // is focused; focus moves around too easily (stray clicks) to carry them.
-  // Capture phase so app-level key handlers cannot swallow the event first;
-  // typing contexts and already-handled events are left alone.
-  const shortcutActionsRef = useRef(availableActions);
-  useEffect(() => {
-    shortcutActionsRef.current = availableActions;
-  });
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      const action = surfaceShortcutActionForKey(shortcutActionsRef.current, event);
-      if (!action) return;
-      if (document.querySelector(LAUNCHER_SHORTCUT_BLOCKING_LAYERS)) return;
-      const target = event.target;
-      if (target instanceof Element && surfaceShortcutTargetsTypingContext(target)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      action.onClick();
-    };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, []);
-
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     if (availableActions.length === 0) return;
@@ -474,7 +445,7 @@ function RightPanelEmptyState(props: {
   // Stable identity so React only runs this callback ref on mount/unmount;
   // an inline arrow would re-attach and re-focus on every render.
   const focusOnMount = useCallback((node: HTMLDivElement | null) => {
-    node?.focus();
+    if (!selectedNavigationSection()) node?.focus();
   }, []);
 
   const isHighlighted = (action: SurfaceAction) =>
@@ -503,7 +474,6 @@ function RightPanelEmptyState(props: {
       tabIndex={0}
       onKeyDown={handleKeyDown}
       aria-label="Open a surface"
-      data-surface-launcher-keys={availableActions.map((action) => action.shortcut).join("")}
       className={cn(
         "flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 outline-none",
         // The panel topbar sits above this container; matching bottom padding
@@ -934,6 +904,36 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddDevice,
     },
   ] as const;
+
+  const contentRef = useRef<HTMLDivElement>(null);
+  const focusOpenedSurface = useRef(false);
+  const actionsRef = useRef(addSurfaceActions);
+  useEffect(() => {
+    actionsRef.current = addSurfaceActions;
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (selectedNavigationSection() !== "surfaces") return;
+      if (isSectionNavigationBlocked()) return;
+      if (event.target instanceof Element && surfaceShortcutTargetsTypingContext(event.target))
+        return;
+      const action = surfaceShortcutActionForKey(actionsRef.current, event);
+      if (!action || event.repeat) return;
+      event.preventDefault();
+      event.stopPropagation();
+      clearSectionSelection();
+      focusOpenedSurface.current = true;
+      action.onClick();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+  useLayoutEffect(() => {
+    if (!focusOpenedSurface.current || props.activeSurfaceId === null) return;
+    focusOpenedSurface.current = false;
+    if (isSectionNavigationBlocked()) return;
+    if (!contentRef.current?.contains(document.activeElement)) contentRef.current?.focus();
+  });
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);
@@ -1403,7 +1403,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           />
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
+      <div
+        ref={contentRef}
+        tabIndex={-1}
+        className="flex min-h-0 flex-1 flex-col outline-none"
+        data-right-panel-surface-content
+      >
         {props.activeSurfaceId === null ? (
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}
