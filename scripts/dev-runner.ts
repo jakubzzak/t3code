@@ -21,6 +21,7 @@ import { ChildProcess } from "effect/unstable/process";
 
 import { type DevShareError, shareDevServer, unshareDevServer } from "./lib/dev-share.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
+import { prepareDevResourceMonitor } from "./lib/dev-resource-monitor.ts";
 
 Object.assign(process.env, loadRepoEnv());
 
@@ -704,6 +705,10 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     // surprising side effect from a command documented as inert.
     if (input.dryRun) {
       return;
+    }
+
+    if (input.mode !== "dev:web") {
+      env.T3CODE_RESOURCE_MONITOR_PATH = yield* prepareDevResourceMonitor();
     }
 
     const sharedWebPort = BASE_WEB_PORT + webOffset;

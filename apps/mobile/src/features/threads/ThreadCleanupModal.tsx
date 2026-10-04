@@ -116,7 +116,9 @@ function Progress({ request }: { request: CleanupRequest }) {
       visible={visible}
       transparent
       animationType={reduceMotion ? "none" : "fade"}
-      onRequestClose={() => {}}
+      onRequestClose={() => {
+        if (failed) request.done(false);
+      }}
     >
       <View className="flex-1 items-center justify-center bg-black/50 p-6" accessibilityViewIsModal>
         <View className="w-full max-w-lg rounded-2xl bg-background p-6">
@@ -171,13 +173,22 @@ function Progress({ request }: { request: CleanupRequest }) {
             )}
           </ScrollView>
           {failed && (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void retry()}
-              className="mt-4 self-end rounded-lg bg-primary px-5 py-3"
-            >
-              <AppText className="text-primary-foreground">Retry</AppText>
-            </Pressable>
+            <View className="mt-4 flex-row justify-end gap-3">
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => request.done(false)}
+                className="rounded-lg bg-muted px-5 py-3"
+              >
+                <AppText>Close</AppText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void retry()}
+                className="rounded-lg bg-primary px-5 py-3"
+              >
+                <AppText className="text-primary-foreground">Retry</AppText>
+              </Pressable>
+            </View>
           )}
         </View>
       </View>

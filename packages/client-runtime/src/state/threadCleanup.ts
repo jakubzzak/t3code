@@ -18,7 +18,7 @@ export const subscribeCleanupRequests = (listener: () => void) => {
   };
 };
 
-/** Survives navigation; false means confirmation was canceled before cleanup started. */
+/** Survives navigation; false means confirmation was canceled or a cleanup error was dismissed. */
 export function requestThreadCleanup(target: ScopedThreadRef, interruptAgent: boolean) {
   const key = JSON.stringify([target.environmentId, target.threadId]);
   const existing = pending.get(key);

@@ -297,6 +297,12 @@ const make = Effect.gen(function* () {
       }
       const current = (yield* SubscriptionRef.get(states)).get(input.threadId);
       if (running.has(input.threadId) && current?.status === "closing") return current;
+      // Verify the monitor before canceling a turn or locking launches. Inventory is
+      // captured again under the cleanup lease so jobs started meanwhile are included.
+      yield* processes.list(input.threadId);
+      const afterPreflight = (yield* SubscriptionRef.get(states)).get(input.threadId);
+      if (running.has(input.threadId) && afterPreflight?.status === "closing")
+        return afterPreflight;
       const operationId = yield* crypto.randomUUIDv4;
       running.set(input.threadId, operationId);
       beginThreadCleanup(input.threadId);

@@ -851,6 +851,140 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("runDevRunnerWithInput", () => {
+    for (const mode of ["dev", "dev:server", "dev:desktop"] as const) {
+      it.effect(`builds the resource monitor before starting ${mode}`, () =>
+        Effect.gen(function* () {
+          const spawned: string[] = [];
+          let monitorPath: string | undefined;
+          yield* runDevRunnerWithInput({ ...devServerInput, mode }).pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                emptyConfigLayer,
+                netServiceLayer,
+                Layer.succeed(
+                  ChildProcessSpawner.ChildProcessSpawner,
+                  ChildProcessSpawner.make((command) => {
+                    assert.equal(command._tag, "StandardCommand");
+                    if (command._tag !== "StandardCommand")
+                      return Effect.die("unexpected pipeline");
+                    spawned.push(command.command);
+                    if (command.command === "vp") {
+                      monitorPath = command.options.env?.T3CODE_RESOURCE_MONITOR_PATH;
+                    } else {
+                      assert.deepStrictEqual(command.args.slice(0, 3), [
+                        "build",
+                        "--locked",
+                        "--release",
+                      ]);
+                      assert.include(
+                        command.args,
+                        NodePath.resolve("native/resource-monitor/Cargo.toml"),
+                      );
+                    }
+                    return Effect.succeed(mockProcess(0));
+                  }),
+                ),
+              ),
+            ),
+            Effect.provideService(HostProcessEnvironment, {}),
+            Effect.provideService(HostProcessPlatform, "darwin"),
+          );
+          assert.equal(spawned.length, 2);
+          assert.equal(spawned[1], "vp");
+          assert.equal(
+            monitorPath,
+            NodePath.resolve("native/resource-monitor/target/release/t3-resource-monitor"),
+          );
+        }),
+      );
+    }
+
+    it.effect("does not start the server when the resource monitor build fails", () =>
+      Effect.gen(function* () {
+        let spawnCount = 0;
+        const error = yield* runDevRunnerWithInput(devServerInput).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              emptyConfigLayer,
+              netServiceLayer,
+              Layer.succeed(
+                ChildProcessSpawner.ChildProcessSpawner,
+                ChildProcessSpawner.make(() => {
+                  spawnCount++;
+                  return Effect.succeed(mockProcess(101));
+                }),
+              ),
+            ),
+          ),
+          Effect.provideService(HostProcessEnvironment, {}),
+          Effect.flip,
+        );
+        assert.equal(error._tag, "DevResourceMonitorBuildError");
+        assert.include(error.message, "Install Rust");
+        assert.equal(spawnCount, 1);
+      }),
+    );
+
+    it.effect("starts web-only dev without building a native helper", () =>
+      Effect.gen(function* () {
+        let spawnCount = 0;
+        yield* runDevRunnerWithInput({ ...devServerInput, mode: "dev:web" }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              emptyConfigLayer,
+              netServiceLayer,
+              Layer.succeed(
+                ChildProcessSpawner.ChildProcessSpawner,
+                ChildProcessSpawner.make((command) => {
+                  assert.equal(command._tag, "StandardCommand");
+                  if (command._tag === "StandardCommand") assert.equal(command.command, "vp");
+                  spawnCount++;
+                  return Effect.succeed(mockProcess(0));
+                }),
+              ),
+            ),
+          ),
+          Effect.provideService(HostProcessEnvironment, {}),
+          Effect.provideService(HostProcessPlatform, "linux"),
+        );
+        assert.equal(spawnCount, 1);
+      }),
+    );
+
+    it.effect("uses an explicit resource monitor without requiring Cargo", () =>
+      Effect.gen(function* () {
+        let spawnCount = 0;
+        yield* runDevRunnerWithInput(devServerInput).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              emptyConfigLayer,
+              netServiceLayer,
+              Layer.succeed(
+                ChildProcessSpawner.ChildProcessSpawner,
+                ChildProcessSpawner.make((command) => {
+                  assert.equal(command._tag, "StandardCommand");
+                  if (command._tag === "StandardCommand") {
+                    assert.equal(command.command, "vp");
+                    assert.equal(
+                      command.options.env?.T3CODE_RESOURCE_MONITOR_PATH,
+                      "/custom/monitor",
+                    );
+                  }
+                  spawnCount++;
+                  return Effect.succeed(mockProcess(0));
+                }),
+              ),
+            ),
+          ),
+          Effect.provideService(HostProcessEnvironment, {
+            T3CODE_RESOURCE_MONITOR_PATH: "/custom/monitor",
+          }),
+          Effect.provideService(HostProcessPlatform, "linux"),
+        );
+        assert.equal(spawnCount, 1);
+      }),
+    );
+
     it.effect("preserves invalid configuration as the exact cause", () =>
       Effect.gen(function* () {
         const error = yield* runDevRunnerWithInput({ ...devServerInput, dryRun: true }).pipe(
@@ -890,6 +1024,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const error = yield* runDevRunnerWithInput(devServerInput).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
           Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcessEnvironment, {
+            T3CODE_RESOURCE_MONITOR_PATH: "/monitor",
+          }),
           Effect.flip,
         );
 
@@ -958,7 +1095,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           Effect.provideService(HostProcessPlatform, "linux"),
         );
 
-        assert.equal(spawnCount, 1);
+        assert.equal(spawnCount, 2);
       });
     });
 
@@ -1017,7 +1154,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           Effect.provideService(HostProcessPlatform, "linux"),
         );
 
-        assert.equal(spawnCount, 1);
+        assert.equal(spawnCount, 2);
       });
     });
 
@@ -1042,7 +1179,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           Effect.provideService(HostProcessPlatform, "linux"),
         );
 
-        assert.equal(spawnCount, 1);
+        assert.equal(spawnCount, 2);
       });
     });
 
@@ -1191,6 +1328,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const error = yield* runDevRunnerWithInput(devServerInput).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
           Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcessEnvironment, {
+            T3CODE_RESOURCE_MONITOR_PATH: "/monitor",
+          }),
           Effect.flip,
         );
 
@@ -1224,6 +1364,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const error = yield* runDevRunnerWithInput(devServerInput).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
           Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcessEnvironment, {
+            T3CODE_RESOURCE_MONITOR_PATH: "/monitor",
+          }),
           Effect.flip,
         );
 

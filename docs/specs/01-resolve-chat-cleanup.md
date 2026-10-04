@@ -22,7 +22,14 @@ Add a **Resolve** action at the top of the chat.
    after a short grace period.
 6. Mark the chat resolved only after cleanup succeeds.
 7. If cleanup fails, keep the chat unresolved, show what remains running, and offer
-   **Retry**.
+   **Retry** and **Close**. Dismissing an error does not resolve the chat.
+
+Verify process-monitor availability before interrupting the agent or locking new
+work. If that check fails, leave the chat usable and show a dismissible error.
+Development startup prepares the current native resource monitor before launching
+the server, including desktop dev; web-only dev uses its connected server's monitor.
+An explicit `T3CODE_RESOURCE_MONITOR_PATH` override is respected. Missing or outdated
+monitors must never silently skip process verification or report cleanup success.
 
 ## Cleanup progress modal
 
@@ -37,12 +44,15 @@ Add a **Resolve** action at the top of the chat.
   is not an action button. Keep completed entries visible until the modal closes.
 - Drive status from actual cleanup results; do not show success based on elapsed
   time or a shutdown request alone.
-- The progress modal cannot be dismissed manually: no close or cancel button,
-  outside-click dismissal, Escape dismissal, or mobile back dismissal. The earlier
-  active-agent confirmation remains cancelable before cleanup starts.
-- If cleanup fails, keep the modal open and the chat unresolved. Mark affected
-  entries with a clear error and offer **Retry** for the remaining cleanup. Stop
-  loading indicators for failed entries.
+- While cleanup is pending, the progress modal cannot be dismissed manually.
+  The earlier active-agent confirmation remains cancelable before cleanup starts.
+- If cleanup fails, keep the chat unresolved. Mark affected entries with a clear
+  error and offer **Retry** for the remaining cleanup. Allow **Escape** or **Close**
+  to dismiss the error; mobile also supports its system back action. Outside-click
+  dismissal remains disabled. Stop loading indicators for failed entries.
+- Dismissal does not cancel server cleanup or claim success. Resolve can be used
+  again to retry. Retain captured process identities across retries, and keep new
+  resource launches blocked after partially completed cleanup until it succeeds.
 - When every entry is confirmed closed and the chat is resolved, briefly show the
   completed state, then automatically dismiss the modal.
 - Use subtle, short animations for modal entry, loading, the transition to a
@@ -88,8 +98,13 @@ Stronger per-chat isolation is a future enhancement.
 - Failed cleanup is visible and retryable; the chat remains unresolved.
 - Cleanup displays a modal listing every targeted process and tool, with loading
   indicators that become checkmarks only after confirmed shutdown.
-- The progress modal cannot be dismissed manually and remains open on failure
-  with errors and Retry available.
+- Pending cleanup cannot be dismissed manually. Failed cleanup offers Retry and
+  can be dismissed with Escape, Close, or mobile back without resolving the chat.
+- Missing process-monitor support is detected before cleanup interrupts or locks
+  the chat; after repairing the monitor, Resolve can be retried.
+- Development startup builds the current monitor before starting a backend and
+  surfaces build failures before launch; explicit monitor overrides and web-only
+  startup do not require a local build.
 - Successful cleanup shows the completed state and automatically dismisses the
   modal with a short exit animation.
 - Modal and status transitions respect reduced-motion preferences and remain
