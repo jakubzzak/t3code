@@ -80,6 +80,7 @@ function ThreadQueueSender({ threadKey }: { threadKey: string }) {
     threadRef === null ||
     thread === null ||
     threadStatus !== "live" ||
+    thread?.settledOverride === "settled" ||
     (environment !== null && environment.connection.phase !== "connected") ||
     !serverConfigLoaded ||
     rewinding ||
@@ -94,7 +95,7 @@ function ThreadQueueSender({ threadKey }: { threadKey: string }) {
   const nextId = next?.id;
   useEffect(() => {
     if (!due || !threadRef || nextId === undefined) return;
-    void sendQueuedMessage(threadRef, nextId);
+    void sendQueuedMessage(threadRef, nextId, { automatic: true });
   }, [due, nextId, threadRef]);
   return null;
 }

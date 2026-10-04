@@ -1,3 +1,4 @@
+import { threadProcessOwner } from "../../process/threadProcessOwnership.ts";
 import {
   ApprovalRequestId,
   EventId,
@@ -793,9 +794,10 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                 cwd,
                 clientInfo: { name: "t3-code", version: "0.0.0" },
                 clientFileSystem: true,
-                ...(mcp?.agentDeviceEnvironment
-                  ? { agentDeviceEnvironment: mcp.agentDeviceEnvironment }
-                  : {}),
+                agentDeviceEnvironment: {
+                  ...mcp?.agentDeviceEnvironment,
+                  T3CODE_PROCESS_OWNER: threadProcessOwner(input.threadId, serverConfig.stateDir),
+                },
                 additionalDirectories: [serverConfig.attachmentsDir],
                 ...(Option.isSome(cursor) ? { resumeSessionId: cursor.value.sessionId } : {}),
                 mcpServers: mcp

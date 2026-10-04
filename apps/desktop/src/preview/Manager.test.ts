@@ -331,13 +331,22 @@ const makeTestPreviewWebContents = (
   id = 42,
   hostWebContents: TestHostWebContents = makeTestHostWebContents(),
 ) => {
+  let destroyed = false;
+  let onDestroyed: (() => void) | undefined;
   const setBackgroundThrottling = vi.fn<(enabled: boolean) => void>();
   return {
     id,
     mainFrame: { routingId: id },
     hostWebContents,
     executeJavaScript: vi.fn(async () => ({ width: 1280, height: 720 })),
-    isDestroyed: () => false,
+    isDestroyed: () => destroyed,
+    once: vi.fn((event: string, callback: () => void) => {
+      if (event === "destroyed") onDestroyed = callback;
+    }),
+    close: vi.fn(() => {
+      destroyed = true;
+      onDestroyed?.();
+    }),
     getType: () => "webview",
     getURL: () => "https://example.com",
     getTitle: () => "Example",
@@ -2023,10 +2032,21 @@ describe("PreviewManager", () => {
           .pipe(Effect.forkChild({ startImmediately: true }));
         yield* Effect.yieldNow;
         expect(replacementListenerSpies.on).not.toHaveBeenCalled();
-        yield* manager.closeTab("tab_close_register_race");
+        let duplicateClosed = false;
+        const duplicateClose = yield* manager.closeTab("tab_close_register_race").pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              duplicateClosed = true;
+            }),
+          ),
+          Effect.forkChild({ startImmediately: true }),
+        );
+        expect(duplicateClosed).toBe(false);
         const recordingExit = yield* Effect.exit(manager.startRecording("tab_close_register_race"));
         yield* Deferred.succeed(continueCloseCleanup, undefined);
         yield* Fiber.join(closeFiber);
+        yield* Fiber.join(duplicateClose);
+        expect(duplicateClosed).toBe(true);
         const recreated = yield* Fiber.join(recreateFiber);
         const registrationExit = yield* Fiber.await(registrationFiber);
 

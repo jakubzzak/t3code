@@ -112,13 +112,18 @@ cannot drag to reorder it. Your saved order returns when you turn it off.
 
 ## Settle finished work
 
-Choose **Settle thread** from its menu to move finished work out of the active list
-without deleting the conversation. **Un-settle thread** restores it to active work
-and prevents automatic settlement until new activity resumes the usual rules.
-Manually settling an idle thread dismisses unanswered async questions without
-sending an answer or restarting the agent. Settling also closes the thread's
-terminals that wait at an idle prompt, and keeps their output. A terminal that
-runs a command, such as a dev server, stays open.
+Choose **Resolve** at the top of a chat, or **Settle thread** from its menu, to stop
+its tools and move finished work out of the active list. This stops managed
+terminal jobs, identifiable child processes, and the agent session, and closes
+embedded browser tabs. A working agent requires confirmation first. Conversation
+history and code changes are kept; unanswered questions and approvals are dismissed.
+
+Cleanup must finish before the thread settles. If something cannot close, use
+**Retry** to finish. Untracked detached jobs may remain running, especially when
+macOS hides their ownership markers; external browser tabs stay open.
+
+**Un-settle thread** restores it to active work without restarting tools and
+prevents automatic settlement until new activity resumes the usual rules.
 
 By default, environments settle inactive threads after three days and settle
 threads whose pull request merged. A closed pull request can also settle an idle

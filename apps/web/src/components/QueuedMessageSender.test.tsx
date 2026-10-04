@@ -139,9 +139,27 @@ describe("QueuedMessageSender", () => {
     expect(commandsRun()).toEqual(["start"]);
     expect(io.run.mock.calls[0]?.[2]).toMatchObject({
       environmentId: "env-a",
-      input: { threadId: "thread-a", message: { text: "follow up" }, modelSelection },
+      input: {
+        threadId: "thread-a",
+        message: { text: "follow up" },
+        modelSelection,
+        automatic: true,
+      },
     });
     expect(queue()).toBeUndefined();
+  });
+
+  it("keeps queued work after remote resolution and allows an explicit Send now", async () => {
+    const message = enqueue();
+    io.thread = thread("running");
+    await render();
+    io.thread = { ...thread("stopped"), settledOverride: "settled" };
+    await render();
+    expect(commandsRun()).toEqual([]);
+    expect(queue()?.[0]?.prompt).toBe("follow up");
+    await act(() => sendQueuedMessage(threadRef, message.id));
+    expect(commandsRun()).toEqual(["start"]);
+    expect(io.run.mock.calls[0]?.[2].input.automatic).toBeUndefined();
   });
 
   it("holds the next message until the server picks up the one before it", async () => {

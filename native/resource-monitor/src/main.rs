@@ -5,7 +5,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::{
-    MINIMUM_CPU_UPDATE_INTERVAL, Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind,
+    MINIMUM_CPU_UPDATE_INTERVAL, Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System,
+    UpdateKind,
 };
 
 const PROTOCOL_VERSION: u32 = 3;
@@ -69,6 +70,8 @@ enum Command {
     ProcessTable {
         version: u32,
         request_id: String,
+        #[serde(default)]
+        owner_token: Option<String>,
     },
     ReadHistory {
         version: u32,
@@ -110,6 +113,7 @@ struct Capabilities {
     io_bytes: bool,
     process_start_time: bool,
     process_tree: bool,
+    thread_process_ownership: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +161,7 @@ struct ProcessTableEntry {
     pid: u32,
     ppid: u32,
     name: String,
+    start_time_ms: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -374,14 +379,20 @@ impl Collector {
         self.cpu_baseline_refreshed_at = Some(Instant::now());
     }
 
-    fn process_table(&self) -> Vec<ProcessTableEntry> {
+    fn process_table(&self, owner_token: Option<&str>) -> Vec<ProcessTableEntry> {
         // Use a dedicated System so this refresh cannot reset the CPU
         // baseline tracked by self.system for snapshots.
         let mut process_table_system = System::new();
         process_table_system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::nothing().without_tasks(),
+            if owner_token.is_some() {
+                ProcessRefreshKind::nothing()
+                    .without_tasks()
+                    .with_environ(UpdateKind::Always)
+            } else {
+                ProcessRefreshKind::nothing().without_tasks()
+            },
         );
         let mut processes = process_table_system
             .processes()
@@ -392,10 +403,21 @@ impl Collector {
                 // processTable contract requires positive pids, and one zero
                 // would fail the whole event decode on the server, so drop it
                 // here. It can never be a terminal descendant.
-                if pid == 0 {
+                if pid == 0 || process.status() == ProcessStatus::Zombie {
                     return None;
                 }
+                if let Some(token) = owner_token {
+                    let marker = format!("T3CODE_PROCESS_OWNER={token}");
+                    if !process
+                        .environ()
+                        .iter()
+                        .any(|entry| entry == marker.as_str())
+                    {
+                        return None;
+                    }
+                }
                 Some(ProcessTableEntry {
+                    start_time_ms: process.start_time().saturating_mul(1_000),
                     pid,
                     ppid: process.parent().map(Pid::as_u32).unwrap_or(0),
                     name: truncate_utf8(
@@ -804,6 +826,8 @@ fn main() -> io::Result<()> {
                 io_bytes: true,
                 process_start_time: true,
                 process_tree: true,
+                // Marker discovery is best effort; managed roots also use ancestry.
+                thread_process_ownership: true,
             },
         },
     )?;
@@ -929,12 +953,16 @@ fn main() -> io::Result<()> {
                             )?;
                         }
                     }
-                    Command::ProcessTable { request_id, .. } => {
+                    Command::ProcessTable {
+                        request_id,
+                        owner_token,
+                        ..
+                    } => {
                         let event = ProcessTableEvent {
                             version: PROTOCOL_VERSION,
                             event_type: "processTable",
                             request_id: &request_id,
-                            processes: collector.process_table(),
+                            processes: collector.process_table(owner_token.as_deref()),
                         };
                         write_event(&mut writer, &event)?;
                     }
@@ -994,6 +1022,104 @@ mod tests {
         let tracked = select_tracked_pids(&rows, &HashSet::from([20]));
 
         assert_eq!(tracked, HashSet::from([20, 22]));
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture invoked by finds_inherited_ownership_marker"]
+    fn owned_process_fixture() {
+        println!("OWNER_FIXTURE_READY");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+    }
+
+    #[test]
+    fn finds_inherited_ownership_marker() {
+        use std::process::{Command, Stdio};
+        struct ChildGuard(std::process::Child);
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let token = format!("owned-fixture-{}", std::process::id());
+        let mut child = ChildGuard(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tests::owned_process_fixture",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("T3CODE_PROCESS_OWNER", &token)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let stdout = std::io::BufReader::new(child.0.stdout.take().unwrap());
+        assert!(
+            stdout
+                .lines()
+                .any(|line| line.unwrap().contains("OWNER_FIXTURE_READY"))
+        );
+        let collector = Collector::new();
+        assert!(
+            collector
+                .process_table(Some(&token))
+                .iter()
+                .any(|entry| entry.pid == child.0.id() && entry.start_time_ms > 0)
+        );
+        assert!(collector.process_table(Some("different-owner")).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn protected_detached_process_ownership_has_platform_limits() {
+        use std::io::{BufRead, BufReader};
+        use std::process::{Command, Stdio};
+        let token = format!("cleanup-test-{}", std::process::id());
+        let mut launcher = Command::new("sh")
+            .args(["-c", "sleep 60 </dev/null >/dev/null 2>&1 & echo $!"])
+            .env("T3CODE_PROCESS_OWNER", &token)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(launcher.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let pid: u32 = line.trim().parse().unwrap();
+        // Always stop exactly the child launched by this fixture, even if an assertion fails.
+        struct Job(u32);
+        impl Drop for Job {
+            fn drop(&mut self) {
+                let _ = Command::new("kill")
+                    .args(["-KILL", &self.0.to_string()])
+                    .status();
+            }
+        }
+        let _job = Job(pid);
+        assert!(launcher.wait().unwrap().success());
+        let collector = Collector::new();
+        let owned = collector.process_table(Some(&token));
+        if cfg!(target_os = "macos") {
+            // Protected system executables are an explicit unsupported case,
+            // rather than an empty scan that falsely proves cleanup completed.
+            assert!(!owned.iter().any(|entry| entry.pid == pid));
+        } else {
+            assert!(
+                owned
+                    .iter()
+                    .any(|entry| entry.pid == pid && entry.start_time_ms > 0)
+            );
+        }
+        assert!(
+            !collector
+                .process_table(Some("another-chat"))
+                .iter()
+                .any(|entry| entry.pid == pid)
+        );
     }
 
     #[test]

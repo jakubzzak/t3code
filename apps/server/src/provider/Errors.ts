@@ -1,3 +1,4 @@
+import type { ThreadCleanupError } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import type { CheckpointServiceError } from "../checkpointing/Errors.ts";
@@ -211,6 +212,7 @@ export type ProviderAdapterError =
   | ProviderAdapterProcessError;
 
 export type ProviderServiceError =
+  | ThreadCleanupError
   | ProviderValidationError
   | ProviderUnsupportedError
   | ProviderWorkspaceMissingError

@@ -82,6 +82,45 @@ function makeSession(status: OrchestrationSession["status"]): OrchestrationSessi
 }
 
 it.layer(NodeServices.layer)("settled thread decider", (it) => {
+  it.effect("verified cleanup dismisses native requests only after the session is stopped", () =>
+    Effect.gen(function* () {
+      const request = {
+        id: EventId.make("cleanup-approval"),
+        kind: "approval.requested",
+        summary: "Approval",
+        tone: "approval" as const,
+        turnId: null,
+        createdAt: NOW,
+        payload: { requestId: "native-approval" },
+      };
+      const command = {
+        type: "thread.cleanup.complete" as const,
+        commandId: CommandId.make("verified-cleanup"),
+        threadId: ThreadId.make("thread-1"),
+      };
+      const blocked = yield* decideOrchestrationCommand({
+        command,
+        readModel: makeReadModel(null, null, makeSession("running"), [request]),
+      }).pipe(Effect.flip);
+      expect(blocked._tag).toBe("OrchestrationThreadSettleBlockedError");
+      const result = yield* decideOrchestrationCommand({
+        command,
+        readModel: makeReadModel(null, null, makeSession("stopped"), [request]),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.settled",
+        "thread.activity-appended",
+      ]);
+      expect(events[1]?.payload).toMatchObject({
+        activity: {
+          kind: "approval.resolved",
+          payload: { requestId: "native-approval", decision: "cancel" },
+        },
+      });
+    }),
+  );
+
   it.effect("preserves the activity stamp when automatically settling", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({
@@ -629,6 +668,33 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       if (unsettled.type === "thread.unsettled") {
         expect(thread.unsettledAt).toBe(unsettled.payload.updatedAt);
       }
+    }),
+  );
+
+  it.effect("rejects automatic delivery to a resolved thread even from a stale client", () =>
+    Effect.gen(function* () {
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.make("queued-after-cleanup"),
+          threadId: ThreadId.make("thread-1"),
+          automatic: true,
+          message: {
+            messageId: MessageId.make("queued"),
+            role: "user",
+            text: "Follow up",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: NOW,
+        },
+        readModel: makeReadModel("settled"),
+      }).pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "OrchestrationCommandInvariantError",
+        detail: expect.stringContaining("Send the queued message manually"),
+      });
     }),
   );
 

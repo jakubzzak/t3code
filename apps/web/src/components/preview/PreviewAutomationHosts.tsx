@@ -1,4 +1,5 @@
-"use client";
+import { beginPreviewSessionClose } from "~/previewStateStore";
+("use client");
 
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -430,6 +431,18 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           };
         };
         switch (request.operation) {
+          case "close": {
+            if (!tabId || !previewBridge)
+              throw new Error("The browser host is unavailable. Reconnect and retry cleanup.");
+            {
+              const current = readThreadPreviewState(threadRef);
+              await previewBridge.closeTab(
+                previewRuntimeTabId(threadRef, current.serverEpoch, tabId),
+              );
+              beginPreviewSessionClose(threadRef, tabId);
+            }
+            return { closed: true };
+          }
           case "status":
             return await currentStatus(threadRef, tabId);
           case "open": {

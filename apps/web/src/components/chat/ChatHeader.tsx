@@ -1,3 +1,4 @@
+import { useThreadActions } from "../../hooks/useThreadActions";
 import {
   type EnvironmentId,
   type EditorId,
@@ -351,8 +352,21 @@ export const ChatHeader = memo(function ChatHeader({
     },
     [commitRename],
   );
+  const { settleThread } = useThreadActions();
   const headerActions = (
     <>
+      {isServerThread && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setActionsOpen(false);
+            void settleThread(activeThreadRef);
+          }}
+        >
+          Resolve
+        </Button>
+      )}
       {activeProjectScripts && (
         <>
           <ProjectScriptsControl

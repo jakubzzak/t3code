@@ -1334,6 +1334,8 @@ export const ThreadTurnStartCommand = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
+  /** Automatic queue delivery must not reopen a manually resolved thread. */
+  automatic: Schema.optional(Schema.Boolean),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   createdAt: IsoDateTime,
 });
@@ -1354,6 +1356,8 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
+  /** Automatic queue delivery must not reopen a manually resolved thread. */
+  automatic: Schema.optional(Schema.Boolean),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   createdAt: IsoDateTime,
 });
@@ -1658,7 +1662,14 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
   stack: Schema.NullOr(ThreadPullRequestStack),
 });
 
+const ThreadCleanupCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.cleanup.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadCleanupCompleteCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,

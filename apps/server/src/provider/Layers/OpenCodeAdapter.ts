@@ -1,3 +1,4 @@
+import { withThreadProcessOwner } from "../../process/threadProcessOwnership.ts";
 import {
   EventId,
   type OpenCodeSettings,
@@ -2857,9 +2858,13 @@ export function makeOpenCodeAdapter(
                 directory,
                 serverUrl,
                 ...(serverPassword ? { serverPassword } : {}),
-                environment: McpProviderSession.withAgentDeviceEnvironment(
-                  options?.environment ?? process.env,
-                  mcpSession,
+                environment: withThreadProcessOwner(
+                  McpProviderSession.withAgentDeviceEnvironment(
+                    options?.environment ?? process.env,
+                    mcpSession,
+                  ),
+                  input.threadId,
+                  serverConfig.stateDir,
                 ),
               });
               const client = openCodeRuntime.createOpenCodeSdkClient({
