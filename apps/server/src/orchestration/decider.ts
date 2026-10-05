@@ -540,7 +540,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? thread.settledAt
             : command.type === "thread.auto-settle"
               ? command.settledAt
-              : occurredAt,
+              : command.type === "thread.cleanup.complete"
+                ? (command.settledAt ?? occurredAt)
+                : occurredAt,
           // A re-emission is a projected no-op: keep the existing updatedAt
           // so duplicate settles neither rewind nor churn ordering. A fresh
           // settle stamps the command time.

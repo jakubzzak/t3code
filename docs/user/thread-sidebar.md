@@ -112,7 +112,7 @@ cannot drag to reorder it. Your saved order returns when you turn it off.
 
 ## Settle finished work
 
-Choose **Resolve** at the top of a chat, or **Settle thread** from its menu, to stop
+Choose **Settle** in the sidebar, or **Settle thread** from its menu, to stop
 its tools and move finished work out of the active list. This stops managed
 terminal jobs, identifiable child processes, and the agent session, and closes
 embedded browser tabs. A working agent requires confirmation first. Conversation
@@ -120,7 +120,7 @@ history and code changes are kept; unanswered questions and approvals are dismis
 
 Cleanup must finish before the thread settles. If something cannot close, use
 **Retry** to finish, or dismiss the error with **Close** or **Escape** and use
-Resolve again later. Dismissing an error leaves the thread unresolved.
+Settle again later. Dismissing an error leaves the thread unresolved.
 Untracked detached jobs may remain running, especially when
 macOS hides their ownership markers; external browser tabs stay open.
 
@@ -132,7 +132,10 @@ threads whose pull request merged. A closed pull request can also settle an idle
 thread. Work in progress, pending questions or approvals, and live background work
 prevent automatic settlement. An open pull request does not prevent inactivity
 settlement, but an old closed or merged pull request does not settle work you
-resumed after it closed.
+resumed after it closed. Automatic settlement closes the same chat-owned tools
+and processes as manual Settle, including running terminal commands. Other chats'
+tools keep running. If cleanup fails, the thread stays active; use **Settle** to
+view and retry cleanup.
 
 To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
 choose **Auto-settle behavior**, and pick **Disabled**. The current option is checked. Pick

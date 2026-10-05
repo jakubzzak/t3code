@@ -1,4 +1,5 @@
 import { ThreadCleanupError, ThreadId } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Semaphore from "effect/Semaphore";
 
@@ -7,39 +8,44 @@ const turns = new Map<string, Set<() => void>>();
 const locks = new Map<string, { semaphore: Semaphore.Semaphore; users: number }>();
 
 export const isThreadClosing = (threadId: string) => closing.has(threadId);
-export const beginThreadCleanup = (threadId: string) => {
+export const beginThreadCleanup = (threadId: string, interruptTurns = true) => {
+  if (!interruptTurns && (turns.get(threadId)?.size ?? 0) > 0) return false;
   closing.add(threadId);
   for (const cancel of turns.get(threadId) ?? []) cancel();
+  return true;
 };
 export const finishThreadCleanup = (threadId: string) => closing.delete(threadId);
 
 /** A prompt may wait for approval indefinitely. Cancel it before cleanup drains launches;
- * raceFirst waits for its finalizers before releasing the lease. */
+ * Register before the turn starts; unregister after raceFirst drains both branches. */
 export const withThreadTurnLease = <A, E, R>(threadId: string, effect: Effect.Effect<A, E, R>) =>
   withThreadResourceLease(
     threadId,
-    Effect.raceFirst(
-      effect,
-      Effect.callback<never, ThreadCleanupError>((resume) => {
-        const cancel = () =>
-          resume(
-            Effect.fail(
-              new ThreadCleanupError({
-                threadId: ThreadId.make(threadId),
-                detail: "The turn was stopped to resolve this chat.",
-              }),
-            ),
-          );
-        const active = turns.get(threadId) ?? new Set<() => void>();
-        turns.set(threadId, active);
-        active.add(cancel);
-        if (closing.has(threadId)) cancel();
-        return Effect.sync(() => {
-          active.delete(cancel);
-          if (active.size === 0) turns.delete(threadId);
-        });
-      }),
-    ),
+    Effect.suspend(() => {
+      const interrupted = Deferred.makeUnsafe<never, ThreadCleanupError>();
+      const cancel = () => {
+        Deferred.doneUnsafe(
+          interrupted,
+          Effect.fail(
+            new ThreadCleanupError({
+              threadId: ThreadId.make(threadId),
+              detail: "The turn was stopped to resolve this chat.",
+            }),
+          ),
+        );
+      };
+      const active = turns.get(threadId) ?? new Set<() => void>();
+      turns.set(threadId, active);
+      active.add(cancel);
+      return Effect.raceFirst(effect, Deferred.await(interrupted)).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            active.delete(cancel);
+            if (active.size === 0) turns.delete(threadId);
+          }),
+        ),
+      );
+    }),
   );
 
 /** Launches share permits; cleanup takes all permits to drain in-flight launches. */

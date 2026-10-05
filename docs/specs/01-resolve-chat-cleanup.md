@@ -9,7 +9,8 @@ usage and preventing leftover terminal jobs.
 
 ## Behavior
 
-Add a **Resolve** action at the top of the chat.
+Use the existing **Settle** action in the sidebar, thread menu, and keyboard actions.
+Do not add a separate Resolve button to the chat header.
 
 1. If the agent is working, ask for confirmation before stopping it. Cancel leaves
    the chat unchanged.
@@ -31,6 +32,26 @@ the server, including desktop dev; web-only dev uses its connected server's moni
 An explicit `T3CODE_RESOURCE_MONITOR_PATH` override is respected. Missing or outdated
 monitors must never silently skip process verification or report cleanup success.
 
+## Automatic settlement
+
+Automatic settlement uses the same chat-owned cleanup as manual Settle. Existing
+inactivity, merged/closed pull request, project override, and per-thread opt-out
+rules decide eligibility. Working agents, queued turns, pending approvals or
+questions, and live background work still prevent automatic settlement. Recheck
+eligibility and intervening thread activity immediately before locking cleanup;
+a stale decision must not interrupt resumed work.
+
+Once eligible, stop all owned tools and identifiable processes, including running
+terminal commands. Do not restrict automatic cleanup to idle terminals. Mark the
+thread settled only after verified cleanup, preserving the timestamp that made
+it eligible for the settled shelf. On failure, leave it unsettled; a later sweep
+or manual Settle retries cleanup. Automatic cleanup does not open an unsolicited
+modal. Manual Settle displays the current cleanup or retry result.
+
+Web and desktop close the settled chat's tool panels when they observe settlement,
+including after reconnecting or settlement from another client. Other chats and
+environments remain unaffected. Opening a settled chat does not restart tools.
+
 ## Cleanup progress modal
 
 - Once cleanup starts, show a simple, compact modal titled **Resolving chat**.
@@ -50,7 +71,7 @@ monitors must never silently skip process verification or report cleanup success
   error and offer **Retry** for the remaining cleanup. Allow **Escape** or **Close**
   to dismiss the error; mobile also supports its system back action. Outside-click
   dismissal remains disabled. Stop loading indicators for failed entries.
-- Dismissal does not cancel server cleanup or claim success. Resolve can be used
+- Dismissal does not cancel server cleanup or claim success. Settle can be used
   again to retry. Retain captured process identities across retries, and keep new
   resource launches blocked after partially completed cleanup until it succeeds.
 - When every entry is confirmed closed and the chat is resolved, briefly show the
@@ -91,7 +112,11 @@ Stronger per-chat isolation is a future enhancement.
 
 ## Acceptance criteria
 
-- Successful Resolve leaves no managed processes or identifiable descendants running, or chat right-bar tools open.
+- Manual and automatic settlement use the same cleanup and ownership checks.
+- A stale automatic decision never interrupts newly active or opted-out work.
+- Automatic cleanup failures leave the chat unsettled and retryable.
+- The chat header has no separate Resolve button; existing Settle actions remain.
+- Successful settlement leaves no managed processes or identifiable descendants running, or chat right-bar tools open.
 - Active-agent confirmation can be canceled without side effects.
 - Idle-agent resolution needs no confirmation, including when terminal jobs are running.
 - Stubborn processes are force-stopped automatically after a grace period.
@@ -101,7 +126,7 @@ Stronger per-chat isolation is a future enhancement.
 - Pending cleanup cannot be dismissed manually. Failed cleanup offers Retry and
   can be dismissed with Escape, Close, or mobile back without resolving the chat.
 - Missing process-monitor support is detected before cleanup interrupts or locks
-  the chat; after repairing the monitor, Resolve can be retried.
+  the chat; after repairing the monitor, Settle can be retried.
 - Development startup builds the current monitor before starting a backend and
   surfaces build failures before launch; explicit monitor overrides and web-only
   startup do not require a local build.

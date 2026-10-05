@@ -1,3 +1,4 @@
+import { ThreadSettledTools } from "./components/ThreadSettledTools";
 import { ThreadCleanupDialog } from "./components/ThreadCleanupDialog";
 import { RouterProvider } from "@tanstack/react-router";
 
@@ -20,6 +21,7 @@ export function AppRoot({ router }: { readonly router: AppRouter }) {
       <ElectronBrowserHost />
       <QuitHoldOverlay />
       <ThreadCleanupDialog />
+      <ThreadSettledTools />
     </AppAtomRegistryProvider>
   );
 }
