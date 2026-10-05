@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- The integration fixture binds the same platform socket or named pipe as the CLI.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
@@ -17,17 +18,35 @@ import * as NetService from "@t3tools/shared/Net";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import { DesktopLauncherRegistration } from "@t3tools/contracts";
 import { Command } from "effect/unstable/cli";
 import { afterEach, describe, expect, vi } from "vite-plus/test";
 
 import { makeCli } from "../bin.ts";
+
+vi.mock("node:child_process", { spy: true });
 
 vi.mock("node:os", async (importOriginal) => {
   const os = await importOriginal<typeof import("node:os")>();
   return { ...os, homedir: vi.fn(os.homedir) };
 });
 
-afterEach(() => vi.mocked(NodeOS.homedir).mockReset());
+class UnexpectedServerStartup extends Schema.TaggedError<UnexpectedServerStartup>()(
+  "UnexpectedServerStartup",
+  {},
+) {}
+const encodeRegistration = Schema.encodeSync(Schema.fromJsonString(DesktopLauncherRegistration));
+
+vi.mock("./server.ts", async (importOriginal) => {
+  const server = await importOriginal<typeof import("./server.ts")>();
+  return { ...server, runServerCommand: () => Effect.fail(new UnexpectedServerStartup({})) };
+});
+
+afterEach(() => {
+  vi.mocked(NodeOS.homedir).mockReset();
+  vi.mocked(NodeChildProcess.spawn).mockRestore();
+});
 
 const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
   Command.runWith(makeCli(), { version: "0.0.0" })(args).pipe(
@@ -129,6 +148,135 @@ const withTempDirectory = <A, E, R>(
     use,
     (root) => Effect.promise(() => NodeFSP.rm(root, { recursive: true, force: true })),
   );
+
+describe("t3 directory", () => {
+  it.effect("keeps bare t3 on the existing server path", () =>
+    Effect.gen(function* () {
+      expect(yield* runCli([]).pipe(Effect.flip)).toMatchObject({
+        _tag: "UnexpectedServerStartup",
+      });
+    }),
+  );
+
+  it.effect("resolves dot and paths containing spaces", () =>
+    withTempDirectory("t3-directory-paths-", (root) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(root, "t3-home");
+        const project = NodePath.join(root, "a project's folder");
+        yield* Effect.promise(() => NodeFSP.mkdir(project));
+        const desktop = yield* fakeDesktop({ baseDir });
+        yield* runCli(["."], { T3CODE_HOME: baseDir });
+        yield* runCli([project], { T3CODE_HOME: baseDir });
+        expect(desktop.received.map((request) => request.workspaceRoot)).toEqual([
+          NodePath.resolve("."),
+          project,
+        ]);
+      }).pipe(Effect.scoped),
+    ),
+  );
+
+  it.effect("fails when no desktop is registered without starting a server", () =>
+    withTempDirectory("t3-directory-unregistered-", (root) =>
+      Effect.gen(function* () {
+        const error = yield* runCli([root], { T3CODE_HOME: root }).pipe(Effect.flip);
+        expect(error).toMatchObject({
+          _tag: "DesktopAppLaunchError",
+          message: expect.stringContaining("Settings"),
+        });
+        expect(NodeChildProcess.spawn).not.toHaveBeenCalled();
+      }),
+    ),
+  );
+
+  it.effect("never launches or replays an activation after an invalid response", () =>
+    withTempDirectory("t3-directory-response-", (root) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(root, "t3-home");
+        const desktop = yield* fakeDesktop({ baseDir, reply: () => ({ invalid: true }) });
+        expect(yield* runCli([root], { T3CODE_HOME: baseDir }).pipe(Effect.flip)).toMatchObject({
+          _tag: "DesktopAppLaunchError",
+        });
+        expect(desktop.received).toHaveLength(1);
+        expect(NodeChildProcess.spawn).not.toHaveBeenCalled();
+      }).pipe(Effect.scoped),
+    ),
+  );
+
+  it.effect(
+    "opens explicit directories without starting a server and keeps each request fresh",
+    () =>
+      withTempDirectory("t3-directory-test-", (root) =>
+        Effect.gen(function* () {
+          const baseDir = NodePath.join(root, "t3-home");
+          const desktop = yield* fakeDesktop({ baseDir });
+          yield* runCli([root], { T3CODE_HOME: baseDir });
+          yield* runCli([root], { T3CODE_HOME: baseDir });
+          expect(desktop.received.map((request) => request.workspaceRoot)).toEqual([root, root]);
+          expect(desktop.received[0]?.requestId).not.toBe(desktop.received[1]?.requestId);
+        }).pipe(Effect.scoped),
+      ),
+  );
+
+  it.effect("launches a registered desktop once and waits for activation", () =>
+    withTempDirectory("t3-directory-launch-", (root) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(root, "t3-home");
+        yield* Effect.promise(() => NodeFSP.mkdir(baseDir));
+        yield* Effect.promise(() =>
+          NodeFSP.writeFile(
+            NodePath.join(baseDir, "desktop-launcher.json"),
+            encodeRegistration({
+              executablePath: "/installed/T3 Code",
+              args: [],
+              stateDir: NodePath.join(baseDir, "userdata"),
+              backendPort: 17834,
+            }),
+          ),
+        );
+        const platform = yield* HostProcessPlatform;
+        const userId = yield* HostProcessUserId;
+        let desktop: Awaited<ReturnType<typeof startFakeDesktop>> | undefined;
+        vi.mocked(NodeChildProcess.spawn).mockImplementationOnce(() => {
+          const child = new NodeChildProcess.ChildProcess();
+          void startFakeDesktop({ baseDir, platform, userId }).then((server) => {
+            desktop = server;
+            child.emit("spawn");
+          });
+          return child;
+        });
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            await desktop?.close();
+          }),
+        );
+        yield* runCli([root], { T3CODE_HOME: baseDir });
+        expect(NodeChildProcess.spawn).toHaveBeenCalledTimes(1);
+        expect(NodeChildProcess.spawn).toHaveBeenCalledWith(
+          "/installed/T3 Code",
+          [],
+          expect.objectContaining({
+            env: expect.objectContaining({ T3CODE_PORT: "17834" }),
+          }),
+        );
+        expect(desktop?.received).toHaveLength(1);
+      }).pipe(Effect.scoped),
+    ),
+  );
+
+  it.effect("rejects missing directories before sending an activation", () =>
+    withTempDirectory("t3-directory-invalid-", (root) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(root, "t3-home");
+        const desktop = yield* fakeDesktop({ baseDir });
+        const error = yield* runCli([NodePath.join(root, "missing")], {
+          T3CODE_HOME: baseDir,
+        }).pipe(Effect.flip);
+        expect(error).toMatchObject({ _tag: "DesktopWorkspaceInvalidError" });
+        expect(desktop.received).toHaveLength(0);
+      }).pipe(Effect.scoped),
+    ),
+  );
+});
 
 describe("t3 app", () => {
   it.effect("rejects SSH before it tries to reach a desktop app", () =>

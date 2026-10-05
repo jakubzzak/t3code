@@ -2,13 +2,14 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import { Argument, Command } from "effect/unstable/cli";
 import * as CliError from "effect/unstable/cli/CliError";
 
 import * as NetService from "@t3tools/shared/Net";
 import packageJson from "../package.json" with { type: "json" };
 import { authCommand } from "./cli/auth.ts";
-import { appCommand } from "./cli/app.ts";
+import { appCommand, openDesktopProject } from "./cli/app.ts";
 import { connectCommand } from "./cli/connect.ts";
 import { pairCommand } from "./cli/pair.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
@@ -54,9 +55,27 @@ const connectUnavailableCommand = Command.make("connect", {
 );
 
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
-  Command.make("t3", { ...sharedServerCommandFlags }).pipe(
+  Command.make("t3", {
+    ...sharedServerCommandFlags,
+    cwd: Argument.String("directory").pipe(
+      Argument.withDescription("Open a directory in the desktop app with a fresh chat."),
+      Argument.optional,
+    ),
+  }).pipe(
     Command.withDescription("Run the T3 Code server."),
-    Command.withHandler((flags) => runServerCommand(flags)),
+    Command.withHandler((flags) =>
+      Effect.gen(function* () {
+        if (Option.isSome(flags.cwd)) {
+          yield* openDesktopProject({
+            baseDir: flags.baseDir,
+            workspaceRoot: flags.cwd,
+            startIfNeeded: true,
+          });
+        } else {
+          return yield* runServerCommand(flags);
+        }
+      }),
+    ),
     Command.withSubcommands([
       startCommand,
       serveCommand,

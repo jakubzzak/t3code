@@ -119,3 +119,7 @@ export const PREVIEW_RECORDING_INPUT_CHANNEL = "desktop:preview-recording-input"
 
 export const RECEIVE_PROVIDER_AUTH_CALLBACK_CHANNEL = "desktop:receive-provider-auth-callback";
 export const CANCEL_PROVIDER_AUTH_CALLBACK_CHANNEL = "desktop:cancel-provider-auth-callback";
+
+export const TERMINAL_COMMAND_GET_CHANNEL = "terminal-command:get";
+export const TERMINAL_COMMAND_INSTALL_CHANNEL = "terminal-command:install";
+export const TERMINAL_COMMAND_REMOVE_CHANNEL = "terminal-command:remove";

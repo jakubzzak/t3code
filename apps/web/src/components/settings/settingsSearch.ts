@@ -132,6 +132,13 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
  */
 export const SETTINGS_SEARCH_ITEMS = [
   {
+    id: "terminal-command",
+    title: "Install t3 terminal command",
+    to: "/settings/general",
+    desktopOnly: true,
+    searchTerms: ["shell launcher PATH cli t3 . install remove command"],
+  },
+  {
     id: "linear-view",
     title: "Linear view",
     to: "/settings/features",
@@ -1016,6 +1023,11 @@ export function searchSettings(
   return items
     .flatMap((item, index) => {
       if (!isElectron && item.desktopOnly === true) return [];
+      if (
+        item.id === "terminal-command" &&
+        (typeof window === "undefined" || !window.desktopBridge?.terminalCommand)
+      )
+        return [];
       if (item.macOnly && !isMacPlatform(platform)) return [];
       if (item.windowsOnly && !isWindowsPlatform(platform)) return [];
 

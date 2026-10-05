@@ -1,0 +1,387 @@
+// @effect-diagnostics globalTimers:off nodeBuiltinImport:off -- Local socket and detached desktop process adapters own their Node resources and deadlines.
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeCrypto from "node:crypto";
+import * as NodeNet from "node:net";
+import * as NodeOS from "node:os";
+
+import {
+  DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
+  DesktopLauncherRegistration,
+  DesktopAppActivationErrorCode,
+  DesktopAppActivationResponse,
+  type DesktopAppActivationPlatform,
+  type DesktopAppActivationRequest,
+} from "@t3tools/contracts";
+import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
+import {
+  HostProcessPlatform,
+  HostProcessEnvironment,
+  HostProcessUserId,
+  HostProcessWorkingDirectory,
+} from "@t3tools/shared/hostProcess";
+import * as Clock from "effect/Clock";
+import * as Config from "effect/Config";
+import * as Context from "effect/Context";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
+
+import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
+
+const CLI_RESPONSE_TIMEOUT_MS = 17_000;
+const MAX_RESPONSE_BYTES = 64 * 1024;
+const isDesktopAppActivationResponse = Schema.is(DesktopAppActivationResponse);
+
+export class DesktopAppSshUnsupportedError extends Schema.TaggedError<DesktopAppSshUnsupportedError>()(
+  "DesktopAppSshUnsupportedError",
+  {},
+) {
+  override get message(): string {
+    return "`t3 app` only controls a desktop app on the same machine. It cannot run over SSH.";
+  }
+}
+
+export class DesktopAppPlatformUnsupportedError extends Schema.TaggedError<DesktopAppPlatformUnsupportedError>()(
+  "DesktopAppPlatformUnsupportedError",
+  { platform: Schema.String },
+) {
+  override get message(): string {
+    return `\`t3 app\` is not supported on ${this.platform}.`;
+  }
+}
+
+export class DesktopAppUnreachableError extends Schema.TaggedError<DesktopAppUnreachableError>()(
+  "DesktopAppUnreachableError",
+  {
+    candidateAddresses: Schema.Array(Schema.String),
+    requestId: Schema.String,
+    workspaceRoot: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.";
+  }
+}
+
+export class DesktopAppRequestFailedError extends Schema.TaggedError<DesktopAppRequestFailedError>()(
+  "DesktopAppRequestFailedError",
+  {
+    code: DesktopAppActivationErrorCode,
+    requestId: Schema.String,
+    workspaceRoot: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `T3 Code could not open ${this.workspaceRoot} (${this.code}).`;
+  }
+}
+
+function isDesktopPlatform(platform: NodeJS.Platform): platform is DesktopAppActivationPlatform {
+  return platform === "darwin" || platform === "linux" || platform === "win32";
+}
+
+function sendDesktopAppActivationRequest(input: {
+  readonly address: string;
+  readonly fallbackAddress?: string;
+  readonly request: DesktopAppActivationRequest;
+  readonly timeoutMs?: number;
+}): Promise<DesktopAppActivationResponse> {
+  return new Promise((resolve, reject) => {
+    const socket = NodeNet.createConnection(input.address);
+    socket.setEncoding("utf8");
+    let buffer = "";
+    let settled = false;
+    let connected = false;
+
+    const finish = (
+      result:
+        | { readonly type: "success"; readonly response: DesktopAppActivationResponse }
+        | { readonly type: "failure"; readonly error: Error },
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      if (result.type === "success") resolve(result.response);
+      else reject(result.error);
+    };
+
+    const timeout = setTimeout(() => {
+      finish({
+        type: "failure",
+        error: new Error("The desktop app did not respond in time."),
+      });
+    }, input.timeoutMs ?? CLI_RESPONSE_TIMEOUT_MS);
+
+    socket.once("connect", () => {
+      connected = true;
+      socket.write(`${JSON.stringify(input.request)}\n`);
+    });
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      if (Buffer.byteLength(buffer, "utf8") > MAX_RESPONSE_BYTES) {
+        finish({ type: "failure", error: new Error("The desktop app response is too large.") });
+        return;
+      }
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) return;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(buffer.slice(0, newline));
+      } catch {
+        finish({
+          type: "failure",
+          error: new Error("The desktop app response is not valid JSON."),
+        });
+        return;
+      }
+      if (!isDesktopAppActivationResponse(parsed)) {
+        finish({ type: "failure", error: new Error("The desktop app response is invalid.") });
+        return;
+      }
+      if (parsed.requestId !== input.request.requestId) {
+        finish({
+          type: "failure",
+          error: new Error("The desktop app response did not match this request."),
+        });
+        return;
+      }
+      finish({ type: "success", response: parsed });
+    });
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      if (
+        !settled &&
+        !connected &&
+        input.fallbackAddress !== undefined &&
+        (error.code === "ENOENT" || error.code === "ECONNREFUSED")
+      ) {
+        settled = true;
+        clearTimeout(timeout);
+        socket.destroy();
+        resolve(
+          sendDesktopAppActivationRequest({
+            address: input.fallbackAddress,
+            request: input.request,
+            ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+          }),
+        );
+        return;
+      }
+      finish({ type: "failure", error });
+    });
+    socket.once("end", () => {
+      finish({ type: "failure", error: new Error("The desktop app closed the connection.") });
+    });
+  });
+}
+
+const appEnvironment = Config.all({
+  t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  sshConnection: Config.String("SSH_CONNECTION").pipe(Config.option),
+  sshTty: Config.String("SSH_TTY").pipe(Config.option),
+});
+
+const open = Effect.fn("DesktopAppLauncher.open")(function* (flags: {
+  readonly baseDir: Option.Option<string>;
+  readonly workspaceRoot: Option.Option<string>;
+  readonly startIfNeeded?: boolean;
+}) {
+  const environment = yield* appEnvironment;
+  const processEnvironment = yield* HostProcessEnvironment;
+  const clock = yield* Clock.Clock;
+  const hostPlatform = yield* HostProcessPlatform;
+  if (Option.isSome(environment.sshConnection) || Option.isSome(environment.sshTty)) {
+    return yield* new DesktopAppSshUnsupportedError({});
+  }
+  if (!isDesktopPlatform(hostPlatform)) {
+    return yield* new DesktopAppPlatformUnsupportedError({ platform: hostPlatform });
+  }
+
+  const path = yield* Path.Path;
+  const configuredBaseDir = Option.getOrUndefined(flags.baseDir) ?? environment.t3Home;
+  const baseDir = yield* resolveBaseDir(configuredBaseDir);
+  const allowDevFallback = Option.isNone(flags.baseDir) && !environment.t3Home?.trim();
+  const rawWorkspaceRoot =
+    Option.getOrUndefined(flags.workspaceRoot) ?? (yield* HostProcessWorkingDirectory);
+  const workspaceRoot = path.resolve(yield* expandHomePath(rawWorkspaceRoot));
+  if (flags.startIfNeeded) {
+    const fs = yield* FileSystem.FileSystem;
+    const stat = yield* fs
+      .stat(workspaceRoot)
+      .pipe(Effect.mapError((cause) => new DesktopWorkspaceInvalidError({ workspaceRoot, cause })));
+    if (stat.type !== "Directory") {
+      return yield* new DesktopWorkspaceInvalidError({ workspaceRoot });
+    }
+  }
+  const userId = yield* HostProcessUserId;
+  const resolveAddress = (stateSubdirectory: "userdata" | "dev") =>
+    resolveDesktopAppControlAddress({
+      stateDir: path.join(baseDir, stateSubdirectory),
+      platform: hostPlatform,
+      tempDir: NodeOS.tmpdir(),
+      userId,
+      joinPath: path.join,
+    }).address;
+  const request: DesktopAppActivationRequest = {
+    version: DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
+    requestId: NodeCrypto.randomUUID(),
+    type: "open-workspace",
+    workspaceRoot,
+    platform: hostPlatform,
+  };
+  const address = resolveAddress("userdata");
+  const fallbackAddress = allowDevFallback ? resolveAddress("dev") : undefined;
+
+  const response = yield* Effect.tryPromise({
+    try: async () => {
+      try {
+        return await sendDesktopAppActivationRequest({
+          address,
+          ...(fallbackAddress ? { fallbackAddress } : {}),
+          request,
+        });
+      } catch (error) {
+        if (!flags.startIfNeeded || !isNotListening(error)) throw error;
+      }
+      return await launchRegisteredDesktop({
+        baseDir,
+        path,
+        hostPlatform,
+        userId,
+        request,
+        processEnvironment,
+        now: () => clock.currentTimeMillisUnsafe(),
+      });
+    },
+    catch: (cause): DesktopAppLaunchError | DesktopAppUnreachableError =>
+      flags.startIfNeeded
+        ? new DesktopAppLaunchError({ workspaceRoot, cause })
+        : new DesktopAppUnreachableError({
+            candidateAddresses:
+              fallbackAddress === undefined ? [address] : [address, fallbackAddress],
+            requestId: request.requestId,
+            workspaceRoot,
+            cause,
+          }),
+  });
+  if (!response.ok) {
+    return yield* new DesktopAppRequestFailedError({
+      code: response.code,
+      requestId: response.requestId,
+      workspaceRoot,
+      cause: response,
+    });
+  }
+
+  yield* Console.log(`Opened ${workspaceRoot} in T3 Code.`);
+});
+
+export class DesktopWorkspaceInvalidError extends Schema.TaggedError<DesktopWorkspaceInvalidError>()(
+  "DesktopWorkspaceInvalidError",
+  { workspaceRoot: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {
+  override get message(): string {
+    return `Cannot open ${this.workspaceRoot}: choose an existing project directory.`;
+  }
+}
+
+export class DesktopAppLauncher extends Context.Service<
+  DesktopAppLauncher,
+  {
+    readonly open: typeof open;
+  }
+>()("t3/desktop/DesktopAppLauncher") {}
+
+export const layer = Layer.succeed(DesktopAppLauncher, DesktopAppLauncher.of({ open }));
+
+function isNotListening(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    "syscall" in error &&
+    error.syscall === "connect" &&
+    (error.code === "ENOENT" || error.code === "ECONNREFUSED")
+  );
+}
+
+export class DesktopAppLaunchError extends Schema.TaggedError<DesktopAppLaunchError>()(
+  "DesktopAppLaunchError",
+  { workspaceRoot: Schema.String, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `Could not open ${this.workspaceRoot}. Start T3 Code and install or repair its terminal command in Settings → General, then try again.`;
+  }
+}
+
+const decodeRegistration = Schema.decodeUnknownSync(
+  Schema.fromJsonString(DesktopLauncherRegistration),
+);
+
+async function launchRegisteredDesktop({
+  baseDir,
+  path,
+  hostPlatform,
+  userId,
+  request,
+  processEnvironment,
+  now,
+}: {
+  baseDir: string;
+  path: Path.Path;
+  hostPlatform: DesktopAppActivationPlatform;
+  userId: number | undefined;
+  request: DesktopAppActivationRequest;
+  processEnvironment: NodeJS.ProcessEnv;
+  now: () => number;
+}): Promise<DesktopAppActivationResponse> {
+  const registration = decodeRegistration(
+    await NodeFSP.readFile(path.join(baseDir, "desktop-launcher.json"), "utf8"),
+  );
+  const childEnv: NodeJS.ProcessEnv = { ...processEnvironment, T3CODE_HOME: baseDir };
+  delete childEnv.ELECTRON_RUN_AS_NODE;
+  if (registration.devServerUrl) childEnv.VITE_DEV_SERVER_URL = registration.devServerUrl;
+  if (registration.backendPort !== undefined)
+    childEnv.T3CODE_PORT = String(registration.backendPort);
+  await new Promise<void>((resolve, reject) => {
+    const child = NodeChildProcess.spawn(registration.executablePath, [...registration.args], {
+      detached: true,
+      stdio: "ignore",
+      env: childEnv,
+      cwd: NodeOS.homedir(),
+    });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+  const launchedAddress = resolveDesktopAppControlAddress({
+    stateDir: registration.stateDir,
+    platform: hostPlatform,
+    tempDir: NodeOS.tmpdir(),
+    userId,
+    joinPath: path.join,
+  }).address;
+  const deadline = now() + 30_000;
+  for (;;) {
+    try {
+      return await sendDesktopAppActivationRequest({
+        address: launchedAddress,
+        request,
+        timeoutMs: 30_000,
+      });
+    } catch (error) {
+      // Only retry a refused connection. Once sent, a request must never be replayed.
+      if (!isNotListening(error) || now() >= deadline) throw error;
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}

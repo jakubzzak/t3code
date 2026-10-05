@@ -51,3 +51,23 @@ export const DesktopAppActivationResponse = Schema.Union([
   DesktopAppActivationFailure,
 ]);
 export type DesktopAppActivationResponse = typeof DesktopAppActivationResponse.Type;
+
+/** Local desktop registration used by the terminal launcher to start the app. */
+export const DesktopLauncherRegistration = Schema.Struct({
+  executablePath: TrimmedNonEmptyString,
+  args: Schema.Array(Schema.String),
+  stateDir: TrimmedNonEmptyString,
+  devServerUrl: Schema.optional(Schema.String),
+  backendPort: Schema.optional(Schema.Number),
+});
+export type DesktopLauncherRegistration = typeof DesktopLauncherRegistration.Type;
+
+export const DesktopTerminalCommandState = Schema.Struct({
+  status: Schema.Literals(["not-installed", "installed", "conflict"]),
+  installed: Schema.Boolean,
+  path: Schema.String,
+  directory: Schema.String,
+  onPath: Schema.Boolean,
+  conflictingPath: Schema.NullOr(Schema.String),
+});
+export type DesktopTerminalCommandState = typeof DesktopTerminalCommandState.Type;
