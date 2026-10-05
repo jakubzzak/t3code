@@ -24,7 +24,7 @@ function FeaturesSettings() {
           description={
             isElectron
               ? "View and edit Linear issues beside your threads. Disabled by default; applies to this device."
-              : "Available in the desktop app."
+              : "Available only in the desktop app"
           }
         >
           <Switch

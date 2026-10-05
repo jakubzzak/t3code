@@ -84,7 +84,6 @@ export interface SettingsSearchAvailability {
  * subtitles both render from this record, so each label exists once.
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
-  "/settings/features": "Features",
   "/settings/projects": "Project",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
@@ -95,6 +94,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
+  "/settings/features": "Features",
   "/settings/archived": "Archive",
 };
 

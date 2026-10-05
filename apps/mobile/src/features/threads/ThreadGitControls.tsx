@@ -328,7 +328,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
         menu: {
           items: [
             {
-              description: "Available in the desktop app",
+              description: "Available only in the desktop app",
               disabled: true,
               icon: { name: "circle.lefthalf.striped.horizontal", type: "sfSymbol" },
               label: "Linear",
@@ -533,7 +533,7 @@ function threadGitMenuDefinition(
         id: "linear",
         title: "Linear",
         icon: "circle.lefthalf.striped.horizontal",
-        subtitle: "Available in the desktop app",
+        subtitle: "Available only in the desktop app",
         disabled: true,
         onPress: () => {},
       },

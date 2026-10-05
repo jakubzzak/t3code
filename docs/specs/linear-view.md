@@ -18,12 +18,12 @@ Linear API authentication, API tools, and agent API workflows are deferred. Do n
 - Keep the surface tab label fixed as **Linear** throughout navigation, including issue pages, My Issues, login, and Google authentication. Do not adopt the embedded page's document title.
 - L opens Linear only in the existing surface-selection shortcut context; it must remain ordinary text while typing in chat or inside Linear.
 - Enable the surface only in the desktop client with its feature flag enabled. Desktop access remains available when connected to a remote environment; support depends on the client, not the server location.
-- On web and mobile, keep Linear visible and disabled with a desktop-only explanation. On desktop with the flag off, explain how to enable it in Settings → Features. Shortcuts and agent opening actions obey the same availability rules.
+- On web and mobile, keep Linear visible and disabled with the exact explanation **Available only in the desktop app**. Use the same wording in Features. On desktop with the flag off, explain how to enable it in Settings → Features. Shortcuts and agent opening actions obey the same availability rules.
 - Render the actual Linear website using the existing embedded-browser capability. Do not show a T3 browser toolbar, URL input, navigation icons, hover controls, or browser utility actions. Retain normal surface closing and layout controls and Linear's own interface.
 
 ### Workspace and navigation
 
-- Add a dedicated Linear section under Settings → Integrations. Select or enter the Linear workspace for each project; one project's choice must not change another's.
+- Add a dedicated Linear section under Settings → Integrations. Order the integration sections alphabetically: Browser (including its agent-access settings), Devices, then Linear. Select or enter the Linear workspace for each project; one project's choice must not change another's.
 - On initial opening, use the thread's branch to find a Linear issue identifier. For example, `jakub/eng-123-fix-login` opens ENG-123 in the configured workspace. If the branch has no identifier, open that workspace's My Issues view.
 - Once open, preserve the current page and user navigation. Rerenders, returning focus, and branch changes must not retarget an existing surface or interrupt editing. Closing and opening a fresh surface resolves the initial destination again.
 - An explicit user request to show a particular issue may open that issue in the Linear surface without a second confirmation. Agents must not open it proactively for routine research, search, or editing. The narrow login assistance below is the browser-automation exception in this scope.
@@ -37,12 +37,13 @@ Linear API authentication, API tools, and agent API workflows are deferred. Do n
 
 ### Feature settings
 
+- Place **Features** second to last in Settings navigation, immediately before **Archive** (Archived Threads on native mobile).
 - Add Settings → Features as a list of explicitly registered optional features. New feature flags default to disabled; Linear view is the first flag introduced here.
 - Enabling Linear view makes the desktop entry usable. Disabling it prevents new opens and closes an existing Linear surface without deleting workspace configuration, email preferences, or the persistent login.
 
 ## Acceptance criteria
 
-1. A fresh installation shows Linear view off in Features. Linear replaces Linked pull requests in the picker. Enabling the flag allows desktop activation with L in the surface-selection context; L in an editor remains text. Web and mobile always show the entry disabled.
+1. A fresh installation shows Linear view off in Features. Features is the second-to-last Settings item, immediately before Archive; Integrations sections are alphabetical. Linear replaces Linked pull requests in the picker. Enabling the flag allows desktop activation with L in the surface-selection context; L in an editor remains text. Web and mobile always show the entry disabled.
 2. Two projects configured for different workspaces open their respective destinations. A branch containing ENG-123 opens that issue; a branch without an identifier opens My Issues. Branch changes and focus changes leave an already-open page untouched.
 3. A user can read and edit an issue using Linear's own interface with no T3 browser chrome, including while the desktop client is connected to a remote environment. Normal surface closing remains available, and the tab stays labeled Linear even on Google sign-in or after navigating to another issue.
 4. A signed-out session attempts the Google email step using the override or account email. Missing email or an automation failure permits manual login; 2FA remains user-controlled. Closing and reopening retains a valid session.

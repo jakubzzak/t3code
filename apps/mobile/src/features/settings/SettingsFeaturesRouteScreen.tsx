@@ -11,7 +11,7 @@ export function SettingsFeaturesRouteScreen() {
           <SettingsSwitchRow
             icon="circle"
             label="Linear view"
-            subtitle="Available in the desktop app"
+            subtitle="Available only in the desktop app"
             disabled
             value={false}
             onValueChange={() => {}}

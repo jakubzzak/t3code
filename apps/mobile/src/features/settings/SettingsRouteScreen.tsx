@@ -148,7 +148,6 @@ function SettingsIndexSections() {
     <>
       <SettingsSection title="Interface">
         <SettingsRow icon="paintbrush" label="Appearance" target="SettingsAppearance" />
-        <SettingsRow icon="slider.horizontal.3" label="Features" target="SettingsFeatures" />
         {Platform.OS === "ios" ? (
           <SettingsRow icon="keyboard" label="Keyboard" target="SettingsKeyboard" />
         ) : null}
@@ -165,7 +164,6 @@ function SettingsIndexSections() {
         ) : null}
         <SettingsRow icon="folder" label="Organization" target="SettingsOrganization" />
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
-        <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
       </SettingsSection>
 
       <SettingsSection title="Server settings">
@@ -198,6 +196,8 @@ function SettingsIndexSections() {
       <SettingsSection title="App">
         <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
         <SettingsRow icon="info.circle" label="About T3 Code" target="SettingsAbout" />
+        <SettingsRow icon="slider.horizontal.3" label="Features" target="SettingsFeatures" />
+        <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
       </SettingsSection>
     </>
   );

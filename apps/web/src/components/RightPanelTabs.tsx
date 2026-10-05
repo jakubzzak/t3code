@@ -173,7 +173,7 @@ const SURFACE_DISABLED_REASONS = {
 
 /** One-line unavailability hints for the empty-state rows. */
 const SURFACE_UNAVAILABLE_HINTS = {
-  browser: "Only available in the desktop app.",
+  browser: "Available only in the desktop app",
   terminal: "Available when a project is open.",
   files: "Available when a project is open.",
   diff: "Available for Git repositories.",
@@ -387,7 +387,7 @@ function RightPanelEmptyState(props: {
       available: props.linearAvailable,
       disabledReason: isElectron
         ? "Enable Linear view in Settings → Features."
-        : "Available in the desktop app.",
+        : "Available only in the desktop app",
       onClick: props.onAddLinear,
       badgeCount: 0,
     },
@@ -891,7 +891,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       available: props.linearAvailable,
       disabledReason: isElectron
         ? "Enable Linear view in Settings → Features."
-        : "Available in the desktop app.",
+        : "Available only in the desktop app",
       onClick: props.onAddLinear,
     },
     {
