@@ -48,6 +48,7 @@ import { subscribePreviewAction } from "./previewActionBus";
 import { openPreviewSession } from "./openPreviewSession";
 import { PreviewChromeRow } from "./PreviewChromeRow";
 import { PreviewEmptyState } from "./PreviewEmptyState";
+import { handlePreviewStartNavigation } from "./previewStartNavigation";
 import { PreviewMoreMenu } from "./PreviewMoreMenu";
 import {
   commitBrowserViewportChange,
@@ -711,6 +712,7 @@ export function PreviewView({
     <div
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-thread-key={scopedThreadKey(threadRef)}
+      onKeyDown={showEmptyState ? handlePreviewStartNavigation : undefined}
     >
       {snapshot?.surface !== "linear" && (
         <PreviewChromeRow

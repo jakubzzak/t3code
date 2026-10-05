@@ -66,10 +66,9 @@ function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }
   );
 }
 
-function FileSearchField(props: {
+export function FileSearchField(props: {
   ariaLabel: string;
   name: string;
-  onClose: () => void;
   onValueChange: (value: string) => void;
   value: string;
 }) {
@@ -83,11 +82,11 @@ function FileSearchField(props: {
         aria-label={props.ariaLabel}
         placeholder="Search files"
         spellCheck={false}
+        data-panel-initial-focus
         onChange={(event) => props.onValueChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key !== "Escape") return;
-          props.onClose();
-          event.currentTarget.blur();
+          event.preventDefault();
         }}
       />
     </InputGroup>
@@ -295,10 +294,6 @@ export default function FileBrowserPanel({
     setExpandAll(expanded);
     setAllDirectoriesExpanded(model, directoryPaths, expanded);
   };
-  const closeSearch = () => {
-    setQuery("");
-    search.close();
-  };
   const expandedPathsRef = useRef(new Set<string>());
   useEffect(() => {
     const currentPaths = new Set(directoryPaths);
@@ -497,7 +492,6 @@ export default function FileBrowserPanel({
           ariaLabel={`Search ${projectName} files`}
           value={search.value}
           onValueChange={handleSearchValueChange}
-          onClose={closeSearch}
         />
         {directoryPaths.length > 0 ? (
           <Tooltip>

@@ -93,7 +93,9 @@ export function PreviewChromeRow({
   leadingActions,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [draft, setDraft] = useState(url);
+  const [urlDraft, setUrlDraft] = useState({ url, value: url });
+  const draft = urlDraft.url === url ? urlDraft.value : url;
+  if (urlDraft.url !== url) setUrlDraft({ url, value: url });
   const [inputFocused, setInputFocused] = useState(false);
 
   useEffect(() => {
@@ -180,10 +182,9 @@ export function PreviewChromeRow({
               render={
                 <InputGroupInput
                   ref={inputRef}
-                  value={inputFocused ? draft : url}
-                  onChange={(event) => setDraft(event.target.value)}
+                  value={draft}
+                  onChange={(event) => setUrlDraft({ url, value: event.target.value })}
                   onFocus={() => {
-                    setDraft(url);
                     setInputFocused(true);
                     queueMicrotask(() => inputRef.current?.select());
                   }}
@@ -194,14 +195,13 @@ export function PreviewChromeRow({
                     if (event.key === "Enter") submit(event);
                     if (event.key === "Escape") {
                       event.preventDefault();
-                      setDraft(url);
-                      inputRef.current?.blur();
                     }
                   }}
                   placeholder="Search or enter URL"
                   spellCheck={false}
                   disabled={inputDisabled}
                   data-preview-url-input
+                  data-panel-initial-focus
                   size="sm"
                 />
               }

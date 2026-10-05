@@ -59,6 +59,7 @@ Define panel navigation and focus transitions in the web and desktop three-panel
 - Panel navigation and input focus are distinct states. Retaining the current view on panel entry avoids changing the user's working view merely by moving between panels.
 - Reuse [RightPanelTabs](../../apps/web/src/components/RightPanelTabs.tsx) creation and availability rules and the existing [panel navigation](../../apps/web/src/sectionNavigation.ts) focus handling. Focus is local to the client and must not change another connected client's navigation state.
 - Use Command on macOS and Ctrl on Windows/Linux for panel movement and creation shortcuts; Option maps to Alt. Do not replace native editing shortcuts while inputs own focus.
+- Desktop supports the exact creation shortcuts. Where the host browser reserves Command/Ctrl+T or Command/Ctrl+Shift+T, web clients retain the existing `+` menu and letter shortcuts; no replacement web shortcut is required.
 - Existing menu and browser-profile choices remain available. Same-kind creation uses the existing creation defaults; it does not duplicate the current URL, shell session, or other view contents.
 - Embedded browser and terminal keyboard boundaries must preserve the same input-release and continuing third-Escape behavior. Validate interception limitations of browser-host shortcuts in web clients rather than assuming Electron behavior applies everywhere.
 - Preserve existing panel dimming and tab appearance without continuously repainting animations or introducing server round trips for focus changes.

@@ -983,6 +983,10 @@ export function TerminalViewport({
     <div
       ref={containerRef}
       tabIndex={-1}
+      data-panel-initial-focus
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) terminalRef.current?.focus();
+      }}
       className="relative h-full w-full overflow-hidden bg-(--terminal-background)"
     />
   );
