@@ -164,6 +164,8 @@ export const PreviewNavStatus = Schema.Union([
 export type PreviewNavStatus = typeof PreviewNavStatus.Type;
 
 export const PreviewSessionSnapshot = Schema.Struct({
+  /** Fixed presentation identity; independent of the current URL or page title. */
+  surface: Schema.optional(Schema.Literal("linear")),
   threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
   navStatus: PreviewNavStatus,
@@ -182,6 +184,7 @@ export const PreviewSessionSnapshot = Schema.Struct({
 export type PreviewSessionSnapshot = typeof PreviewSessionSnapshot.Type;
 
 export const PreviewOpenInput = Schema.Struct({
+  surface: Schema.optional(Schema.Literal("linear")),
   threadId: ThreadId,
   /** Omit to create an empty (Idle) tab the user can type into. */
   url: Schema.optional(Url),

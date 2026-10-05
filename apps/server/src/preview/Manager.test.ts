@@ -36,6 +36,38 @@ const collectEvents = Effect.gen(function* () {
 }).pipe(Effect.withSpan("preview.test.collectEvents"));
 
 it.layer(PreviewManager.layer)("PreviewManager", (it) => {
+  it.effect("preserves Linear identity through login, navigation, and reconnect", () =>
+    Effect.gen(function* () {
+      const threadId = freshThreadId();
+      const manager = yield* PreviewManager.PreviewManager;
+      const opened = yield* manager.open({
+        threadId,
+        surface: "linear",
+        url: "https://linear.app/team/my-issues",
+      });
+      expect(opened.surface).toBe("linear");
+      const navigated = yield* manager.navigate({
+        threadId,
+        tabId: opened.tabId,
+        url: "https://accounts.google.com/",
+        resolvedTitle: "Sign in - Google Accounts",
+      });
+      expect(navigated.surface).toBe("linear");
+      yield* manager.reportStatus({
+        threadId,
+        tabId: opened.tabId,
+        navStatus: {
+          _tag: "Success",
+          url: "https://linear.app/team/issue/ENG-123",
+          title: "Fix login",
+        },
+        canGoBack: true,
+        canGoForward: false,
+      });
+      expect((yield* manager.list({ threadId })).sessions[0]?.surface).toBe("linear");
+    }),
+  );
+
   it.effect("opens a session and emits opened with normalized URL", () =>
     Effect.gen(function* () {
       const threadId = freshThreadId();

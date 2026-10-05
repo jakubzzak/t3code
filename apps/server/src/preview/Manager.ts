@@ -125,6 +125,7 @@ const buildLoadingSnapshot = (input: {
   readonly title: string;
   readonly viewport: PreviewViewportSetting;
   readonly profileId?: string | undefined;
+  readonly surface?: "linear" | undefined;
   readonly updatedAt: string;
 }): PreviewSessionSnapshot => ({
   threadId: input.threadId,
@@ -134,6 +135,7 @@ const buildLoadingSnapshot = (input: {
   canGoForward: false,
   viewport: input.viewport,
   ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
+  ...(input.surface === undefined ? {} : { surface: input.surface }),
   updatedAt: input.updatedAt,
 });
 
@@ -142,6 +144,7 @@ const buildIdleSnapshot = (input: {
   readonly tabId: string;
   readonly viewport: PreviewViewportSetting;
   readonly profileId?: string | undefined;
+  readonly surface?: "linear" | undefined;
   readonly updatedAt: string;
 }): PreviewSessionSnapshot => ({
   threadId: input.threadId,
@@ -151,6 +154,7 @@ const buildIdleSnapshot = (input: {
   canGoForward: false,
   viewport: input.viewport,
   ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
+  ...(input.surface === undefined ? {} : { surface: input.surface }),
   updatedAt: input.updatedAt,
 });
 
@@ -236,6 +240,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
             title: "",
             viewport,
             profileId: input.profileId,
+            surface: input.surface,
             updatedAt,
           })
         : buildIdleSnapshot({
@@ -243,6 +248,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
             tabId,
             viewport,
             profileId: input.profileId,
+            surface: input.surface,
             updatedAt,
           });
       yield* SynchronizedRef.modifyEffect(stateRef, (state) =>
@@ -282,6 +288,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
             session.snapshot.navStatus._tag === "Idle" ? "" : session.snapshot.navStatus.title;
           const resolvedTitle = input.resolvedTitle ?? previousTitle;
           const snapshot: PreviewSessionSnapshot = {
+            ...session.snapshot,
             threadId: session.threadId,
             tabId: session.tabId,
             navStatus: { _tag: "Success", url, title: resolvedTitle },
@@ -318,6 +325,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       Effect.fn("PreviewManager.reportSessionStatus")(function* (session) {
         const updatedAt = yield* currentIsoTimestamp;
         const snapshot: PreviewSessionSnapshot = {
+          ...session.snapshot,
           threadId: session.threadId,
           tabId: session.tabId,
           navStatus: input.navStatus,

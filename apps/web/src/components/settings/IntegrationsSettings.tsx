@@ -1,3 +1,4 @@
+import { LinearSettings } from "./LinearSettings";
 import { DeviceHostUpdates } from "../device/DeviceHostUpdates";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -1448,7 +1449,7 @@ export function IntegrationsSettingsPanel() {
       <ProjectDefaultsSettings category="integrations" />
       <SettingsSection id="browser" title="Browser">
         {previewDefaultsDisabled ? (
-          <SettingsUnavailableGroup message="Only available in the desktop app.">
+          <SettingsUnavailableGroup message="Available only in the desktop app">
             {previewDefaults}
           </SettingsUnavailableGroup>
         ) : (
@@ -1456,6 +1457,7 @@ export function IntegrationsSettingsPanel() {
         )}
       </SettingsSection>
       <DeviceIntegrationSettings />
+      <LinearSettings />
     </SettingsPageContainer>
   );
 }

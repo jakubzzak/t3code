@@ -1023,12 +1023,14 @@ export const DesktopPreviewTabInputSchema = Schema.Struct({
  * still gets the historical defaults.
  */
 export const DesktopPreviewCreateTabInputSchema = Schema.Struct({
+  surface: Schema.optional(Schema.Literal("linear")),
   tabId: DesktopPreviewTabIdSchema,
   zoomFactor: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
   colorScheme: Schema.optional(DesktopPreviewColorSchemeSchema),
 });
 
 export interface DesktopPreviewTabDefaults {
+  readonly surface?: "linear" | undefined;
   readonly zoomFactor?: number | undefined;
   readonly colorScheme?: DesktopPreviewColorScheme | undefined;
 }

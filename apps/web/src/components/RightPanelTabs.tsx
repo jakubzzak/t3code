@@ -1,3 +1,4 @@
+import { LinearIcon } from "./linear/LinearIcon";
 import {
   clearSectionSelection,
   selectedNavigationSection,
@@ -126,7 +127,7 @@ interface RightPanelTabsProps {
   onAddDiff: () => void;
   onAddFiles: () => void;
   onAddPullRequest: () => void;
-  onAddPullRequests: () => void;
+  onAddLinear: () => void;
   onAddAgents: () => void;
   onAddDevice: () => void;
   browserAvailable: boolean;
@@ -134,7 +135,7 @@ interface RightPanelTabsProps {
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
-  pullRequestsAvailable: boolean;
+  linearAvailable: boolean;
   agentsAvailable: boolean;
   deviceAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
@@ -172,7 +173,7 @@ const SURFACE_DISABLED_REASONS = {
 
 /** One-line unavailability hints for the empty-state rows. */
 const SURFACE_UNAVAILABLE_HINTS = {
-  browser: "Only available in the desktop app.",
+  browser: "Available only in the desktop app",
   terminal: "Available when a project is open.",
   files: "Available when a project is open.",
   diff: "Available for Git repositories.",
@@ -317,7 +318,7 @@ function RightPanelEmptyState(props: {
   onAddDiff: () => void;
   onAddFiles: () => void;
   onAddPullRequest: () => void;
-  onAddPullRequests: () => void;
+  onAddLinear: () => void;
   onAddAgents: () => void;
   onAddDevice: () => void;
   browserAvailable: boolean;
@@ -325,7 +326,7 @@ function RightPanelEmptyState(props: {
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
-  pullRequestsAvailable: boolean;
+  linearAvailable: boolean;
   agentsAvailable: boolean;
   deviceAvailable: boolean;
   liveAgentCount: number;
@@ -380,12 +381,14 @@ function RightPanelEmptyState(props: {
       badgeCount: 0,
     },
     {
-      label: "Linked pull requests",
-      icon: PullRequestGlyph.link,
+      label: "Linear",
+      icon: LinearIcon,
       shortcut: "L",
-      available: props.pullRequestsAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequests,
-      onClick: props.onAddPullRequests,
+      available: props.linearAvailable,
+      disabledReason: isElectron
+        ? "Enable Linear view in Settings → Features."
+        : "Available only in the desktop app",
+      onClick: props.onAddLinear,
       badgeCount: 0,
     },
     {
@@ -604,6 +607,7 @@ function surfaceTitle(
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
+      if (snapshot?.surface === "linear") return "Linear";
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
       if (snapshot.navStatus.title.trim().length > 0) return snapshot.navStatus.title;
       try {
@@ -652,6 +656,7 @@ function SurfaceIcon({
   switch (surface.kind) {
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
+      if (snapshot?.surface === "linear") return <LinearIcon className="size-3 shrink-0" />;
       const url = !snapshot || snapshot.navStatus._tag === "Idle" ? null : snapshot.navStatus.url;
       const favicon = snapshot ? (desktopByTabId[snapshot.tabId]?.favicon ?? null) : null;
       const capturedUrl =
@@ -880,12 +885,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddPullRequest,
     },
     {
-      label: "Linked pull requests",
-      icon: PullRequestGlyph.link,
+      label: "Linear",
+      icon: LinearIcon,
       shortcut: "L",
-      available: props.pullRequestsAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
-      onClick: props.onAddPullRequests,
+      available: props.linearAvailable,
+      disabledReason: isElectron
+        ? "Enable Linear view in Settings → Features."
+        : "Available only in the desktop app",
+      onClick: props.onAddLinear,
     },
     {
       label: "Agents",
@@ -969,7 +976,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         ? (props.desktopByTabId[menuPreviewTabId] ?? null)
         : null;
       const menuMuted = menuOverlay?.audioMuted ?? false;
-      if (surface.kind === "preview") {
+      if (
+        surface.kind === "preview" &&
+        (!menuPreviewTabId || props.previewSessions[menuPreviewTabId]?.surface !== "linear")
+      ) {
         // Not gated on audibility: silencing a quiet tab ahead of time is the
         // point, so the item is offered whenever the tab is mutable at all.
         items.push({
@@ -1136,7 +1146,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
               // Desktop state is keyed by the session id, but desktop actions
               // must be addressed with the runtime id.
               const audio = tabAudioState(
-                previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
+                previewTabId && props.previewSessions[previewTabId]?.surface !== "linear"
+                  ? (props.desktopByTabId[previewTabId] ?? null)
+                  : null,
               );
               const audioRuntimeTabId = previewTabId
                 ? (props.previewRuntimeTabId?.(previewTabId) ?? null)
@@ -1418,7 +1430,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
-            onAddPullRequests={props.onAddPullRequests}
+            onAddLinear={props.onAddLinear}
             onAddAgents={props.onAddAgents}
             onAddDevice={props.onAddDevice}
             browserAvailable={props.browserAvailable}
@@ -1426,7 +1438,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
             pullRequestAvailable={props.pullRequestAvailable}
-            pullRequestsAvailable={props.pullRequestsAvailable}
+            linearAvailable={props.linearAvailable}
             agentsAvailable={props.agentsAvailable}
             deviceAvailable={props.deviceAvailable}
             liveAgentCount={props.liveAgentCount}

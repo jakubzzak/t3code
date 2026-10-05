@@ -296,6 +296,10 @@ export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
 
 export const ClientSettingsSchema = Schema.Struct({
+  linearViewEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  linearProjectLoginEmails: Schema.Record(Schema.String, TrimmedString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
@@ -1025,7 +1029,13 @@ export const WorktreeCleanup = Schema.NullOr(
 );
 export type WorktreeCleanup = typeof WorktreeCleanup.Type;
 
+const LinearWorkspace = TrimmedString.check(
+  Schema.isMaxLength(128),
+  Schema.isPattern(/^(?:[a-zA-Z0-9][a-zA-Z0-9-]*)?$/),
+);
+
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+  "linearWorkspace",
   "worktreeCleanup",
   "defaultModelSelection",
   "defaultRuntimeMode",
@@ -1053,6 +1063,7 @@ export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTIN
  * model, no dedicated writer model, never auto-settle).
  */
 export const ProjectSettingsOverrides = Schema.Struct({
+  linearWorkspace: Schema.optionalKey(LinearWorkspace),
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
@@ -1107,6 +1118,7 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  linearWorkspace: LinearWorkspace.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(StorageCleanupSettings)({}))),
@@ -1468,6 +1480,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  linearWorkspace: Schema.optionalKey(LinearWorkspace),
   worktreeCleanup: Schema.optionalKey(
     Schema.NullOr(
       Schema.Union([
@@ -1599,6 +1612,8 @@ export const ServerSettingsPatch = Schema.Struct({
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
+  linearViewEnabled: Schema.optionalKey(Schema.Boolean),
+  linearProjectLoginEmails: Schema.optionalKey(Schema.Record(Schema.String, TrimmedString)),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),

@@ -12,6 +12,7 @@ import {
 } from "./settingsScope";
 
 export type SettingsPath =
+  | "/settings/features"
   | "/settings/projects"
   | "/settings/general"
   | "/settings/appearance"
@@ -93,6 +94,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
+  "/settings/features": "Features",
   "/settings/archived": "Archive",
 };
 
@@ -129,6 +131,26 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
  * that may not be mounted point at their nearest stable section instead.
  */
 export const SETTINGS_SEARCH_ITEMS = [
+  {
+    id: "linear-view",
+    title: "Linear view",
+    to: "/settings/features",
+    searchTerms: ["feature flag optional desktop issue"],
+  },
+  {
+    id: "linear-workspace",
+    title: "Linear workspace",
+    to: "/settings/integrations",
+    scope: "project",
+    searchTerms: ["issue team workspace"],
+  },
+  {
+    id: "linear-login-email",
+    title: "Linear login email",
+    to: "/settings/integrations",
+    scope: "project",
+    searchTerms: ["linear account email override"],
+  },
   {
     id: "storage-worktrees",
     title: "Worktree cleanup",
@@ -846,6 +868,7 @@ export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const));
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
+  "/settings/features": null,
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/appearance": null,

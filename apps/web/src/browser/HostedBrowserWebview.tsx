@@ -50,6 +50,7 @@ export function HostedBrowserWebview(props: {
   readonly tabId: string;
   readonly runtimeTabId: string;
   readonly initialUrl: string | null;
+  readonly surface?: "linear" | undefined;
   readonly viewport: PreviewViewportSetting;
   readonly pictureInPicture: boolean;
   /**
@@ -68,10 +69,13 @@ export function HostedBrowserWebview(props: {
     pictureInPicture,
     zoomFactor,
     profileId,
+    surface,
   } = props;
   const clientSettingsHydrated = useClientSettingsHydrated();
   const config = usePreviewWebviewConfig(threadRef.environmentId, profileId);
-  const [initialSrc] = useState(() => initialUrl ?? "about:blank");
+  const [initialSrc] = useState(() =>
+    surface === "linear" ? "about:blank" : (initialUrl ?? "about:blank"),
+  );
   const tabLeaseRef = useRef<AcquiredDesktopTab | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<ElectronWebview | null>(null);
@@ -100,13 +104,13 @@ export function HostedBrowserWebview(props: {
   useEffect(() => {
     if (!clientSettingsHydrated) return;
     crashRecoveryRef.current = INITIAL_WEBVIEW_CRASH_RECOVERY_STATE;
-    const lease = acquireDesktopTab(runtimeTabId);
+    const lease = acquireDesktopTab(runtimeTabId, surface);
     tabLeaseRef.current = lease;
     return () => {
       if (tabLeaseRef.current === lease) tabLeaseRef.current = null;
       lease.release();
     };
-  }, [clientSettingsHydrated, runtimeTabId]);
+  }, [clientSettingsHydrated, runtimeTabId, surface]);
 
   const [webviewGeneration, setWebviewGeneration] = useState(0);
   const [recoverySrc, setRecoverySrc] = useState(initialSrc);
@@ -126,9 +130,12 @@ export function HostedBrowserWebview(props: {
     if (!clientSettingsHydrated || !webview || !config || !bridge) return;
     let disposed = false;
     let recoveryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let registered = false;
+    let registering = false;
     const register = () => {
       const lease = tabLeaseRef.current;
-      if (!lease) return;
+      if (!lease || (surface === "linear" && registered) || registering) return;
+      registering = true;
       void (async () => {
         try {
           // The main-process tab and the DOM webview are created by separate
@@ -138,10 +145,18 @@ export function HostedBrowserWebview(props: {
           if (disposed || webviewRef.current !== webview) return;
           const webContentsId = webview.getWebContentsId();
           if (Number.isInteger(webContentsId) && webContentsId > 0) {
+            const urlToLoad = latestUrlRef.current;
             await bridge.registerWebview(runtimeTabId, webContentsId);
+            registered = true;
+            // A Linear guest starts blank until its native origin policy is installed.
+            if (surface === "linear" && urlToLoad && !disposed) {
+              await bridge.navigate(runtimeTabId, urlToLoad);
+            }
           }
         } catch {
           // did-attach/dom-ready will retry if the guest was not ready yet.
+        } finally {
+          registering = false;
         }
       })();
     };
@@ -153,7 +168,9 @@ export function HostedBrowserWebview(props: {
       recoveryTimeout = setTimeout(() => {
         recoveryTimeout = null;
         if (!disposed) {
-          setRecoverySrc(latestUrlRef.current ?? initialSrc);
+          setRecoverySrc(
+            surface === "linear" ? "about:blank" : (latestUrlRef.current ?? initialSrc),
+          );
           setWebviewGeneration((generation) => generation + 1);
         }
       }, recovery.delayMs);
@@ -186,7 +203,7 @@ export function HostedBrowserWebview(props: {
       webview.removeEventListener("render-process-gone", recoverGuest);
       webview.removeEventListener("focus", dismissHostPopups);
     };
-  }, [clientSettingsHydrated, config, initialSrc, runtimeTabId, webviewGeneration]);
+  }, [clientSettingsHydrated, config, initialSrc, runtimeTabId, surface, webviewGeneration]);
 
   const active = presentation.visible && presentation.rect !== null;
   const lastRect = presentation.rect;
