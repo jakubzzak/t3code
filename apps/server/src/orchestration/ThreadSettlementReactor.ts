@@ -1,5 +1,5 @@
 import {
-  CommandId,
+  ThreadCleanupError,
   type OrchestrationEvent,
   type ServerSettings as ServerSettingsValue,
   type ThreadId,
@@ -8,11 +8,11 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -23,6 +23,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as OrchestrationEngine from "./Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./Services/ProjectionSnapshotQuery.ts";
+import * as ThreadCleanup from "./ThreadCleanup.ts";
 import { pullRequestMatchesProject, readSweepSnapshot } from "./ThreadPullRequestReactor.ts";
 import {
   isAutoSettlementCandidate,
@@ -84,7 +85,7 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const git = yield* GitManager.GitManager;
   const pullRequests = yield* PullRequestService.PullRequestService;
-  const crypto = yield* Crypto.Crypto;
+  const cleanup = yield* ThreadCleanup.ThreadCleanup;
   const fileSystem = yield* FileSystem.FileSystem;
 
   const sweep = Effect.fn("ThreadSettlementReactor.sweep")(function* (
@@ -103,7 +104,7 @@ export const make = Effect.gen(function* () {
     const candidates = snapshot.threads.filter((thread) => isAutoSettlementCandidate(thread, now));
 
     // Return the thread when it still needs a pull request decision. A rejected
-    // dispatch skips it for this snapshot instead of retrying through a lookup.
+    // cleanup skips it for this snapshot instead of retrying through a lookup.
     const settleThread = Effect.fnUntraced(
       function* (thread: (typeof candidates)[number], pullRequest: SettlementPullRequest | null) {
         const settings = resolveProjectSettings(
@@ -121,14 +122,28 @@ export const make = Effect.gen(function* () {
         if (settledAt === null) {
           return thread;
         }
-        const uuid = yield* crypto.randomUUIDv4;
-        yield* engine.dispatch({
-          type: "thread.auto-settle",
-          commandId: CommandId.make(`server:auto-settle:${thread.id}:${uuid}`),
-          threadId: thread.id,
-          snapshotSequence: snapshot.snapshotSequence,
-          settledAt,
-        });
+        const operation = yield* cleanup.start(
+          { threadId: thread.id },
+          {
+            snapshotSequence: snapshot.snapshotSequence,
+            settledAt,
+            pullRequest,
+          },
+        );
+        const result = yield* cleanup.subscribe(thread.id).pipe(
+          Stream.filter(
+            (state) => state?.operationId === operation.operationId && state.status !== "closing",
+          ),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        );
+        if (result?.status !== "complete") {
+          return yield* new ThreadCleanupError({
+            threadId: thread.id,
+            detail:
+              "Automatic cleanup failed. The chat remains unsettled and cleanup can be retried.",
+          });
+        }
         return null;
       },
       (effect, thread) =>

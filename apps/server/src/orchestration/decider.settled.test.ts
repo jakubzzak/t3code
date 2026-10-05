@@ -121,6 +121,25 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
+  it.effect("preserves automatic ordering after verified cleanup", () =>
+    Effect.gen(function* () {
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.cleanup.complete",
+          commandId: CommandId.make("auto-cleanup-complete"),
+          threadId: ThreadId.make("thread-1"),
+          settledAt: SETTLED_AT,
+        },
+        readModel: makeReadModel(null, null, makeSession("stopped")),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      const settled = events.find((event) => event.type === "thread.settled");
+      expect(settled?.payload.settledAt).toBe(SETTLED_AT);
+      expect(settled?.payload.updatedAt).toBe(settled?.occurredAt);
+      expect(settled?.payload.updatedAt).not.toBe(SETTLED_AT);
+    }),
+  );
+
   it.effect("preserves the activity stamp when automatically settling", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({

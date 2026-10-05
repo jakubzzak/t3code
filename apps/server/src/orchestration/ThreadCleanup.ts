@@ -23,6 +23,11 @@ import * as PreviewManager from "../preview/Manager.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import * as ThreadProcesses from "../process/ThreadProcesses.ts";
+import { OrchestrationEventStore } from "../persistence/Services/OrchestrationEventStore.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { ThreadBackgroundLivenessService } from "./ThreadBackgroundLiveness.ts";
+import { resolveAutoSettlementAt, type SettlementPullRequest } from "./ThreadSettlementPolicy.ts";
 import {
   beginThreadCleanup,
   finishThreadCleanup,
@@ -36,6 +41,11 @@ export class ThreadCleanup extends Context.Service<
   {
     readonly start: (
       input: ThreadCleanupInput,
+      automatic?: {
+        readonly snapshotSequence: number;
+        readonly settledAt: string;
+        readonly pullRequest: SettlementPullRequest | null;
+      },
     ) => Effect.Effect<ThreadCleanupSnapshot, ThreadCleanupError>;
     readonly subscribe: (threadId: ThreadId) => Stream.Stream<ThreadCleanupSnapshot | null>;
   }
@@ -53,6 +63,9 @@ const make = Effect.gen(function* () {
   const processes = yield* ThreadProcesses.ThreadProcesses;
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const queries = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const events = yield* OrchestrationEventStore;
+  const background = yield* ThreadBackgroundLivenessService;
+  const settings = yield* ServerSettingsService;
   const states = yield* SubscriptionRef.make(new Map<ThreadId, ThreadCleanupSnapshot>());
   const running = new Map<ThreadId, string>();
   // A captured child can lose its ownership marker and ancestry when its parent exits.
@@ -104,7 +117,7 @@ const make = Effect.gen(function* () {
   });
   const commandId = crypto.randomUUIDv4.pipe(Effect.map((id) => CommandId.make(`cleanup:${id}`)));
 
-  const run = Effect.fn("ThreadCleanup.run")(function* (threadId: ThreadId) {
+  const run = Effect.fn("ThreadCleanup.run")(function* (threadId: ThreadId, settledAt?: string) {
     const shell = yield* queries.getThreadShellById(threadId);
     if (Option.isNone(shell))
       return yield* new ThreadCleanupError({ threadId, detail: "Chat no longer exists." });
@@ -265,6 +278,7 @@ const make = Effect.gen(function* () {
           type: "thread.cleanup.complete",
           commandId: yield* commandId,
           threadId,
+          ...(settledAt === undefined ? {} : { settledAt }),
         });
       }),
     );
@@ -276,7 +290,10 @@ const make = Effect.gen(function* () {
   });
 
   const start = Effect.fn("ThreadCleanup.start")(
-    function* (input: ThreadCleanupInput) {
+    function* (
+      input: ThreadCleanupInput,
+      automatic?: Parameters<ThreadCleanup["Service"]["start"]>[1],
+    ) {
       const previous = (yield* SubscriptionRef.get(states)).get(input.threadId);
       if (running.has(input.threadId) && previous?.status === "closing") return previous;
       const shell = yield* queries.getThreadShellById(input.threadId);
@@ -304,8 +321,53 @@ const make = Effect.gen(function* () {
       if (running.has(input.threadId) && afterPreflight?.status === "closing")
         return afterPreflight;
       const operationId = yield* crypto.randomUUIDv4;
+      if (automatic) {
+        const latest = yield* queries.getThreadShellById(input.threadId);
+        if (Option.isNone(latest)) {
+          return yield* new ThreadCleanupError({
+            threadId: input.threadId,
+            detail: "Chat no longer exists.",
+          });
+        }
+        const currentSettings = resolveProjectSettings(
+          yield* settings.getSettings,
+          latest.value.projectId,
+        ).settings;
+        if (
+          resolveAutoSettlementAt({
+            thread: latest.value,
+            pullRequest: automatic.pullRequest,
+            now: DateTime.formatIso(yield* DateTime.now),
+            autoSettleAfterDays: currentSettings.sidebarAutoSettleAfterDays,
+            autoSettleOnMerge: currentSettings.sidebarAutoSettleOnMerge,
+          }) === null ||
+          (yield* events.hasEventAfter({
+            aggregateKind: "thread",
+            aggregateId: input.threadId,
+            sequenceExclusive: automatic.snapshotSequence,
+          }))
+        ) {
+          return yield* new ThreadCleanupError({
+            threadId: input.threadId,
+            detail: "Chat changed before automatic cleanup. It will be checked again.",
+          });
+        }
+      }
+      const latestState = (yield* SubscriptionRef.get(states)).get(input.threadId);
+      if (running.has(input.threadId) && latestState?.status === "closing") return latestState;
+      if (automatic && background.getThreadBackgroundLiveness(input.threadId) !== null) {
+        return yield* new ThreadCleanupError({
+          threadId: input.threadId,
+          detail: "Chat has live background work. Automatic cleanup was skipped.",
+        });
+      }
+      if (!beginThreadCleanup(input.threadId, automatic === undefined)) {
+        return yield* new ThreadCleanupError({
+          threadId: input.threadId,
+          detail: "Chat has an active turn. Automatic cleanup was skipped.",
+        });
+      }
       running.set(input.threadId, operationId);
-      beginThreadCleanup(input.threadId);
       const initial: ThreadCleanupSnapshot = {
         operationId,
         threadId: input.threadId,
@@ -318,7 +380,11 @@ const make = Effect.gen(function* () {
         ],
       };
       yield* SubscriptionRef.update(states, (map) => new Map(map).set(input.threadId, initial));
-      yield* withThreadResourceLease(input.threadId, run(input.threadId), true).pipe(
+      yield* withThreadResourceLease(
+        input.threadId,
+        run(input.threadId, automatic?.settledAt),
+        true,
+      ).pipe(
         Effect.catchCause((cause) =>
           update(input.threadId, (state) => ({
             ...state,

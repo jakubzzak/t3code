@@ -6,7 +6,7 @@ import {
   ProviderDriverKind,
   PullRequestOperationError,
   ThreadId,
-  type OrchestrationCommand,
+  ThreadCleanupError,
   type OrchestrationEvent,
   type OrchestrationProjectShell,
   type OrchestrationShellSnapshot,
@@ -41,12 +41,8 @@ import {
 } from "../pullRequest/PullRequestService.ts";
 import { ServerActivation } from "../serverActivation.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery.ts";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "./Services/OrchestrationEngine.ts";
+import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
@@ -54,6 +50,7 @@ import {
 import * as ThreadBackgroundLiveness from "./ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "./ThreadPlanProgress.ts";
 import * as ThreadSettlementReactor from "./ThreadSettlementReactor.ts";
+import * as ThreadCleanup from "./ThreadCleanup.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Path from "effect/Path";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -69,7 +66,9 @@ const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("settlement-project");
 const LINKED_PROJECT_ID = ProjectId.make("linked-settlement-project");
 
-type AutoSettleCommand = Extract<OrchestrationCommand, { readonly type: "thread.auto-settle" }>;
+type AutoCleanupRequest = NonNullable<
+  Parameters<ThreadCleanup.ThreadCleanup["Service"]["start"]>[1]
+> & { readonly threadId: ThreadId };
 
 const testCrypto = Crypto.make({
   randomBytes: (size) => new Uint8Array(size).fill(1),
@@ -184,9 +183,8 @@ interface HarnessOptions {
   readonly branchPullRequest?: GitManager["Service"]["branchPullRequest"];
   readonly pullRequestSummary?: PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
-  readonly onDispatch?: (
-    command: AutoSettleCommand,
-  ) => Effect.Effect<void, OrchestrationCommandInvariantError>;
+  readonly cleanupStates?: ThreadCleanup.ThreadCleanup["Service"]["subscribe"];
+  readonly onCleanup?: (command: AutoCleanupRequest) => Effect.Effect<void, ThreadCleanupError>;
 }
 
 const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options: HarnessOptions) {
@@ -200,7 +198,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const settingsChanges = yield* PubSub.unbounded<ServerSettings>();
   const mergedPullRequests = yield* PubSub.unbounded<PullRequestMergeEvent>();
   const domainEvents = yield* PubSub.unbounded<OrchestrationEvent>();
-  const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
+  const commands = yield* Ref.make<ReadonlyArray<AutoCleanupRequest>>([]);
   const branchCalls = yield* Ref.make<
     ReadonlyArray<{ readonly cwd: string; readonly branch: string }>
   >([]);
@@ -244,15 +242,24 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       );
     });
 
-  const dispatch: OrchestrationEngineShape["dispatch"] = (command) => {
-    if (command.type !== "thread.auto-settle") {
-      return Effect.die(new Error(`Unexpected command: ${command.type}`));
-    }
-    return Ref.update(commands, (recorded) => [...recorded, command]).pipe(
-      Effect.andThen(options.onDispatch?.(command) ?? Effect.void),
-      Effect.as({ sequence: 1 }),
-    );
-  };
+  const cleanupSnapshot = (threadId: ThreadId) => ({
+    operationId: String(threadId),
+    threadId,
+    status: "complete" as const,
+    resources: [],
+  });
+  const cleanup = ThreadCleanup.ThreadCleanup.of({
+    start: (input, automatic) => {
+      if (!automatic || input.interruptAgent)
+        return Effect.die("Expected automatic cleanup without interruption");
+      const request = { threadId: input.threadId, ...automatic };
+      return Ref.update(commands, (recorded) => [...recorded, request]).pipe(
+        Effect.andThen(options.onCleanup?.(request) ?? Effect.void),
+        Effect.as(cleanupSnapshot(input.threadId)),
+      );
+    },
+    subscribe: options.cleanupStates ?? ((threadId) => Stream.make(cleanupSnapshot(threadId))),
+  });
 
   const serverSettings = ServerSettingsService.of({
     start: Effect.void,
@@ -302,13 +309,14 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     }),
     Layer.mock(OrchestrationEngineService)({
       readEvents: () => Stream.empty,
-      dispatch,
+      dispatch: () => Effect.die("Settlement must go through cleanup"),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: PubSub.subscribe(domainEvents).pipe(
         Effect.map((subscription) => Stream.fromSubscription(subscription)),
       ),
       latestSequence: Effect.succeed(0),
     }),
+    Layer.succeed(ThreadCleanup.ThreadCleanup, cleanup),
     Layer.succeed(ServerSettingsService, serverSettings),
     Layer.succeed(ServerActivation, Deferred.await(activation)),
     Layer.succeed(Crypto.Crypto, testCrypto),
@@ -352,6 +360,44 @@ const startHarness = Effect.fn("startThreadSettlementHarness")(function* (
 });
 
 describe("ThreadSettlementReactor", () => {
+  for (const status of ["complete", "failed"] as const) {
+    it.effect(`waits for ${status} cleanup before draining and continues other chats`, () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const subscribed = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const drained = yield* Deferred.make<void>();
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([makeThread("first"), makeThread("second")]),
+          cleanupStates: (threadId) =>
+            Stream.fromEffect(
+              Deferred.succeed(subscribed, undefined).pipe(
+                Effect.andThen(Deferred.await(release)),
+                Effect.as({ operationId: String(threadId), threadId, status, resources: [] }),
+              ),
+            ),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* reactor.start();
+          yield* Deferred.succeed(fixture.activation, undefined);
+          yield* Deferred.await(subscribed);
+          const drain = yield* reactor.drain.pipe(
+            Effect.andThen(Deferred.succeed(drained, undefined)),
+            Effect.forkChild,
+          );
+          assert.strictEqual(yield* Deferred.isDone(drained), false);
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(drain);
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.commands)).map(({ threadId }) => threadId).sort(),
+            ["first", "second"],
+          );
+        }).pipe(Effect.provide(fixture.layer));
+      }).pipe(Effect.scoped),
+    );
+  }
+
   it("distinguishes a project that inherits the threshold from one that disables it", () => {
     const inherits = ThreadSettlementReactor.autoSettlementSettingsKey({
       ...DEFAULT_SERVER_SETTINGS,
@@ -888,7 +934,7 @@ describe("ThreadSettlementReactor", () => {
                     ),
               ),
             ),
-          onDispatch: () => Deferred.succeed(mergedThreadSettled, undefined),
+          onCleanup: () => Deferred.succeed(mergedThreadSettled, undefined),
         });
 
         yield* Effect.gen(function* () {
@@ -930,7 +976,7 @@ describe("ThreadSettlementReactor", () => {
               Ref.get(state).pipe(
                 Effect.map((pullRequestState) => makeBranchPullRequest(pullRequestState)),
               ),
-            onDispatch: () => Deferred.succeed(mergedThreadSettled, undefined),
+            onCleanup: () => Deferred.succeed(mergedThreadSettled, undefined),
           });
 
           yield* Effect.gen(function* () {
@@ -996,7 +1042,7 @@ describe("ThreadSettlementReactor", () => {
               ),
               Effect.map(() => makePullRequestSummary({ ...input, state: "open" })),
             ),
-          onDispatch: () => Deferred.succeed(mergedThreadSettled, undefined),
+          onCleanup: () => Deferred.succeed(mergedThreadSettled, undefined),
         });
 
         yield* Effect.gen(function* () {
@@ -1408,17 +1454,17 @@ describe("ThreadSettlementReactor", () => {
     ),
   );
 
-  it.effect("carries the snapshot guard and survives a stale dispatch rejection", () =>
+  it.effect("carries the snapshot guard and survives a stale cleanup rejection", () =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse(NOW));
         const fixture = yield* makeHarness({
           snapshot: makeSnapshot([makeThread("stale"), makeThread("next-candidate")]),
-          onDispatch: (command) =>
+          onCleanup: (command) =>
             command.threadId === ThreadId.make("stale")
               ? Effect.fail(
-                  new OrchestrationCommandInvariantError({
-                    commandType: command.type,
+                  new ThreadCleanupError({
+                    threadId: command.threadId,
                     detail: "thread changed after settlement evaluation",
                   }),
                 )

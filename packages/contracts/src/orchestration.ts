@@ -1666,6 +1666,7 @@ const ThreadCleanupCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.cleanup.complete"),
   commandId: CommandId,
   threadId: ThreadId,
+  settledAt: Schema.optionalKey(IsoDateTime),
 });
 
 const InternalOrchestrationCommand = Schema.Union([
