@@ -79,16 +79,26 @@ take longer.
 
 ### Open a project from a terminal
 
-With the desktop app already running on the same machine:
+In the desktop app, open **Settings → General → Terminal** and install the `t3`
+command. No separate CLI installation is needed. Follow any PATH instructions
+shown in Settings, then run this from your project directory:
 
 ```bash
-t3 app
+t3 .
 ```
 
-This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
-the desktop app, so a standalone server or an SSH session is not enough. If the
-command cannot reach the app, start or update the desktop app and try again.
+This starts or focuses the desktop app and opens a fresh thread, adding the local
+project if needed. Pass another directory, such as `t3 ../my-project` or
+`t3 "/path/to/My Project"`, to open it instead. Use `./` for a directory whose name
+matches a command, such as `t3 ./serve`.
+
+Existing commands keep their behavior: bare `t3` starts the server, and `t3 app`
+opens the current directory in an already running desktop app. Desktop activation
+requires the app on the same machine and cannot run over SSH.
+
+Settings reports any existing `t3` installation instead of replacing it. You can
+remove the desktop-managed command from the same Settings section; projects and
+threads are kept.
 
 ## Mobile app
 

@@ -12,6 +12,7 @@ import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
+import * as DesktopTerminalCommand from "./DesktopTerminalCommand.ts";
 import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
@@ -165,6 +166,12 @@ const bootstrap = Effect.gen(function* () {
   const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
   const appActivation = yield* DesktopAppActivation.DesktopAppActivation;
   yield* logBootstrapInfo("bootstrap start");
+  const terminalCommand = yield* DesktopTerminalCommand.DesktopTerminalCommand;
+  yield* terminalCommand.register.pipe(
+    Effect.catch((error) =>
+      logStartupError("desktop launcher registration unavailable", { error }),
+    ),
+  );
 
   const settings = yield* desktopSettings.get;
   // The renderer is served from the bundled client (or Vite in development)

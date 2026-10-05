@@ -266,6 +266,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(IpcChannels.UPDATE_STATE_CHANNEL, wrappedListener);
     };
   },
+  terminalCommand: {
+    get: () => ipcRenderer.invoke(IpcChannels.TERMINAL_COMMAND_GET_CHANNEL),
+    install: () => ipcRenderer.invoke(IpcChannels.TERMINAL_COMMAND_INSTALL_CHANNEL),
+    remove: () => ipcRenderer.invoke(IpcChannels.TERMINAL_COMMAND_REMOVE_CHANNEL),
+  },
   appActivation: {
     setReady: (ready) =>
       ipcRenderer.invoke(IpcChannels.DESKTOP_APP_ACTIVATION_READY_CHANNEL, ready),

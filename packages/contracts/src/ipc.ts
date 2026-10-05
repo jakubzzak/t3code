@@ -26,6 +26,7 @@ import type { EditorId } from "./editor.ts";
 
 import type {
   DesktopAppActivationRequest,
+  DesktopTerminalCommandState,
   DesktopAppActivationResponse,
 } from "./desktopAppActivation.ts";
 
@@ -1247,6 +1248,11 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  terminalCommand?: {
+    get: () => Promise<DesktopTerminalCommandState>;
+    install: () => Promise<DesktopTerminalCommandState>;
+    remove: () => Promise<DesktopTerminalCommandState>;
+  };
   /** Present when the desktop shell accepts `t3 app` activation requests. */
   appActivation?: {
     setReady: (ready: boolean) => Promise<void>;
