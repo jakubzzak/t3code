@@ -18,7 +18,7 @@ Collapsed sidebars open when selected; navigation stops at either end.
 In the chat list, Up/Down highlights visible chats and drafts without opening them. Enter
 opens the highlighted chat and focuses its composer. In the conversation, Enter returns
 to the composer. With the right panel selected, use B for Browser, T for Terminal, F for Files,
-D for Diff, P for Pull request, L for Linked pull requests, A for Agents, or M for Device.
+D for Diff, P for Pull request, L for Linear, A for Agents, or M for Device.
 Only available surfaces open. These letters remain ordinary typing inside focused content.
 
 The right panel keeps its active view when you return. With no input focused, Option+Left/Right

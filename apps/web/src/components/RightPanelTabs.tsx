@@ -958,7 +958,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       if (event.repeat) return;
       if (event.shiftKey) {
         const active = props.surfaces.find((surface) => surface.id === props.activeSurfaceId);
-        if (active?.kind === "preview" && props.browserAvailable) openSurface(props.onAddBrowser);
+        const previewTabId = active ? previewTabIdOf(active, props.previewSessions) : null;
+        if (
+          active?.kind === "preview" &&
+          props.browserAvailable &&
+          (!previewTabId || props.previewSessions[previewTabId]?.surface !== "linear")
+        )
+          openSurface(props.onAddBrowser);
         if (active?.kind === "terminal" && props.terminalAvailable)
           openSurface(props.onAddTerminal);
       } else {

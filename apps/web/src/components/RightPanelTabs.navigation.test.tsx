@@ -16,7 +16,7 @@ const initial: RightPanelSurface[] = [
 const noop = () => {};
 Element.prototype.getAnimations ??= () => [];
 
-function Harness({ empty = false, list = false } = {}) {
+function Harness({ empty = false, list = false, linear = false } = {}) {
   const [surfaces, setSurfaces] = useState(empty ? [] : initial);
   const [active, setActive] = useState<RightPanelSurface | null>(empty ? null : initial[1]!);
   const addBrowser = () => {
@@ -45,7 +45,21 @@ function Harness({ empty = false, list = false } = {}) {
         activeSurfaceId={active?.id ?? null}
         environmentId={null}
         pendingSurfaceIds={new Set()}
-        previewSessions={{}}
+        previewSessions={
+          linear
+            ? {
+                "browser:2": {
+                  threadId: "thread-1",
+                  tabId: "browser:2",
+                  surface: "linear",
+                  navStatus: { _tag: "Idle" },
+                  canGoBack: false,
+                  canGoForward: false,
+                  updatedAt: "2026-10-05T00:00:00.000Z",
+                },
+              }
+            : {}
+        }
         desktopByTabId={{}}
         terminalLabelsById={new Map()}
         onActivate={setActive}
@@ -61,7 +75,7 @@ function Harness({ empty = false, list = false } = {}) {
         onAddAgents={() => setActive(initial[1]!)}
         onAddDiff={noop}
         onAddPullRequest={noop}
-        onAddPullRequests={noop}
+        onAddLinear={noop}
         onAddDevice={noop}
         browserAvailable
         terminalAvailable
@@ -69,7 +83,7 @@ function Harness({ empty = false, list = false } = {}) {
         agentsAvailable
         diffAvailable={false}
         pullRequestAvailable={false}
-        pullRequestsAvailable={false}
+        linearAvailable={false}
         deviceAvailable={false}
         liveAgentCount={0}
       >
@@ -204,5 +218,14 @@ it("creates another browser with panel focus without opening the chooser", async
   await press("t", { metaKey: true, shiftKey: true });
   expect(document.querySelectorAll("[data-active-tab]")).toHaveLength(4);
   expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(selected()).toBe("surfaces");
+});
+
+it("does not create an ordinary browser from an active Linear view", async () => {
+  await act(async () => root.render(<Harness linear />));
+  await press("b");
+  expect(view()).toBe("preview");
+  await press("t", { metaKey: true, shiftKey: true });
+  expect(document.querySelectorAll("[data-active-tab]")).toHaveLength(3);
   expect(selected()).toBe("surfaces");
 });
