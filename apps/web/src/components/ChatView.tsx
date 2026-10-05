@@ -3992,8 +3992,15 @@ export default function ChatView(props: ChatViewProps) {
   const revealNavigationSection = useEffectEvent((section: NavigationSection) => {
     setMaximizedRightPanelThreadKey(null);
     if (section === "chats") void setLeftSidebarOpen(true);
-    if (section === "surfaces" && activeThreadRef)
+    if (section === "surfaces" && activeThreadRef) {
       useRightPanelStore.getState().show(activeThreadRef);
+      if (
+        !rightPanelState.surfaces.some((surface) => surface.id === rightPanelState.activeSurfaceId)
+      ) {
+        const first = rightPanelState.surfaces[0];
+        if (first) activateRightPanelSurface(first);
+      }
+    }
   });
   useEffect(() => {
     if (shouldUseRightPanelSheet || !activeThreadRef) return;

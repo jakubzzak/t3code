@@ -1,6 +1,6 @@
 import { LinearIcon } from "./linear/LinearIcon";
 import {
-  clearSectionSelection,
+  focusRightPanel,
   selectedNavigationSection,
   isSectionNavigationBlocked,
 } from "../sectionNavigation";
@@ -40,7 +40,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
-  useLayoutEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -49,7 +49,7 @@ import {
 import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
 import type { RightPanelSurface } from "~/rightPanelStore";
-import { cn } from "~/lib/utils";
+import { cn, isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { Button } from "~/components/ui/button";
 import { AndroidIcon, AppleIcon } from "~/components/Icons";
@@ -806,6 +806,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const tabListRef = useRef<HTMLDivElement>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
+  const keyboardMenu = useRef(false);
   const [tabScrollState, setTabScrollState] = useState({
     hasOverflow: false,
     canScrollLeft: false,
@@ -913,34 +914,102 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   ] as const;
 
   const contentRef = useRef<HTMLDivElement>(null);
-  const focusOpenedSurface = useRef(false);
-  const actionsRef = useRef(addSurfaceActions);
-  useEffect(() => {
-    actionsRef.current = addSurfaceActions;
-  });
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (selectedNavigationSection() !== "surfaces") return;
-      if (isSectionNavigationBlocked()) return;
-      if (event.target instanceof Element && surfaceShortcutTargetsTypingContext(event.target))
-        return;
-      const action = surfaceShortcutActionForKey(actionsRef.current, event);
-      if (!action || event.repeat) return;
+  const openSurface = (action: () => void) => {
+    if (keyboardMenu.current || selectedNavigationSection() === "surfaces") focusRightPanel();
+    action();
+  };
+  const onPanelKey = useEffectEvent((event: KeyboardEvent) => {
+    if (selectedNavigationSection() !== "surfaces") return;
+    if (event.defaultPrevented || event.isComposing || isSectionNavigationBlocked()) return;
+    if (
+      event
+        .composedPath()
+        .some((target) => target instanceof Element && surfaceShortcutTargetsTypingContext(target))
+    )
+      return;
+    const consume = () => {
       event.preventDefault();
       event.stopPropagation();
-      clearSectionSelection();
-      focusOpenedSurface.current = true;
-      action.onClick();
     };
+    if (
+      event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey &&
+      (event.key === "ArrowLeft" || event.key === "ArrowRight")
+    ) {
+      consume();
+      const index = props.surfaces.findIndex((surface) => surface.id === props.activeSurfaceId);
+      const next =
+        props.surfaces[
+          Math.max(
+            0,
+            Math.min(props.surfaces.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1)),
+          )
+        ];
+      if (next && next.id !== props.activeSurfaceId) props.onActivate(next);
+      return;
+    }
+    const modifier = isMacPlatform(navigator.platform)
+      ? event.metaKey && !event.ctrlKey
+      : event.ctrlKey && !event.metaKey;
+    if (modifier && !event.altKey && event.key.toLowerCase() === "t") {
+      consume();
+      if (event.repeat) return;
+      if (event.shiftKey) {
+        const active = props.surfaces.find((surface) => surface.id === props.activeSurfaceId);
+        const previewTabId = active ? previewTabIdOf(active, props.previewSessions) : null;
+        if (
+          active?.kind === "preview" &&
+          props.browserAvailable &&
+          (!previewTabId || props.previewSessions[previewTabId]?.surface !== "linear")
+        )
+          openSurface(props.onAddBrowser);
+        if (active?.kind === "terminal" && props.terminalAvailable)
+          openSurface(props.onAddTerminal);
+      } else {
+        keyboardMenu.current = true;
+        setAddSurfaceMenuOpen(true);
+      }
+      return;
+    }
+    if (
+      event.key === "Tab" &&
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey
+    ) {
+      const content = contentRef.current;
+      if (content?.contains(document.activeElement) && document.activeElement !== content) return;
+      const candidates = content?.querySelectorAll<HTMLElement>(
+        '[data-panel-initial-focus], input:not([type="hidden"]), textarea, [contenteditable="true"], [role="option"], [role="treeitem"], button, [tabindex="0"]',
+      );
+      const controls = [...(candidates ?? [])].filter(
+        (node) =>
+          !node.matches(":disabled, [aria-disabled=true]") &&
+          !node.closest('[hidden], [inert], [aria-hidden="true"]') &&
+          getComputedStyle(node).display !== "none" &&
+          getComputedStyle(node).visibility !== "hidden",
+      );
+      const first =
+        controls.find((node) => node.hasAttribute("data-panel-initial-focus")) ?? controls[0];
+      if (first) {
+        consume();
+        first.focus();
+      }
+      return;
+    }
+    const action = surfaceShortcutActionForKey(addSurfaceActions, event);
+    if (!action || event.repeat) return;
+    consume();
+    openSurface(action.onClick);
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => onPanelKey(event);
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
-  useLayoutEffect(() => {
-    if (!focusOpenedSurface.current || props.activeSurfaceId === null) return;
-    focusOpenedSurface.current = false;
-    if (isSectionNavigationBlocked()) return;
-    if (!contentRef.current?.contains(document.activeElement)) contentRef.current?.focus();
-  });
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);
@@ -948,7 +1017,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     event.preventDefault();
     event.stopPropagation();
     setAddSurfaceMenuOpen(false);
-    action.onClick();
+    openSurface(action.onClick);
   };
 
   const handleTabContextMenu = useCallback(
@@ -1270,12 +1339,19 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 </div>
               );
             })}
-            {props.surfaces.length > 0 ? (
-              <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
+            {props.surfaces.length > 0 || addSurfaceMenuOpen ? (
+              <Menu
+                open={addSurfaceMenuOpen}
+                onOpenChange={(open) => {
+                  setAddSurfaceMenuOpen(open);
+                  if (!open && keyboardMenu.current) focusRightPanel();
+                }}
+              >
                 <MenuTrigger
                   render={
                     <Button
                       aria-label="Add panel surface"
+                      hidden={props.surfaces.length === 0}
                       className="shrink-0"
                       size="icon-xs"
                       variant="ghost-muted"
@@ -1289,6 +1365,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   side="bottom"
                   sideOffset={6}
                   onKeyDownCapture={handleAddSurfaceMenuKeyDown}
+                  anchor={props.surfaces.length === 0 ? contentRef : undefined}
+                  finalFocus={() => {
+                    if (!keyboardMenu.current) return true;
+                    keyboardMenu.current = false;
+                    focusRightPanel();
+                    return false;
+                  }}
                 >
                   {addSurfaceActions.map((action) => {
                     const Icon = action.icon;
@@ -1316,7 +1399,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                               if (!shouldOpenDefaultBrowserProfileFromMenuClick(pointerType))
                                 return;
                               setAddSurfaceMenuOpen(false);
-                              action.onClick();
+                              openSurface(action.onClick);
                             }}
                           >
                             <Icon />
@@ -1332,7 +1415,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                             {browserProfiles.map((profile) => (
                               <MenuItem
                                 key={profile.id}
-                                onClick={() => props.onAddBrowserInProfile(profile.id)}
+                                onClick={() =>
+                                  openSurface(() => props.onAddBrowserInProfile(profile.id))
+                                }
                               >
                                 <span className="min-w-0 truncate">{profile.name}</span>
                               </MenuItem>
@@ -1347,7 +1432,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                         available={action.available}
                         disabledReason={action.disabledReason}
                         shortcut={action.shortcut}
-                        onClick={action.onClick}
+                        onClick={() => openSurface(action.onClick)}
                       >
                         <Icon />
                         {action.label}

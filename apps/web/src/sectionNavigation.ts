@@ -17,8 +17,21 @@ const popupSelector = [
   ].map((slot) => `[data-slot="${slot}-popup"]:is([data-open],[data-ending-style])`),
 ].join(",");
 
-export function isSectionNavigationBlocked() {
-  return isContextMenuOpen() || document.querySelector(popupSelector) !== null;
+export function isSectionNavigationBlocked(allowInputSuggestions = false) {
+  if (isContextMenuOpen()) return true;
+  const inputFocused = document.activeElement?.matches(
+    'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+  );
+  return [...document.querySelectorAll(popupSelector)].some(
+    (popup) =>
+      !(
+        allowInputSuggestions &&
+        inputFocused &&
+        popup.matches(
+          '[data-slot="combobox-popup"], [data-slot="autocomplete-popup"], [role="listbox"]',
+        )
+      ),
+  );
 }
 
 export function selectedNavigationSection(): NavigationSection | null {
@@ -44,6 +57,15 @@ export function clearSectionSelection() {
 
 let terminalEscape: ((event: KeyboardEvent) => boolean) | undefined;
 let releaseGuestFocus: (() => void) | undefined;
+
+/** Keep keyboard navigation on the panel after a view or its creation menu changes. */
+export function focusRightPanel() {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  document.getSelection()?.removeAllRanges();
+  clearSectionSelection();
+  document.documentElement.removeAttribute("data-section-unfocused");
+  document.documentElement.dataset.selectedSection = "surfaces";
+}
 
 /** Called after contextual handlers, before an editor or terminal consumes an unused Escape. */
 export function handleContentSectionEscape(event: KeyboardEvent): boolean {
@@ -98,7 +120,7 @@ export function installSectionNavigation(options: {
   let lastEscape: number | null = null;
   let focusedTarget: EventTarget | null = document.activeElement;
   let movingHighlight = false;
-  const pendingEscapes = new WeakMap<KeyboardEvent, number | null>();
+  const processedEscapes = new WeakMap<KeyboardEvent, boolean>();
   const blocked = isSectionNavigationBlocked;
   const blur = () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -135,28 +157,36 @@ export function installSectionNavigation(options: {
       lastEscape = null;
       return false;
     }
-    if (event.defaultPrevented || blocked()) {
+    if (event.defaultPrevented || blocked(true)) {
       lastEscape = null;
       return false;
     }
-    if (selectedNavigationSection()) {
+    const selected = selectedNavigationSection();
+    if (selected && selected !== "surfaces") {
       release();
       return true;
     }
-    if (!contentOwnsFocus()) return false;
+    if (!selected && !contentOwnsFocus()) return false;
     const now = performance.now();
     if (lastEscape !== null && now - lastEscape <= 500) {
-      release();
+      if (!selected && sectionOf(document.activeElement) === "surfaces") {
+        lastSection = "surfaces";
+        focusRightPanel();
+        lastEscape = now;
+      } else {
+        release();
+      }
       return true;
     }
     lastEscape = now;
-    return false;
+    return selected === "surfaces";
   };
   const processEscape = (event: KeyboardEvent) => {
-    if (!pendingEscapes.has(event)) return false;
-    lastEscape = pendingEscapes.get(event) ?? null;
-    pendingEscapes.delete(event);
-    if (!escape(event)) return false;
+    const processed = processedEscapes.get(event);
+    if (processed !== undefined) return processed;
+    const handled = escape(event);
+    processedEscapes.set(event, handled);
+    if (!handled) return false;
     event.preventDefault();
     event.stopPropagation();
     return true;
@@ -165,7 +195,8 @@ export function installSectionNavigation(options: {
   const onGuestRelease = () => {
     if (blocked()) return;
     lastSection = "surfaces";
-    release();
+    focusRightPanel();
+    lastEscape = performance.now();
   };
   terminalEscape = onTerminalEscape;
   releaseGuestFocus = onGuestRelease;
@@ -178,6 +209,15 @@ export function installSectionNavigation(options: {
     const section = sectionOf(event.target);
     if (section) lastSection = section;
     lastEscape = null;
+    if (
+      section === "surfaces" &&
+      selectedNavigationSection() === "surfaces" &&
+      event.target instanceof Element &&
+      !event.target.closest(
+        'input, textarea, select, webview, [contenteditable]:not([contenteditable="false"]), [data-terminal-owner]',
+      )
+    )
+      return;
     clearSectionSelection();
   };
   const onPointer = (event: PointerEvent) => {
@@ -186,21 +226,11 @@ export function installSectionNavigation(options: {
     lastEscape = null;
     clearSectionSelection();
   };
-  const onBubble = (event: KeyboardEvent) => {
-    processEscape(event);
-  };
   const onKey = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
-      if (event.repeat) return;
-      if (selectedNavigationSection() && !blocked() && !event.defaultPrevented && escape(event)) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      // Restore the pair only if Escape reaches the bubble handler (or a content
-      // handler before its default Escape behavior). A stopped or prevented event belongs to the nested UI.
-      if (!blocked() && !event.defaultPrevented) pendingEscapes.set(event, lastEscape);
-      lastEscape = null;
+      // Count before input handlers dismiss suggestions or a terminal consumes
+      // the first Escape. Independent menus/dialogs still block this gesture.
+      processEscape(event);
       return;
     }
     lastEscape = null;
@@ -256,13 +286,11 @@ export function installSectionNavigation(options: {
     }
   };
   window.addEventListener("keydown", onKey, true);
-  window.addEventListener("keydown", onBubble);
   document.addEventListener("focusin", onFocus);
   document.addEventListener("pointerdown", onPointer, true);
   return () => {
     document.documentElement.removeAttribute("data-section-unfocused");
     window.removeEventListener("keydown", onKey, true);
-    window.removeEventListener("keydown", onBubble);
     document.removeEventListener("focusin", onFocus);
     document.removeEventListener("pointerdown", onPointer, true);
     if (terminalEscape === onTerminalEscape) terminalEscape = undefined;

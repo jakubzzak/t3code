@@ -4,6 +4,7 @@ import {
   installSectionNavigation,
   handleContentSectionEscape,
   sectionNavigationOwnsFocus,
+  releaseBrowserSectionFocus,
 } from "./sectionNavigation";
 
 let cleanup = () => {};
@@ -75,6 +76,8 @@ describe("keyboard section navigation", () => {
     await move("ArrowRight");
     expect(selected()).toBe("surfaces");
     await press("Escape");
+    expect(selected()).toBe("surfaces");
+    await press("Escape");
     expect(selected()).toBeUndefined();
     expect(document.activeElement).toBe(document.body);
     await move("ArrowLeft");
@@ -97,13 +100,14 @@ describe("keyboard section navigation", () => {
     expect(selected()).toBe("conversation");
   });
 
-  it("excludes consumed Escape, repeated keys, intervening input, and expired pairs", async () => {
+  it("counts consumed input Escape but excludes repeats, intervening input, and expired pairs", async () => {
     vi.useFakeTimers();
     editor().focus();
     editor().addEventListener("keydown", (event) => event.preventDefault(), { once: true });
     await press("Escape");
     await press("Escape");
-    expect(document.activeElement).toBe(editor());
+    expect(document.activeElement).toBe(document.body);
+    editor().focus();
     await press("x");
     await press("Escape");
     await press("Escape", { repeat: true });
@@ -174,6 +178,82 @@ describe("keyboard section navigation", () => {
     expect(selected()).toBe("surfaces");
     const event = await press("Escape");
     expect(event.defaultPrevented).toBe(true);
+    expect(selected()).toBe("surfaces");
+    await press("Escape");
+    expect(selected()).toBeUndefined();
+  });
+
+  it("returns a right-panel input to panel navigation and releases the panel on a quick third Escape", async () => {
+    const input = document.querySelector<HTMLInputElement>("#terminal")!;
+    input.value = "unfinished command";
+    input.focus();
+    await press("Escape");
+    expect(document.activeElement).toBe(input);
+    await press("Escape");
+    expect(document.activeElement).toBe(document.body);
+    expect(input.value).toBe("unfinished command");
+    expect(selected()).toBe("surfaces");
+    await press("Escape");
+    expect(selected()).toBeUndefined();
+  });
+
+  it("requires a fresh pair after the continuing third-Escape window expires or another key intervenes", async () => {
+    vi.useFakeTimers();
+    const input = document.querySelector<HTMLInputElement>("#terminal")!;
+    for (const interrupt of [() => vi.advanceTimersByTime(501), () => press("x")]) {
+      input.focus();
+      await press("Escape");
+      await press("Escape");
+      expect(selected()).toBe("surfaces");
+      await interrupt();
+      await press("Escape");
+      expect(selected()).toBe("surfaces");
+      await press("Escape");
+      expect(selected()).toBeUndefined();
+    }
+  });
+
+  it("counts input suggestion dismissal toward the pair without dismissing an independent menu", async () => {
+    const input = document.querySelector<HTMLInputElement>("#terminal")!;
+    input.focus();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div data-slot="combobox-popup" data-open></div>',
+    );
+    input.addEventListener(
+      "keydown",
+      (event) => {
+        document.querySelector('[data-slot="combobox-popup"]')!.remove();
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      { once: true },
+    );
+    await press("Escape");
+    await press("Escape");
+    expect(selected()).toBe("surfaces");
+    document.body.insertAdjacentHTML("beforeend", '<div data-slot="menu-popup" data-open></div>');
+    await press("Escape");
+    expect(selected()).toBe("surfaces");
+    document.querySelector('[data-slot="menu-popup"]')!.remove();
+    await press("Escape");
+    expect(selected()).toBe("surfaces");
+    await press("Escape");
+    expect(selected()).toBeUndefined();
+  });
+
+  it("continues the Escape sequence after focus transfers out of an embedded browser", async () => {
+    vi.useFakeTimers();
+    await move("ArrowRight");
+    const guest = document.createElement("webview");
+    guest.tabIndex = 0;
+    document.querySelector('[data-navigation-section="surfaces"]')!.append(guest);
+    guest.focus();
+    releaseBrowserSectionFocus();
+    expect(document.activeElement).toBe(document.body);
+    expect(selected()).toBe("surfaces");
+    vi.advanceTimersByTime(400);
+    await press("Escape");
     expect(selected()).toBeUndefined();
   });
 

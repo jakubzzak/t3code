@@ -43,6 +43,13 @@ window.addEventListener(
   "keydown",
   (event) => {
     if (!event.isTrusted) return;
+    const inputFocused = event
+      .composedPath()
+      .some(
+        (node) =>
+          node instanceof Element &&
+          node.matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])'),
+      );
     setTimeout(() =>
       releaseSectionFocus({
         key: event.key,
@@ -53,6 +60,7 @@ window.addEventListener(
         ctrlKey: event.ctrlKey,
         altKey: event.altKey,
         shiftKey: event.shiftKey,
+        inputFocused,
       }),
     );
   },
