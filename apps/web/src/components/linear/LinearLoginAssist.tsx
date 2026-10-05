@@ -1,3 +1,6 @@
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { useThreadShell } from "~/state/entities";
+import { linearProjectEmailKey } from "~/browser/linearProjectEmail";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { createLinearLoginAssist } from "~/browser/linearLogin";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
@@ -8,10 +11,22 @@ const AccountEmail = lazy(() => import("../clerk/LinearAccountEmail"));
 
 export function LinearLoginAssist(props: {
   runtimeTabId: string;
+  threadRef: ScopedThreadRef;
   url: string | null;
   loading: boolean;
 }) {
-  const override = useClientSettings((settings) => settings.linearLoginEmail);
+  const thread = useThreadShell(props.threadRef);
+  const override = useClientSettings((settings) =>
+    thread?.projectId
+      ? (settings.linearProjectLoginEmails[
+          linearProjectEmailKey({
+            environmentId: props.threadRef.environmentId,
+            projectId: thread.projectId,
+          })
+        ] ?? "")
+      : "",
+  );
+  if (!thread?.projectId) return null;
   return hasCloudPublicConfig() && !override ? (
     <Suspense fallback={null}>
       <AccountEmail {...props} />

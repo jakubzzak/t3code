@@ -26,13 +26,15 @@ Linear API authentication, API tools, and agent API workflows are deferred. Do n
 - Add a dedicated Linear section under Settings → Integrations. Order the integration sections alphabetically: Browser (including its agent-access settings), Devices, then Linear. Select or enter the Linear workspace for each project; one project's choice must not change another's.
 - On initial opening, use the thread's branch to find a Linear issue identifier. For example, `jakub/eng-123-fix-login` opens ENG-123 in the configured workspace. If the branch has no identifier, open that workspace's My Issues view.
 - Once open, preserve the current page and user navigation. Rerenders, returning focus, and branch changes must not retarget an existing surface or interrupt editing. Closing and opening a fresh surface resolves the initial destination again.
+- Restrict the dedicated surface to the exact HTTPS origins `https://linear.app` and `https://accounts.google.com`. Reject other origins, including redirects, popup navigation, and agent navigation. Generic Browser opening must not implicitly reuse a Linear surface for another origin. This restriction does not apply to ordinary page assets; the fixed Linear label must never conceal an unrelated navigated page.
 - An explicit user request to show a particular issue may open that issue in the Linear surface without a second confirmation. Agents must not open it proactively for routine research, search, or editing. The narrow login assistance below is the browser-automation exception in this scope.
 
 ### Login
 
 - Reuse persistent browser-session support so closing a surface or restarting T3 does not deliberately discard the login. Linear may still require reauthentication.
-- Default the login email to the T3 account email when available. Provide a Linear-specific login-email override in the integration settings; it takes precedence. Without either email, leave email entry manual.
+- Default the login email to the T3 account email when available. Provide a project-specific Linear login-email override in the integration settings; it takes precedence. Disable its setting until a project is selected, and show a saved override only for its owning project. Resolve it from the surface's project, not the Linear workspace or a device-wide email value. Without either email, leave email entry manual.
 - When Linear's login screen appears, use T3’s bundled Playwright browser runtime to attempt Continue with Google, fill the resolved email when available, and click Next. Attach to the embedded session rather than completing login in an unrelated browser session.
+- Permit autofill only on the exact approved Linear or Google origin and the expected login form. Validate the actual document at the write/submission boundary, and abort if navigation replaces it; a previously reported URL is insufficient. Preserve the Google email-step flow above rather than filling arbitrary email inputs on those sites.
 - Leave subsequent authentication, including passwords, account challenges, and 2FA, to the user. If assistance fails, stop silently and leave the page usable for manual login. Do not loop retries or keep overwriting user input.
 
 ### Feature settings
@@ -46,8 +48,9 @@ Linear API authentication, API tools, and agent API workflows are deferred. Do n
 1. A fresh installation shows Linear view off in Features. Features is the second-to-last Settings item, immediately before Archive; Integrations sections are alphabetical. Linear replaces Linked pull requests in the picker. Enabling the flag allows desktop activation with L in the surface-selection context; L in an editor remains text. Web and mobile always show the entry disabled.
 2. Two projects configured for different workspaces open their respective destinations. A branch containing ENG-123 opens that issue; a branch without an identifier opens My Issues. Branch changes and focus changes leave an already-open page untouched.
 3. A user can read and edit an issue using Linear's own interface with no T3 browser chrome, including while the desktop client is connected to a remote environment. Normal surface closing remains available, and the tab stays labeled Linear even on Google sign-in or after navigating to another issue.
-4. A signed-out session attempts the Google email step using the override or account email. Missing email or an automation failure permits manual login; 2FA remains user-controlled. Closing and reopening retains a valid session.
+4. A signed-out session attempts the Google email step using its project's override or account email. The override setting is disabled without a project selection; switching projects displays and uses only the relevant project's override. Missing email or an automation failure permits manual login; 2FA remains user-controlled. Autofill cannot write to another origin or a replacement document. Closing and reopening retains a valid session.
 5. Turning the flag off closes the surface and disables all opening paths. Turning it back on preserves configuration and login. An explicit request to show an issue can open it without another approval, while routine agent work does not browse Linear.
+6. Links, redirects, popups, and agent navigation cannot take the Linear surface outside `https://linear.app` and `https://accounts.google.com`. Inspecting a mixed project-workspace setting without editing it does not change any saved value.
 
 ## Constraints and decisions
 
@@ -64,7 +67,17 @@ These defaults are non-blocking assumptions to review during implementation:
 - The Linear view flag is device-local. Its scope was proposed during discussion but was not separately confirmed.
 - Without a configured workspace, opening Linear shows a setup prompt linking to the project's Linear settings rather than guessing a workspace.
 - If a branch contains multiple issue identifiers, use the first complete identifier in branch order. If Linear cannot resolve an identifier, preserve Linear's own error or access-denied page rather than silently choosing a different issue.
-- Attempt login assistance once per login flow, and scope the email override to the local user's Linear login configuration rather than sharing a person's email preference across remote users.
+- Attempt login assistance once per login flow. Keep the project-specific email override in the local user's configuration, keyed by owning environment and project, rather than sharing a person's email preference across remote users.
+
+## Accepted security risks
+
+### SEC-003 — Automatic browser clipboard/location permission (P2 / Medium)
+
+- **Decision:** Accepted by the maintainer (Jakub, this thread) on 2026-10-05. In response to the review's three risks, the maintainer requested origin restriction and origin-bound autofill, and stated “accept risk” for the remaining inherited permission concern. No additional rationale, owner, expiry, or follow-up was specified.
+- **Scope and provenance:** Pre-existing permission policy in `apps/desktop/src/preview/BrowserSession.ts` (allowed permission set at line 31 and handlers at line 206), inherited by the Linear surface through `apps/web/src/browser/ElectronBrowserHost.tsx`. Reviewed head: `ccda05493be7dd144f609bbd8216b6e9c13e3b74`.
+- **Impact and prerequisites:** Embedded content that reaches this session can request clipboard-read or geolocation permission without origin-specific T3 consent. Malicious or compromised content could obtain clipboard data or location when Chromium's secure-context/focus requirements and relevant OS permissions permit it. Actual OS-level data access was not demonstrated.
+- **Evidence:** Both existing permission handlers grant by permission name without checking requesting origin. Focused BrowserSession tests confirm the grants. See [SEC-003 in the review](https://github.com/jakubzzak/t3code/pull/6#pullrequestreview-5414292079) and the maintainer's numbered disposition response in this thread.
+- **Residual risk and mitigations:** Sandbox/no Node integration and platform permission constraints remain; they do not replace origin-specific consent. The requested SEC-001 origin restriction will reduce reachable destinations once implemented and verified, but does not remove the accepted permission exposure on allowed content. This acceptance does not accept SEC-001 or SEC-002, and does not mark the inherited policy fixed.
 
 ## Tracking
 

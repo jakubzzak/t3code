@@ -67,6 +67,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
+import { isLinearNavigationUrl, restrictLinearNavigation } from "./LinearNavigation.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -105,6 +106,7 @@ export type PreviewNavStatus =
     };
 
 export interface PreviewTabState {
+  surface?: "linear" | undefined;
   tabId: string;
   webContentsId: number | null;
   navStatus: PreviewNavStatus;
@@ -1740,6 +1742,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     tabId: string,
     wc: Electron.WebContents,
   ) {
+    const linear = (yield* SynchronizedRef.get(tabsRef)).get(tabId)?.surface === "linear";
+    if (linear) restrictLinearNavigation(wc);
     const scope = yield* Scope.fork(parentScope, "sequential");
     const attachmentId = Symbol();
     let documentId = 0;
@@ -2075,8 +2079,22 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.ipc.on(RECORDING_INPUT_CHANNEL, recordingInput);
         wc.ipc.on(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
         wc.setWindowOpenHandler((details) => {
+          if (linear && !isLinearNavigationUrl(details.url)) return { action: "deny" };
           if (previewWindowOpenAction(details) === "popup") {
-            return { action: "allow", overrideBrowserWindowOptions: POPUP_WINDOW_OPTIONS };
+            return {
+              action: "allow",
+              overrideBrowserWindowOptions: POPUP_WINDOW_OPTIONS,
+              ...(linear
+                ? {
+                    createWindow: (options: Electron.BrowserWindowConstructorOptions) => {
+                      const popup = new BrowserWindow(options);
+                      restrictLinearNavigation(popup.webContents);
+                      windowCreated(popup);
+                      return popup.webContents;
+                    },
+                  }
+                : {}),
+            };
           }
           runFork(
             attemptPromise({ operation: "openPreviewWindow", tabId, webContentsId: wc.id }, () =>
@@ -2144,6 +2162,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         const existing = tabs.get(tabId);
         if (existing) return [{ state: existing, created: false }, tabs] as const;
         const initial: PreviewTabState = {
+          ...(defaults?.surface ? { surface: defaults.surface } : {}),
           tabId,
           webContentsId: null,
           navStatus: { kind: "Idle" },
@@ -2446,10 +2465,19 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const url = yield* attempt({ operation: "navigate.normalizeUrl", tabId }, () =>
       normalizePreviewUrl(rawUrl),
     );
+    const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+    if (tab?.surface === "linear" && !isLinearNavigationUrl(url)) {
+      return yield* new PreviewOperationError({
+        operation: "navigate",
+        tabId,
+        cause: "Linear allows only Linear and Google sign-in.",
+      });
+    }
     const updatedAt = yield* currentIso;
     const pending = yield* SynchronizedRef.modify(tabsRef, (tabs) => {
       const current = tabs.get(tabId);
       const next: PreviewTabState = {
+        ...(current?.surface ? { surface: current.surface } : {}),
         tabId,
         webContentsId: current?.webContentsId ?? null,
         navStatus: {

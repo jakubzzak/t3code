@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   createTab: vi.fn<DesktopPreviewBridge["createTab"]>(),
   closeTab: vi.fn<DesktopPreviewBridge["closeTab"]>(),
   registerWebview: vi.fn<DesktopPreviewBridge["registerWebview"]>(),
+  navigate: vi.fn<DesktopPreviewBridge["navigate"]>(),
   getPreviewConfig: vi.fn<DesktopPreviewBridge["getPreviewConfig"]>(),
   activeRecordings: new Set<string>(),
 }));
@@ -29,6 +30,7 @@ vi.mock("~/components/preview/previewBridge", () => ({
     createTab: mocks.createTab,
     closeTab: mocks.closeTab,
     registerWebview: mocks.registerWebview,
+    navigate: mocks.navigate,
     getPreviewConfig: mocks.getPreviewConfig,
   },
 }));
@@ -70,6 +72,7 @@ beforeEach(() => {
   mocks.createTab.mockReset().mockResolvedValue(undefined);
   mocks.closeTab.mockReset().mockResolvedValue(undefined);
   mocks.registerWebview.mockReset().mockResolvedValue(undefined);
+  mocks.navigate.mockReset().mockResolvedValue(undefined);
   mocks.getPreviewConfig.mockReset().mockResolvedValue({
     partition: "persist:t3-preview-work",
     webPreferences: "contextIsolation=yes",
@@ -174,7 +177,7 @@ describe("HostedBrowserWebview settings hydration", () => {
       await retry;
     });
 
-    expect(acquire).toHaveBeenCalledExactlyOnceWith(runtimeTabId);
+    expect(acquire).toHaveBeenCalledExactlyOnceWith(runtimeTabId, undefined);
     expect(mocks.getPreviewConfig).toHaveBeenCalledExactlyOnceWith(threadRef.environmentId, "work");
     expect(createGuest).toHaveBeenCalledOnce();
     expect(createGuest).toHaveBeenCalledWith(
@@ -197,4 +200,53 @@ describe("HostedBrowserWebview settings hydration", () => {
     expect(mocks.closeTab).not.toHaveBeenCalled();
     expect(mocks.setClientSettings).not.toHaveBeenCalled();
   });
+});
+
+it("loads Linear only after native registration and does not retarget on rerender", async () => {
+  mocks.getClientSettings.mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
+  const registration = deferred<void>();
+  mocks.registerWebview.mockReturnValue(registration.promise);
+  const guest = Object.assign(new EventTarget(), { getWebContentsId: () => 51 });
+  const props = {
+    threadRef: {
+      environmentId: EnvironmentId.make("linear-initial"),
+      threadId: ThreadId.make("thread"),
+    },
+    tabId: "server-linear",
+    runtimeTabId: "linear-initial",
+    surface: "linear" as const,
+    initialUrl: "https://linear.app/acme/issue/ENG-1",
+    viewport: FILL_PREVIEW_VIEWPORT,
+    pictureInPicture: false,
+    profileId: "work",
+    zoomFactor: 1,
+  };
+  useBrowserSurfaceStore.getState().acquireActivity(props.runtimeTabId);
+  await act(async () => {
+    renderer = create(<HostedBrowserWebview {...props} />, {
+      createNodeMock: (element) =>
+        element.type === "webview"
+          ? guest
+          : { scrollLeft: 0, scrollTop: 0, scrollTo: () => undefined },
+    });
+  });
+  expect(mocks.createTab).toHaveBeenCalledWith(
+    props.runtimeTabId,
+    expect.objectContaining({ surface: "linear" }),
+  );
+  expect(renderer!.root.findByType("webview").props.src).toBe("about:blank");
+  expect(mocks.registerWebview).toHaveBeenCalledOnce();
+  expect(mocks.navigate).not.toHaveBeenCalled();
+  await act(async () => {
+    registration.resolve();
+    await registration.promise;
+  });
+  expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith(props.runtimeTabId, props.initialUrl);
+  await act(async () => {
+    renderer!.update(
+      <HostedBrowserWebview {...props} initialUrl="https://linear.app/acme/issue/ENG-2" />,
+    );
+    guest.dispatchEvent(new Event("dom-ready"));
+  });
+  expect(mocks.navigate).toHaveBeenCalledOnce();
 });

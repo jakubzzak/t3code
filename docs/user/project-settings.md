@@ -71,7 +71,8 @@ The first open uses the issue identifier in the branch, or My Issues when there 
 view keeps its current page; close and reopen it to use a changed branch or workspace.
 
 Linear uses its own interface and login. T3 can start Google sign-in with your T3 account email;
-set **Login email** in the same integration section to use a different address on this device.
+select a project and set **Login email** in the same integration section to use a different
+address for that project on this device.
 Finish passwords and two-factor authentication yourself. If assistance fails, sign in manually.
 Turning the feature off closes its views while retaining workspace settings and browser logins.
 The view is unavailable on web and mobile, including when they connect to a desktop server.

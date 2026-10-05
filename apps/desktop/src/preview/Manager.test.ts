@@ -567,6 +567,80 @@ describe("PreviewManager", () => {
     webviewSend.mockClear();
   });
 
+  effectIt.effect("keeps Linear's origin restriction across repeated native navigations", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        yield* manager.createTab("linear-policy", { surface: "linear" });
+        yield* manager.navigate("linear-policy", "https://linear.app/acme/issue/ENG-1");
+        yield* manager.navigate(
+          "linear-policy",
+          "https://accounts.google.com/v3/signin/identifier",
+        );
+        const rejected = yield* Effect.exit(
+          manager.navigate("linear-policy", "https://untrusted.example"),
+        );
+        expect(Exit.isFailure(rejected)).toBe(true);
+        const state = yield* manager.createTab("linear-policy");
+        expect(state?.navStatus).toMatchObject({
+          url: "https://accounts.google.com/v3/signin/identifier",
+        });
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "restricts Linear links and installs popup guards before returning their contents",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const preview = makeFaviconWebContents({ url: "about:blank" });
+          const onBeforeRequest = vi.fn();
+          Object.assign(preview.webContents, {
+            once: vi.fn(),
+            session: { webRequest: { onBeforeRequest } },
+          });
+          fromId.mockReturnValue(preview.webContents);
+          yield* manager.createTab("linear-links", { surface: "linear" });
+          yield* manager.registerWebview("linear-links", 42);
+          expect(onBeforeRequest).toHaveBeenCalledOnce();
+          const handler = vi.mocked(
+            (preview.webContents as Electron.WebContents).setWindowOpenHandler,
+          ).mock.calls[0]![0];
+          expect(
+            handler({
+              url: "https://evil.test",
+              disposition: "foreground-tab",
+            } as Electron.HandlerDetails),
+          ).toEqual({ action: "deny" });
+          expect(
+            handler({
+              url: "https://evil.test",
+              disposition: "new-window",
+            } as Electron.HandlerDetails),
+          ).toEqual({ action: "deny" });
+          const popupContents = {
+            id: 43,
+            session: { webRequest: { onBeforeRequest: vi.fn() } },
+            on: vi.fn(),
+            once: vi.fn(),
+            setIgnoreMenuShortcuts: vi.fn(),
+            setWindowOpenHandler: vi.fn(),
+          };
+          browserWindowConstructor.mockImplementation(function () {
+            return { webContents: popupContents };
+          });
+          const allowed = handler({
+            url: "https://accounts.google.com/signin",
+            disposition: "new-window",
+          } as Electron.HandlerDetails);
+          expect(allowed.action).toBe("allow");
+          expect(allowed.createWindow?.({})).toBe(popupContents);
+          expect(popupContents.session.webRequest.onBeforeRequest).toHaveBeenCalledOnce();
+          expect(popupContents.setWindowOpenHandler).toHaveBeenCalledOnce();
+        }),
+      ),
+  );
+
   effectIt.effect("keeps preview shortcuts out of the host window", () =>
     withManager((manager) =>
       Effect.gen(function* () {

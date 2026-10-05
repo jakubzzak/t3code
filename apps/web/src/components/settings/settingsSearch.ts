@@ -148,6 +148,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "linear-login-email",
     title: "Linear login email",
     to: "/settings/integrations",
+    scope: "project",
     searchTerms: ["linear account email override"],
   },
   {

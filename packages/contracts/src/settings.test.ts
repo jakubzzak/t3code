@@ -1014,9 +1014,12 @@ describe("Linear settings", () => {
   it("keeps the view off for existing clients and stores a local login override", () => {
     expect(decodeClientSettings({})).toMatchObject({
       linearViewEnabled: false,
-      linearLoginEmail: "",
+      linearProjectLoginEmails: {},
     });
-    const patch = { linearViewEnabled: true, linearLoginEmail: "work@example.com" };
+    const patch = {
+      linearViewEnabled: true,
+      linearProjectLoginEmails: { '["env","project"]': "work@example.com" },
+    };
     expect(decodeClientSettingsPatch(patch)).toEqual(patch);
     expect(encodeClientSettings(decodeClientSettings(patch))).toMatchObject(patch);
   });

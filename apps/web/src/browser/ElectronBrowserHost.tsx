@@ -124,6 +124,7 @@ export function ElectronBrowserHost() {
               {snapshot.surface === "linear" && (
                 <LinearLoginAssist
                   runtimeTabId={runtimeTabId}
+                  threadRef={threadRef}
                   url={url}
                   loading={snapshot.navStatus._tag !== "Success"}
                 />
@@ -133,6 +134,7 @@ export function ElectronBrowserHost() {
                 tabId={snapshot.tabId}
                 runtimeTabId={runtimeTabId}
                 initialUrl={url}
+                surface={snapshot.surface}
                 viewport={snapshot.viewport ?? FILL_PREVIEW_VIEWPORT}
                 pictureInPicture={pictureInPicture}
                 profileId={snapshot.profileId}

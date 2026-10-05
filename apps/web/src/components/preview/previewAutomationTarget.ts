@@ -30,8 +30,6 @@ export function resolvePreviewAutomationOpenTab(
   reuseExistingTab: boolean,
 ): string | null {
   if (!reuseExistingTab) return null;
-  if (requestedTabId !== undefined) {
-    return state.sessions[requestedTabId]?.tabId ?? null;
-  }
-  return state.snapshot?.tabId ?? null;
+  const candidate = requestedTabId !== undefined ? state.sessions[requestedTabId] : state.snapshot;
+  return candidate?.surface === "linear" ? null : (candidate?.tabId ?? null);
 }

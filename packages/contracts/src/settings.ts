@@ -297,7 +297,9 @@ export type ChatWidth = typeof ChatWidth.Type;
 
 export const ClientSettingsSchema = Schema.Struct({
   linearViewEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  linearLoginEmail: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  linearProjectLoginEmails: Schema.Record(Schema.String, TrimmedString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
@@ -1611,7 +1613,7 @@ export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
   linearViewEnabled: Schema.optionalKey(Schema.Boolean),
-  linearLoginEmail: Schema.optionalKey(TrimmedString),
+  linearProjectLoginEmails: Schema.optionalKey(Schema.Record(Schema.String, TrimmedString)),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),

@@ -57,3 +57,10 @@ describe("preview automation target selection", () => {
     expect(resolvePreviewAutomationOpenTab(state, agentTab.tabId, false)).toBeNull();
   });
 });
+
+it("does not reuse a Linear surface for a generic browser open, including a pinned tab", () => {
+  const linear = { ...snapshot("linear"), surface: "linear" as const };
+  const state = { snapshot: linear, sessions: { linear } };
+  expect(resolvePreviewAutomationOpenTab(state, undefined, true)).toBeNull();
+  expect(resolvePreviewAutomationOpenTab(state, "linear", true)).toBeNull();
+});
