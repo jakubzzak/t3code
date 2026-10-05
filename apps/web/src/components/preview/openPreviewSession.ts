@@ -24,6 +24,7 @@ interface OpenPreviewSessionInput<E> {
   }) => Promise<AtomCommandResult<PreviewSessionSnapshot, E>>;
   threadRef: ScopedThreadRef;
   url?: string;
+  surface?: "linear";
   /** Overrides the configured default; automation passes an explicit size. */
   viewport?: PreviewViewportSetting;
   /** Overrides the configured default profile. */
@@ -45,6 +46,7 @@ export async function openPreviewSession<E>(
     environmentId: input.threadRef.environmentId,
     input: {
       threadId: input.threadRef.threadId,
+      ...(input.surface ? { surface: input.surface } : {}),
       ...(input.url === undefined ? {} : { url: input.url }),
       viewport: input.viewport ?? browserDefaultOpenViewport(defaults),
       profileId: input.profileId ?? browserDefaultOpenProfileId(defaults),

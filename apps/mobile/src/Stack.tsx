@@ -1,3 +1,4 @@
+import { SettingsFeaturesRouteScreen } from "./features/settings/SettingsFeaturesRouteScreen";
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
@@ -248,6 +249,11 @@ const SettingsContentStack = createNativeStackNavigator({
       options: {
         title: "Archived Threads",
       },
+    }),
+    SettingsFeatures: createNativeStackScreen({
+      screen: SettingsFeaturesRouteScreen,
+      linking: "features",
+      options: { title: "Features" },
     }),
     SettingsAppearance: createNativeStackScreen({
       screen: SettingsAppearanceRouteScreen,

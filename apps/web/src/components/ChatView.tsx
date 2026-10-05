@@ -1,3 +1,4 @@
+import { openLinearSurface } from "./linear/openLinearSurface";
 import {
   type NavigationSection,
   installSectionNavigation,
@@ -2091,12 +2092,16 @@ export default function ChatView(props: ChatViewProps) {
     canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUseRightPanelSheet;
 
+  const linearViewEnabled = useClientSettings((settings) => settings.linearViewEnabled);
   useEffect(() => {
     if (!activeThreadRef) return;
-    useRightPanelStore
-      .getState()
-      .reconcileBrowserSurfaces(activeThreadRef, Object.keys(activePreviewState.sessions));
-  }, [activePreviewState.sessions, activeThreadRef]);
+    useRightPanelStore.getState().reconcileBrowserSurfaces(
+      activeThreadRef,
+      Object.values(activePreviewState.sessions)
+        .filter((session) => session.surface !== "linear" || (isElectron && linearViewEnabled))
+        .map((session) => session.tabId),
+    );
+  }, [activePreviewState.sessions, activeThreadRef, linearViewEnabled]);
 
   useEffect(() => {
     if (!activeThreadRef || activePreviewMiniPlayer?.source.kind !== "browser") return;
@@ -4593,6 +4598,32 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
   }, [activeThreadRef, pullRequestsSurfaceAvailable]);
+  const addLinearSurface = useCallback(() => {
+    if (!activeThreadRef || !isServerThread || !isElectron || !linearViewEnabled) return;
+    void openLinearSurface({
+      threadRef: activeThreadRef,
+      workspace: resolveProjectSettings(settings, activeThread?.projectId ?? null).settings
+        .linearWorkspace,
+      branch: activeThread?.branch,
+      openPreview,
+      closePreview,
+    }).catch((error: unknown) =>
+      toastManager.add({
+        type: "error",
+        title: "Unable to open Linear",
+        description: error instanceof Error ? error.message : "Please retry.",
+      }),
+    );
+  }, [
+    activeThreadRef,
+    activeThread?.projectId,
+    activeThread?.branch,
+    settings,
+    isServerThread,
+    linearViewEnabled,
+    openPreview,
+    closePreview,
+  ]);
   const { state: deviceState, loaded: deviceStateLoaded } = useDeviceState(
     activeThreadRef?.environmentId ?? null,
   );
@@ -10310,7 +10341,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           onAddPullRequest={addPullRequestSurface}
-          onAddPullRequests={addPullRequestsSurface}
+          onAddLinear={addLinearSurface}
           onAddAgents={addAgentsSurface}
           onAddDevice={addDeviceSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
@@ -10318,7 +10349,7 @@ export default function ChatView(props: ChatViewProps) {
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
-          pullRequestsAvailable={pullRequestsSurfaceAvailable}
+          linearAvailable={isElectron && isServerThread && linearViewEnabled}
           agentsAvailable
           deviceAvailable={activeThreadRef !== null}
           liveAgentCount={agentPanelModel.liveCount}
@@ -10367,7 +10398,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
-            onAddPullRequests={addPullRequestsSurface}
+            onAddLinear={addLinearSurface}
             onAddAgents={addAgentsSurface}
             onAddDevice={addDeviceSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
@@ -10375,7 +10406,7 @@ export default function ChatView(props: ChatViewProps) {
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
-            pullRequestsAvailable={pullRequestsSurfaceAvailable}
+            linearAvailable={isElectron && isServerThread && linearViewEnabled}
             agentsAvailable
             deviceAvailable={activeThreadRef !== null}
             liveAgentCount={agentPanelModel.liveCount}

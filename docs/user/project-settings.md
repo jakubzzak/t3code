@@ -62,6 +62,20 @@ itself, or **Skip** to leave them for a setup script. It resolves in the same or
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
 
+## Linear view
+
+In the desktop app, enable **Settings → Features → Linear view**, then select a project in
+**Settings → Integrations → Linear** and enter its workspace slug from `linear.app/<workspace>`.
+Open **Linear** from the thread's surface picker, or press **L** while that picker is active.
+The first open uses the issue identifier in the branch, or My Issues when there is none. An open
+view keeps its current page; close and reopen it to use a changed branch or workspace.
+
+Linear uses its own interface and login. T3 can start Google sign-in with your T3 account email;
+set **Login email** in the same integration section to use a different address on this device.
+Finish passwords and two-factor authentication yourself. If assistance fails, sign in manually.
+Turning the feature off closes its views while retaining workspace settings and browser logins.
+The view is unavailable on web and mobile, including when they connect to a desktop server.
+
 ## Storage cleanup
 
 Open **Settings → Storage** to enable automatic cleanup on one machine or all connected

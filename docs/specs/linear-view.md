@@ -32,7 +32,7 @@ Linear API authentication, API tools, and agent API workflows are deferred. Do n
 
 - Reuse persistent browser-session support so closing a surface or restarting T3 does not deliberately discard the login. Linear may still require reauthentication.
 - Default the login email to the T3 account email when available. Provide a Linear-specific login-email override in the integration settings; it takes precedence. Without either email, leave email entry manual.
-- When Linear's login screen appears, use Playwright CLI to attempt Continue with Google, fill the resolved email when available, and click Next. Attach to the embedded session rather than completing login in an unrelated browser session.
+- When Linear's login screen appears, use T3’s bundled Playwright browser runtime to attempt Continue with Google, fill the resolved email when available, and click Next. Attach to the embedded session rather than completing login in an unrelated browser session.
 - Leave subsequent authentication, including passwords, account challenges, and 2FA, to the user. If assistance fails, stop silently and leave the page usable for manual login. Do not loop retries or keep overwriting user input.
 
 ### Feature settings
@@ -64,3 +64,7 @@ These defaults are non-blocking assumptions to review during implementation:
 - Without a configured workspace, opening Linear shows a setup prompt linking to the project's Linear settings rather than guessing a workspace.
 - If a branch contains multiple issue identifiers, use the first complete identifier in branch order. If Linear cannot resolve an identifier, preserve Linear's own error or access-denied page rather than silently choosing a different issue.
 - Attempt login assistance once per login flow, and scope the email override to the local user's Linear login configuration rather than sharing a person's email preference across remote users.
+
+## Tracking
+
+Proceed intentionally without a Linear issue, as approved by the maintainer. The maintainer approved the bundled Playwright runtime in place of the standalone CLI and authorized isolated UI testing and evidence capture.

@@ -1,5 +1,10 @@
+"use client";
+
+import { openLinearSurface } from "../linear/openLinearSurface";
+import { readThreadShell, useServerConfigs } from "~/state/entities";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { beginPreviewSessionClose } from "~/previewStateStore";
-("use client");
 
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -296,6 +301,8 @@ export function PreviewAutomationHosts() {
 
 function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId }) {
   const { environmentId } = props;
+  const closeLinearPreview = useAtomCommand(previewEnvironment.close, "close Linear preview");
+  const serverConfigs = useServerConfigs();
   const previewSessions = useActivePreviewSessions();
   const visibleRuntimeTabIds = useBrowserSurfaceStore(
     useShallow((state) =>
@@ -447,6 +454,22 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             return await currentStatus(threadRef, tabId);
           case "open": {
             const input = request.input as PreviewAutomationOpenInput;
+            if (input.surface === "linear") {
+              const thread = readThreadShell(threadRef);
+              const settings =
+                serverConfigs.get(environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
+              tabId = await openLinearSurface({
+                threadRef,
+                workspace: resolveProjectSettings(settings, thread?.projectId ?? null).settings
+                  .linearWorkspace,
+                branch: thread?.branch,
+                openPreview: open,
+                closePreview: closeLinearPreview,
+                ...(input.url ? { url: input.url } : {}),
+              });
+              await requireReadyTab();
+              return await currentStatus(threadRef, tabId);
+            }
             const resolvedInputUrl = input.url
               ? resolveBrowserNavigationTarget(environmentId, {
                   kind: "url",
@@ -807,7 +830,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
         browserActivity.release?.();
       }
     },
-    [environmentId, listPreviews, open, registry, resize],
+    [closeLinearPreview, environmentId, listPreviews, open, registry, resize, serverConfigs],
   );
   const [requestHandlerAtom] = useState(() => Atom.make({ handle: handleRequest }));
   const setRequestHandler = useAtomSet(requestHandlerAtom);

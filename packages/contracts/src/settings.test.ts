@@ -1009,3 +1009,40 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
   ).toThrow();
   expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, port: 0 }] })).toThrow();
 });
+
+describe("Linear settings", () => {
+  it("keeps the view off for existing clients and stores a local login override", () => {
+    expect(decodeClientSettings({})).toMatchObject({
+      linearViewEnabled: false,
+      linearLoginEmail: "",
+    });
+    const patch = { linearViewEnabled: true, linearLoginEmail: "work@example.com" };
+    expect(decodeClientSettingsPatch(patch)).toEqual(patch);
+    expect(encodeClientSettings(decodeClientSettings(patch))).toMatchObject(patch);
+  });
+
+  it("round-trips separate project workspaces without changing the default", () => {
+    const patch = {
+      projectSettingsOverrides: {
+        one: { linearWorkspace: "one" },
+        two: { linearWorkspace: "two" },
+      },
+    };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject({
+      linearWorkspace: "",
+      ...patch,
+    });
+  });
+
+  it("rejects workspace paths and allows clearing a workspace", () => {
+    expect(() =>
+      decodeServerSettingsPatch({
+        projectSettingsOverrides: { one: { linearWorkspace: "one/issue" } },
+      }),
+    ).toThrow();
+    expect(
+      decodeServerSettingsPatch({ projectSettingsOverrides: { one: { linearWorkspace: "" } } }),
+    ).toEqual({ projectSettingsOverrides: { one: { linearWorkspace: "" } } });
+  });
+});

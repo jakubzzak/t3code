@@ -2112,7 +2112,7 @@ function PullRequestsRouteView() {
             onAddDiff={() => undefined}
             onAddFiles={() => undefined}
             onAddPullRequest={() => undefined}
-            onAddPullRequests={() => undefined}
+            onAddLinear={() => undefined}
             onAddAgents={() => undefined}
             onAddDevice={() => undefined}
             browserAvailable={false}
@@ -2120,7 +2120,7 @@ function PullRequestsRouteView() {
             diffAvailable={false}
             filesAvailable={false}
             pullRequestAvailable={false}
-            pullRequestsAvailable={false}
+            linearAvailable={false}
             agentsAvailable={false}
             deviceAvailable={false}
             liveAgentCount={0}

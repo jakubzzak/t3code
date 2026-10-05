@@ -79,6 +79,10 @@ export const PreviewAutomationStatus = Schema.Struct({
 export type PreviewAutomationStatus = typeof PreviewAutomationStatus.Type;
 
 export const PreviewAutomationOpenInput = Schema.Struct({
+  surface: Schema.optional(Schema.Literal("linear")).annotate({
+    description:
+      "Open the dedicated Linear view only when the user explicitly asks to see an issue. Routine Linear search, reads, and changes use API tools, not the browser. Requires the desktop Linear view feature flag.",
+  }),
   ...PreviewAutomationTabTargetFields,
   url: Schema.optional(BoundedUrl).annotate({
     description: `Optional initial page URL. ${URL_GUIDANCE} Omit to open a blank tab.`,

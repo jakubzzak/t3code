@@ -328,6 +328,14 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
         menu: {
           items: [
             {
+              description: "Available in the desktop app",
+              disabled: true,
+              icon: { name: "circle.lefthalf.striped.horizontal", type: "sfSymbol" },
+              label: "Linear",
+              onPress: () => {},
+              type: "action",
+            },
+            {
               description: compactMenuStatus(props.gitStatus),
               disabled: true,
               icon: {
@@ -521,6 +529,14 @@ function threadGitMenuDefinition(
     icon: "point.topleft.down.curvedto.point.bottomright.up",
     separateBackground: false,
     items: [
+      {
+        id: "linear",
+        title: "Linear",
+        icon: "circle.lefthalf.striped.horizontal",
+        subtitle: "Available in the desktop app",
+        disabled: true,
+        onPress: () => {},
+      },
       {
         id: "git-status",
         title: compactMenuBranchLabel(model.currentBranchLabel),
