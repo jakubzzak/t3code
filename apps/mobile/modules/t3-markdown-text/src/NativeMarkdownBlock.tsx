@@ -1,8 +1,4 @@
-import {
-  CODE_LANGUAGES,
-  type markdownCodeBlocks,
-  type MarkdownCodeLanguageChange,
-} from "@t3tools/shared/markdownCode";
+import { CODE_LANGUAGES, type MarkdownCodeLanguageChange } from "@t3tools/shared/markdownCode";
 import type { ReactNode } from "react";
 import { createContext, memo, useContext, useMemo, useState } from "react";
 import {
@@ -33,16 +29,19 @@ import type {
   SelectableMarkdownSkill,
 } from "./SelectableMarkdownText.types";
 import { useHighlightedCode, type HighlightedCode } from "./useHighlightedCode";
+import type { useMarkdownCodeViews } from "./useMarkdownCodeViews";
 
 /** Set by SelectableMarkdownText so images anywhere in the block tree can use it. */
 export const MarkdownImageRendererContext = createContext<MarkdownImageRenderer | null>(null);
 
-export const MarkdownCodeContext = createContext<{
-  blocks: ReadonlyMap<number, ReturnType<typeof markdownCodeBlocks>[number]>;
-  isStreaming: boolean;
-  onCodeLanguageChange?: ((change: MarkdownCodeLanguageChange) => Promise<void>) | undefined;
-  renderDiagram?: ((input: { code: string; children: ReactNode }) => ReactNode) | undefined;
-} | null>(null);
+export const MarkdownCodeContext = createContext<
+  | (ReturnType<typeof useMarkdownCodeViews> & {
+      isStreaming: boolean;
+      onCodeLanguageChange?: ((change: MarkdownCodeLanguageChange) => Promise<void>) | undefined;
+      renderDiagram?: ((input: { code: string; children: ReactNode }) => ReactNode) | undefined;
+    })
+  | null
+>(null);
 
 const MONO_FONT_FAMILY = Platform.select({
   ios: "ui-monospace",
@@ -180,7 +179,7 @@ function NativeCodeBlock(props: {
   const languageLabel = props.node.language?.toUpperCase() ?? "CODE";
   const context = useContext(MarkdownCodeContext);
   const block = props.node.beg === undefined ? undefined : context?.blocks.get(props.node.beg);
-  const [source, setSource] = useState(false);
+  const source = block ? context?.sourceViews.has(block.viewKey) === true : false;
   const [picker, setPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -251,7 +250,7 @@ function NativeCodeBlock(props: {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={source ? "Show diagram" : "Show code"}
-            onPress={() => setSource((value) => !value)}
+            onPress={() => block && context?.toggleSource(block.viewKey)}
           >
             <Text style={{ color: props.textStyle.linkColor, padding: 10 }}>
               {source ? "Diagram" : "Code"}

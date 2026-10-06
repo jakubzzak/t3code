@@ -12,6 +12,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   private latestContents = "";
   private latestRevision = 0;
   private confirmedRevision = 0;
+  private discardedRevision = 0;
   private lastChangeAt = 0;
   private saving = false;
   private disposed = false;
@@ -58,7 +59,12 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   }
 
   private async persistLatest(): Promise<void> {
-    if (this.saving || this.latestRevision === this.confirmedRevision) return;
+    if (
+      this.saving ||
+      this.latestRevision === this.confirmedRevision ||
+      this.latestRevision === this.discardedRevision
+    )
+      return;
 
     this.saving = true;
     const contents = this.latestContents;
@@ -68,6 +74,10 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     if (succeeded) {
       this.confirmedRevision = revision;
       this.options.onConfirmed(contents);
+    } else if (this.waiters.some((waiter) => waiter.revision === revision)) {
+      // Awaited picker edits retain the saved UI on failure. Do not later flush
+      // their rejected contents on close as if they were unsaved editor text.
+      this.discardedRevision = revision;
     }
 
     this.waiters = this.waiters.filter((waiter) => {
@@ -77,7 +87,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     });
     this.saving = false;
     if (revision === this.latestRevision) {
-      if (succeeded) this.options.onPendingChange(false);
+      if (succeeded || this.discardedRevision === revision) this.options.onPendingChange(false);
       return;
     }
 

@@ -1,7 +1,7 @@
-import { markdownCodeBlocks } from "@t3tools/shared/markdownCode";
 import { useMemo } from "react";
 import { View } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
+import { useMarkdownCodeViews } from "./useMarkdownCodeViews";
 
 import {
   nativeMarkdownChunkSpacing,
@@ -58,21 +58,10 @@ export function SelectableMarkdownText({
   marginTop = 0,
   marginBottom = 0,
 }: SelectableMarkdownTextProps) {
-  const codeBlocks = useMemo(() => {
-    const blocks = new Map<number, ReturnType<typeof markdownCodeBlocks>[number]>();
-    let previous = 0;
-    let byteOffset = 0;
-    const encoder = new TextEncoder();
-    for (const block of markdownCodeBlocks(markdown)) {
-      byteOffset += encoder.encode(markdown.slice(previous, block.start)).length;
-      previous = block.start;
-      blocks.set(byteOffset, block);
-    }
-    return blocks;
-  }, [markdown]);
+  const { blocks, sourceViews, toggleSource } = useMarkdownCodeViews(markdown);
   const codeContext = useMemo(
-    () => ({ blocks: codeBlocks, isStreaming, onCodeLanguageChange, renderDiagram }),
-    [codeBlocks, isStreaming, onCodeLanguageChange, renderDiagram],
+    () => ({ blocks, sourceViews, toggleSource, isStreaming, onCodeLanguageChange, renderDiagram }),
+    [blocks, sourceViews, toggleSource, isStreaming, onCodeLanguageChange, renderDiagram],
   );
 
   const chunks = useMemo(() => {

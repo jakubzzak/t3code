@@ -40,6 +40,67 @@ describe("FileSaveCoordinator", () => {
     coordinator.dispose();
   });
 
+  it("does not overwrite newer file contents on close after an awaited edit fails", async () => {
+    vi.useFakeTimers();
+    let fileContents = "```text\nA-->B\n```";
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce(AsyncResult.failure(Cause.fail("write failed")))
+      .mockImplementation(async (contents: string) => {
+        fileContents = contents;
+        return AsyncResult.success(undefined);
+      });
+    const onPendingChange = vi.fn();
+    const onConfirmed = vi.fn();
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      persist,
+      onPendingChange,
+      onConfirmed,
+    });
+    const edit = coordinator.changeAndWait("```mermaid\nA-->B\n```");
+    await vi.runAllTimersAsync();
+    expect(await edit).toBe(false);
+    expect(onPendingChange).toHaveBeenLastCalledWith(false);
+    expect(onConfirmed).not.toHaveBeenCalled();
+
+    fileContents += "\nNew agent changes";
+    const latestFileContents = fileContents;
+    coordinator.dispose();
+    await vi.runAllTimersAsync();
+    expect(persist).toHaveBeenCalledOnce();
+    expect(fileContents).toBe(latestFileContents);
+  });
+
+  it("still flushes a newer editor revision when an awaited edit fails in flight", async () => {
+    vi.useFakeTimers();
+    let rejectEdit!: () => void;
+    const persist = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            rejectEdit = () => resolve(AsyncResult.failure(Cause.fail("write failed")));
+          }),
+      )
+      .mockResolvedValue(AsyncResult.success(undefined));
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      persist,
+      onPendingChange: vi.fn(),
+      onConfirmed: vi.fn(),
+    });
+    const edit = coordinator.changeAndWait("rejected language");
+    await vi.advanceTimersByTimeAsync(500);
+    coordinator.change("newer editor contents");
+    coordinator.dispose();
+    rejectEdit();
+    await vi.runAllTimersAsync();
+    expect(await edit).toBe(false);
+    expect(persist).toHaveBeenCalledTimes(2);
+    expect(persist).toHaveBeenLastCalledWith("newer editor contents");
+  });
+
   it("debounces edits and persists only the latest contents", async () => {
     vi.useFakeTimers();
     const persist = vi
