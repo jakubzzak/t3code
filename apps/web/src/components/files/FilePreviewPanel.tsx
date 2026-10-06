@@ -1,3 +1,4 @@
+import { setMarkdownCodeLanguage } from "@t3tools/shared/markdownCode";
 import { Spinner } from "~/components/ui/spinner";
 import type {
   ChatFileAttachment,
@@ -89,6 +90,7 @@ import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
+  confirmProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 
@@ -857,6 +859,7 @@ function RenderedMarkdownSurface({
   threadRef: ScopedThreadRef;
   readOnly: boolean;
 }) {
+  const [savingLanguage, setSavingLanguage] = useState(false);
   const saveCoordinator = useFileSaveCoordinator({
     environmentId,
     cwd,
@@ -871,8 +874,28 @@ function RenderedMarkdownSurface({
         cwd={cwd}
         relativePath={relativePath}
         threadRef={threadRef}
-        onTaskListChange={
+        onCodeLanguageChange={
           readOnly
+            ? undefined
+            : async (change) => {
+                if (savingLanguage) throw new Error("A language change is already being saved.");
+                const currentContents =
+                  getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
+                  contents;
+                const nextContents = setMarkdownCodeLanguage(currentContents, change);
+                setSavingLanguage(true);
+                try {
+                  if (!(await saveCoordinator.changeAndWait(nextContents)))
+                    throw new Error("Could not save language.");
+                  setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+                  confirmProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+                } finally {
+                  setSavingLanguage(false);
+                }
+              }
+        }
+        onTaskListChange={
+          readOnly || savingLanguage
             ? undefined
             : ({ markerOffset, checked }) => {
                 const currentContents =

@@ -29,6 +29,9 @@ The picker selects how existing text is interpreted; it does not translate text 
 
 ## Constraints and decisions
 
+- Tracking: intentionally proceed without a Linear issue, as agreed.
+- Persist chat language edits with a dedicated event and bump the orchestration protocol. Release server and clients together; mixed protocol versions are unsupported. Before upgrading an environment, take a consistent database backup. Old servers cannot replay the new event: downgrade requires stopping the upgraded server and restoring the pre-upgrade database (losing changes since that backup), or shipping a forward fix. Reverting code alone is not recovery.
+
 - Reuse the existing block headers and file save flows. Web file previews share [ChatMarkdown](../../apps/web/src/components/ChatMarkdown.tsx); mobile has a separate [code block renderer](../../apps/mobile/modules/t3-markdown-text/src/NativeMarkdownBlock.tsx) and [file preview](../../apps/mobile/src/features/files/FileMarkdownPreview.tsx). Cover each path explicitly.
 - Persistence belongs in server services and typed contracts. A saved language must remain associated with the correct message and block as streaming or later updates arrive. The representation is an implementation choice, not a requirement to rewrite provider conversation history.
 - Behavior is independent of provider and must work through local, remote/relay, and tunnel connections. Sharing a selection concerns devices using the same environment and content, not unrelated copies of a file or thread.

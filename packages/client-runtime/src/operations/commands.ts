@@ -257,6 +257,17 @@ export const reorderActiveThread: (input: ReorderActiveThreadInput) => CommandEf
   });
 });
 
+export type SetMessageCodeLanguageInput = CommandInput<"thread.message.code-language.set">;
+
+export const setMessageCodeLanguage: (input: SetMessageCodeLanguageInput) => CommandEffect =
+  Effect.fn("EnvironmentCommands.setMessageCodeLanguage")(function* (input) {
+    return yield* dispatch({
+      ...input,
+      ...(yield* timestampedCommandMetadata(input)),
+      type: "thread.message.code-language.set",
+    });
+  });
+
 export const updateThreadMetadata: (input: UpdateThreadMetadataInput) => CommandEffect = Effect.fn(
   "EnvironmentCommands.updateThreadMetadata",
 )(function* (input) {

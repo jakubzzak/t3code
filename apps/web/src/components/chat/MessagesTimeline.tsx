@@ -17,6 +17,7 @@ import {
   type AssistantCitation,
   type EnvironmentId,
   type MessageId,
+  type OrchestrationMessage,
   type ScopedThreadRef,
   type ServerProviderSkill,
   type ToolActivityIcon,
@@ -2217,6 +2218,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         <div onCopyCapture={onBodyCopyCapture}>
           <CollapsibleUserMessageBody
             text={resolvedContext.text}
+            message={row.message}
             renderContextReference={renderContextReference}
             skills={ctx.skills}
             markdownCwd={ctx.markdownCwd}
@@ -2395,6 +2397,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
         >
           <ChatMarkdown
             text={messageText}
+            message={row.message}
             cwd={ctx.markdownCwd}
             threadRef={ctx.threadRef ?? undefined}
             isStreaming={Boolean(row.message.streaming)}
@@ -2813,6 +2816,7 @@ function ReasoningTraceBlock({
               key={reasoningMessage.id}
               className="text-foreground"
               text={reasoningMessage.text}
+              message={reasoningMessage}
               cwd={ctx.markdownCwd}
               threadRef={ctx.threadRef ?? undefined}
               isStreaming={streaming && reasoningMessage.streaming}
@@ -2881,6 +2885,7 @@ const ReasoningTimelineRow = memo(function ReasoningTimelineRow({
           <ChatMarkdown
             className="text-foreground"
             text={message.text}
+            message={message}
             cwd={ctx.markdownCwd}
             threadRef={ctx.threadRef ?? undefined}
             lineBreaks
@@ -3935,6 +3940,7 @@ function shouldCollapseUserMessage(text: string): boolean {
 
 const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(props: {
   text: string;
+  message?: Pick<OrchestrationMessage, "id" | "text" | "updatedAt" | "streaming"> | undefined;
   renderContextReference: (reference: ChatMarkdownContextReference) => ReactNode;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   markdownCwd: string | undefined;
@@ -3965,6 +3971,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
         >
           <UserMessageBody
             text={props.text}
+            message={props.message}
             renderContextReference={props.renderContextReference}
             skills={props.skills}
             markdownCwd={props.markdownCwd}
@@ -4003,6 +4010,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
 
 const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;
+  message?: Pick<OrchestrationMessage, "id" | "text" | "updatedAt" | "streaming"> | undefined;
   renderContextReference?: (reference: ChatMarkdownContextReference) => ReactNode;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   markdownCwd: string | undefined;
@@ -4014,6 +4022,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   return (
     <ChatMarkdown
       text={props.text}
+      message={props.message}
       cwd={props.markdownCwd}
       threadRef={ctx.threadRef ?? undefined}
       skills={props.skills}

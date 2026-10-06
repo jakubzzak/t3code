@@ -1,5 +1,20 @@
-import { createContext, memo, useContext, useMemo } from "react";
-import { Image, Platform, ScrollView, Text, useColorScheme, View } from "react-native";
+import {
+  CODE_LANGUAGES,
+  type markdownCodeBlocks,
+  type MarkdownCodeLanguageChange,
+} from "@t3tools/shared/markdownCode";
+import type { ReactNode } from "react";
+import { createContext, memo, useContext, useMemo, useState } from "react";
+import {
+  Image,
+  Modal,
+  Pressable,
+  Platform,
+  ScrollView,
+  Text,
+  useColorScheme,
+  View,
+} from "react-native";
 import type { MarkdownNode } from "react-native-nitro-markdown/headless";
 
 import { CopyTextButton } from "./CopyTextButton";
@@ -21,6 +36,13 @@ import { useHighlightedCode, type HighlightedCode } from "./useHighlightedCode";
 
 /** Set by SelectableMarkdownText so images anywhere in the block tree can use it. */
 export const MarkdownImageRendererContext = createContext<MarkdownImageRenderer | null>(null);
+
+export const MarkdownCodeContext = createContext<{
+  blocks: ReadonlyMap<number, ReturnType<typeof markdownCodeBlocks>[number]>;
+  isStreaming: boolean;
+  onCodeLanguageChange?: ((change: MarkdownCodeLanguageChange) => Promise<void>) | undefined;
+  renderDiagram?: ((input: { code: string; children: ReactNode }) => ReactNode) | undefined;
+} | null>(null);
 
 const MONO_FONT_FAMILY = Platform.select({
   ios: "ui-monospace",
@@ -156,6 +178,30 @@ function NativeCodeBlock(props: {
   const theme = colorScheme === "dark" ? "dark" : "light";
   const highlighted = useHighlightedCode(content, props.node.language, theme, props.highlightCode);
   const languageLabel = props.node.language?.toUpperCase() ?? "CODE";
+  const context = useContext(MarkdownCodeContext);
+  const block = props.node.beg === undefined ? undefined : context?.blocks.get(props.node.beg);
+  const [source, setSource] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const isMermaid = props.node.language?.toLowerCase() === "mermaid";
+  const preview = isMermaid && !source && (!context?.isStreaming || block?.closed);
+  const editable = block && context?.onCodeLanguageChange;
+  const codeView = (
+    <ScrollView
+      horizontal
+      bounces={false}
+      nestedScrollEnabled={Platform.OS === "android"}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 12 }}
+    >
+      <HighlightedCodeText
+        content={content}
+        highlighted={highlighted}
+        textStyle={props.textStyle}
+      />
+    </ScrollView>
+  );
   return (
     <View
       style={{
@@ -180,19 +226,38 @@ function NativeCodeBlock(props: {
           justifyContent: "space-between",
         }}
       >
-        <MarkdownTextPrimitive
-          selectable
-          selectionColor={props.textStyle.selectionColor}
-          selectionHandleColor={props.textStyle.selectionHandleColor}
-          style={{
-            flex: 1,
-            color: props.textStyle.mutedColor,
-            fontFamily: MONO_FONT_FAMILY,
-            fontSize: codeBlockFontSize(props.textStyle),
-          }}
+        <Pressable
+          accessibilityRole={editable ? "button" : "text"}
+          accessibilityLabel={editable ? "Code language" : languageLabel}
+          disabled={!editable || saving || context?.isStreaming}
+          onPress={() => setPicker(true)}
+          style={{ flex: 1 }}
         >
-          {languageLabel}
-        </MarkdownTextPrimitive>
+          <MarkdownTextPrimitive
+            selectable
+            selectionColor={props.textStyle.selectionColor}
+            selectionHandleColor={props.textStyle.selectionHandleColor}
+            style={{
+              flex: 1,
+              color: props.textStyle.mutedColor,
+              fontFamily: MONO_FONT_FAMILY,
+              fontSize: codeBlockFontSize(props.textStyle),
+            }}
+          >
+            {languageLabel}
+          </MarkdownTextPrimitive>
+        </Pressable>
+        {isMermaid ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={source ? "Show diagram" : "Show code"}
+            onPress={() => setSource((value) => !value)}
+          >
+            <Text style={{ color: props.textStyle.linkColor, padding: 10 }}>
+              {source ? "Diagram" : "Code"}
+            </Text>
+          </Pressable>
+        ) : null}
         <CopyTextButton
           accessibilityLabel={`Copy ${languageLabel.toLowerCase()} code`}
           text={content}
@@ -204,19 +269,75 @@ function NativeCodeBlock(props: {
           iconSize={14}
         />
       </View>
-      <ScrollView
-        horizontal
-        bounces={false}
-        nestedScrollEnabled={Platform.OS === "android"}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 12 }}
+      {saving ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={{ color: props.textStyle.mutedColor, padding: 10 }}
+        >
+          Saving…
+        </Text>
+      ) : null}
+      {failed ? (
+        <Text accessibilityRole="alert" style={{ color: props.textStyle.linkColor, padding: 10 }}>
+          Could not save the language. Select it again to retry.
+        </Text>
+      ) : null}
+      {preview && context?.renderDiagram
+        ? context.renderDiagram({ code: content, children: codeView })
+        : codeView}
+      <Modal
+        visible={picker}
+        transparent
+        animationType="none"
+        onRequestClose={() => setPicker(false)}
       >
-        <HighlightedCodeText
-          content={content}
-          highlighted={highlighted}
-          textStyle={props.textStyle}
-        />
-      </ScrollView>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "#0008", justifyContent: "center", padding: 24 }}
+          onPress={() => setPicker(false)}
+          accessibilityLabel="Cancel language selection"
+        >
+          <View
+            style={{
+              maxHeight: "80%",
+              backgroundColor: props.textStyle.codeBlockBackgroundColor,
+              borderRadius: 12,
+              padding: 12,
+            }}
+          >
+            <Text accessibilityRole="header" style={{ color: props.textStyle.color, padding: 12 }}>
+              Code language
+            </Text>
+            <ScrollView>
+              {[...new Set([props.node.language || "text", ...CODE_LANGUAGES])].map((language) => (
+                <Pressable
+                  key={language}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: language === (props.node.language || "text") }}
+                  onPress={() => {
+                    setPicker(false);
+                    if (!block || !context?.onCodeLanguageChange) return;
+                    setSaving(true);
+                    setFailed(false);
+                    void context
+                      .onCodeLanguageChange({
+                        blockStart: block.start,
+                        expectedLanguage: block.language,
+                        language,
+                      })
+                      .catch(() => setFailed(true))
+                      .finally(() => setSaving(false));
+                  }}
+                >
+                  <Text style={{ color: props.textStyle.color, padding: 12 }}>{language}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable accessibilityRole="button" onPress={() => setPicker(false)}>
+              <Text style={{ color: props.textStyle.linkColor, padding: 12 }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -522,6 +643,7 @@ export function NativeMarkdownBlock(props: {
     case "code_block":
       return (
         <NativeCodeBlock
+          key={props.node.language}
           node={props.node}
           textStyle={props.textStyle}
           highlightCode={props.highlightCode}

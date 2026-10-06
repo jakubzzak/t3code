@@ -12,6 +12,17 @@ becomes an attachment when inserting it would exceed the message limit. On a
 hardware keyboard, use `Cmd+Shift+V` on Apple devices or `Ctrl+Shift+V` elsewhere
 to keep a large paste editable in the composer instead.
 
+## Diagrams and code languages
+
+Mermaid code blocks render inline in messages and Markdown file previews. Choose **mermaid**
+from a block's language picker to render an existing block, or switch its language back to show code.
+The language is saved for every device connected to that environment; in a workspace file,
+this edits the Markdown fence. Captured attachments and truncated previews are read-only.
+
+Use **Show code** or **Show diagram** to change the current view without changing the saved
+language. Reopening defaults to the diagram, and copying always copies the source. Invalid
+diagrams keep their source visible with a retry action.
+
 ## Attach files
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most

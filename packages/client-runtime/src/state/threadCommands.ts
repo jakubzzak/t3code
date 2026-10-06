@@ -1,3 +1,7 @@
+import {
+  setMessageCodeLanguage,
+  type SetMessageCodeLanguageInput,
+} from "../operations/commands.ts";
 import * as Crypto from "effect/Crypto";
 import { Atom } from "effect/unstable/reactivity";
 import {
@@ -70,6 +74,7 @@ import {
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
 export type {
+  SetMessageCodeLanguageInput,
   ArchiveThreadInput,
   CreateThreadInput,
   DeleteThreadInput,
@@ -183,6 +188,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     reorderActive: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:reorder-active",
       execute: (input: ReorderActiveThreadInput) => reorderActiveThread(input),
+      scheduler,
+      concurrency,
+    }),
+    setCodeLanguage: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-code-language",
+      execute: (input: SetMessageCodeLanguageInput) => setMessageCodeLanguage(input),
       scheduler,
       concurrency,
     }),

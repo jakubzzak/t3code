@@ -304,6 +304,7 @@ function FileContent(props: {
       ) : null}
       {props.activeMode === "preview" && isMarkdown ? (
         <FileMarkdownPreview
+          readOnly={props.truncated}
           cwd={props.cwd}
           environmentId={props.environmentId}
           markdown={props.fileContents}

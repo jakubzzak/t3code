@@ -15,6 +15,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   private lastChangeAt = 0;
   private saving = false;
   private disposed = false;
+  private waiters: Array<{ revision: number; resolve: (saved: boolean) => void }> = [];
 
   constructor(private readonly options: FileSaveCoordinatorOptions<A, E>) {}
 
@@ -25,6 +26,15 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.lastChangeAt = Date.now();
     this.options.onPendingChange(true);
     this.schedule(this.options.debounceMs);
+  }
+
+  changeAndWait(contents: string): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false);
+    const promise = new Promise<boolean>((resolve) => {
+      this.waiters.push({ revision: this.latestRevision + 1, resolve });
+    });
+    this.change(contents);
+    return promise;
   }
 
   dispose(): void {
@@ -60,6 +70,11 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
       this.options.onConfirmed(contents);
     }
 
+    this.waiters = this.waiters.filter((waiter) => {
+      if (waiter.revision > revision) return true;
+      waiter.resolve(succeeded);
+      return false;
+    });
     this.saving = false;
     if (revision === this.latestRevision) {
       if (succeeded) this.options.onPendingChange(false);

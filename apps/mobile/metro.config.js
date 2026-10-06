@@ -48,6 +48,7 @@ config.resolver = {
     ...config.resolver?.extraNodeModules,
     "@t3tools/mobile-third-party-licenses": generatedLicenseModuleRoot,
     "@t3tools/mobile-device-stream": generatedDeviceStreamRoot,
+    "@t3tools/mobile-mermaid": path.join(__dirname, ".generated", "mermaid"),
     shiki: mobileShikiRoot,
     "@shikijs/core": resolveShikiDependencyRoot("@shikijs/core"),
     "@shikijs/engine-javascript": resolveShikiDependencyRoot("@shikijs/engine-javascript"),
@@ -120,7 +121,18 @@ async function prepareDeviceStream() {
   }
 }
 
-module.exports = Promise.all([generateMobileThirdPartyLicenses(), prepareDeviceStream()]).then(() =>
+async function prepareMermaid() {
+  const { generateMermaidScript } = await import(
+    pathToFileURL(path.join(__dirname, "scripts/generate-mermaid.mts")).href
+  );
+  await generateMermaidScript();
+}
+
+module.exports = Promise.all([
+  generateMobileThirdPartyLicenses(),
+  prepareDeviceStream(),
+  prepareMermaid(),
+]).then(() =>
   withUniwindConfig(config, {
     cssEntryFile: "./global.css",
     extraThemes,

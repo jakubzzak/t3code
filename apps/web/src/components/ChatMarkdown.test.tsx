@@ -9,6 +9,9 @@ import { GitHubIcon } from "./Icons";
 import { Button } from "./ui/button";
 import { setMarkdownTaskChecked } from "./files/filePreviewMode";
 
+vi.mock("@t3tools/shared/mermaid", () => ({
+  renderMermaid: vi.fn(async () => "<svg>Rendered diagram</svg>"),
+}));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("../hooks/useSettings", async (importOriginal) => {
@@ -928,5 +931,53 @@ describe("ChatMarkdown Windows file links", () => {
     expect(html).not.toContain("javascript:");
     expect(html).not.toContain("d:alert");
     expect(html).not.toContain("chat-markdown-file-link");
+  });
+});
+
+describe("inline Mermaid", () => {
+  it("defaults to a diagram, toggles source, and renders again when reopening", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let view!: ReactTestRenderer;
+    const props = { cwd: undefined, text: "```mermaid\nflowchart LR\nA-->B\n```" };
+    await act(async () => {
+      view = create(<ChatMarkdown {...props} />);
+    });
+    expect(view.root.findAllByProps({ role: "img" })).toHaveLength(1);
+    await act(async () => {
+      codeButton(view, "Show code").onClick?.({} as never);
+    });
+    expect(view.root.findAllByProps({ role: "img" })).toHaveLength(0);
+    expect(JSON.stringify(view.toJSON())).toContain("flowchart LR");
+    await act(async () => {
+      codeButton(view, "Show diagram").onClick?.({} as never);
+    });
+    expect(view.root.findAllByProps({ role: "img" })).toHaveLength(1);
+    await act(async () => {
+      view.unmount();
+    });
+    await act(async () => {
+      view = create(<ChatMarkdown {...props} />);
+    });
+    expect(view.root.findAllByProps({ role: "img" })).toHaveLength(1);
+    await act(async () => {
+      view.unmount();
+    });
+  });
+
+  it("waits for a streaming fence to close before rendering", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let view!: ReactTestRenderer;
+    const text = "```mermaid\nflowchart LR\nA-->B\n";
+    await act(async () => {
+      view = create(<ChatMarkdown cwd={undefined} text={text} isStreaming />);
+    });
+    expect(view.root.findAllByProps({ role: "img" })).toHaveLength(0);
+    await act(async () => {
+      view.update(<ChatMarkdown cwd={undefined} text={text + "```"} isStreaming />);
+    });
+    expect(view.root.findAllByProps({ role: "img" })).toHaveLength(1);
+    await act(async () => {
+      view.unmount();
+    });
   });
 });

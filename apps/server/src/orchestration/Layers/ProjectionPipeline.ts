@@ -1143,6 +1143,20 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           return;
 
+        case "thread.message-code-language-set": {
+          const existing = yield* projectionThreadMessageRepository.getByMessageId({
+            messageId: event.payload.messageId,
+          });
+          if (Option.isSome(existing) && existing.value.threadId === event.payload.threadId) {
+            yield* projectionThreadMessageRepository.upsert({
+              ...existing.value,
+              text: event.payload.text,
+              updatedAt: event.payload.updatedAt,
+            });
+          }
+          return;
+        }
+
         case "thread.message-sent": {
           if (event.payload.streaming) {
             const attachments =

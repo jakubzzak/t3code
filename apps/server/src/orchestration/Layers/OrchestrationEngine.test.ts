@@ -130,6 +130,125 @@ const hasMetricSnapshot = (
   );
 
 describe("OrchestrationEngine", () => {
+  it("persists code language changes across restart without changing turn or checkpoint state", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-code-language-"));
+    const databasePath = NodePath.join(directory, "state.sqlite");
+    let system = await createOrchestrationSystem(databasePath);
+    const projectId = ProjectId.make("language-project");
+    const threadId = ThreadId.make("language-thread");
+    const messageId = MessageId.make("language-message");
+    const text = "```text\nflowchart LR\nA --> B\n```";
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("language-project-create"),
+          projectId,
+          title: "Project",
+          workspaceRoot: directory,
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("language-thread-create"),
+          projectId,
+          threadId,
+          title: "Thread",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.message.assistant.delta",
+          commandId: CommandId.make("language-message-delta"),
+          threadId,
+          messageId,
+          turnId: TurnId.make("language-turn"),
+          delta: text,
+          createdAt: now(),
+        }),
+      );
+      const change = {
+        type: "thread.message.code-language.set" as const,
+        commandId: CommandId.make("language-set"),
+        threadId,
+        messageId,
+        expectedUpdatedAt: now(),
+        blockStart: 0,
+        expectedLanguage: "text",
+        language: "mermaid",
+        createdAt: "2026-01-01T00:00:01.000Z",
+      };
+      await expect(
+        system.run(
+          system.engine.dispatch({ ...change, commandId: CommandId.make("language-streaming") }),
+        ),
+      ).rejects.toThrow();
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.message.assistant.complete",
+          commandId: CommandId.make("language-message-complete"),
+          threadId,
+          messageId,
+          turnId: TurnId.make("language-turn"),
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.diff.complete",
+          commandId: CommandId.make("language-checkpoint"),
+          threadId,
+          turnId: TurnId.make("language-turn"),
+          completedAt: now(),
+          checkpointRef: asCheckpointRef("refs/t3/checkpoints/language-thread/turn/1"),
+          status: "ready",
+          files: [],
+          checkpointTurnCount: 1,
+          createdAt: now(),
+        }),
+      );
+      const before = Option.getOrThrow(await system.readThread(threadId));
+      await system.run(system.engine.dispatch(change));
+      const after = Option.getOrThrow(await system.readThread(threadId));
+      expect(after.messages[0]?.text).toBe(text.replace("```text", "```mermaid"));
+      expect(after.latestTurn).toEqual(before.latestTurn);
+      expect(before.checkpoints).toHaveLength(1);
+      expect(after.checkpoints).toEqual(before.checkpoints);
+      expect(after.session).toEqual(before.session);
+      await expect(
+        system.run(
+          system.engine.dispatch({ ...change, commandId: CommandId.make("language-stale") }),
+        ),
+      ).rejects.toThrow();
+      await system.dispose();
+      system = await createOrchestrationSystem(databasePath);
+      const restored = Option.getOrThrow(await system.readThread(threadId));
+      expect(restored.messages[0]?.text).toBe(after.messages[0]?.text);
+      await system.run(
+        system.engine.dispatch({
+          ...change,
+          commandId: CommandId.make("language-reset"),
+          expectedUpdatedAt: restored.messages[0]!.updatedAt,
+          expectedLanguage: "mermaid",
+          language: "text",
+          createdAt: "2026-01-01T00:00:02.000Z",
+        }),
+      );
+      expect(Option.getOrThrow(await system.readThread(threadId)).messages[0]?.text).toBe(text);
+    } finally {
+      await system.dispose();
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each(["running", "stopped"] as const)(
     "sends async answers with a %s session and rejects old duplicate replies",
     async (status) => {

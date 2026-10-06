@@ -18,6 +18,28 @@ describe("FileSaveCoordinator", () => {
     vi.useRealTimers();
   });
 
+  it("reports failed writes to a waiting language edit and permits retry", async () => {
+    vi.useFakeTimers();
+    const failed = AsyncResult.failure(Cause.fail("write failed"));
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce(AsyncResult.success(undefined));
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      persist,
+      onPendingChange: vi.fn(),
+      onConfirmed: vi.fn(),
+    });
+    const first = coordinator.changeAndWait("```mermaid\nA-->B\n```");
+    await vi.runAllTimersAsync();
+    expect(await first).toBe(false);
+    const retry = coordinator.changeAndWait("```mermaid\nA-->B\n```");
+    await vi.runAllTimersAsync();
+    expect(await retry).toBe(true);
+    coordinator.dispose();
+  });
+
   it("debounces edits and persists only the latest contents", async () => {
     vi.useFakeTimers();
     const persist = vi

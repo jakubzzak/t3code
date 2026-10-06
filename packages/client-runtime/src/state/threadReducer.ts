@@ -386,6 +386,19 @@ export function applyThreadDetailEvent(
     }
 
     // ── Messages ────────────────────────────────────────────────────
+    case "thread.message-code-language-set":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          messages: thread.messages.map((message) =>
+            message.id !== event.payload.messageId
+              ? message
+              : { ...message, text: event.payload.text, updatedAt: event.payload.updatedAt },
+          ),
+        },
+      };
+
     case "thread.message-sent": {
       const message: OrchestrationMessage = {
         id: event.payload.messageId,
