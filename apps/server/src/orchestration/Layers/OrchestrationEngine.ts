@@ -236,6 +236,32 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
 
+        // Startup command snapshots omit message bodies. Load only the selected
+        // message, including older messages outside the retained command window.
+        if (envelope.command.type === "thread.message.code-language.set") {
+          const command = envelope.command;
+          const persisted = yield* projectionSnapshotQuery.getTurnStartMessage(command);
+          commandReadModel = {
+            ...commandReadModel,
+            threads: commandReadModel.threads.map((thread) =>
+              thread.id !== command.threadId
+                ? thread
+                : {
+                    ...thread,
+                    messages: Option.isNone(persisted)
+                      ? thread.messages.filter((message) => message.id !== command.messageId)
+                      : thread.messages.some((message) => message.id === command.messageId)
+                        ? thread.messages.map((message) =>
+                            message.id === command.messageId ? persisted.value.message : message,
+                          )
+                        : [...thread.messages, persisted.value.message].toSorted((a, b) =>
+                            a.createdAt.localeCompare(b.createdAt),
+                          ),
+                  },
+            ),
+          };
+        }
+
         // Command snapshots omit activities at startup and cap them while running.
         // Read this request's durable state before deciding how to send the answer.
         const userInputActivity =

@@ -1,3 +1,4 @@
+import { ThreadMessageCodeLanguageSetPayload } from "@t3tools/contracts";
 import type {
   OrchestrationEvent,
   OrchestrationProject,
@@ -770,6 +771,30 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             updatedAt: payload.updatedAt,
           }),
+        })),
+      );
+
+    case "thread.message-code-language-set":
+      return decodeForEvent(
+        ThreadMessageCodeLanguageSetPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: nextBase.threads.map((thread) =>
+            thread.id !== payload.threadId
+              ? thread
+              : {
+                  ...thread,
+                  messages: thread.messages.map((message) =>
+                    message.id !== payload.messageId
+                      ? message
+                      : { ...message, text: payload.text, updatedAt: payload.updatedAt },
+                  ),
+                },
+          ),
         })),
       );
 

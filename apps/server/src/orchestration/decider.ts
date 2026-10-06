@@ -1,3 +1,4 @@
+import { setMarkdownCodeLanguage } from "@t3tools/shared/markdownCode";
 import {
   EventId,
   MAX_SCRIPT_ID_LENGTH,
@@ -1952,6 +1953,47 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       return [unsettledEvent, sessionSetEvent];
+    }
+
+    case "thread.message.code-language.set": {
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      const message = thread.messages.find((entry) => entry.id === command.messageId);
+      if (
+        !message ||
+        message.streaming ||
+        thread.deletedAt !== null ||
+        message.updatedAt !== command.expectedUpdatedAt
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "The message is unavailable, still streaming, or changed. Refresh it and try again.",
+        });
+      }
+      const text = yield* Effect.try({
+        try: () => setMarkdownCodeLanguage(message.text, command),
+        catch: () =>
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "The code block changed or its language is invalid. Refresh it and try again.",
+          }),
+      });
+      if (text === message.text) return [];
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.message-code-language-set",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          text,
+          updatedAt: command.createdAt,
+        },
+      };
     }
 
     case "thread.message.assistant.delta":

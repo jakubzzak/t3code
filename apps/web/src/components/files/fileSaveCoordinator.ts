@@ -12,9 +12,11 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   private latestContents = "";
   private latestRevision = 0;
   private confirmedRevision = 0;
+  private discardedRevision = 0;
   private lastChangeAt = 0;
   private saving = false;
   private disposed = false;
+  private waiters: Array<{ revision: number; resolve: (saved: boolean) => void }> = [];
 
   constructor(private readonly options: FileSaveCoordinatorOptions<A, E>) {}
 
@@ -25,6 +27,15 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.lastChangeAt = Date.now();
     this.options.onPendingChange(true);
     this.schedule(this.options.debounceMs);
+  }
+
+  changeAndWait(contents: string): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false);
+    const promise = new Promise<boolean>((resolve) => {
+      this.waiters.push({ revision: this.latestRevision + 1, resolve });
+    });
+    this.change(contents);
+    return promise;
   }
 
   dispose(): void {
@@ -48,7 +59,12 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
   }
 
   private async persistLatest(): Promise<void> {
-    if (this.saving || this.latestRevision === this.confirmedRevision) return;
+    if (
+      this.saving ||
+      this.latestRevision === this.confirmedRevision ||
+      this.latestRevision === this.discardedRevision
+    )
+      return;
 
     this.saving = true;
     const contents = this.latestContents;
@@ -58,11 +74,20 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     if (succeeded) {
       this.confirmedRevision = revision;
       this.options.onConfirmed(contents);
+    } else if (this.waiters.some((waiter) => waiter.revision === revision)) {
+      // Awaited picker edits retain the saved UI on failure. Do not later flush
+      // their rejected contents on close as if they were unsaved editor text.
+      this.discardedRevision = revision;
     }
 
+    this.waiters = this.waiters.filter((waiter) => {
+      if (waiter.revision > revision) return true;
+      waiter.resolve(succeeded);
+      return false;
+    });
     this.saving = false;
     if (revision === this.latestRevision) {
-      if (succeeded) this.options.onPendingChange(false);
+      if (succeeded || this.discardedRevision === revision) this.options.onPendingChange(false);
       return;
     }
 

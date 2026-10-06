@@ -358,6 +358,14 @@
     "./codexAuthHandoff": {
       "types": "./src/codexAuthHandoff.ts",
       "import": "./src/codexAuthHandoff.ts"
+    },
+    "./markdownCode": {
+      "types": "./src/markdownCode.ts",
+      "import": "./src/markdownCode.ts"
+    },
+    "./mermaid": {
+      "types": "./src/mermaid.ts",
+      "import": "./src/mermaid.ts"
     }
   },
   "scripts": {
@@ -370,6 +378,9 @@
     "@t3tools/contracts": "workspace:*",
     "effect": "catalog:",
     "jose": "catalog:",
+    "mermaid": "12.1.0",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5",
     "yaml": "catalog:"
   },
   "devDependencies": {

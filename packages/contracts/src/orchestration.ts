@@ -1428,6 +1428,20 @@ const ThreadSessionStopCommand = Schema.Struct({
   onlyIfSettled: Schema.optional(Schema.Boolean),
 });
 
+const ThreadMessageCodeLanguageSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.code-language.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  expectedUpdatedAt: IsoDateTime,
+  blockStart: NonNegativeInt,
+  expectedLanguage: Schema.String,
+  language: Schema.String.pipe(
+    Schema.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9_+#.-]{0,63}$/)),
+  ),
+  createdAt: IsoDateTime,
+});
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -1446,6 +1460,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadAutoSettleSetCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
+  ThreadMessageCodeLanguageSetCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
   ThreadRuntimeModeSetCommand,
@@ -1480,6 +1495,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadAutoSettleSetCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
+  ThreadMessageCodeLanguageSetCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
   ThreadRuntimeModeSetCommand,
@@ -1722,6 +1738,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
   "thread.message-sent",
+  "thread.message-code-language-set",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
   "thread.approval-response-requested",
@@ -1918,6 +1935,13 @@ export const ThreadInteractionModeSetPayload = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadMessageCodeLanguageSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String,
   updatedAt: IsoDateTime,
 });
 
@@ -2158,6 +2182,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.interaction-mode-set"),
     payload: ThreadInteractionModeSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.message-code-language-set"),
+    payload: ThreadMessageCodeLanguageSetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

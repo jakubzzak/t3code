@@ -77,6 +77,13 @@ export interface MarkdownFileContextMenu {
 
 export interface SelectableMarkdownTextProps {
   readonly markdown: string;
+  readonly isStreaming?: boolean;
+  readonly onCodeLanguageChange?:
+    | ((change: import("@t3tools/shared/markdownCode").MarkdownCodeLanguageChange) => Promise<void>)
+    | undefined;
+  readonly renderDiagram?:
+    | ((input: { code: string; children: import("react").ReactNode }) => import("react").ReactNode)
+    | undefined;
   /** Opaque context payload supplied by the host for native selection copy. */
   readonly contextClipboardFragment?: string;
   readonly textStyle: NativeMarkdownTextStyle;

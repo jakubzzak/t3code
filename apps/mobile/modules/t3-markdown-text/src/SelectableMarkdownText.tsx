@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { View } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
+import { useMarkdownCodeViews } from "./useMarkdownCodeViews";
 
 import {
   nativeMarkdownChunkSpacing,
@@ -8,7 +9,11 @@ import {
   nativeMarkdownDocumentRuns,
   nativeMarkdownWithPreservedSoftBreaks,
 } from "./nativeMarkdownText";
-import { MarkdownImageRendererContext, NativeMarkdownBlock } from "./NativeMarkdownBlock";
+import {
+  MarkdownImageRendererContext,
+  MarkdownCodeContext,
+  NativeMarkdownBlock,
+} from "./NativeMarkdownBlock";
 import {
   MarkdownContextClipboardContext,
   MarkdownFileContextMenuContext,
@@ -38,6 +43,9 @@ export function hasNativeSelectableMarkdownText(): boolean {
 
 export function SelectableMarkdownText({
   markdown,
+  isStreaming = false,
+  onCodeLanguageChange,
+  renderDiagram,
   contextClipboardFragment,
   skills = EMPTY_SKILLS,
   textStyle,
@@ -50,6 +58,12 @@ export function SelectableMarkdownText({
   marginTop = 0,
   marginBottom = 0,
 }: SelectableMarkdownTextProps) {
+  const { blocks, sourceViews, toggleSource } = useMarkdownCodeViews(markdown);
+  const codeContext = useMemo(
+    () => ({ blocks, sourceViews, toggleSource, isStreaming, onCodeLanguageChange, renderDiagram }),
+    [blocks, sourceViews, toggleSource, isStreaming, onCodeLanguageChange, renderDiagram],
+  );
+
   const chunks = useMemo(() => {
     const parsedDocument = parseMarkdownWithOptions(markdown, {
       gfm: true,
@@ -78,44 +92,46 @@ export function SelectableMarkdownText({
   );
 
   return (
-    <MarkdownContextClipboardContext.Provider value={contextClipboardFragment ?? ""}>
-      <MarkdownImageRendererContext.Provider value={renderImage ?? null}>
-        <MarkdownFileContextMenuContext.Provider value={fileContextMenuHandlers}>
-          {/* A percentage width here creates a cyclic intrinsic measurement inside
+    <MarkdownCodeContext.Provider value={codeContext}>
+      <MarkdownContextClipboardContext.Provider value={contextClipboardFragment ?? ""}>
+        <MarkdownImageRendererContext.Provider value={renderImage ?? null}>
+          <MarkdownFileContextMenuContext.Provider value={fileContextMenuHandlers}>
+            {/* A percentage width here creates a cyclic intrinsic measurement inside
           shrink-to-fit containers such as user-message bubbles. Yoga then gives
           the native text node an unbounded second pass and the parent only clips
           the resulting single-line width instead of reflowing it. */}
-          <View style={{ flexShrink: 1, minWidth: 0, marginTop, marginBottom }}>
-            {chunks.map((chunk, index) => {
-              const content =
-                chunk.kind === "rich" ? (
-                  <NativeMarkdownBlock
-                    node={chunk.node}
-                    skills={skills}
-                    textStyle={textStyle}
-                    highlightCode={highlightCode}
-                    onLinkPress={onLinkPress}
-                  />
-                ) : (
-                  <NativeMarkdownSelectableText
-                    runs={chunk.runs}
-                    textStyle={textStyle}
-                    onLinkPress={onLinkPress}
-                  />
-                );
+            <View style={{ flexShrink: 1, minWidth: 0, marginTop, marginBottom }}>
+              {chunks.map((chunk, index) => {
+                const content =
+                  chunk.kind === "rich" ? (
+                    <NativeMarkdownBlock
+                      node={chunk.node}
+                      skills={skills}
+                      textStyle={textStyle}
+                      highlightCode={highlightCode}
+                      onLinkPress={onLinkPress}
+                    />
+                  ) : (
+                    <NativeMarkdownSelectableText
+                      runs={chunk.runs}
+                      textStyle={textStyle}
+                      onLinkPress={onLinkPress}
+                    />
+                  );
 
-              return (
-                <View
-                  key={chunk.key}
-                  style={{ paddingTop: nativeMarkdownChunkSpacing(chunks[index - 1], chunk) }}
-                >
-                  {content}
-                </View>
-              );
-            })}
-          </View>
-        </MarkdownFileContextMenuContext.Provider>
-      </MarkdownImageRendererContext.Provider>
-    </MarkdownContextClipboardContext.Provider>
+                return (
+                  <View
+                    key={chunk.key}
+                    style={{ paddingTop: nativeMarkdownChunkSpacing(chunks[index - 1], chunk) }}
+                  >
+                    {content}
+                  </View>
+                );
+              })}
+            </View>
+          </MarkdownFileContextMenuContext.Provider>
+        </MarkdownImageRendererContext.Provider>
+      </MarkdownContextClipboardContext.Provider>
+    </MarkdownCodeContext.Provider>
   );
 }

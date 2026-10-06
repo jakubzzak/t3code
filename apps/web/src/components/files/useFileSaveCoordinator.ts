@@ -21,12 +21,14 @@ export function useFileSaveCoordinator({
   cwd,
   relativePath,
   onPendingChange,
-}: FileSaveOptions): Pick<FileSaveCoordinator, "change"> {
+}: FileSaveOptions): Pick<FileSaveCoordinator, "change" | "changeAndWait"> {
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
   const session = useMemo(() => {
     const coordinatorRef = createRef<FileSaveCoordinator>();
     return {
       change: (contents: string) => coordinatorRef.current?.change(contents),
+      changeAndWait: (contents: string) =>
+        coordinatorRef.current?.changeAndWait(contents) ?? Promise.resolve(false),
       setup: () => {
         const coordinator = new FileSaveCoordinator({
           debounceMs: FILE_SAVE_DEBOUNCE_MS,

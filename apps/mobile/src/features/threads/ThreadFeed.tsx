@@ -1,4 +1,8 @@
 import {
+  useMessageCodeLanguage,
+  type EditableMarkdownMessage,
+} from "../markdown/useMessageCodeLanguage";
+import {
   WorktreeWorkingHeader,
   WorktreeSetupCard,
   type WorktreeSetupCardProps,
@@ -780,6 +784,9 @@ interface MarkdownLinkHandlers {
 }
 
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
+  readonly message: EditableMarkdownMessage;
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
   readonly markdown: string;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
@@ -787,9 +794,16 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly renderImage: MarkdownImageRenderer;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
+  const displayedMarkdown = renderCodexFileCitationsAsMarkdown(props.markdown);
+  const changeLanguage = useMessageCodeLanguage(
+    props.message,
+    props.environmentId,
+    props.threadId,
+    displayedMarkdown,
+  );
   const segments = useMemo(
-    () => splitCodexArtifactTemplateMarkdown(props.markdown),
-    [props.markdown],
+    () => splitCodexArtifactTemplateMarkdown(displayedMarkdown),
+    [displayedMarkdown],
   );
 
   return segments.map((segment) => {
@@ -804,11 +818,15 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
     }
     if (segment.markdown.trim().length === 0) return null;
 
-    const markdown = renderCodexFileCitationsAsMarkdown(segment.markdown);
+    const markdown = segment.markdown;
     return hasNativeSelectableMarkdownText() ? (
       <SelectableMarkdownText
         key={`markdown:${segment.sourceOffset}`}
         markdown={markdown}
+        isStreaming={props.message.streaming}
+        onCodeLanguageChange={(change) =>
+          changeLanguage({ ...change, blockStart: segment.sourceOffset + change.blockStart })
+        }
         skills={props.skills}
         textStyle={props.markdownStyles.nativeTextStyle}
         {...props.linkHandlers}
@@ -1355,6 +1373,7 @@ function renderFeedEntry(
   props: Pick<
     ThreadFeedProps,
     | "environmentId"
+    | "threadId"
     | "onUseArtifactTemplate"
     | "skills"
     | "dispatchingMessageId"
@@ -1502,6 +1521,9 @@ function renderFeedEntry(
               {messages.map((reasoningMessage) => (
                 <AssistantMarkdownContent
                   key={reasoningMessage.id}
+                  message={reasoningMessage}
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
                   markdown={reasoningMessage.text}
                   markdownStyles={markdownStyles.assistant}
                   linkHandlers={props.markdownLinkHandlers}
@@ -1623,6 +1645,8 @@ function renderFeedEntry(
                 value={props.userBubbleMaxWidth - USER_BUBBLE_HORIZONTAL_PADDING * 2}
               >
                 <UserMessageContent
+                  message={message}
+                  threadId={props.threadId}
                   text={renderedText}
                   environmentId={props.environmentId}
                   context={message.context}
@@ -1698,6 +1722,9 @@ function renderFeedEntry(
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
+              message={message}
+              environmentId={props.environmentId}
+              threadId={props.threadId}
               markdown={renderedText}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}
@@ -1771,6 +1798,8 @@ function renderFeedEntry(
 }
 
 type UserMessageContentProps = {
+  readonly message: EditableMarkdownMessage;
+  readonly threadId: ThreadId;
   readonly text: string;
   readonly environmentId: EnvironmentId;
   readonly context?: OrchestrationMessageContext;
@@ -1836,6 +1865,12 @@ function UserMessageContent(props: UserMessageContentProps) {
 
 function LegacyUserMessageContent(props: UserMessageContentProps) {
   const text = props.text;
+  const changeLanguage = useMessageCodeLanguage(
+    props.message,
+    props.environmentId,
+    props.threadId,
+    text,
+  );
   const segments = parseReviewCommentMessageSegments(text);
   const hasReviewComment = segments.some((segment) => segment.kind === "review-comment");
   // A message can hold both a review comment and context chips. The fragment travels with every
@@ -1852,6 +1887,8 @@ function LegacyUserMessageContent(props: UserMessageContentProps) {
       return (
         <SelectableMarkdownText
           markdown={text}
+          isStreaming={props.message.streaming}
+          onCodeLanguageChange={changeLanguage}
           contextClipboardFragment={contextClipboardFragment}
           skills={props.skills}
           textStyle={props.markdownStyles.nativeTextStyle}
@@ -1895,6 +1932,16 @@ function LegacyUserMessageContent(props: UserMessageContentProps) {
           <SelectableMarkdownText
             key={segment.id}
             markdown={text}
+            isStreaming={props.message.streaming}
+            onCodeLanguageChange={
+              props.text.indexOf(text) === props.text.lastIndexOf(text)
+                ? (change) =>
+                    changeLanguage({
+                      ...change,
+                      blockStart: props.text.indexOf(text) + change.blockStart,
+                    })
+                : undefined
+            }
             contextClipboardFragment={contextClipboardFragment}
             skills={props.skills}
             textStyle={props.markdownStyles.nativeTextStyle}
@@ -2754,6 +2801,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       >
         <ThreadMediaVisibility>
           {renderFeedEntry(info, {
+            threadId: props.threadId,
             environmentId: props.environmentId,
             dispatchingMessageId: props.dispatchingMessageId,
             onEditPendingMessage: props.onEditPendingMessage,

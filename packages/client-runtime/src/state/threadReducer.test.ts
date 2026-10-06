@@ -566,6 +566,40 @@ describe("applyThreadDetailEvent", () => {
     });
   });
 
+  it("synchronizes code language edits without changing turn or checkpoint state", () => {
+    const message = {
+      id: MessageId.make("diagram"),
+      role: "assistant" as const,
+      text: "```text\nA-->B\n```",
+      turnId: null,
+      streaming: false,
+      createdAt: baseThread.createdAt,
+      updatedAt: baseThread.updatedAt,
+    };
+    const thread = { ...baseThread, messages: [message] };
+    const result = applyThreadDetailEvent(thread, {
+      ...baseEventFields,
+      sequence: 7,
+      occurredAt: "2026-04-02T06:00:00.000Z",
+      aggregateKind: "thread",
+      aggregateId: thread.id,
+      type: "thread.message-code-language-set",
+      payload: {
+        threadId: thread.id,
+        messageId: message.id,
+        text: "```mermaid\nA-->B\n```",
+        updatedAt: "2026-04-02T06:00:00.000Z",
+      },
+    });
+    expect(result.kind).toBe("updated");
+    if (result.kind !== "updated") return;
+    expect(result.thread.messages[0]?.text).toContain("```mermaid");
+    expect(result.thread.latestTurn).toBe(thread.latestTurn);
+    expect(result.thread.checkpoints).toBe(thread.checkpoints);
+    expect(result.thread.session).toBe(thread.session);
+    expect(result.thread.updatedAt).toBe(thread.updatedAt);
+  });
+
   describe("thread.message-sent", () => {
     it.each([
       ["first", ["first+", "middle", "last"]],

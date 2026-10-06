@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import {
   SelectableMarkdownText as T3SelectableMarkdownText,
   type SelectableMarkdownTextProps,
@@ -7,6 +8,13 @@ import { useMemo } from "react";
 import { highlightCodeSnippet } from "../features/review/shikiReviewHighlighter";
 import { themeColorWithAlpha } from "../lib/mobileTheme";
 import { useUniwindTheme } from "../lib/useUniwindTheme";
+
+const MermaidDiagram = lazy(() => import("../features/markdown/MermaidDiagram"));
+const renderDiagram: NonNullable<SelectableMarkdownTextProps["renderDiagram"]> = (props) => (
+  <Suspense fallback={props.children}>
+    <MermaidDiagram {...props} />
+  </Suspense>
+);
 
 type MobileSelectableMarkdownTextProps = Omit<SelectableMarkdownTextProps, "highlightCode">;
 
@@ -32,6 +40,7 @@ export function SelectableMarkdownText(props: MobileSelectableMarkdownTextProps)
   );
   return (
     <T3SelectableMarkdownText
+      renderDiagram={renderDiagram}
       {...props}
       textStyle={textStyle}
       highlightCode={highlightCodeSnippet}

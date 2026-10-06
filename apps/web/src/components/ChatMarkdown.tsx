@@ -1,3 +1,11 @@
+import { threadEnvironment } from "../state/threads";
+import { MermaidDiagram } from "./MermaidDiagram";
+import {
+  CODE_LANGUAGES,
+  markdownCodeBlocks,
+  type MarkdownCodeLanguageChange,
+} from "@t3tools/shared/markdownCode";
+import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "./ui/select";
 import { usePullRequestLinking } from "~/hooks/usePullRequestLinking";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -6,6 +14,8 @@ import {
 } from "@t3tools/shared/composerContextClipboard";
 import {
   CheckIcon,
+  CodeIcon,
+  NetworkIcon,
   ChevronRightIcon,
   CopyIcon,
   FileSpreadsheetIcon,
@@ -31,6 +41,7 @@ import type {
   AssetResource,
   EnvironmentId,
   ScopedThreadRef,
+  OrchestrationMessage,
   ServerProviderSkill,
   ThreadPullRequestKey,
 } from "@t3tools/contracts";
@@ -200,12 +211,14 @@ import { PullRequestLinkPreview } from "./pullRequest/PullRequestLinkPreview";
 
 interface ChatMarkdownProps {
   text: string;
+  message?: Pick<OrchestrationMessage, "id" | "text" | "updatedAt" | "streaming"> | undefined;
   cwd: string | undefined;
   threadRef?: ScopedThreadRef | undefined;
   /** Panel that receives pull request links, including the standalone PR view. */
   pullRequestPanelRef?: ScopedThreadRef | undefined;
   /** Environment that owns non-thread markdown, such as a pull request panel. */
   environmentId?: EnvironmentId | undefined;
+  onCodeLanguageChange?: ((change: MarkdownCodeLanguageChange) => Promise<void>) | undefined;
   onTaskListChange?: ((input: { markerOffset: number; checked: boolean }) => void) | undefined;
   isStreaming?: boolean;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
@@ -939,18 +952,32 @@ function MarkdownCodeBlock({
   language,
   fenceTitle,
   theme,
+  blockStart,
+  originalLanguage,
+  onCodeLanguageChange,
+  closed,
   onRunShellCommand,
   isStreaming,
   children,
 }: {
   code: string;
   language: string;
+  blockStart: number | undefined;
+  originalLanguage: string;
+  onCodeLanguageChange: ChatMarkdownProps["onCodeLanguageChange"];
+  closed: boolean;
   fenceTitle: string | null;
   theme: "light" | "dark";
   onRunShellCommand?: ((command: string) => void) | undefined;
   isStreaming: boolean;
   children: ReactNode;
 }) {
+  const [showSource, setShowSource] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const diagram = language.toLowerCase() === "mermaid";
+  const preview = diagram && !showSource && (!isStreaming || closed);
+  const toggleLabel = showSource ? "Show diagram" : "Show code";
   const [copied, setCopied] = useState(false);
   const [wrapped, setWrapped] = useState(readInitialWordWrapSetting);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1014,30 +1041,85 @@ function MarkdownCodeBlock({
     >
       <div className="chat-markdown-codeblock-header flex items-center justify-between gap-2 pt-1.5 pr-1.5 pb-0 pl-3 select-none">
         <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-2xs">
-          <MarkdownCodeBlockTitleContent
-            fenceTitle={fenceTitle}
-            language={language}
-            theme={theme}
-          />
+          {onCodeLanguageChange && blockStart !== undefined ? (
+            <Select
+              value={originalLanguage || "text"}
+              disabled={saving || isStreaming}
+              onValueChange={(value) => {
+                if (!value || value === originalLanguage) return;
+                setSaving(true);
+                setSaveError(false);
+                void onCodeLanguageChange({
+                  blockStart,
+                  expectedLanguage: originalLanguage,
+                  language: value,
+                })
+                  .catch(() => setSaveError(true))
+                  .finally(() => setSaving(false));
+              }}
+            >
+              <SelectTrigger variant="ghost" size="compact" aria-label="Code language">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {[...new Set([originalLanguage || "text", ...CODE_LANGUAGES])].map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {value}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          ) : (
+            <MarkdownCodeBlockTitleContent
+              fenceTitle={fenceTitle}
+              language={language}
+              theme={theme}
+            />
+          )}
+          {onCodeLanguageChange && fenceTitle ? (
+            <span className="truncate">{fenceTitle}</span>
+          ) : null}
+          {saving ? <span role="status">Saving…</span> : null}
         </span>
         <span className="flex items-center gap-0.5" role="toolbar" aria-label="Code block actions">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant={wrapped ? "secondary" : "ghost-muted"}
-                  size="icon-xs"
-                  aria-pressed={wrapped}
-                  onClick={() => setWrapped((value) => !value)}
-                  aria-label={wrapLabel}
-                />
-              }
-            >
-              <WrapTextIcon className="size-3" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">{wrapLabel}</TooltipPopup>
-          </Tooltip>
+          {diagram ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost-muted"
+                    size="icon-xs"
+                    aria-label={toggleLabel}
+                    aria-pressed={!showSource}
+                    onClick={() => setShowSource((value) => !value)}
+                  />
+                }
+              >
+                {showSource ? <NetworkIcon className="size-3" /> : <CodeIcon className="size-3" />}
+              </TooltipTrigger>
+              <TooltipPopup side="top">{toggleLabel}</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {!preview ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant={wrapped ? "secondary" : "ghost-muted"}
+                    size="icon-xs"
+                    aria-pressed={wrapped}
+                    onClick={() => setWrapped((value) => !value)}
+                    aria-label={wrapLabel}
+                  />
+                }
+              >
+                <WrapTextIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">{wrapLabel}</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {canRun ? (
             <Tooltip>
               <TooltipTrigger
@@ -1074,7 +1156,18 @@ function MarkdownCodeBlock({
           </Tooltip>
         </span>
       </div>
-      {children}
+      {saveError ? (
+        <p role="alert" className="px-3 py-2 text-xs text-destructive">
+          Could not save the language. Select it again to retry.
+        </p>
+      ) : null}
+      {preview ? (
+        <MermaidDiagram code={code} theme={theme}>
+          {children}
+        </MermaidDiagram>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -2292,6 +2385,8 @@ function useChatMarkdownState({
   threadRef,
   pullRequestPanelRef,
   environmentId: explicitEnvironmentId,
+  message,
+  onCodeLanguageChange: explicitCodeLanguageChange,
   onTaskListChange,
   isStreaming = false,
   skills = EMPTY_MARKDOWN_SKILLS,
@@ -2303,6 +2398,42 @@ function useChatMarkdownState({
   headingLevelOffset = 0,
   githubMedia = false,
 }: ChatMarkdownProps) {
+  const saveCodeLanguage = useAtomCommand(threadEnvironment.setCodeLanguage, {
+    reportFailure: false,
+  });
+  const changeMessageCodeLanguage = useCallback(
+    async (change: MarkdownCodeLanguageChange) => {
+      if (!threadRef || !message || message.streaming) throw new Error("Message is not editable.");
+      const displayedBlocks = markdownCodeBlocks(text);
+      const sourceBlocks = markdownCodeBlocks(message.text);
+      const index = displayedBlocks.findIndex((block) => block.start === change.blockStart);
+      const displayed = displayedBlocks[index];
+      const source =
+        displayedBlocks.length === sourceBlocks.length ? sourceBlocks[index] : undefined;
+      if (
+        !displayed ||
+        !source ||
+        source.code !== displayed.code ||
+        source.language !== displayed.language
+      ) {
+        throw new Error("This code block changed. Refresh it and try again.");
+      }
+      const result = await saveCodeLanguage({
+        environmentId: threadRef.environmentId,
+        input: {
+          ...change,
+          blockStart: source.start,
+          threadId: threadRef.threadId,
+          messageId: message.id,
+          expectedUpdatedAt: message.updatedAt,
+        },
+      });
+      if (result._tag !== "Success") throw new Error("Could not save code language.");
+    },
+    [message, saveCodeLanguage, text, threadRef],
+  );
+  const onCodeLanguageChange =
+    explicitCodeLanguageChange ?? (message && threadRef ? changeMessageCodeLanguage : undefined);
   const { resolvedTheme } = useTheme();
   const [localMediaPreview, setLocalMediaPreview] = useState<ExpandedImagePreview | null>(null);
   const markdownRef = useRef<HTMLDivElement>(null);
@@ -2701,6 +2832,7 @@ function useChatMarkdownState({
       isStreaming,
       linkTargetPreference,
       markdownFileLinkMetaByHref,
+      onCodeLanguageChange,
       onTaskListChange,
       onUseArtifactTemplate,
       onRunShellCommand,
@@ -2732,6 +2864,7 @@ function useChatMarkdownState({
       isStreaming,
       linkTargetPreference,
       markdownFileLinkMetaByHref,
+      onCodeLanguageChange,
       onTaskListChange,
       onUseArtifactTemplate,
       onRunShellCommand,
@@ -3266,9 +3399,14 @@ const CHAT_MARKDOWN_COMPONENTS = {
     return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
   },
   pre: function MarkdownPre({ node, children, ...props }) {
-    const { resolvedTheme, diffThemeName, isStreaming, onRunShellCommand, text } = use(
-      ChatMarkdownRendererContext,
-    );
+    const {
+      resolvedTheme,
+      diffThemeName,
+      isStreaming,
+      onRunShellCommand,
+      onCodeLanguageChange,
+      text,
+    } = use(ChatMarkdownRendererContext);
     const codeBlock = extractCodeBlock(children);
     if (!codeBlock) {
       return <pre {...props}>{children}</pre>;
@@ -3278,6 +3416,11 @@ const CHAT_MARKDOWN_COMPONENTS = {
     const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
     return (
       <MarkdownCodeBlock
+        key={language}
+        blockStart={node?.position?.start.offset}
+        originalLanguage={codeBlock.className?.match(CODE_FENCE_LANGUAGE_REGEX)?.[1] ?? ""}
+        onCodeLanguageChange={onCodeLanguageChange}
+        closed={isClosedCodeFence(node, text)}
         code={codeBlock.code}
         language={language}
         fenceTitle={fenceTitle}

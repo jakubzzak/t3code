@@ -1,7 +1,13 @@
+import {
+  setMarkdownCodeLanguage,
+  type MarkdownCodeLanguageChange,
+} from "@t3tools/shared/markdownCode";
+import { projectEnvironment } from "../../state/projects";
+import { useAtomCommand } from "../../state/use-atom-command";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 import { getBrowseDirectoryPath } from "@t3tools/client-runtime/state/projects";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import {
   Markdown,
   type CustomRenderers,
@@ -192,6 +198,7 @@ function useMarkdownPreviewStyles(renderImage?: MarkdownImageRenderer): Markdown
 export function FileMarkdownPreview(props: {
   readonly cwd: string;
   readonly captured?: boolean;
+  readonly readOnly?: boolean;
   readonly environmentId: EnvironmentId;
   readonly markdown: string;
   readonly relativePath: string;
@@ -199,6 +206,26 @@ export function FileMarkdownPreview(props: {
   readonly threadId: ThreadId | null;
   readonly onRefresh?: () => Promise<void> | void;
 }) {
+  const writeFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
+  const saving = useRef(false);
+  const [confirmed, setConfirmed] = useState<{ original: string; contents: string } | null>(null);
+  const markdown = confirmed?.original === props.markdown ? confirmed.contents : props.markdown;
+  const changeLanguage = async (change: MarkdownCodeLanguageChange) => {
+    if (saving.current) throw new Error("A language change is already being saved.");
+    saving.current = true;
+    try {
+      const contents = setMarkdownCodeLanguage(markdown, change);
+      const result = await writeFile({
+        environmentId: props.environmentId,
+        input: { cwd: props.cwd, relativePath: props.relativePath, contents },
+      });
+      if (result._tag !== "Success") throw new Error("Could not save code language.");
+      setConfirmed({ original: props.markdown, contents });
+      await props.onRefresh?.();
+    } finally {
+      saving.current = false;
+    }
+  };
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const handlePullToRefresh = useCallback(async () => {
     if (!props.onRefresh) {
@@ -266,7 +293,8 @@ export function FileMarkdownPreview(props: {
       <View className="mx-auto w-full max-w-[760px]">
         {hasNativeSelectableMarkdownText() ? (
           <SelectableMarkdownText
-            markdown={props.markdown}
+            markdown={markdown}
+            onCodeLanguageChange={props.captured || props.readOnly ? undefined : changeLanguage}
             onLinkPress={onLinkPress}
             renderImage={renderImage}
             textStyle={styles.nativeTextStyle}
@@ -278,7 +306,7 @@ export function FileMarkdownPreview(props: {
             styles={styles.styles}
             theme={styles.theme}
           >
-            {props.markdown}
+            {markdown}
           </Markdown>
         )}
       </View>
