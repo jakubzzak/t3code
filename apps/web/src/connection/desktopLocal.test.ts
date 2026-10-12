@@ -11,7 +11,65 @@ import {
   desktopLocalConnectionId,
   isDesktopLocalConnectionTarget,
   isWslConnectionTarget,
+  sharesNativeDesktopLoopback,
 } from "./desktopLocal";
+
+describe("native desktop loopback proof", () => {
+  const target = new PrimaryConnectionTarget({
+    environmentId: EnvironmentId.make("environment-primary"),
+    httpBaseUrl: "http://127.0.0.1:3773",
+    wsBaseUrl: "ws://127.0.0.1:3773",
+    label: "This device",
+  });
+  const legacyBootstrap = {
+    id: PRIMARY_LOCAL_ENVIRONMENT_ID,
+    label: "This device",
+    httpBaseUrl: target.httpBaseUrl,
+    wsBaseUrl: target.wsBaseUrl,
+  };
+  const bootstrap = { ...legacyBootstrap, runningDistro: null };
+
+  it("recognizes the matching native managed backend", () => {
+    expect(
+      sharesNativeDesktopLoopback(target, { getLocalEnvironmentBootstraps: () => [bootstrap] }),
+    ).toBe(true);
+  });
+
+  it.each([
+    [],
+    [{ ...bootstrap, runningDistro: "Ubuntu" }],
+    [legacyBootstrap],
+    [{ ...bootstrap, id: "wsl:Ubuntu" }],
+    [{ ...bootstrap, httpBaseUrl: "http://127.0.0.1:4000" }],
+    [{ ...bootstrap, wsBaseUrl: "ws://127.0.0.1:4000" }],
+  ])("does not infer locality from incomplete or different topology %j", (...bootstraps) => {
+    expect(
+      sharesNativeDesktopLoopback(target, { getLocalEnvironmentBootstraps: () => bootstraps }),
+    ).toBe(false);
+  });
+
+  it("rejects a saved connection even when its endpoint matches a managed backend", () => {
+    const remote = new BearerConnectionTarget({
+      connectionId: "saved-remote",
+      environmentId: target.environmentId,
+      label: "Remote",
+    });
+    expect(
+      sharesNativeDesktopLoopback(remote, { getLocalEnvironmentBootstraps: () => [bootstrap] }),
+    ).toBe(false);
+  });
+
+  it("does not claim locality without working native bootstrap IPC", () => {
+    expect(sharesNativeDesktopLoopback(target, undefined)).toBe(false);
+    expect(
+      sharesNativeDesktopLoopback(target, {
+        getLocalEnvironmentBootstraps: () => {
+          throw new Error("IPC unavailable");
+        },
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("desktop local connection identity", () => {
   it("preserves the desktop backend instance id", () => {

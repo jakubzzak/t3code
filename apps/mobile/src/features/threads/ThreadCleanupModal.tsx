@@ -152,13 +152,21 @@ function Progress({ request }: { request: CleanupRequest }) {
                   <AppText
                     accessibilityLabel={
                       row.status === "closed"
-                        ? "Closed"
+                        ? "notApplicable" in row && row.notApplicable
+                          ? "Not applicable"
+                          : "Closed"
                         : row.status === "failed"
                           ? "Failed"
                           : "Closing"
                     }
                   >
-                    {row.status === "closed" ? "✓" : row.status === "failed" ? "!" : "…"}
+                    {row.status === "closed"
+                      ? "notApplicable" in row && row.notApplicable
+                        ? "-"
+                        : "✓"
+                      : row.status === "failed"
+                        ? "!"
+                        : "…"}
                   </AppText>
                 )}
               </View>

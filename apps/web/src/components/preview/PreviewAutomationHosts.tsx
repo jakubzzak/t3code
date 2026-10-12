@@ -8,6 +8,7 @@ import { beginPreviewSessionClose } from "~/previewStateStore";
 
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { ConnectionTarget } from "@t3tools/client-runtime/connection";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   FILL_PREVIEW_VIEWPORT,
@@ -65,6 +66,7 @@ import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
 import { useEnvironments } from "~/state/environments";
+import { sharesNativeDesktopLoopback } from "~/connection/desktopLocal";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -290,17 +292,19 @@ export function PreviewAutomationHosts() {
        * lets the subscription runtime own reconnects for every saved target.
        */}
       {environments.map((environment) => (
-        <PreviewAutomationHost
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-        />
+        <PreviewAutomationHost key={environment.environmentId} target={environment.entry.target} />
       ))}
     </>
   );
 }
 
-function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId }) {
-  const { environmentId } = props;
+function PreviewAutomationHost(props: { readonly target: ConnectionTarget }) {
+  const { target } = props;
+  const { environmentId } = target;
+  const sharesEnvironmentLoopback = useMemo(
+    () => sharesNativeDesktopLoopback(target, window.desktopBridge),
+    [target],
+  );
   const closeLinearPreview = useAtomCommand(previewEnvironment.close, "close Linear preview");
   const serverConfigs = useServerConfigs();
   const previewSessions = useActivePreviewSessions();
@@ -334,8 +338,9 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
       clientId: automationClientId,
       environmentId,
       supportedOperations: [...PREVIEW_AUTOMATION_OPERATIONS],
+      sharesEnvironmentLoopback,
     }),
-    [automationClientId, environmentId],
+    [automationClientId, environmentId, sharesEnvironmentLoopback],
   );
   const automationRequestsAtom = previewEnvironment.automationRequests({
     environmentId,

@@ -102,7 +102,12 @@ const make = Effect.gen(function* () {
     yield* resource(threadId, { ...row, status: "closing" });
     return yield* action.pipe(
       Effect.matchEffect({
-        onSuccess: () => resource(threadId, { ...row, status: "closed" }).pipe(Effect.as(true)),
+        onSuccess: (result) =>
+          resource(threadId, {
+            ...row,
+            status: "closed",
+            ...(result === "not-applicable" ? { notApplicable: true } : {}),
+          }).pipe(Effect.as(true)),
         onFailure: (error) =>
           resource(threadId, {
             ...row,
@@ -232,8 +237,12 @@ const make = Effect.gen(function* () {
             status: "closing",
           },
           browser
-            .closeTab(threadId, tab.tabId)
-            .pipe(Effect.andThen(previews.close({ threadId, tabId: tab.tabId }))),
+            .closeTab(
+              threadId,
+              tab.tabId,
+              tab.navStatus._tag === "Idle" ? undefined : tab.navStatus.url,
+            )
+            .pipe(Effect.tap(() => previews.close({ threadId, tabId: tab.tabId }))),
         ),
       { concurrency: 4 },
     );

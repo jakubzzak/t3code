@@ -569,6 +569,96 @@ for (const mode of ["manual", "automatic"] as const) {
   );
 }
 
+for (const mode of ["manual", "automatic"] as const) {
+  it.effect(
+    `${mode} settlement discards an absent browser and retains its status across retry`,
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-01-10T00:00:00.000Z"));
+        let failProcess = true;
+        let previewPresent = true;
+        const commands: string[] = [];
+        yield* Effect.gen(function* () {
+          const service = yield* Cleanup.ThreadCleanup;
+          yield* service.start({ threadId }, mode === "automatic" ? automatic : undefined);
+          const failed = yield* finished(service);
+          expect(failed?.status).toBe("failed");
+          expect(failed?.resources.find((row) => row.kind === "browser")).toMatchObject({
+            status: "closed",
+            notApplicable: true,
+            label: "http://localhost:3011/company",
+          });
+          expect(previewPresent).toBe(false);
+          expect(commands).toEqual([]);
+          failProcess = false;
+          yield* service.start({ threadId }, mode === "automatic" ? automatic : undefined);
+          const complete = yield* finished(service);
+          expect(complete?.status).toBe("complete");
+          expect(complete?.resources.find((row) => row.kind === "browser")).toMatchObject({
+            status: "closed",
+            notApplicable: true,
+          });
+          expect(commands).toEqual(["thread.cleanup.complete"]);
+          expect(isThreadClosing(threadId)).toBe(false);
+        }).pipe(
+          Effect.provide(
+            testLayer({
+              thread: { ...shell, latestUserMessageAt: shell.createdAt },
+              list: () => Effect.sync(() => (failProcess ? [processEntry] : [])),
+              stop: () =>
+                Effect.suspend(() =>
+                  failProcess
+                    ? Effect.fail(
+                        new ThreadCleanupError({ threadId, detail: "Process still running" }),
+                      )
+                    : Effect.void,
+                ),
+              previews: {
+                list: () =>
+                  Effect.sync(() => ({
+                    serverEpoch: "test",
+                    revision: 0,
+                    sessions: previewPresent
+                      ? [
+                          {
+                            threadId,
+                            tabId: "stale-tab",
+                            navStatus: {
+                              _tag: "Success" as const,
+                              url: "http://localhost:3011/company",
+                              title: "Preview",
+                            },
+                            canGoBack: false,
+                            canGoForward: false,
+                            updatedAt: shell.updatedAt,
+                          },
+                        ]
+                      : [],
+                  })),
+                close: () =>
+                  Effect.sync(() => {
+                    previewPresent = false;
+                  }),
+              },
+              closeTab: (id, tabId, url) =>
+                Effect.sync(() => {
+                  expect(id).toBe(threadId);
+                  expect(tabId).toBe("stale-tab");
+                  expect(url).toBe("http://localhost:3011/company");
+                  return "not-applicable" as const;
+                }),
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  commands.push(command.type);
+                  return { sequence: commands.length };
+                }),
+            }),
+          ),
+        );
+      }).pipe(Effect.ensuring(Effect.sync(() => finishThreadCleanup(threadId)))),
+  );
+}
+
 for (const reason of [
   "stale",
   "running",

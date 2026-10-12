@@ -19,6 +19,27 @@ import {
  */
 const DESKTOP_LOCAL_CONNECTION_ID_PREFIX = "local:";
 
+/** URL shape alone cannot distinguish a native backend from an SSH or WSL forward. */
+export function sharesNativeDesktopLoopback(
+  target: ConnectionTarget,
+  bridge: Pick<DesktopBridge, "getLocalEnvironmentBootstraps"> | undefined,
+): boolean {
+  if (target._tag !== "PrimaryConnectionTarget" || !bridge) return false;
+  try {
+    return bridge
+      .getLocalEnvironmentBootstraps()
+      .some(
+        (entry) =>
+          entry.id === PRIMARY_LOCAL_ENVIRONMENT_ID &&
+          entry.runningDistro === null &&
+          entry.httpBaseUrl === target.httpBaseUrl &&
+          entry.wsBaseUrl === target.wsBaseUrl,
+      );
+  } catch {
+    return false;
+  }
+}
+
 export function desktopLocalConnectionId(backendId: string): string {
   return `${DESKTOP_LOCAL_CONNECTION_ID_PREFIX}${backendId}`;
 }

@@ -12,6 +12,8 @@ export const ThreadCleanupResource = Schema.Struct({
   label: Schema.String,
   kind: Schema.Literals(["agent", "terminal", "process", "browser", "chat"]),
   status: Schema.Literals(["closing", "closed", "failed"]),
+  /** Keep completed resources readable by older clients that only know `closed`. */
+  notApplicable: Schema.optionalKey(Schema.Boolean),
   error: Schema.optionalKey(Schema.String),
 });
 export type ThreadCleanupResource = typeof ThreadCleanupResource.Type;
