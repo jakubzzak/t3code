@@ -583,6 +583,8 @@ export type PreviewAutomationHostIdentity = typeof PreviewAutomationHostIdentity
 
 export const PreviewAutomationHost = Schema.Struct({
   ...PreviewAutomationHostIdentity.fields,
+  /** True only for a native desktop-managed backend sharing this browser's loopback network. */
+  sharesEnvironmentLoopback: Schema.optional(Schema.Boolean),
   /**
    * Missing means the pre-capability-negotiation V1 operation set. This lets
    * a newer server safely coexist with an older desktop during rollout.

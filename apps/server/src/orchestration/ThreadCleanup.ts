@@ -105,7 +105,8 @@ const make = Effect.gen(function* () {
         onSuccess: (result) =>
           resource(threadId, {
             ...row,
-            status: result === "not-applicable" ? "not-applicable" : "closed",
+            status: "closed",
+            ...(result === "not-applicable" ? { notApplicable: true } : {}),
           }).pipe(Effect.as(true)),
         onFailure: (error) =>
           resource(threadId, {
@@ -167,9 +168,7 @@ const make = Effect.gen(function* () {
       ...state,
       resources: [
         ...state.resources.filter(
-          (row) =>
-            (row.status === "closed" || row.status === "not-applicable") &&
-            !rows.some((next) => next.id === row.id),
+          (row) => row.status === "closed" && !rows.some((next) => next.id === row.id),
         ),
         ...rows,
       ],
@@ -384,9 +383,7 @@ const make = Effect.gen(function* () {
         status: "closing",
         resources: [
           ...(previous?.status === "failed"
-            ? previous.resources.filter(
-                (row) => row.status === "closed" || row.status === "not-applicable",
-              )
+            ? previous.resources.filter((row) => row.status === "closed")
             : []),
           { id: "inventory", label: "Find chat resources", kind: "chat", status: "closing" },
         ],

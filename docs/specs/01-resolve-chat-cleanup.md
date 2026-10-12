@@ -19,10 +19,14 @@ Do not add a separate Resolve button to the chat header.
 3. Stop the agent, managed terminal commands, and identifiable descendants. Include
    background jobs outside visible terminals when retained ownership markers identify them.
 4. Close all chat-owned right-bar tools, including the embedded browser. If no
-   connected browser host owns a saved HTTP(S) loopback tab and its port is
-   available on the hosting environment, discard the stale preview without
-   requiring reconnection. Show `-` (not applicable) for that entry. An occupied
-   port or a non-local URL still requires browser closure confirmation.
+   connected browser host owns a saved HTTP(S) loopback tab, every observed owner
+   is a confirmed native desktop host of that environment, and its port is
+   available there, discard the stale preview without
+   requiring reconnection. Show `-` (not applicable) for that entry; older clients
+   may show it as closed while still completing cleanup. An occupied
+   port, non-local URL, remote/WSL host, or missing locality evidence still requires
+   browser closure confirmation. Existing stale tabs without that evidence remain
+   conservative; a loopback URL alone does not prove where the browser ran.
 5. Attempt graceful shutdown, then automatically force-stop remaining processes
    after a short grace period.
 6. Mark the chat resolved only after cleanup succeeds.

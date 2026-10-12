@@ -584,7 +584,8 @@ for (const mode of ["manual", "automatic"] as const) {
           const failed = yield* finished(service);
           expect(failed?.status).toBe("failed");
           expect(failed?.resources.find((row) => row.kind === "browser")).toMatchObject({
-            status: "not-applicable",
+            status: "closed",
+            notApplicable: true,
             label: "http://localhost:3011/company",
           });
           expect(previewPresent).toBe(false);
@@ -593,9 +594,10 @@ for (const mode of ["manual", "automatic"] as const) {
           yield* service.start({ threadId }, mode === "automatic" ? automatic : undefined);
           const complete = yield* finished(service);
           expect(complete?.status).toBe("complete");
-          expect(complete?.resources.find((row) => row.kind === "browser")?.status).toBe(
-            "not-applicable",
-          );
+          expect(complete?.resources.find((row) => row.kind === "browser")).toMatchObject({
+            status: "closed",
+            notApplicable: true,
+          });
           expect(commands).toEqual(["thread.cleanup.complete"]);
           expect(isThreadClosing(threadId)).toBe(false);
         }).pipe(

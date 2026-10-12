@@ -152,7 +152,8 @@ it("shows an absent browser as not applicable while another resource needs retry
           id: "browser:stale",
           kind: "browser",
           label: "http://localhost:3011",
-          status: "not-applicable",
+          status: "closed",
+          notApplicable: true,
         },
         {
           id: "process:1",

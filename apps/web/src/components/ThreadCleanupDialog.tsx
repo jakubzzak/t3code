@@ -139,20 +139,22 @@ function CleanupProgress({ request }: { request: CleanupRequest }) {
                   role="img"
                   aria-label={
                     row.status === "closed"
-                      ? "Closed"
+                      ? "notApplicable" in row && row.notApplicable
+                        ? "Not applicable"
+                        : "Closed"
                       : row.status === "failed"
                         ? "Failed"
-                        : row.status === "not-applicable"
-                          ? "Not applicable"
-                          : "Closing"
+                        : "Closing"
                   }
                 >
                   {row.status === "closed" ? (
-                    <CheckIcon className="thread-cleanup-check size-4 text-foreground" />
+                    "notApplicable" in row && row.notApplicable ? (
+                      "-"
+                    ) : (
+                      <CheckIcon className="thread-cleanup-check size-4 text-foreground" />
+                    )
                   ) : row.status === "failed" ? (
                     <CircleAlertIcon className="size-4 text-destructive" />
-                  ) : row.status === "not-applicable" ? (
-                    "-"
                   ) : (
                     <LoaderCircleIcon className="size-4 motion-safe:animate-spin" />
                   )}

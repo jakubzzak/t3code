@@ -80,6 +80,7 @@ interface ClientConnection {
   readonly clientId: string;
   readonly connectionId: string;
   readonly environmentId: PreviewAutomationHost["environmentId"];
+  readonly sharesEnvironmentLoopback: boolean;
   readonly supportedOperations: ReadonlySet<PreviewAutomationOperation>;
   readonly focused: boolean;
   readonly liveTabs: NonNullable<PreviewAutomationHostFocus["liveTabs"]>;
@@ -334,6 +335,23 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     requestSequence: 0,
     focusSequence: 0,
   });
+  const tabKey = (threadId: string, tabId: string) => `${threadId.length}:${threadId}${tabId}`;
+  // Retain negative evidence even after close: delayed owner reports must not
+  // reclassify the same tab as local. The capacity guard bounds this history.
+  const localTabOwners = new Map<string, boolean>();
+  let localityTrackingAvailable = true;
+  const rememberTabOwner = (threadId: string, tabId: string, local: boolean) => {
+    if (!localityTrackingAvailable) return;
+    const key = tabKey(threadId, tabId);
+    if (!localTabOwners.has(key) && localTabOwners.size >= 4096) {
+      // Never evict unknown/remote evidence and later mistake that tab for local.
+      // Under pressure, require host confirmation until this broker restarts.
+      localityTrackingAvailable = false;
+      localTabOwners.clear();
+      return;
+    }
+    localTabOwners.set(key, (localTabOwners.get(key) ?? true) && local);
+  };
 
   const closeConnection = Effect.fn("PreviewAutomationBroker.closeConnection")(function* (
     queue: ClientConnection["queue"],
@@ -385,6 +403,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       clientId,
       connectionId,
       environmentId: host.environmentId,
+      sharesEnvironmentLoopback: host.sharesEnvironmentLoopback === true,
       supportedOperations: new Set(host.supportedOperations ?? PREVIEW_AUTOMATION_V1_OPERATIONS),
       focused: false,
       liveTabs: [],
@@ -393,6 +412,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     };
     const registration = yield* SynchronizedRef.modify(state, (current) => {
       const previousConnection = current.clients.get(clientId);
+      for (const tab of previousConnection?.liveTabs ?? []) {
+        rememberTabOwner(tab.threadId, tab.tabId, connection.sharesEnvironmentLoopback);
+      }
       const removed = previousConnection
         ? removeConnectionFromState(current, clientId, previousConnection.queue)
         : { state: current, disconnected: [] };
@@ -441,6 +463,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       }
       const clients = new Map(current.clients);
       const focusSequence = host.focused ? current.focusSequence + 1 : current.focusSequence;
+      for (const tab of host.liveTabs ?? currentHost.liveTabs) {
+        rememberTabOwner(tab.threadId, tab.tabId, currentHost.sharesEnvironmentLoopback);
+      }
       clients.set(host.clientId, {
         ...currentHost,
         focused: host.focused,
@@ -676,12 +701,14 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       const clients = [...(yield* SynchronizedRef.get(state)).clients.values()].filter((client) =>
         client.liveTabs.some((tab) => tab.threadId === threadId && tab.tabId === tabId),
       );
-      const key = `${threadId.length}:${threadId}${tabId}`;
+      const key = tabKey(threadId, tabId);
       if (clients.length === 0 && confirmedClosedTabs.has(key)) return;
       if (clients.length === 0) {
         const url = rawUrl === undefined ? null : URL.parse(rawUrl);
-        // A stale preview need not reconnect after its environment-local server stops.
+        // Explicit localhost URLs refer to the browser's machine, which may be remote.
+        // Probe only after every observed owner proved it shares the environment's loopback.
         if (
+          localTabOwners.get(key) === true &&
           url !== null &&
           (url.protocol === "http:" || url.protocol === "https:") &&
           isLoopbackHost(url.hostname) &&
@@ -689,7 +716,15 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80,
           ))
         ) {
-          return "not-applicable" as const;
+          const current = yield* SynchronizedRef.get(state);
+          if (
+            localTabOwners.get(key) === true &&
+            ![...current.clients.values()].some((client) =>
+              client.liveTabs.some((tab) => tab.threadId === threadId && tab.tabId === tabId),
+            )
+          ) {
+            return "not-applicable" as const;
+          }
         }
         return yield* new ThreadCleanupError({
           threadId,

@@ -49,6 +49,33 @@ const makeHost = (overrides: Partial<PreviewAutomationHost> = {}): PreviewAutoma
   ...overrides,
 });
 
+const observeDisconnectedOwner = (
+  broker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  sharesEnvironmentLoopback: boolean | undefined,
+  tabIds = ["missing-tab"],
+) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const connected = yield* Deferred.make<string>();
+      const host = makeHost({ sharesEnvironmentLoopback });
+      const events = yield* broker.connect(host);
+      yield* events.pipe(
+        Stream.runForEach((event) =>
+          event.type === "connected"
+            ? Deferred.succeed(connected, event.connectionId)
+            : Effect.void,
+        ),
+        Effect.forkScoped,
+      );
+      yield* broker.focusHost({
+        ...host,
+        connectionId: yield* Deferred.await(connected),
+        focused: false,
+        liveTabs: tabIds.map((tabId) => ({ threadId: scope.threadId, tabId })),
+      });
+    }),
+  );
+
 it.effect("cleanup waits for every owning browser host and leaves other tabs alone", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -147,6 +174,7 @@ for (const [url, port] of [
             }),
         }),
       );
+      yield* observeDisconnectedOwner(broker, true);
       expect(yield* broker.closeTab(scope.threadId, "missing-tab", url)).toBe("not-applicable");
       expect(checked).toEqual([port]);
     }),
@@ -162,6 +190,7 @@ it.effect("cleanup still requires a browser host while the local port is occupie
         isPortAvailableOnLoopback: () => Effect.succeed(false),
       }),
     );
+    yield* observeDisconnectedOwner(broker, true);
     const error = yield* broker
       .closeTab(scope.threadId, "missing-tab", "http://localhost:3011")
       .pipe(Effect.flip);
@@ -186,11 +215,81 @@ for (const url of [
           isPortAvailableOnLoopback: () => Effect.die("Must not probe this URL"),
         }),
       );
+      yield* observeDisconnectedOwner(broker, true);
       const error = yield* broker.closeTab(scope.threadId, "missing-tab", url).pipe(Effect.flip);
       expect(error.message).toContain("Reconnect");
     }),
   );
 }
+
+for (const owners of [[], [false], [undefined], [true, false], [false, true], [undefined, true]]) {
+  it.effect(
+    `cleanup retains unknown or remote owner evidence across reconnects: ${JSON.stringify(owners)}`,
+    () =>
+      Effect.gen(function* () {
+        const broker = yield* PreviewAutomationBroker.make.pipe(
+          Effect.provide(NodeServices.layer),
+          Effect.provideService(Net.NetService, {
+            ...Net.make(),
+            isPortAvailableOnLoopback: () => Effect.die("Must not probe a different machine"),
+          }),
+        );
+        for (const local of owners) yield* observeDisconnectedOwner(broker, local);
+        const error = yield* broker
+          .closeTab(scope.threadId, "missing-tab", "http://localhost:3011")
+          .pipe(Effect.flip);
+        expect(error.message).toContain("Reconnect");
+      }),
+  );
+}
+
+it.effect("cache pressure cannot turn forgotten remote ownership into local evidence", () =>
+  Effect.gen(function* () {
+    const broker = yield* PreviewAutomationBroker.make.pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.provideService(Net.NetService, {
+        ...Net.make(),
+        isPortAvailableOnLoopback: () => Effect.die("Must not probe after losing provenance"),
+      }),
+    );
+    yield* observeDisconnectedOwner(broker, false);
+    yield* observeDisconnectedOwner(
+      broker,
+      true,
+      Array.from({ length: 4096 }, (_, i) => `tab-${i}`),
+    );
+    yield* observeDisconnectedOwner(broker, true);
+    const error = yield* broker
+      .closeTab(scope.threadId, "missing-tab", "http://localhost:3011")
+      .pipe(Effect.flip);
+    expect(error.message).toContain("Reconnect");
+  }),
+);
+
+it.effect("rechecks ownership when a remote browser reconnects during the port probe", () =>
+  Effect.gen(function* () {
+    const probeStarted = yield* Deferred.make<void>();
+    const portAvailable = yield* Deferred.make<boolean>();
+    const broker = yield* PreviewAutomationBroker.make.pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.provideService(Net.NetService, {
+        ...Net.make(),
+        isPortAvailableOnLoopback: () =>
+          Deferred.succeed(probeStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(portAvailable)),
+          ),
+      }),
+    );
+    yield* observeDisconnectedOwner(broker, true);
+    const closing = yield* broker
+      .closeTab(scope.threadId, "missing-tab", "http://localhost:3011")
+      .pipe(Effect.flip, Effect.forkChild);
+    yield* Deferred.await(probeStarted);
+    yield* observeDisconnectedOwner(broker, false);
+    yield* Deferred.succeed(portAvailable, true);
+    expect((yield* Fiber.join(closing)).message).toContain("Reconnect");
+  }),
+);
 
 type RoutedRequest = PreviewAutomationRequest & {
   readonly connectionId: PreviewAutomationStreamEvent["connectionId"];
