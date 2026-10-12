@@ -139,3 +139,39 @@ it("automatically dismisses successful cleanup and resolves the request", async 
     vi.useRealTimers();
   }
 });
+
+it("shows an absent browser as not applicable while another resource needs retry", async () => {
+  io.start.mockResolvedValue({
+    _tag: "Success",
+    value: {
+      operationId: "operation",
+      threadId: target.threadId,
+      status: "failed",
+      resources: [
+        {
+          id: "browser:stale",
+          kind: "browser",
+          label: "http://localhost:3011",
+          status: "not-applicable",
+        },
+        {
+          id: "process:1",
+          kind: "process",
+          label: "dev server",
+          status: "failed",
+          error: "Process still running",
+        },
+      ],
+    },
+  });
+  requestThreadCleanup(target, false);
+  await act(async () => root.render(<ThreadCleanupDialog />));
+  expect(document.querySelector('[aria-label="Not applicable"]')?.textContent).toBe("-");
+  expect(document.querySelector('[aria-label="Closing"]')).toBeNull();
+  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain(
+    "Reconnect the browser",
+  );
+  expect(
+    [...document.querySelectorAll("button")].some((button) => button.textContent === "Retry"),
+  ).toBe(true);
+});

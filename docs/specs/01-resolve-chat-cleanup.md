@@ -18,7 +18,11 @@ Do not add a separate Resolve button to the chat header.
    running.
 3. Stop the agent, managed terminal commands, and identifiable descendants. Include
    background jobs outside visible terminals when retained ownership markers identify them.
-4. Close all chat-owned right-bar tools, including the embedded browser.
+4. Close all chat-owned right-bar tools, including the embedded browser. If no
+   connected browser host owns a saved HTTP(S) loopback tab and its port is
+   available on the hosting environment, discard the stale preview without
+   requiring reconnection. Show `-` (not applicable) for that entry. An occupied
+   port or a non-local URL still requires browser closure confirmation.
 5. Attempt graceful shutdown, then automatically force-stop remaining processes
    after a short grace period.
 6. Mark the chat resolved only after cleanup succeeds.
@@ -74,7 +78,7 @@ environments remain unaffected. Opening a settled chat does not restart tools.
 - Dismissal does not cancel server cleanup or claim success. Settle can be used
   again to retry. Retain captured process identities across retries, and keep new
   resource launches blocked after partially completed cleanup until it succeeds.
-- When every entry is confirmed closed and the chat is resolved, briefly show the
+- When every entry is confirmed closed or not applicable and the chat is resolved, briefly show the
   completed state, then automatically dismiss the modal.
 - Use subtle, short animations for modal entry, loading, the transition to a
   checkmark, and modal exit. Animate loading only while cleanup is pending; avoid

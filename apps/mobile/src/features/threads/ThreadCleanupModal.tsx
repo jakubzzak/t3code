@@ -155,10 +155,18 @@ function Progress({ request }: { request: CleanupRequest }) {
                         ? "Closed"
                         : row.status === "failed"
                           ? "Failed"
-                          : "Closing"
+                          : row.status === "not-applicable"
+                            ? "Not applicable"
+                            : "Closing"
                     }
                   >
-                    {row.status === "closed" ? "✓" : row.status === "failed" ? "!" : "…"}
+                    {row.status === "closed"
+                      ? "✓"
+                      : row.status === "failed"
+                        ? "!"
+                        : row.status === "not-applicable"
+                          ? "-"
+                          : "…"}
                   </AppText>
                 )}
               </View>

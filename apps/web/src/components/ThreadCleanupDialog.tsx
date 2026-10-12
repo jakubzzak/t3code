@@ -142,13 +142,17 @@ function CleanupProgress({ request }: { request: CleanupRequest }) {
                       ? "Closed"
                       : row.status === "failed"
                         ? "Failed"
-                        : "Closing"
+                        : row.status === "not-applicable"
+                          ? "Not applicable"
+                          : "Closing"
                   }
                 >
                   {row.status === "closed" ? (
                     <CheckIcon className="thread-cleanup-check size-4 text-foreground" />
                   ) : row.status === "failed" ? (
                     <CircleAlertIcon className="size-4 text-destructive" />
+                  ) : row.status === "not-applicable" ? (
+                    "-"
                   ) : (
                     <LoaderCircleIcon className="size-4 motion-safe:animate-spin" />
                   )}
