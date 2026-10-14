@@ -44,10 +44,16 @@ This extends the [embedded Linear view](linear-view.md) with issue queries and e
 - **Open existing chat** navigates to that chat without settling it. **Use this chat** links the current chat to the target issue, branch, and worktree, and settles the previous chat. Settlement must preserve the worktree being reused. Cancellation leaves both chats unchanged.
 - A failed setup must not leave the previous chat settled while the current chat cannot use the target worktree. Preserve the previous working context on failure and make retry possible without creating duplicate worktrees.
 
+### Running agents
+
+- Disable actions that switch the current chat's issue/branch/worktree or take over another chat's worktree while an agent in either affected chat is starting or running. Show a message identifying the reason, such as **Wait for the agent in this chat to finish before switching issues** or **An agent is running in the existing chat. Wait before using its worktree**. Opening the existing chat for viewing remains available.
+- Re-enable the action when the affected agents are idle. Do not stop agents or queue a switch automatically. Apply the same guard to setup after issue creation; if an agent starts while creation is open, preserve the created issue and offer setup again once idle.
+- Recheck agent state when applying the change so an agent starting after the picker or modal opens cannot bypass the guard. A rejected action preserves the current association and working context and does not settle another chat.
+
 ### Create and replace issues
 
 - **Create issue** reuses the chat's existing Linear tab in the right panel, or opens it if absent, and initiates Linear's issue-creation flow. Preserve the originating chat and any draft while the user works in the panel.
-- When creation initiated from this action succeeds and the originating chat has no issue, associate the new issue automatically and run the same branch/worktree setup as picker selection.
+- When creation initiated from this action succeeds and the originating chat has no issue, associate the new issue automatically and run the same branch/worktree setup as picker selection, subject to the running-agent guard.
 - If the chat already has an issue, ask whether to switch to the newly created issue. Acceptance replaces the association and creates or reuses the new issue's branch and worktree for this same chat. Apply the existing-chat conflict rules if necessary. Declining preserves the current association and working context; the created Linear issue remains available.
 - Canceling creation does not change the chat. Do not infer successful creation merely from opening the panel or navigating to an unrelated issue.
 
@@ -60,6 +66,7 @@ This extends the [embedded Linear view](linear-view.md) with issue queries and e
 5. Open the linked chat from web and mobile and reconnect from another client. Its history and working context remain available. Feature disable/re-enable and unlinking preserve chat history and files. A disconnected Linear account or failed Git setup produces a recoverable error without falsely reporting success.
 6. Linear settings use established settings styling, and configuring one project does not change another project's Linear workspace or account selection.
 7. **Connect Linear** completes OAuth without asking for an API key, identifies the authorizing account, and enables its assigned-issue list for the configured workspace. Cancellation preserves any existing connection. Expiry refreshes transparently or offers reconnect; disconnect preserves existing chats and issue associations. API authorization does not falsely mark the embedded panel as signed in.
+8. With an agent running in the current chat or the target worktree's chat, switching/takeover is disabled with an explanatory message. When agents become idle, the action becomes available without executing automatically. Starting an agent after opening the picker, modal, or issue-creation flow cannot cause a workspace switch or premature settlement.
 
 ## Constraints and decisions
 
@@ -67,14 +74,14 @@ This extends the [embedded Linear view](linear-view.md) with issue queries and e
 - Use Linear's [OAuth authorization-code flow with PKCE](https://linear.app/developers/oauth-2-0-authentication), an S256 challenge, and validated state. Act as the authorizing user. A distributed desktop build must not embed a confidential client secret. Register the OAuth application and supported callback URLs before end-to-end connection verification.
 - Reuse the existing Linear surface and settings conventions. Linear documents [URLs that initiate issue creation](https://linear.app/developers/create-issues-using-linear-new); they do not by themselves establish a completion callback. Explicit creation navigation must work with the existing surface's origin and workspace restrictions.
 - Keep association and setup operations in environment services with typed contracts so clients observe consistent thread state. Provider sessions must execute subsequent work in the selected worktree, not retain a stale working directory.
+- Preserve existing settlement and provider-session lifecycle guards, including pending-input handling. An idle session tied to the old directory must be rebound or recreated through the supported provider lifecycle before subsequent work starts.
 - Existing dirty files must remain intact when changing worktrees. Switching or settling a chat does not authorize deleting its worktree, discarding changes, or moving uncommitted files to another branch.
 
 ## Open questions
 
-The following block implementation of their respective flows, but do not block publishing this agreed product scope:
+The following blocks implementation of automatic association after creation, but does not block publishing this agreed product scope:
 
 - **Creation completion:** Verify a reliable way to identify the issue created through the embedded panel and correlate it with the originating chat. Any fallback requiring manual selection would change the agreed automatic association and needs a product decision.
-- **Active sessions and settlement:** Decide how switching and takeover behave when either chat has an active turn, pending input, or a provider session tied to the old directory. The existing settlement path guards against running sessions; do not bypass that protection or silently terminate work.
 
 Non-blocking details to resolve during implementation: collision-safe project/directory naming without changing the Git branch name; multiple unsettled chats or ambiguous remote refs for one branch; and the display of linked issue metadata on web/mobile beyond the required chat visibility.
 
