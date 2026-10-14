@@ -937,12 +937,89 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.linear-issue.select": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      if (
+        thread.session?.status === "starting" ||
+        thread.session?.status === "running" ||
+        hasQueuedTurnStartForThread(thread, occurredAt) ||
+        openRequests(thread).size > 0
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Wait for the agent in this chat to finish and resolve pending requests before switching issues.",
+        });
+      }
+      if (
+        thread.worktreePath !== command.expectedWorktreePath ||
+        (thread.linkedLinearIssue?.id ?? null) !== command.expectedIssueId
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "This chat's working context changed during setup. Select the issue again.",
+        });
+      }
+      const conflicts = readModel.threads.filter(
+        (other) =>
+          other.id !== thread.id &&
+          other.deletedAt === null &&
+          other.archivedAt === null &&
+          (other.worktreePath === command.worktreePath ||
+            (other.projectId === thread.projectId && other.branch === command.issue.branchName)) &&
+          other.settledOverride !== "settled",
+      );
+      if (
+        conflicts.some((other) => !command.takeoverThreadIds.includes(other.id)) ||
+        command.takeoverThreadIds.some((id) => !conflicts.some((other) => other.id === id))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "The chats using this worktree changed. Select the issue again to choose which chat to use.",
+        });
+      }
+      // Decide every settlement and the context change before persisting any event.
+      return yield* decideCommandSequence({
+        readModel,
+        commands: [
+          ...conflicts.map((other) => ({
+            type: "thread.settle" as const,
+            commandId: command.commandId,
+            threadId: other.id,
+          })),
+          {
+            type: "thread.meta.update",
+            commandId: command.commandId,
+            threadId: thread.id,
+            linkedLinearIssue: command.issue,
+            branch: command.issue.branchName,
+            worktreePath: command.worktreePath,
+          },
+        ],
+      });
+    }
+
     case "thread.meta.update": {
       const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        command.linkedLinearIssue !== undefined &&
+        (thread.session?.status === "starting" || thread.session?.status === "running")
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Wait for the agent in this chat to finish before switching issues.",
+        });
+      }
       // Old clients only see the derived single link. Unlink that request through
       // the same command path as modern clients, including stack dismissal, while
       // retaining other links they cannot see. Historical metadata events still replay unchanged.
@@ -1065,6 +1142,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.linkedLinearIssue !== undefined
+            ? { linkedLinearIssue: command.linkedLinearIssue }
+            : {}),
           ...(command.linkedPullRequest !== undefined
             ? { linkedPullRequest: command.linkedPullRequest }
             : {}),

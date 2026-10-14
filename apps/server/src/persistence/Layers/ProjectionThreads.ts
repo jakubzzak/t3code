@@ -12,12 +12,18 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadLinkedPullRequest, ThreadTitleState } from "@t3tools/contracts";
+import {
+  LinearIssue,
+  ModelSelection,
+  ThreadLinkedPullRequest,
+  ThreadTitleState,
+} from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
+    linkedLinearIssue: Schema.NullOr(Schema.fromJsonString(LinearIssue)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
   }),
@@ -40,6 +46,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           interaction_mode,
           branch,
           worktree_path,
+          linked_linear_issue_json,
           linked_pull_request_json,
           branch_pull_request_json,
           latest_turn_id,
@@ -73,6 +80,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.interactionMode},
           ${row.branch},
           ${row.worktreePath},
+          ${row.linkedLinearIssue == null ? null : JSON.stringify(row.linkedLinearIssue)},
           ${row.linkedPullRequest === undefined || row.linkedPullRequest === null ? null : JSON.stringify(row.linkedPullRequest)},
           ${row.branchPullRequest === undefined || row.branchPullRequest === null ? null : JSON.stringify(row.branchPullRequest)},
           ${row.latestTurnId},
@@ -106,6 +114,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           interaction_mode = excluded.interaction_mode,
           branch = excluded.branch,
           worktree_path = excluded.worktree_path,
+          linked_linear_issue_json = excluded.linked_linear_issue_json,
           linked_pull_request_json = excluded.linked_pull_request_json,
           branch_pull_request_json = excluded.branch_pull_request_json,
           latest_turn_id = excluded.latest_turn_id,
@@ -146,6 +155,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          linked_linear_issue_json AS "linkedLinearIssue",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",

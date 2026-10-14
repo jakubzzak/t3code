@@ -1,3 +1,4 @@
+import { LinearConnectionSettings } from "../linear/LinearConnectionSettings";
 import { useRef } from "react";
 import { patchLinearProjectEmails, resolveLinearProjectEmail } from "~/browser/linearProjectEmail";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
@@ -38,68 +39,83 @@ export function LinearSettings() {
         mixed={mixed}
         description={
           projectSelected
-            ? "Workspace slug from linear.app/<workspace>. Applies to the selected project."
+            ? "The workspace in linear.app/<workspace>."
             : "Select a project above to configure its Linear workspace."
         }
-      >
-        <Input
-          aria-label="Linear workspace"
-          disabled={!projectSelected}
-          key={workspaceKey}
-          defaultValue={mixed ? "" : workspace}
-          placeholder={mixed ? "Multiple workspaces" : "my-workspace"}
-          onInput={() => {
-            workspaceEdited.current = workspaceKey;
-          }}
-          onBlur={(event) => {
-            if (workspaceEdited.current !== workspaceKey) return;
-            workspaceEdited.current = null;
-            const value = event.target.value.trim();
-            if (!projectSelected || (!mixed && value === workspace)) return;
-            if (!/^(?:[a-zA-Z0-9][a-zA-Z0-9-]{0,127})?$/.test(value)) {
-              toastManager.add({ type: "error", title: "Enter a workspace slug, not a URL" });
-              return;
-            }
-            update({ linearWorkspace: value });
-          }}
-        />
-      </SettingsRow>
+        control={
+          <div className="w-full sm:w-72">
+            <Input
+              aria-label="Linear workspace"
+              disabled={!projectSelected}
+              key={workspaceKey}
+              defaultValue={mixed ? "" : workspace}
+              placeholder={mixed ? "Multiple workspaces" : "my-workspace"}
+              onInput={() => {
+                workspaceEdited.current = workspaceKey;
+              }}
+              onBlur={(event) => {
+                if (workspaceEdited.current !== workspaceKey) return;
+                workspaceEdited.current = null;
+                const value = event.target.value.trim();
+                if (!projectSelected || (!mixed && value === workspace)) return;
+                if (!/^(?:[a-zA-Z0-9][a-zA-Z0-9-]{0,127})?$/.test(value)) {
+                  toastManager.add({ type: "error", title: "Enter a workspace slug, not a URL" });
+                  return;
+                }
+                update({ linearWorkspace: value });
+              }}
+            />
+          </div>
+        }
+      />
       <SettingsRow
         id="linear-login-email"
-        title="Login email"
+        title="Panel login email"
         description={
           projectSelected
-            ? "Email override for this project on this device. Otherwise uses your T3 account email; you finish authentication yourself."
+            ? "Optional sign-in email for the Linear panel. Defaults to your T3 account email."
             : "Select a project above to configure its Linear login email."
         }
-      >
-        <Input
-          aria-label="Linear login email"
-          type="email"
-          disabled={!projectSelected}
-          key={emailKey}
-          defaultValue={email.value}
-          placeholder={email.mixed ? "Multiple login emails" : "T3 account email"}
-          onInput={() => {
-            emailEdited.current = emailKey;
-          }}
-          onBlur={(event) => {
-            const value = event.target.value.trim();
-            if (
-              !projectSelected ||
-              emailEdited.current !== emailKey ||
-              (!email.mixed && value === email.value)
-            )
-              return;
-            emailEdited.current = null;
-            void updateClient({
-              linearProjectLoginEmails: patchLinearProjectEmails(emails, projects, value),
-            }).catch(() =>
-              toastManager.add({ type: "error", title: "Could not save login email" }),
-            );
-          }}
-        />
-      </SettingsRow>
+        control={
+          <div className="w-full sm:w-72">
+            <Input
+              aria-label="Linear login email"
+              type="email"
+              disabled={!projectSelected}
+              key={emailKey}
+              defaultValue={email.value}
+              placeholder={email.mixed ? "Multiple login emails" : "T3 account email"}
+              onInput={() => {
+                emailEdited.current = emailKey;
+              }}
+              onBlur={(event) => {
+                const value = event.target.value.trim();
+                if (
+                  !projectSelected ||
+                  emailEdited.current !== emailKey ||
+                  (!email.mixed && value === email.value)
+                )
+                  return;
+                emailEdited.current = null;
+                void updateClient({
+                  linearProjectLoginEmails: patchLinearProjectEmails(emails, projects, value),
+                }).catch(() =>
+                  toastManager.add({ type: "error", title: "Could not save login email" }),
+                );
+              }}
+            />
+          </div>
+        }
+      />
+      <LinearConnectionSettings
+        key={JSON.stringify([projects, workspace])}
+        workspace={mixed ? "" : workspace}
+        connectionKey={
+          projects.length === 1
+            ? JSON.stringify([projects[0]!.environmentId, projects[0]!.projectId])
+            : null
+        }
+      />
     </SettingsSection>
   );
 }

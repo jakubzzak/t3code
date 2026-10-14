@@ -71,11 +71,22 @@ The first open uses the issue identifier in the branch, or My Issues when there 
 view keeps its current page; close and reopen it to use a changed branch or workspace.
 
 Linear uses its own interface and login. T3 can start Google sign-in with your T3 account email;
-select a project and set **Login email** in the same integration section to use a different
+select a project and set **Panel login email** in the same integration section to use a different
 address for that project on this device.
 Finish passwords and two-factor authentication yourself. If assistance fails, sign in manually.
 Turning the feature off closes its views while retaining workspace settings and browser logins.
 The view is unavailable on web and mobile, including when they connect to a desktop server.
+
+To link a chat to an issue, choose **Connect Linear** in the project's integration settings,
+then select **Linear issue** beside the branch controls. The list starts with issues assigned
+to you; search finds accessible issues across the workspace. Linking is optional and works
+before or after a conversation starts. It opens the issue's existing worktree or creates one
+using Linear's suggested branch name on the connected computer.
+
+If another active chat uses that worktree, choose to open it or use the current chat and settle
+the previous one. Switching is unavailable while either agent is running. **Unlink issue**
+removes the association while keeping the conversation and files. Linked chats remain usable
+on web and mobile. Disconnecting Linear or turning off the feature preserves existing links.
 
 ## Storage cleanup
 

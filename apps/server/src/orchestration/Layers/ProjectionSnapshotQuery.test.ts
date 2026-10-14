@@ -12,6 +12,7 @@ import {
   TurnId,
   ProviderInstanceId,
   OrchestrationMessageContext,
+  LinearIssue,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -47,6 +48,7 @@ const encodeThreadLinkedPullRequest = Schema.encodeSync(
 const encodeMessageContext = Schema.encodeEffect(
   Schema.fromJsonString(OrchestrationMessageContext),
 );
+const encodeLinearIssue = Schema.encodeSync(Schema.fromJsonString(LinearIssue));
 
 it.effect("reads project shells without loading threads or resolving excluded projects", () => {
   const resolved: string[] = [];
@@ -115,6 +117,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
+      const linkedLinearIssue = {
+        id: "linear-1",
+        identifier: "ENG-123",
+        title: "Fix login",
+        workspace: "acme",
+        url: "https://linear.app/acme/issue/ENG-123",
+        branchName: "eng-123-fix-login",
+      };
       const branchPullRequest = {
         projectId: asProjectId("project-1"),
         repository: "pingdotgg/t3code",
@@ -200,6 +210,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           interaction_mode,
           branch,
           worktree_path,
+          linked_linear_issue_json,
           linked_pull_request_json,
           branch_pull_request_json,
           latest_turn_id,
@@ -223,6 +234,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'default',
           NULL,
           NULL,
+          ${encodeLinearIssue(linkedLinearIssue)},
           '{"projectId":"project-1","repository":"pingdotgg/t3code","number":41,"url":"https://github.com/pingdotgg/t3code/pull/41"}',
           ${encodeThreadLinkedPullRequest(branchPullRequest)},
           'turn-1',
@@ -461,6 +473,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          linkedLinearIssue,
           pullRequests: expectedPullRequests,
           branchPullRequest,
           latestTurn: {
@@ -588,6 +601,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          linkedLinearIssue,
           pullRequests: expectedPullRequests,
           branchPullRequest,
           latestTurn: {
@@ -648,6 +662,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       const commandReadModel = yield* snapshotQuery.getCommandReadModel();
       assert.deepEqual(commandReadModel.threads[0]?.pullRequests, expectedPullRequests);
+      assert.deepEqual(commandReadModel.threads[0]?.linkedLinearIssue, linkedLinearIssue);
       assert.deepEqual(
         commandReadModel.threads[0]?.linkedPullRequest,
         snapshot.threads[0]?.linkedPullRequest,

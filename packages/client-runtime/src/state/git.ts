@@ -9,6 +9,10 @@ export function createGitEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
   return {
+    selectLinearIssue: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:linear:select-issue",
+      tag: WS_METHODS.linearIssueSelect,
+    }),
     pullRequestResolution: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:git:resolve-pull-request",
       tag: WS_METHODS.gitResolvePullRequest,

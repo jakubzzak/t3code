@@ -1,3 +1,6 @@
+import { CommandId, type LinearIssue, type LinearIssueSetupResult } from "@t3tools/contracts";
+import { gitEnvironment } from "../state/git";
+import { LinearIssuePicker } from "./linear/LinearIssuePicker";
 import { openLinearSurface } from "./linear/openLinearSurface";
 import {
   type NavigationSection,
@@ -1509,6 +1512,10 @@ export default function ChatView(props: ChatViewProps) {
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
+  const [linearSetupPending, setLinearSetupPending] = useState(false);
+  const selectLinearIssue = useAtomCommand(gitEnvironment.selectLinearIssue, {
+    reportFailure: false,
+  });
   const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
   const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
@@ -5899,6 +5906,79 @@ export default function ChatView(props: ChatViewProps) {
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
       ? pendingServerThreadBranch
       : (activeThread?.branch ?? null);
+  const handleSelectLinearIssue = useCallback(
+    async (
+      issue: LinearIssue,
+      takeoverThreadIds: readonly ThreadId[],
+    ): Promise<LinearIssueSetupResult> => {
+      if (!activeThread || !activeProject)
+        throw new Error("Choose a project before linking an issue.");
+      if (sendInFlightRef.current)
+        throw new Error("Wait for the current action to finish before switching issues.");
+      sendInFlightRef.current = true;
+      setLinearSetupPending(true);
+      try {
+        if (!isServerThread) {
+          const created = await createThread({
+            environmentId: activeThread.environmentId,
+            input: {
+              threadId: activeThread.id,
+              projectId: activeProject.id,
+              title: activeThread.title,
+              modelSelection: activeThread.modelSelection,
+              runtimeMode,
+              interactionMode: activeThread.interactionMode,
+              branch: activeThread.branch,
+              worktreePath: activeThread.worktreePath,
+              createdAt: activeThread.createdAt,
+            },
+          });
+          if (created._tag === "Failure") throw squashAtomCommandFailure(created);
+        }
+        const result = await selectLinearIssue({
+          environmentId: activeThread.environmentId,
+          input: {
+            commandId: CommandId.make(randomHex(16)),
+            threadId: activeThread.id,
+            issue,
+            baseRef: activeThreadBranch ?? "HEAD",
+            expectedWorktreePath: activeThread.worktreePath,
+            expectedIssueId: activeServerThread?.linkedLinearIssue?.id ?? null,
+            takeoverThreadIds,
+          },
+        });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        if (result.value.status === "linked") {
+          setPendingServerThreadBranch(null);
+          if (draftId) {
+            const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
+            finalizePromotedDraftThreadByRef(ref);
+            await navigate({
+              to: "/$environmentId/$threadId",
+              params: buildThreadRouteParams(ref),
+            });
+          }
+        }
+        return result.value;
+      } finally {
+        sendInFlightRef.current = false;
+        setLinearSetupPending(false);
+      }
+    },
+    [
+      activeThread,
+      activeProject,
+      isServerThread,
+      createThread,
+      runtimeMode,
+      selectLinearIssue,
+      activeThreadBranch,
+      activeServerThread?.linkedLinearIssue?.id,
+      draftId,
+      navigate,
+    ],
+  );
+
   const startFromOrigin = isLocalDraftThread
     ? (draftThread?.startFromOrigin ?? false)
     : canOverrideServerThreadEnvMode
@@ -10072,18 +10152,20 @@ export default function ChatView(props: ChatViewProps) {
                             projectSelectionRequired={isLocalDraftThread && activeProject === null}
                             phase={phase}
                             isConnecting={isConnecting}
-                            isSendBusy={isSendBusy}
+                            isSendBusy={isSendBusy || linearSetupPending}
                             isRevertingCheckpoint={isRevertingCheckpoint}
                             sendDisabledReason={
-                              isRevertingCheckpoint
-                                ? "Rewinding conversation"
-                                : feedbackUploading
-                                  ? "Sending feedback"
-                                  : threadDetailLoading
-                                    ? "Messages loading"
-                                    : worktreeSetupBlocksSend
-                                      ? "Preparing worktree"
-                                      : projectCloneSendBlockReason
+                              linearSetupPending
+                                ? "Setting up Linear issue"
+                                : isRevertingCheckpoint
+                                  ? "Rewinding conversation"
+                                  : feedbackUploading
+                                    ? "Sending feedback"
+                                    : threadDetailLoading
+                                      ? "Messages loading"
+                                      : worktreeSetupBlocksSend
+                                        ? "Preparing worktree"
+                                        : projectCloneSendBlockReason
                             }
                             isPreparingWorktree={isPreparingWorktree}
                             bannerItems={composerBannerItems}
@@ -10188,6 +10270,46 @@ export default function ChatView(props: ChatViewProps) {
                           {mountComposerContextStrip && (
                             <div className="pointer-events-auto">
                               <BranchToolbar
+                                linearIssueControl={
+                                  isElectron &&
+                                  linearViewEnabled &&
+                                  serverConfig?.linearIssueChats &&
+                                  window.desktopBridge?.linearRequest &&
+                                  activeProject &&
+                                  activeProjectSettings.settings.linearWorkspace ? (
+                                    <LinearIssuePicker
+                                      key={activeThread.id}
+                                      environmentId={activeThread.environmentId}
+                                      projectId={activeProject.id}
+                                      workspace={activeProjectSettings.settings.linearWorkspace}
+                                      linkedIssue={activeServerThread?.linkedLinearIssue ?? null}
+                                      running={
+                                        activeServerThread?.session?.status === "starting" ||
+                                        activeServerThread?.session?.status === "running"
+                                      }
+                                      onSelect={handleSelectLinearIssue}
+                                      onUnlink={async () => {
+                                        const result = await updateThreadMetadata({
+                                          environmentId: activeThread.environmentId,
+                                          input: {
+                                            threadId: activeThread.id,
+                                            linkedLinearIssue: null,
+                                          },
+                                        });
+                                        if (result._tag === "Failure")
+                                          throw squashAtomCommandFailure(result);
+                                      }}
+                                      onOpenThread={(id) => {
+                                        void navigate({
+                                          to: "/$environmentId/$threadId",
+                                          params: buildThreadRouteParams(
+                                            scopeThreadRef(activeThread.environmentId, id),
+                                          ),
+                                        });
+                                      }}
+                                    />
+                                  ) : null
+                                }
                                 forceNewWorktree={multipleModelSelections !== null}
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
@@ -10205,7 +10327,7 @@ export default function ChatView(props: ChatViewProps) {
                                         setPendingServerThreadBranch,
                                     }
                                   : {})}
-                                envLocked={envLocked}
+                                envLocked={envLocked || linearSetupPending}
                                 onComposerFocusRequest={scheduleComposerFocus}
                                 {...(canCheckoutPullRequestIntoThread
                                   ? { onCheckoutPullRequestRequest: openPullRequestDialog }

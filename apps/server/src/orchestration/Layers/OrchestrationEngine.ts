@@ -292,6 +292,20 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             detail: "Chat cleanup is in progress. Retry cleanup before starting more work.",
           });
         }
+        if (
+          envelope.command.type === "thread.linear-issue.select" &&
+          [envelope.command.threadId, ...envelope.command.takeoverThreadIds].some(
+            (id) =>
+              isThreadClosing(id) ||
+              threadBackgroundLiveness.getThreadBackgroundLiveness(id) !== null,
+          )
+        ) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: envelope.command.type,
+            detail:
+              "Wait for chat cleanup and background agent work to finish before switching issues.",
+          });
+        }
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,

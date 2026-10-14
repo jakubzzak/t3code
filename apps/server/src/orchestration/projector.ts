@@ -650,6 +650,9 @@ export function projectEvent(
                 ? { modelSelection: payload.modelSelection }
                 : {}),
               ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
+              ...(payload.linkedLinearIssue !== undefined
+                ? { linkedLinearIssue: payload.linkedLinearIssue }
+                : {}),
               ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
               ...(payload.activeOrderKey !== undefined
                 ? { activeOrderKey: payload.activeOrderKey }

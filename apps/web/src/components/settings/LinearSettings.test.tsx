@@ -28,7 +28,12 @@ vi.mock("~/hooks/useSettings", () => ({
 }));
 vi.mock("./settingsLayout", () => ({
   SettingsSection: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
-  SettingsRow: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SettingsRow: ({ children, control }: { children: React.ReactNode; control: React.ReactNode }) => (
+    <div>
+      {children}
+      {control}
+    </div>
+  ),
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

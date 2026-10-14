@@ -12,6 +12,15 @@ The new Linear controls are desktop-only and require both the feature setting an
 
 This extends the [embedded Linear view](linear-view.md) with issue queries and explicit chat associations. Rebuilding Linear's issue editor, general-purpose Linear agent tools, and migrating existing worktree directories are outside scope.
 
+## Delivery in two PRs
+
+1. **OAuth and existing issues:** Deliver connection management, assigned issues and search, persistent associations, exact Linear branch naming, worktree setup/reuse, existing-chat conflict handling and settlement, running-agent guards, cross-client chat compatibility, and settings styling. This PR is usable independently. Do not expose the picker’s **Create issue** action until PR 2 delivers its complete flow. OAuth application registration and callback configuration are prerequisites for end-to-end verification.
+2. **Issue creation:** Add the sticky **Create issue** action, opening the existing Linear panel's creation flow, reliable identification of the created issue, and automatic association or replacement confirmation. Reuse PR 1's setup and running-agent guards. This PR depends on PR 1; creation-completion detection must be resolved and verified before it is ready.
+
+PR 1 covers acceptance criteria 1–3 and 5–8 for existing-issue flows, excluding the create action, creation completion, and creation-related races. PR 2 covers criterion 4 and those deferred creation-specific portions of criteria 1 and 8. The following requirements describe the combined result; the split does not remove them.
+
+Tracking exception: the maintainer explicitly chose to proceed without a Linear issue. Continue on the existing dedicated spec/task branch.
+
 ## Required behavior
 
 ### Connect Linear
@@ -77,9 +86,15 @@ This extends the [embedded Linear view](linear-view.md) with issue queries and e
 - Preserve existing settlement and provider-session lifecycle guards, including pending-input handling. An idle session tied to the old directory must be rebound or recreated through the supported provider lifecycle before subsequent work starts.
 - Existing dirty files must remain intact when changing worktrees. Switching or settling a chat does not authorize deleting its worktree, discarding changes, or moving uncommitted files to another branch.
 
+## Compatibility and recovery
+
+The association is an optional field on existing metadata events and a nullable additive projection column. Existing chats require no backfill. Deploy the server before the desktop client; the desktop exposes issue setup only when the connected server advertises support. Older desktop, web, and mobile clients retain ordinary chat access and ignore the new optional metadata. New clients connected to older servers leave issue controls unavailable.
+
+Disable the feature to recover from a client integration problem; this preserves associations, conversation history, and worktrees. Prefer a forward fix for server projection problems. Reverting application code does not remove the additive database column; retain it. Before a binary downgrade, back up the environment database and verify that version can read its migration history. No down migration, file deletion, or branch reset is part of this feature.
+
 ## Open questions
 
-The following blocks implementation of automatic association after creation, but does not block publishing this agreed product scope:
+The following blocks PR 2's automatic association after creation, but does not block PR 1 or publishing this agreed product scope:
 
 - **Creation completion:** Verify a reliable way to identify the issue created through the embedded panel and correlate it with the originating chat. Any fallback requiring manual selection would change the agreed automatic association and needs a product decision.
 

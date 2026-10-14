@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import {
   type Ref,
+  type ReactNode,
   memo,
   useImperativeHandle,
   useCallback,
@@ -67,6 +68,7 @@ export interface BranchToolbarHandle {
 
 interface BranchToolbarProps {
   forceNewWorktree?: boolean;
+  linearIssueControl?: ReactNode;
   ref?: Ref<BranchToolbarHandle>;
   environmentId: EnvironmentId;
   threadId: ThreadId;
@@ -505,6 +507,7 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
 
 export const BranchToolbar = memo(function BranchToolbar({
   forceNewWorktree = false,
+  linearIssueControl,
   ref,
   environmentId,
   threadId,
@@ -705,6 +708,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         />
       ) : null}
 
+      {linearIssueControl}
       {showGitControls ? (
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}

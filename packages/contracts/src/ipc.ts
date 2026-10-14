@@ -1,3 +1,4 @@
+import type { LinearDesktopRequest, LinearDesktopResult } from "./linear.ts";
 import * as Schema from "effect/Schema";
 
 import {
@@ -1216,6 +1217,7 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   /** Receives a local OAuth code for a sign-in owned by a remote environment. */
+  linearRequest?: (input: LinearDesktopRequest) => Promise<LinearDesktopResult>;
   receiveProviderAuthCallback?: (authorizationUrl: string) => Promise<string>;
   cancelProviderAuthCallback?: (authorizationUrl: string) => Promise<void>;
   openExternal: (url: string) => Promise<boolean>;

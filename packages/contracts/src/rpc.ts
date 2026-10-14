@@ -1,3 +1,4 @@
+import { LinearIssueSetupInput, LinearIssueSetupResult, LinearIssueSetupError } from "./linear.ts";
 import { ThreadCleanupInput, ThreadCleanupSnapshot, ThreadCleanupError } from "./threadCleanup.ts";
 import {
   ChatGptReconnectProfileInput,
@@ -345,6 +346,7 @@ export const WS_METHODS = {
   // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
+  linearIssueSelect: "linear.selectIssue",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
   // Review methods
@@ -1116,6 +1118,12 @@ const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
 });
 
+const WsLinearIssueSelectRpc = Rpc.make(WS_METHODS.linearIssueSelect, {
+  payload: LinearIssueSetupInput,
+  success: LinearIssueSetupResult,
+  error: Schema.Union([LinearIssueSetupError, EnvironmentAuthorizationError]),
+});
+
 const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePullRequestThread, {
   payload: GitPreparePullRequestThreadInput,
   success: GitPreparePullRequestThreadResult,
@@ -1575,6 +1583,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
+  WsLinearIssueSelectRpc,
   WsGitPreparePullRequestThreadRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
