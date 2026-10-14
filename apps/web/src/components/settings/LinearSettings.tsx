@@ -1,5 +1,6 @@
 import { LinearConnectionSettings } from "../linear/LinearConnectionSettings";
 import { useRef } from "react";
+import { isElectron } from "~/env";
 import { patchLinearProjectEmails, resolveLinearProjectEmail } from "~/browser/linearProjectEmail";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { Input } from "../ui/input";
@@ -107,15 +108,17 @@ export function LinearSettings() {
           </div>
         }
       />
-      <LinearConnectionSettings
-        key={JSON.stringify([projects, workspace])}
-        workspace={mixed ? "" : workspace}
-        connectionKey={
-          projects.length === 1
-            ? JSON.stringify([projects[0]!.environmentId, projects[0]!.projectId])
-            : null
-        }
-      />
+      {isElectron && (
+        <LinearConnectionSettings
+          key={JSON.stringify([projects, workspace])}
+          workspace={mixed ? "" : workspace}
+          connectionKey={
+            projects.length === 1
+              ? JSON.stringify([projects[0]!.environmentId, projects[0]!.projectId])
+              : null
+          }
+        />
+      )}
     </SettingsSection>
   );
 }
