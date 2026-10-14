@@ -27,7 +27,7 @@ Tracking exception: the maintainer explicitly chose to proceed without a Linear 
 
 - Use OAuth through **Connect Linear** in Settings → Integrations → Linear. Users authorize their own Linear account; no personal API key entry is required or offered in this flow.
 - Request read access for issue lookup, search, and suggested branch names. Issue creation continues through the authenticated Linear panel. OAuth authorization does not establish a browser login; preserve the panel's separate sign-in flow.
-- After authorization, show the connected account and workspace and validate that the connection matches the selected project's workspace. “Assigned to me” refers to the authorizing Linear user. Canceling or failing authorization must not replace an existing working connection.
+- After authorization, show the connected account and workspace, use that account’s email for panel login assistance without a separate email field, and validate that the connection matches the selected project's workspace. “Assigned to me” refers to the authorizing Linear user. Canceling or failing authorization must not replace an existing working connection.
 - Refresh expired access automatically when possible. Provide reconnect and disconnect actions. Disconnect removes the stored authorization and attempts revocation, reporting if revocation could not be completed; it preserves chats, issue associations, and worktrees.
 - Keep access and refresh tokens in protected credential storage, separate from ordinary project settings. Do not include credentials in synced thread data, logs, or agent prompts. Persisted desktop credentials require OS-backed encryption; do not silently fall back to plaintext.
 
@@ -79,7 +79,7 @@ Tracking exception: the maintainer explicitly chose to proceed without a Linear 
 
 ## Constraints and decisions
 
-- The existing workspace slug and browser login-email override do not establish API authentication. Assigned-issue lookup, search, and suggested branch names need authenticated Linear API access; do not scrape the embedded website for routine queries.
+- The existing workspace slug and the panel’s browser login do not establish API authentication. Assigned-issue lookup, search, and suggested branch names need authenticated Linear API access; do not scrape the embedded website for routine queries.
 - Use Linear's [OAuth authorization-code flow with PKCE](https://linear.app/developers/oauth-2-0-authentication), an S256 challenge, and validated state. Act as the authorizing user. A distributed desktop build must not embed a confidential client secret. Register the OAuth application and supported callback URLs before end-to-end connection verification.
 - Reuse the existing Linear surface and settings conventions. Linear documents [URLs that initiate issue creation](https://linear.app/developers/create-issues-using-linear-new); they do not by themselves establish a completion callback. Explicit creation navigation must work with the existing surface's origin and workspace restrictions.
 - Keep association and setup operations in environment services with typed contracts so clients observe consistent thread state. Provider sessions must execute subsequent work in the selected worktree, not retain a stale working directory.

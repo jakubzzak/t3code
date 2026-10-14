@@ -1,8 +1,6 @@
 import { LinearConnectionSettings } from "../linear/LinearConnectionSettings";
 import { useRef } from "react";
 import { isElectron } from "~/env";
-import { patchLinearProjectEmails, resolveLinearProjectEmail } from "~/browser/linearProjectEmail";
-import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 import { SettingsSection, SettingsRow } from "./settingsLayout";
@@ -18,17 +16,12 @@ export function LinearSettings() {
   const workspace = useScopedSettings((settings) => settings.linearWorkspace);
   const mixed = useScopedSettingsMixed(["linearWorkspace"]);
   const update = useUpdateScopedSettings();
-  const emails = useClientSettings((settings) => settings.linearProjectLoginEmails);
   const workspaceEdited = useRef<string | null>(null);
-  const emailEdited = useRef<string | null>(null);
-  const updateClient = useUpdateClientSettings();
   const projectSelected = scope.kind === "project" || scope.kind === "checkout";
   const projects = projectSelected
     ? scope.members.map((member) => ({ environmentId: member.environmentId, projectId: member.id }))
     : [];
-  const email = resolveLinearProjectEmail(emails, projects);
   const workspaceKey = JSON.stringify([search, workspace, mixed]);
-  const emailKey = JSON.stringify([search, email]);
 
   return (
     <SettingsSection id="linear" title="Linear">
@@ -64,45 +57,6 @@ export function LinearSettings() {
                   return;
                 }
                 update({ linearWorkspace: value });
-              }}
-            />
-          </div>
-        }
-      />
-      <SettingsRow
-        id="linear-login-email"
-        title="Panel login email"
-        description={
-          projectSelected
-            ? "Optional sign-in email for the Linear panel. Defaults to your T3 account email."
-            : "Select a project above to configure its Linear login email."
-        }
-        control={
-          <div className="w-full sm:w-72">
-            <Input
-              aria-label="Linear login email"
-              type="email"
-              disabled={!projectSelected}
-              key={emailKey}
-              defaultValue={email.value}
-              placeholder={email.mixed ? "Multiple login emails" : "T3 account email"}
-              onInput={() => {
-                emailEdited.current = emailKey;
-              }}
-              onBlur={(event) => {
-                const value = event.target.value.trim();
-                if (
-                  !projectSelected ||
-                  emailEdited.current !== emailKey ||
-                  (!email.mixed && value === email.value)
-                )
-                  return;
-                emailEdited.current = null;
-                void updateClient({
-                  linearProjectLoginEmails: patchLinearProjectEmails(emails, projects, value),
-                }).catch(() =>
-                  toastManager.add({ type: "error", title: "Could not save login email" }),
-                );
               }}
             />
           </div>

@@ -1,11 +1,7 @@
 import { useUser } from "@clerk/react";
-import { LinearLoginSteps } from "../linear/LinearLoginAssist";
+import { LinearLoginSteps, type LinearLoginStepsProps } from "../linear/LinearLoginAssist";
 
-export default function LinearAccountEmail(props: {
-  runtimeTabId: string;
-  url: string | null;
-  loading: boolean;
-}) {
+export default function LinearAccountEmail(props: Omit<LinearLoginStepsProps, "email">) {
   const { user, isLoaded } = useUser();
   if (!isLoaded) return null;
   return <LinearLoginSteps {...props} email={user?.primaryEmailAddress?.emailAddress ?? ""} />;

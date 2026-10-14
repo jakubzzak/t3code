@@ -157,14 +157,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/integrations",
     scope: "project",
     desktopOnly: true,
-    searchTerms: ["OAuth connect reconnect disconnect assigned issues account"],
-  },
-  {
-    id: "linear-login-email",
-    title: "Linear panel login email",
-    to: "/settings/integrations",
-    scope: "project",
-    searchTerms: ["linear account email override"],
+    searchTerms: ["OAuth connect reconnect disconnect assigned issues account email"],
   },
   {
     id: "storage-worktrees",

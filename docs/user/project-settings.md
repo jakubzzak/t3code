@@ -70,9 +70,9 @@ Open **Linear** from the thread's surface picker, or press **L** while that pick
 The first open uses the issue identifier in the branch, or My Issues when there is none. An open
 view keeps its current page; close and reopen it to use a changed branch or workspace.
 
-Linear uses its own interface and login. T3 can start Google sign-in with your T3 account email;
-select a project and set **Panel login email** in the same integration section to use a different
-address for that project on this device.
+Linear uses its own interface and login. T3 uses the email from your connected Linear account
+to assist panel sign-in. Without a Linear connection, it falls back to your T3 account email
+when available; there is no separate email setting.
 Finish passwords and two-factor authentication yourself. If assistance fails, sign in manually.
 Turning the feature off closes its views while retaining workspace settings and browser logins.
 The view is unavailable on web and mobile, including when they connect to a desktop server.
