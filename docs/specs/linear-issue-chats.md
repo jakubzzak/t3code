@@ -14,6 +14,14 @@ This extends the [embedded Linear view](linear-view.md) with issue queries and e
 
 ## Required behavior
 
+### Connect Linear
+
+- Use OAuth through **Connect Linear** in Settings → Integrations → Linear. Users authorize their own Linear account; no personal API key entry is required or offered in this flow.
+- Request read access for issue lookup, search, and suggested branch names. Issue creation continues through the authenticated Linear panel. OAuth authorization does not establish a browser login; preserve the panel's separate sign-in flow.
+- After authorization, show the connected account and workspace and validate that the connection matches the selected project's workspace. “Assigned to me” refers to the authorizing Linear user. Canceling or failing authorization must not replace an existing working connection.
+- Refresh expired access automatically when possible. Provide reconnect and disconnect actions. Disconnect removes the stored authorization and attempts revocation, reporting if revocation could not be completed; it preserves chats, issue associations, and worktrees.
+- Keep access and refresh tokens in protected credential storage, separate from ordinary project settings. Do not include credentials in synced thread data, logs, or agent prompts. Persisted desktop credentials require OS-backed encryption; do not silently fall back to plaintext.
+
 ### Choose an issue
 
 - Place the Linear issue selector beside checkout/worktree and branch controls in a new chat. Keep it readily accessible in existing chats for linking and switching issues. Never require an issue before sending a message.
@@ -51,10 +59,12 @@ This extends the [embedded Linear view](linear-view.md) with issue queries and e
 4. Create an issue from an unlinked chat, then from a linked chat. The first associates and sets up automatically. The second asks to switch; accepting moves the same conversation to the new issue's working context, while declining leaves its existing context intact.
 5. Open the linked chat from web and mobile and reconnect from another client. Its history and working context remain available. Feature disable/re-enable and unlinking preserve chat history and files. A disconnected Linear account or failed Git setup produces a recoverable error without falsely reporting success.
 6. Linear settings use established settings styling, and configuring one project does not change another project's Linear workspace or account selection.
+7. **Connect Linear** completes OAuth without asking for an API key, identifies the authorizing account, and enables its assigned-issue list for the configured workspace. Cancellation preserves any existing connection. Expiry refreshes transparently or offers reconnect; disconnect preserves existing chats and issue associations. API authorization does not falsely mark the embedded panel as signed in.
 
 ## Constraints and decisions
 
 - The existing workspace slug and browser login-email override do not establish API authentication. Assigned-issue lookup, search, and suggested branch names need authenticated Linear API access; do not scrape the embedded website for routine queries.
+- Use Linear's [OAuth authorization-code flow with PKCE](https://linear.app/developers/oauth-2-0-authentication), an S256 challenge, and validated state. Act as the authorizing user. A distributed desktop build must not embed a confidential client secret. Register the OAuth application and supported callback URLs before end-to-end connection verification.
 - Reuse the existing Linear surface and settings conventions. Linear documents [URLs that initiate issue creation](https://linear.app/developers/create-issues-using-linear-new); they do not by themselves establish a completion callback. Explicit creation navigation must work with the existing surface's origin and workspace restrictions.
 - Keep association and setup operations in environment services with typed contracts so clients observe consistent thread state. Provider sessions must execute subsequent work in the selected worktree, not retain a stale working directory.
 - Existing dirty files must remain intact when changing worktrees. Switching or settling a chat does not authorize deleting its worktree, discarding changes, or moving uncommitted files to another branch.
@@ -63,8 +73,9 @@ This extends the [embedded Linear view](linear-view.md) with issue queries and e
 
 The following block implementation of their respective flows, but do not block publishing this agreed product scope:
 
-- **API connection:** Choose the authentication and credential ownership model, including how the connected account supplies “assigned to me” when desktop clients use remote environments. Browser login is not an API credential.
 - **Creation completion:** Verify a reliable way to identify the issue created through the embedded panel and correlate it with the originating chat. Any fallback requiring manual selection would change the agreed automatic association and needs a product decision.
 - **Active sessions and settlement:** Decide how switching and takeover behave when either chat has an active turn, pending input, or a provider session tied to the old directory. The existing settlement path guards against running sessions; do not bypass that protection or silently terminate work.
 
 Non-blocking details to resolve during implementation: collision-safe project/directory naming without changing the Git branch name; multiple unsettled chats or ambiguous remote refs for one branch; and the display of linked issue metadata on web/mobile beyond the required chat visibility.
+
+OAuth implementation default, not a separately confirmed product decision: keep the personal connection and API requests on the desktop, with project bindings keyed by environment and project. Remote environments receive the issue association and Git setup request without receiving OAuth tokens. The registered application/client ID, callback route, and development/fork configuration still need to be established before end-to-end verification.
