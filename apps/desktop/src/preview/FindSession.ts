@@ -37,7 +37,12 @@ export function createFindSession(
         return Promise.resolve(null);
       }
       return new Promise((resolve) => {
-        pending = { id: contents.findInPage(text, options), resolve };
+        // Electron maps findNext directly to Chromium's new_session flag.
+        // Start a session for changed text; continue it for next/previous.
+        pending = {
+          id: contents.findInPage(text, { ...options, findNext: !options.findNext }),
+          resolve,
+        };
       });
     },
     stop,

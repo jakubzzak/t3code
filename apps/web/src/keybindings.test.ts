@@ -254,6 +254,24 @@ describe("thread undo shortcut", () => {
 });
 
 describe("copy thread reference shortcut", () => {
+  it("leaves focused macOS desktop browser commands to the browser", () => {
+    for (const key of ["c", "f", "[", "]"]) {
+      assert.isNull(
+        resolveShortcutCommand(
+          event({ key, metaKey: true, shiftKey: key === "c" }),
+          DEFAULT_BINDINGS,
+          { platform: "MacIntel", context: { isDesktop: true, previewFocus: true } },
+        ),
+      );
+    }
+    assert.equal(
+      resolveShortcutCommand(event({ key: "c", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { isDesktop: true, previewOpen: true, previewFocus: false },
+      }),
+      "thread.copyReference",
+    );
+  });
   it("resolves Cmd+Shift+C on macOS and Ctrl+Shift+C elsewhere", () => {
     assert.equal(
       resolveShortcutCommand(event({ key: "c", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {

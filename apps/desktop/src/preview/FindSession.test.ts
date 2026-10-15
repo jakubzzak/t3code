@@ -22,7 +22,7 @@ describe("page Find", () => {
   it("returns only the final matching Chromium search result", async () => {
     const { contents, session, result } = fixture();
     const search = session.find("phrase", options);
-    expect(contents.findInPage).toHaveBeenCalledWith("phrase", options);
+    expect(contents.findInPage).toHaveBeenCalledWith("phrase", { forward: true, findNext: true });
     result(99, 8);
     result(1, 1, false);
     result(1, 3);
@@ -34,6 +34,10 @@ describe("page Find", () => {
     const { contents, session, result } = fixture();
     const first = session.find("old", options);
     const second = session.find("new", { forward: false, findNext: true });
+    expect(contents.findInPage).toHaveBeenLastCalledWith("new", {
+      forward: false,
+      findNext: false,
+    });
     await expect(first).resolves.toBeNull();
     result(1, 9);
     contents.emit("did-start-navigation", { isMainFrame: true });
