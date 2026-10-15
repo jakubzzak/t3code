@@ -99,23 +99,67 @@ export async function beginLinearCreation(input: {
   const token = randomHex(16);
   try {
     tabId = await input.open();
-    await previewBridge.automation.waitFor(tabId, {
-      locator: 'button[aria-label="Create new issue"]',
-      timeoutMs: 60_000,
-    });
+    const runtimeTabId = tabId;
+    const automation = previewBridge.automation;
+    const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Only observation may resume after human input; never replay editor-opening input.
+    const observe = async <T>(
+      operation: "evaluate" | "waitFor",
+      deadline: number,
+      read: () => Promise<T>,
+    ): Promise<T> => {
+      while (Date.now() < deadline) {
+        try {
+          return await read();
+        } catch (cause) {
+          // Electron serializes IPC errors into Error.message, losing the tagged type.
+          if (
+            !(cause instanceof Error) ||
+            !cause.message.includes(
+              `Preview automation ${operation} was interrupted by human input in tab ${runtimeTabId}`,
+            )
+          )
+            throw cause;
+        }
+        await pause();
+      }
+      throw new Error("Linear issue creation timed out. Your issue or draft remains in Linear.");
+    };
+    const openingDeadline = Date.now() + 60_000;
+    // The server session exists before React has attached and registered its native guest.
+    while (true) {
+      if (Date.now() >= openingDeadline)
+        throw new Error(
+          "Linear's panel is not ready. Wait for it to load, then try Create issue again.",
+        );
+      const status = await automation.status(runtimeTabId);
+      if (status.available && !status.loading && status.url && status.url !== "about:blank") break;
+      await pause();
+    }
+    await observe("waitFor", openingDeadline, () =>
+      automation.waitFor(runtimeTabId, {
+        locator: 'button[aria-label="Create new issue"]',
+        timeoutMs: Math.max(1, openingDeadline - Date.now()),
+      }),
+    );
     await previewBridge.automation.evaluate(tabId, {
       expression: `(${installLinearCreationGuest.toString()})(${JSON.stringify(token)},${JSON.stringify(input.workspace)})`,
     });
     await previewBridge.automation.press(tabId, { key: "c" });
-    await previewBridge.automation.waitFor(tabId, {
-      locator: '[aria-label="Issue title"]',
-      timeoutMs: 5_000,
-    });
+    const editorDeadline = Date.now() + 5_000;
+    await observe("waitFor", editorDeadline, () =>
+      automation.waitFor(runtimeTabId, {
+        locator: '[aria-label="Issue title"]',
+        timeoutMs: Math.max(1, editorDeadline - Date.now()),
+      }),
+    );
     const deadline = Date.now() + 15 * 60_000;
     while (Date.now() < deadline) {
-      const raw = await previewBridge.automation.evaluate(tabId, {
-        expression: `(() => { const task = window.__t3LinearCreation; return task?.token === ${JSON.stringify(token)} ? task.result : null; })()`,
-      });
+      const raw = await observe("evaluate", deadline, () =>
+        automation.evaluate(runtimeTabId, {
+          expression: `(() => { const task = window.__t3LinearCreation; return task?.token === ${JSON.stringify(token)} ? task.result : null; })()`,
+        }),
+      );
       if (!raw || typeof raw !== "object" || !("status" in raw))
         throw new Error("Linear navigated away from the creation flow. Your chat has not changed.");
       if (raw.status === "cancelled") {
