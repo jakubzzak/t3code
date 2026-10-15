@@ -116,3 +116,32 @@ it("disables issue selection while the current agent runs and does not queue a s
   expect(button("Fix login").disabled).toBe(false);
   expect(select).not.toHaveBeenCalled();
 });
+
+it("keeps load errors inside the picker and clears the pill error after a successful retry", async () => {
+  const message = "This desktop build has no Linear OAuth application configured.";
+  request.mockRejectedValueOnce(new Error(message));
+  await render();
+  await click("Linear issue");
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(message);
+  expect(button("Linear issue").getAttribute("aria-label")).toContain("error, open for details");
+  await click("Linear issue");
+  expect(container.textContent).not.toContain(message);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(button("Linear issue").getAttribute("aria-label")).toContain("error, open for details");
+  await click("Linear issue");
+  expect(button("Linear issue").getAttribute("aria-label")).toBe("Link Linear issue");
+  expect(document.body.textContent).not.toContain(message);
+});
+
+it("preserves a failed selection's details when reopening the picker", async () => {
+  const message = "Unable to check the Linear branch on GitHub.";
+  select.mockRejectedValueOnce(new Error(message));
+  await render();
+  await click("Linear issue");
+  await click("Fix login");
+  expect(container.textContent).not.toContain(message);
+  expect(button("Linear issue").getAttribute("aria-label")).toContain("error, open for details");
+  await click("Linear issue");
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(message);
+  expect(container.textContent).not.toContain(message);
+});

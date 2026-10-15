@@ -97,7 +97,7 @@ export function LinearConnectionSettings({
       }
     >
       {status?.configured === false && (
-        <p className="text-sm text-muted-foreground">
+        <p role="alert" className="text-sm text-destructive">
           This desktop build needs a Linear OAuth application configured.
         </p>
       )}
