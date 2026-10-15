@@ -2,25 +2,38 @@ import {
   FILL_PREVIEW_VIEWPORT,
   type EnvironmentId,
   type PreviewCloseInput,
+  type PreviewNavigateInput,
+  type PreviewSessionSnapshot,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import {
+  squashAtomCommandFailure,
+  type AtomCommandResult,
+} from "@t3tools/client-runtime/state/runtime";
 
 import { linearInitialUrl } from "~/browser/linear";
 import type { OpenPreviewMutation } from "~/browser/openFileInPreview";
 import { isElectron } from "~/env";
 import { ensureClientSettingsHydrated, getClientSettings } from "~/hooks/useSettings";
-import { readThreadPreviewState, beginPreviewSessionClose } from "~/previewStateStore";
+import {
+  readThreadPreviewState,
+  beginPreviewSessionClose,
+  applyPreviewServerSnapshot,
+} from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { openPreviewSession } from "../preview/openPreviewSession";
 
-/** Reuse an open Linear surface without retargeting it when the branch changes. */
+/** Reuse the Linear tab; only an explicitly selected issue retargets it. */
 export async function openLinearSurface<E>(input: {
   threadRef: ScopedThreadRef;
   workspace: string;
   branch: string | null | undefined;
   url?: string;
   openPreview: OpenPreviewMutation<E>;
+  navigatePreview: (input: {
+    environmentId: EnvironmentId;
+    input: PreviewNavigateInput;
+  }) => Promise<AtomCommandResult<PreviewSessionSnapshot, E>>;
   closePreview: (input: {
     environmentId: EnvironmentId;
     input: PreviewCloseInput;
@@ -48,6 +61,16 @@ export async function openLinearSurface<E>(input: {
     ) {
       throw new Error("Choose an issue in this project's configured Linear workspace.");
     }
+  }
+  if (existing && input.url) {
+    const result = await input.navigatePreview({
+      environmentId: input.threadRef.environmentId,
+      input: { threadId: input.threadRef.threadId, tabId: existing.tabId, url: input.url },
+    });
+    if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+    applyPreviewServerSnapshot(input.threadRef, result.value);
+    useRightPanelStore.getState().openBrowser(input.threadRef, existing.tabId);
+    return existing.tabId;
   }
   const result = await openPreviewSession({
     threadRef: input.threadRef,

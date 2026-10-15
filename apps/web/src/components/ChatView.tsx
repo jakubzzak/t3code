@@ -1556,6 +1556,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
+  const navigatePreview = useAtomCommand(previewEnvironment.navigate, { reportFailure: false });
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
@@ -4623,6 +4624,7 @@ export default function ChatView(props: ChatViewProps) {
         .linearWorkspace,
       branch: activeThread?.branch,
       openPreview,
+      navigatePreview,
       closePreview,
     }).catch((error: unknown) =>
       toastManager.add({
@@ -4639,6 +4641,7 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread,
     linearViewEnabled,
     openPreview,
+    navigatePreview,
     closePreview,
   ]);
   const { state: deviceState, loaded: deviceStateLoaded } = useDeviceState(
@@ -5921,7 +5924,7 @@ export default function ChatView(props: ChatViewProps) {
       sendInFlightRef.current = true;
       setLinearSetupPending(true);
       try {
-        if (!isServerThread) {
+        if (routeKind === "draft" && !isServerThread) {
           const created = await createThread({
             environmentId: activeThread.environmentId,
             input: {
@@ -5953,13 +5956,17 @@ export default function ChatView(props: ChatViewProps) {
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
         if (result.value.status === "linked") {
           setPendingServerThreadBranch(null);
+          const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
           if (draftId) {
-            const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
-            finalizePromotedDraftThreadByRef(ref);
+            // Keep the draft alive until its route has changed, otherwise the
+            // draft route redirects to the new-chat screen during promotion.
+            markPromotedDraftThreadByRef(ref);
             await navigate({
               to: "/$environmentId/$threadId",
               params: buildThreadRouteParams(ref),
+              replace: true,
             });
+            finalizePromotedDraftThreadByRef(ref);
           }
         }
         return result.value;
@@ -5972,6 +5979,7 @@ export default function ChatView(props: ChatViewProps) {
       activeThread,
       activeProject,
       isServerThread,
+      routeKind,
       createThread,
       runtimeMode,
       selectLinearIssue,
@@ -5979,6 +5987,7 @@ export default function ChatView(props: ChatViewProps) {
       activeServerThread?.linkedLinearIssue?.id,
       draftId,
       navigate,
+      sendInFlightRef,
     ],
   );
 
@@ -10350,6 +10359,7 @@ export default function ChatView(props: ChatViewProps) {
                                           workspace: activeProjectSettings.settings.linearWorkspace,
                                           branch: activeThread.branch,
                                           openPreview,
+                                          navigatePreview,
                                           closePreview,
                                         });
                                         return previewRuntimeTabId(
@@ -10366,6 +10376,20 @@ export default function ChatView(props: ChatViewProps) {
                                         activeServerThread?.session?.status === "running"
                                       }
                                       onSelect={handleSelectLinearIssue}
+                                      onOpenIssue={async (issue) => {
+                                        await openLinearSurface({
+                                          threadRef: scopeThreadRef(
+                                            activeThread.environmentId,
+                                            activeThread.id,
+                                          ),
+                                          workspace: issue.workspace,
+                                          branch: issue.branchName,
+                                          url: issue.url,
+                                          openPreview,
+                                          navigatePreview,
+                                          closePreview,
+                                        });
+                                      }}
                                       onUnlink={async () => {
                                         const result = await updateThreadMetadata({
                                           environmentId: activeThread.environmentId,

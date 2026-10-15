@@ -3,8 +3,12 @@ import type {
   ProjectId,
   LinearIssue,
   LinearIssueSetupResult,
+  LinearIssueView,
   ThreadId,
 } from "@t3tools/contracts";
+import { Tabs } from "@base-ui/react/tabs";
+import { PlusIcon } from "lucide-react";
+import { LinearIssueViewTabs, linearIssueViews, useLinearIssueViews } from "./LinearIssueViews";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import {
@@ -46,13 +50,14 @@ interface Props {
   ) => Promise<LinearIssueSetupResult>;
   onUnlink: () => Promise<void>;
   onOpenThread: (id: ThreadId) => void;
+  onOpenIssue?: (issue: LinearIssue) => Promise<void>;
 }
 
 export function LinearIssuePicker(props: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [debouncedQuery] = useDebouncedValue(query, { wait: 350 });
-  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [issues, setIssues] = useState<readonly LinearIssue[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -65,6 +70,10 @@ export function LinearIssuePicker(props: Props) {
     props.projectId,
     props.workspace,
   ]);
+  const view = useLinearIssueViews((state) => state.byChat[creationKey] ?? "assigned");
+  const queryKey = JSON.stringify([creationKey, view, query]);
+  const debouncedKey = JSON.stringify([creationKey, view, debouncedQuery]);
+  const listRef = useRef<HTMLDivElement>(null);
   const creation = useLinearCreations((state) => state.entries[creationKey]);
   const error = actionError ?? creation?.error ?? loadError;
   const mounted = useRef(true);
@@ -98,6 +107,7 @@ export function LinearIssuePicker(props: Props) {
     async (after?: string, version = ++generation.current) => {
       if (!request) return;
       setLoading(true);
+      if (!after) setCursor(null);
       setLoadError(null);
       try {
         const result = await request({
@@ -105,6 +115,7 @@ export function LinearIssuePicker(props: Props) {
           workspace: props.workspace,
           connectionKey,
           query: debouncedQuery,
+          view,
           ...(after ? { cursor: after } : {}),
         });
         if (version !== generation.current) return;
@@ -116,7 +127,7 @@ export function LinearIssuePicker(props: Props) {
             : (result.issues ?? []),
         );
         setCursor(result.nextCursor ?? null);
-        setLoadedQuery(debouncedQuery);
+        setLoadedKey(debouncedKey);
       } catch (cause) {
         if (version === generation.current)
           setLoadError(cause instanceof Error ? cause.message : "Unable to load Linear issues.");
@@ -124,7 +135,7 @@ export function LinearIssuePicker(props: Props) {
         if (version === generation.current) setLoading(false);
       }
     },
-    [request, props.workspace, connectionKey, debouncedQuery],
+    [request, props.workspace, connectionKey, debouncedQuery, view, debouncedKey],
   );
   useEffect(() => {
     const version = ++generation.current;
@@ -147,6 +158,16 @@ export function LinearIssuePicker(props: Props) {
         useLinearCreations.getState().entries[creationKey]?.issue?.id === issue.id
       )
         clearLinearCreation(creationKey);
+      if (result.status === "linked") {
+        try {
+          await props.onOpenIssue?.(issue);
+        } catch (cause) {
+          throw new Error(
+            `Issue linked to this chat, but Linear could not open: ${cause instanceof Error ? cause.message : "Please retry opening the Linear panel."}`,
+            { cause },
+          );
+        }
+      }
     } catch (cause) {
       setActionError(
         cause instanceof Error ? cause.message : "Unable to set up the Linear issue. Try again.",
@@ -202,6 +223,23 @@ export function LinearIssuePicker(props: Props) {
         ? live.session?.status === "starting" || live.session?.status === "running"
         : item.running;
     }) ?? false;
+  const creationDisabledReason = props.running
+    ? "Wait for the agent in this chat to finish before creating an issue."
+    : busy
+      ? "Wait for issue setup to finish."
+      : creation
+        ? "Finish or dismiss the current issue creation first."
+        : !props.onCreate
+          ? "Issue creation is unavailable for this chat."
+          : null;
+  const changeView = (value: unknown) => {
+    if (value === view || !linearIssueViews.some((item) => item.value === value)) return;
+    generation.current++;
+    setLoadedKey(null);
+    setCursor(null);
+    if (listRef.current) listRef.current.scrollTop = 0;
+    useLinearIssueViews.getState().select(creationKey, value as LinearIssueView);
+  };
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
@@ -225,121 +263,148 @@ export function LinearIssuePicker(props: Props) {
           </span>
         </PopoverTrigger>
         <PopoverPopup width="lg" padding="compact" side="top" align="end">
-          <div className="space-y-2">
-            <Input
-              aria-label="Search Linear issues"
-              placeholder="Search all workspace issues…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              {query.trim() ? "Workspace search" : "Assigned to me"}
-            </p>
-            {props.running && (
-              <p role="status" className="text-xs text-muted-foreground">
-                Wait for the agent in this chat to finish before switching issues.
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
-            <div className="max-h-64 space-y-1 overflow-y-auto" aria-label="Linear issues">
-              {(loadedQuery === query ? issues : []).map((issue) => (
-                <button
-                  key={issue.id}
-                  type="button"
-                  disabled={props.running || busy || query !== debouncedQuery}
-                  className="flex w-full gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
-                  onClick={() => void select(issue)}
-                >
-                  <span className="shrink-0 text-xs text-muted-foreground">{issue.identifier}</span>
-                  <span className="min-w-0 truncate">{issue.title}</span>
-                </button>
-              ))}
-              {!loading && !error && loadedQuery === query && issues.length === 0 && (
-                <p className="py-3 text-center text-sm text-muted-foreground">No issues found.</p>
+          <div className="flex max-h-[calc(var(--available-height)-1rem)] flex-col">
+            <Tabs.Root
+              value={view}
+              onValueChange={changeView}
+              className="flex min-h-0 flex-col gap-2"
+            >
+              <Input
+                aria-label="Search Linear issues"
+                placeholder={linearIssueViews.find((item) => item.value === view)?.placeholder}
+                value={query}
+                onChange={(event) => {
+                  generation.current++;
+                  if (listRef.current) listRef.current.scrollTop = 0;
+                  setQuery(event.target.value);
+                }}
+              />
+              <LinearIssueViewTabs view={view} />
+              {props.running && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  Wait for the agent in this chat to finish before switching issues.
+                </p>
               )}
-            </div>
-            {loading && (
-              <p role="status" className="text-xs text-muted-foreground">
-                Loading issues…
-              </p>
-            )}
-            {cursor && loadedQuery === query && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={loading}
-                onClick={() => void load(cursor)}
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+              <Tabs.Panel
+                value={view}
+                ref={listRef}
+                className="min-h-0 max-h-64 space-y-1 overflow-y-auto"
+                aria-label="Linear issues"
+                aria-busy={loading}
               >
-                Load more
-              </Button>
-            )}
-            {error && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={() => {
-                  setActionError(null);
-                  void load();
-                }}
-              >
-                Retry
-              </Button>
-            )}
-            {creation?.status === "error" && creation.issueId && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void verifyLinearCreation(creationKey)}
-              >
-                Retry created issue
-              </Button>
-            )}
-            {props.linkedIssue && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={props.running || busy}
-                onClick={() => {
-                  setBusy(true);
-                  setActionError(null);
-                  void props
-                    .onUnlink()
-                    .then(
-                      () => setOpen(false),
-                      (cause) =>
-                        setActionError(
-                          cause instanceof Error ? cause.message : "Unable to unlink issue.",
-                        ),
-                    )
-                    .finally(() => setBusy(false));
-                }}
-              >
-                Unlink issue
-              </Button>
-            )}
-          </div>
-          {props.onCreate && (
-            <div className="mt-2 border-t pt-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={props.running || busy || Boolean(creation)}
-                onClick={createIssue}
-              >
-                {creation?.status === "pending" ? "Creating issue in Linear…" : "Create issue"}
-              </Button>
-              {creation?.status === "error" && (
-                <Button variant="ghost" size="sm" onClick={() => clearLinearCreation(creationKey)}>
-                  Dismiss creation error
+                {(loadedKey === queryKey ? issues : []).map((issue) => (
+                  <button
+                    key={issue.id}
+                    type="button"
+                    disabled={props.running || busy || query !== debouncedQuery}
+                    className="flex w-full gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+                    onClick={() => void select(issue)}
+                  >
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {issue.identifier}
+                    </span>
+                    <span className="min-w-0 truncate">{issue.title}</span>
+                  </button>
+                ))}
+                {!loading && !error && loadedKey === queryKey && issues.length === 0 && (
+                  <p className="py-3 text-center text-sm text-muted-foreground">No issues found.</p>
+                )}
+              </Tabs.Panel>
+              {loading && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  Loading issues…
+                </p>
+              )}
+              {cursor && loadedKey === queryKey && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={loading}
+                  onClick={() => void load(cursor)}
+                >
+                  Load more
                 </Button>
               )}
+              {error && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loading}
+                  onClick={() => {
+                    setActionError(null);
+                    void load();
+                  }}
+                >
+                  Retry
+                </Button>
+              )}
+              {creation?.status === "error" && creation.issueId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void verifyLinearCreation(creationKey)}
+                >
+                  Retry created issue
+                </Button>
+              )}
+              {props.linkedIssue && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={props.running || busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setActionError(null);
+                    void props
+                      .onUnlink()
+                      .then(
+                        () => setOpen(false),
+                        (cause) =>
+                          setActionError(
+                            cause instanceof Error ? cause.message : "Unable to unlink issue.",
+                          ),
+                      )
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  Unlink issue
+                </Button>
+              )}
+            </Tabs.Root>
+            <div className="mt-2 flex shrink-0 flex-col gap-2 border-t pt-2">
+              {creationDisabledReason && !props.running && (
+                <p className="text-xs text-muted-foreground" role="status">
+                  {creationDisabledReason}
+                </p>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                {creation?.status === "error" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => clearLinearCreation(creationKey)}
+                  >
+                    Dismiss creation error
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={creationDisabledReason !== null}
+                  title={creationDisabledReason ?? undefined}
+                  onClick={createIssue}
+                >
+                  <PlusIcon aria-hidden="true" />
+                  Create new issue
+                </Button>
+              </div>
             </div>
-          )}
+          </div>
         </PopoverPopup>
       </Popover>
       <Dialog

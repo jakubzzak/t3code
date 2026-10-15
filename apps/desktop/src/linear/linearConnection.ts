@@ -51,6 +51,7 @@ const Assigned = Schema.Struct({
   data: Schema.Struct({ viewer: Schema.Struct({ assignedIssues: IssuePage }) }),
 });
 const Search = Schema.Struct({ data: Schema.Struct({ searchIssues: IssuePage }) });
+const Issues = Schema.Struct({ data: Schema.Struct({ issues: IssuePage }) });
 const fields = "nodes { id identifier title url branchName } pageInfo { hasNextPage endCursor }";
 
 const decodeCredentials = Schema.decodeUnknownSync(Credentials);
@@ -58,6 +59,7 @@ const decodeToken = Schema.decodeUnknownSync(Token);
 const decodeIdentity = Schema.decodeUnknownSync(Identity);
 const decodeAssigned = Schema.decodeUnknownSync(Assigned);
 const decodeSearch = Schema.decodeUnknownSync(Search);
+const decodeIssues = Schema.decodeUnknownSync(Issues);
 
 const decodeCreatedIssue = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -264,17 +266,31 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
       }
     }
     const term = input.query?.trim();
-    const data = await graphql(
-      credential.accessToken,
-      term
+    // Omitted views preserve the older caller's assigned-list/workspace-search behavior.
+    const filter =
+      input.view === "assigned"
+        ? { assignee: { id: { eq: credential.connection.userId } } }
+        : input.view === "triage"
+          ? { state: { type: { eq: "triage" } } }
+          : {};
+    const query = input.view
+      ? term
+        ? `query Search($term: String!, $after: String, $filter: IssueFilter) { searchIssues(term: $term, filter: $filter, first: 50, after: $after) { ${fields} } }`
+        : `query Issues($after: String, $filter: IssueFilter) { issues(filter: $filter, first: 50, after: $after) { ${fields} } }`
+      : term
         ? `query Search($term: String!, $after: String) { searchIssues(term: $term, first: 50, after: $after) { ${fields} } }`
-        : `query Assigned($after: String) { viewer { assignedIssues(first: 50, after: $after) { ${fields} } } }`,
-      { ...(term ? { term } : {}), after: input.cursor ?? null },
-    );
+        : `query Assigned($after: String) { viewer { assignedIssues(first: 50, after: $after) { ${fields} } } }`;
+    const data = await graphql(credential.accessToken, query, {
+      ...(term ? { term } : {}),
+      ...(input.view ? { filter } : {}),
+      after: input.cursor ?? null,
+    });
     try {
       const page = term
         ? decodeSearch(data).data.searchIssues
-        : decodeAssigned(data).data.viewer.assignedIssues;
+        : input.view
+          ? decodeIssues(data).data.issues
+          : decodeAssigned(data).data.viewer.assignedIssues;
       return {
         ...result(),
         issues: page.nodes.map((issue) => ({ ...issue, workspace: input.workspace })),

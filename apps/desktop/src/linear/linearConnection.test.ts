@@ -1,3 +1,4 @@
+import type { LinearDesktopRequest } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { createLinearConnection, type LinearConnectionDependencies } from "./linearConnection.ts";
 
@@ -35,6 +36,8 @@ function fixture() {
           expires_in: 86400,
         });
       }
+      if (issueResponse && String(init?.body).includes("query Issues"))
+        return Response.json(issueResponse);
       if (issueResponse && String(init?.body).includes("query Assigned"))
         return Response.json(issueResponse);
       if (issueResponse && String(init?.body).includes("query CreatedIssue"))
@@ -233,3 +236,32 @@ it("verifies an exact created issue and rejects a mismatched workspace", async (
     f.client.request({ ...input, operation: "issue", issueId: issue.id }),
   ).rejects.toThrow("could not be verified");
 });
+
+for (const [view, filter] of [
+  ["assigned", { assignee: { id: { eq: "user-1" } } }],
+  ["triage", { state: { type: { eq: "triage" } } }],
+  ["all", {}],
+] as const) {
+  it(`filters ${view} issues on the API before pagination, with and without search`, async () => {
+    const f = fixture();
+    const binding = { workspace: "acme", connectionKey: "env/project" };
+    await f.client.request({ ...binding, operation: "connect" });
+    const page = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "next" } };
+    for (const term of ["", "login"]) {
+      f.setIssues({ data: term ? { searchIssues: page } : { issues: page } });
+      const input = {
+        ...binding,
+        operation: "issues",
+        view,
+        query: term,
+        cursor: "page-2",
+      } as LinearDesktopRequest;
+      const result = await f.client.request(input);
+      const sent = JSON.parse(f.calls.at(-1)!.body);
+      expect(sent.variables).toEqual({ filter, after: "page-2", ...(term ? { term } : {}) });
+      expect(sent.query).toContain("filter: $filter");
+      expect(result.nextCursor).toBe("next");
+      expect(result.issues).toEqual([]);
+    }
+  });
+}

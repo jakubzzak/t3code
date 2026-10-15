@@ -68,7 +68,8 @@ In the desktop app, enable **Settings → Features → Linear view**, then selec
 **Settings → Integrations → Linear** and enter its workspace slug from `linear.app/<workspace>`.
 Open **Linear** from the thread's surface picker, or press **L** while that picker is active.
 The first open uses the issue identifier in the branch, or My Issues when there is none. An open
-view keeps its current page; close and reopen it to use a changed branch or workspace.
+view keeps its current page unless you explicitly select an issue for the chat. Close and reopen
+it to use another changed branch or workspace.
 
 Linear uses its own interface and login. T3 uses the email from your connected Linear account
 to assist panel sign-in. Without a Linear connection, it falls back to your T3 account email
@@ -79,11 +80,12 @@ The view is unavailable on web and mobile, including when they connect to a desk
 
 To link a chat to an issue, choose **Connect Linear** in the project's integration settings,
 then select **Linear issue** beside the branch controls. The list starts with issues assigned
-to you; search finds accessible issues across the workspace. Linking is optional and works
-before or after a conversation starts. It opens the issue's existing worktree or creates one
-using Linear's suggested branch name on the connected computer.
+to you. Use **Triage** for the workspace’s intake queue, or **All issues** to find issues assigned
+to anyone; search filters the selected view. Linking is optional before or after a conversation
+starts. It keeps your current chat and history, opens the issue in the right panel, and uses the
+issue’s existing worktree or creates one with Linear’s suggested branch name on the connected computer.
 
-Choose **Create issue** at the bottom of the picker to use Linear's editor in the right panel.
+Choose **Create new issue** at the bottom of the picker to use Linear's editor in the right panel.
 After creation, an unlinked chat uses the new issue automatically. A linked chat asks before
 switching. If an agent starts while the editor is open, finish the turn and choose **Use this
 issue**; T3 does not queue a switch. Leaving the chat keeps creation tied to its originating chat.
