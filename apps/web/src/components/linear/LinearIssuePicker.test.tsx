@@ -13,6 +13,11 @@ const state = vi.hoisted(() => ({
 vi.mock("../preview/previewBridge", () => ({
   previewBridge: {
     automation: {
+      status: vi.fn(async () => ({
+        available: true,
+        loading: false,
+        url: "https://linear.app/acme",
+      })),
       waitFor: vi.fn(async () => {}),
       press: vi.fn(async () => {}),
       evaluate: vi.fn(async (_id: string, input: { expression: string }) => {
