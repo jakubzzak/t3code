@@ -191,6 +191,7 @@ const {
   webviewSend,
   writeFile,
   writeClipboard,
+  writeClipboardText,
 } = vi.hoisted(() => ({
   browserWindowConstructor: vi.fn(),
   clipboardItemConstructor: vi.fn(),
@@ -206,6 +207,7 @@ const {
   webviewSend: vi.fn(),
   writeFile: vi.fn((_path: string, _data: Uint8Array) => undefined),
   writeClipboard: vi.fn(async () => undefined),
+  writeClipboardText: vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined),
 }));
 
 vi.mock("electron", () => ({
@@ -217,6 +219,7 @@ vi.mock("electron", () => ({
   },
   clipboard: {
     write: writeClipboard,
+    writeText: writeClipboardText,
   },
   nativeImage: {
     createFromPath,
@@ -696,6 +699,65 @@ describe("PreviewManager", () => {
         expect(preventDefault).toHaveBeenCalledOnce();
         expect(preview.reload).toHaveBeenCalledOnce();
         expect(sendInputEvent).not.toHaveBeenCalled();
+      }),
+    ),
+  );
+
+  effectIt.effect("copies the committed guest URL and propagates clipboard failures", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const preview = makeFaviconWebContents();
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_copy");
+        yield* manager.registerWebview("tab_copy", 42);
+        preview.setUrl("https://example.com/redirected#section");
+        expect(yield* manager.copyUrl("tab_copy")).toBe(true);
+        expect(writeClipboardText).toHaveBeenLastCalledWith(
+          "https://example.com/redirected#section",
+        );
+        writeClipboardText.mockRejectedValueOnce(new Error("Clipboard unavailable"));
+        const failure = yield* Effect.exit(manager.copyUrl("tab_copy"));
+        expect(Exit.isFailure(failure)).toBe(true);
+        writeClipboardText.mockClear();
+        preview.setUrl("about:blank");
+        expect(yield* manager.copyUrl("tab_copy")).toBe(false);
+        expect(writeClipboardText).not.toHaveBeenCalled();
+      }),
+    ),
+  );
+
+  effectIt.effect("routes browser commands only from the focused guest", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const preview = makeFaviconWebContents();
+        const send = vi.fn();
+        Object.assign(preview.webContents, { hostWebContents: { send } });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_shortcuts");
+        yield* manager.registerWebview("tab_shortcuts", 42);
+        const beforeInput = preview.listeners.get("before-input-event")!;
+        for (const [key, shift, action] of [
+          ["[", false, "back"],
+          ["]", false, "forward"],
+          ["f", false, "find"],
+          ["c", true, "copy-url"],
+        ] as const) {
+          const input = { type: "keyDown", key, meta: true, control: false, alt: false, shift };
+          const preventDefault = vi.fn();
+          getFocusedWebContents.mockReturnValue(null);
+          beforeInput({ preventDefault } as never, input as never);
+          expect(preventDefault).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+          getFocusedWebContents.mockReturnValue(preview.webContents as never);
+          beforeInput({ preventDefault } as never, input as never);
+          expect(preventDefault).toHaveBeenCalledOnce();
+          expect(send).toHaveBeenCalledExactlyOnceWith(
+            "desktop:preview-shortcut",
+            "tab_shortcuts",
+            action,
+          );
+          send.mockClear();
+        }
       }),
     ),
   );

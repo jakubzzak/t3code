@@ -1271,7 +1271,29 @@ export interface DesktopBridge {
 /** Renderer callback invoked by Electron with a fresh user gesture before display-media capture. */
 export const DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER = "__t3DesktopPreviewRecordingCapture";
 
+export const DesktopPreviewFindResultSchema = Schema.Struct({
+  matches: Schema.Number,
+  activeMatchOrdinal: Schema.Number,
+});
+export type DesktopPreviewFindResult = typeof DesktopPreviewFindResultSchema.Type;
+export const DesktopPreviewFindInputSchema = Schema.Struct({
+  tabId: DesktopPreviewTabIdSchema,
+  text: Schema.String,
+  forward: Schema.Boolean,
+  findNext: Schema.Boolean,
+});
+
+export type DesktopPreviewShortcut = "back" | "forward" | "copy-url" | "find";
+
 export interface DesktopPreviewBridge {
+  findInPage: (
+    tabId: string,
+    text: string,
+    options: { forward: boolean; findNext: boolean },
+  ) => Promise<DesktopPreviewFindResult | null>;
+  stopFindInPage: (tabId: string) => Promise<void>;
+  copyUrl: (tabId: string) => Promise<boolean>;
+  onShortcut: (listener: (tabId: string, action: DesktopPreviewShortcut) => void) => () => void;
   createTab: (tabId: string, defaults?: DesktopPreviewTabDefaults) => Promise<void>;
   closeTab: (tabId: string) => Promise<void>;
   registerWebview: (tabId: string, webContentsId: number) => Promise<void>;

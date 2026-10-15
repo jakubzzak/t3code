@@ -125,3 +125,8 @@ export const TERMINAL_COMMAND_INSTALL_CHANNEL = "terminal-command:install";
 export const TERMINAL_COMMAND_REMOVE_CHANNEL = "terminal-command:remove";
 
 export const LINEAR_REQUEST_CHANNEL = "desktop:linear:request";
+
+export const PREVIEW_SHORTCUT_CHANNEL = "desktop:preview-shortcut";
+export const PREVIEW_FIND_CHANNEL = "desktop:preview-find";
+export const PREVIEW_STOP_FIND_CHANNEL = "desktop:preview-stop-find";
+export const PREVIEW_COPY_URL_CHANNEL = "desktop:preview-copy-url";

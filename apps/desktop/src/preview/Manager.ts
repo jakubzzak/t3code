@@ -11,6 +11,7 @@ import {
   DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
 } from "@t3tools/contracts";
 import type {
+  DesktopPreviewFindResult,
   DesktopPreviewAnnotationTheme,
   DesktopPreviewAutomationStatus,
   DesktopPreviewColorScheme,
@@ -36,7 +37,7 @@ import type {
   PreviewAutomationWaitForInput,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import { normalizePreviewUrl, resolvePreviewShortcut } from "@t3tools/shared/preview";
 import {
   BrowserWindow,
   ClipboardItem,
@@ -66,7 +67,11 @@ import * as Scope from "effect/Scope";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
+import {
+  PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL,
+  PREVIEW_SHORTCUT_CHANNEL,
+} from "../ipc/channels.ts";
+import { createFindSession } from "./FindSession.ts";
 import { isLinearNavigationUrl, restrictLinearNavigation } from "./LinearNavigation.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
@@ -654,6 +659,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const mainWindowRef = yield* Ref.make<Option.Option<BrowserWindow>>(Option.none());
   const tabsRef = yield* SynchronizedRef.make<ReadonlyMap<string, PreviewTabState>>(new Map());
   const attachedRef = yield* Ref.make<ReadonlyMap<number, ManagedListeners>>(new Map());
+  const findSessions = new Map<number, ReturnType<typeof createFindSession>>();
   const listenersRef = yield* Ref.make<ReadonlySet<Listener>>(new Set());
   const pointerEventListenersRef = yield* Ref.make<ReadonlySet<PointerEventListener>>(new Set());
   const recordingInputListenersRef = yield* Ref.make<ReadonlySet<RecordingInputListener>>(
@@ -2029,6 +2035,21 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     };
     const beforeInput = (event: Electron.Event, input: Electron.Input): void => {
       syncMenuShortcuts(wc, input);
+      const shortcut =
+        hostPlatform === "darwin" && input.type === "keyDown"
+          ? resolvePreviewShortcut({
+              key: input.key,
+              metaKey: input.meta,
+              ctrlKey: input.control,
+              altKey: input.alt,
+              shiftKey: input.shift,
+            })
+          : null;
+      if (shortcut && webContents.getFocusedWebContents() === wc && wc.hostWebContents) {
+        event.preventDefault();
+        wc.hostWebContents.send(PREVIEW_SHORTCUT_CHANNEL, tabId, shortcut);
+        return;
+      }
       if (isPreviewRefreshShortcut(input)) {
         event.preventDefault();
         runFork(
@@ -2043,6 +2064,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       scope,
       attempt({ operation: "detachListeners", tabId, webContentsId: wc.id }, () => {
         cancelFaviconCapture();
+        findSessions.get(wc.id)?.dispose();
+        findSessions.delete(wc.id);
         wc.off("did-start-navigation", navigationStarted);
         wc.off("did-navigate", syncNavigation);
         wc.off("did-navigate-in-page", syncInPageNavigation);
@@ -2577,6 +2600,33 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   ) {
     const wc = yield* requireWebContents(tabId);
     yield* attempt({ operation, tabId, webContentsId: wc.id }, () => use(wc));
+  });
+
+  const findInPage = Effect.fn("PreviewManager.findInPage")(function* (
+    tabId: string,
+    text: string,
+    options: { forward: boolean; findNext: boolean },
+  ) {
+    const wc = yield* requireWebContents(tabId);
+    return yield* attemptPromise({ operation: "findInPage", tabId, webContentsId: wc.id }, () => {
+      let session = findSessions.get(wc.id);
+      if (!session) {
+        session = createFindSession(wc);
+        findSessions.set(wc.id, session);
+      }
+      return session.find(text, options);
+    });
+  });
+  const stopFindInPage = (tabId: string) =>
+    withWebContents("stopFindInPage", tabId, (wc) => {
+      findSessions.get(wc.id)?.stop();
+    });
+  const copyUrl = Effect.fn("PreviewManager.copyUrl")(function* (tabId: string) {
+    const wc = yield* requireWebContents(tabId);
+    const url = yield* attempt({ operation: "copyUrl.getURL", tabId }, () => wc.getURL());
+    if (!url || url === "about:blank") return false;
+    yield* attemptPromise({ operation: "copyUrl.write", tabId }, () => clipboard.writeText(url));
+    return true;
   });
 
   const goBack = (tabId: string) =>
@@ -4709,6 +4759,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   yield* Effect.addFinalizer(() => destroy().pipe(Effect.ignore));
 
   return {
+    findInPage,
+    stopFindInPage,
+    copyUrl,
     automationClick,
     automationEvaluate,
     automationPress,
@@ -5067,6 +5120,13 @@ export class PreviewManager extends Context.Service<
       webContentsId: number,
     ) => Effect.Effect<void, PreviewManagerError>;
     readonly navigate: (tabId: string, url: string) => Effect.Effect<void, PreviewManagerError>;
+    readonly findInPage: (
+      tabId: string,
+      text: string,
+      options: { forward: boolean; findNext: boolean },
+    ) => Effect.Effect<DesktopPreviewFindResult | null, PreviewManagerError>;
+    readonly stopFindInPage: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+    readonly copyUrl: (tabId: string) => Effect.Effect<boolean, PreviewManagerError>;
     readonly goBack: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly goForward: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly refresh: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
@@ -5193,6 +5253,9 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     closeTab: operations.closeTab,
     registerWebview: operations.registerWebview,
     navigate: operations.navigate,
+    findInPage: operations.findInPage,
+    stopFindInPage: operations.stopFindInPage,
+    copyUrl: operations.copyUrl,
     goBack: operations.goBack,
     goForward: operations.goForward,
     refresh: operations.refresh,

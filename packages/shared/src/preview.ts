@@ -96,3 +96,20 @@ export function normalizePreviewUrl(rawUrl: string): string {
   }
   return parsed.href;
 }
+
+/** Browser-owned macOS commands, shared by guest input and toolbar key events. */
+export function resolvePreviewShortcut(input: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}): "back" | "forward" | "copy-url" | "find" | null {
+  if (!input.metaKey || input.ctrlKey || input.altKey) return null;
+  const key = input.key.toLowerCase();
+  if (input.shiftKey) return key === "c" ? "copy-url" : null;
+  if (key === "[") return "back";
+  if (key === "]") return "forward";
+  if (key === "f") return "find";
+  return null;
+}
