@@ -18,6 +18,7 @@ import {
   useLinearCreations,
   verifyLinearCreation,
 } from "./linearCreation";
+import { LinearTeamSelect, useLinearTeamFilters } from "./LinearTeamSelect";
 import { LinearIcon } from "./LinearIcon";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useThreadShellsForProjectRefs } from "~/state/entities";
@@ -71,9 +72,13 @@ export function LinearIssuePicker(props: Props) {
     props.workspace,
   ]);
   const view = useLinearIssueViews((state) => state.byChat[creationKey] ?? "assigned");
-  const queryKey = JSON.stringify([creationKey, view, query]);
-  const debouncedKey = JSON.stringify([creationKey, view, debouncedQuery]);
+  const teamKey = JSON.stringify([props.environmentId, props.projectId, props.workspace]);
+  const teamId = useLinearTeamFilters((state) => state.byProject[teamKey] ?? "");
+  const queryKey = JSON.stringify([creationKey, teamId, view, query]);
+  const debouncedKey = JSON.stringify([creationKey, teamId, view, debouncedQuery]);
   const listRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const pageRequest = useRef<string | null>(null);
   const creation = useLinearCreations((state) => state.entries[creationKey]);
   const error = actionError ?? creation?.error ?? loadError;
   const mounted = useRef(true);
@@ -116,6 +121,7 @@ export function LinearIssuePicker(props: Props) {
           connectionKey,
           query: debouncedQuery,
           view,
+          ...(teamId ? { teamId } : {}),
           ...(after ? { cursor: after } : {}),
         });
         if (version !== generation.current) return;
@@ -126,7 +132,7 @@ export function LinearIssuePicker(props: Props) {
               )
             : (result.issues ?? []),
         );
-        setCursor(result.nextCursor ?? null);
+        setCursor(result.nextCursor === after ? null : (result.nextCursor ?? null));
         setLoadedKey(debouncedKey);
       } catch (cause) {
         if (version === generation.current)
@@ -135,7 +141,7 @@ export function LinearIssuePicker(props: Props) {
         if (version === generation.current) setLoading(false);
       }
     },
-    [request, props.workspace, connectionKey, debouncedQuery, view, debouncedKey],
+    [request, props.workspace, connectionKey, debouncedQuery, teamId, view, debouncedKey],
   );
   useEffect(() => {
     const version = ++generation.current;
@@ -144,6 +150,42 @@ export function LinearIssuePicker(props: Props) {
       generation.current++;
     };
   }, [open, load]);
+  const observeNextPage = useCallback(
+    (sentinel: HTMLDivElement | null) => {
+      if (!sentinel || !open || loading || loadError || !cursor || loadedKey !== queryKey) return;
+      const key = JSON.stringify([queryKey, cursor]);
+      const version = generation.current;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (
+            version !== generation.current ||
+            !entries.some((entry) => entry.isIntersecting) ||
+            pageRequest.current === key
+          )
+            return;
+          pageRequest.current = key;
+          void load(cursor).finally(() => {
+            if (pageRequest.current === key) pageRequest.current = null;
+          });
+        },
+        { root: listRef.current, rootMargin: "0px 0px 96px 0px" },
+      );
+      observer.observe(sentinel);
+      return () => observer.disconnect();
+    },
+    [open, loading, loadError, cursor, loadedKey, queryKey, load],
+  );
+  const changeTeam = useCallback(
+    (value: string) => {
+      if (value === teamId) return;
+      generation.current++;
+      setLoadedKey(null);
+      setCursor(null);
+      if (listRef.current) listRef.current.scrollTop = 0;
+      useLinearTeamFilters.getState().select(teamKey, value);
+    },
+    [teamKey, teamId],
+  );
   const select = async (issue: LinearIssue, takeover: readonly ThreadId[] = []) => {
     if (busy || props.running) return;
     setOpen(false);
@@ -262,23 +304,34 @@ export function LinearIssuePicker(props: Props) {
             {busy ? "Setting up issue…" : (props.linkedIssue?.identifier ?? "Linear issue")}
           </span>
         </PopoverTrigger>
-        <PopoverPopup width="lg" padding="compact" side="top" align="end">
+        <PopoverPopup width="lg" padding="compact" side="top" align="end" initialFocus={searchRef}>
           <div className="flex max-h-[calc(var(--available-height)-1rem)] flex-col">
             <Tabs.Root
               value={view}
               onValueChange={changeView}
               className="flex min-h-0 flex-col gap-2"
             >
-              <Input
-                aria-label="Search Linear issues"
-                placeholder={linearIssueViews.find((item) => item.value === view)?.placeholder}
-                value={query}
-                onChange={(event) => {
-                  generation.current++;
-                  if (listRef.current) listRef.current.scrollTop = 0;
-                  setQuery(event.target.value);
-                }}
-              />
+              <div className="flex shrink-0 items-center gap-1">
+                <LinearTeamSelect
+                  workspace={props.workspace}
+                  connectionKey={connectionKey}
+                  value={teamId}
+                  onChange={changeTeam}
+                />
+                <div className="min-w-0 flex-1">
+                  <Input
+                    ref={searchRef}
+                    aria-label="Search Linear issues"
+                    placeholder={linearIssueViews.find((item) => item.value === view)?.placeholder}
+                    value={query}
+                    onChange={(event) => {
+                      generation.current++;
+                      if (listRef.current) listRef.current.scrollTop = 0;
+                      setQuery(event.target.value);
+                    }}
+                  />
+                </div>
+              </div>
               <LinearIssueViewTabs view={view} />
               {props.running && (
                 <p role="status" className="text-xs text-muted-foreground">
@@ -314,21 +367,12 @@ export function LinearIssuePicker(props: Props) {
                 {!loading && !error && loadedKey === queryKey && issues.length === 0 && (
                   <p className="py-3 text-center text-sm text-muted-foreground">No issues found.</p>
                 )}
+                <div ref={observeNextPage} className="h-px" aria-hidden="true" />
               </Tabs.Panel>
               {loading && (
                 <p role="status" className="text-xs text-muted-foreground">
                   Loading issues…
                 </p>
-              )}
-              {cursor && loadedKey === queryKey && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={loading}
-                  onClick={() => void load(cursor)}
-                >
-                  Load more
-                </Button>
               )}
               {error && (
                 <Button
@@ -337,7 +381,7 @@ export function LinearIssuePicker(props: Props) {
                   disabled={loading}
                   onClick={() => {
                     setActionError(null);
-                    void load();
+                    void load(loadedKey === queryKey && cursor ? cursor : undefined);
                   }}
                 >
                   Retry

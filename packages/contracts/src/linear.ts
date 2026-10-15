@@ -18,14 +18,30 @@ export const LinearConnectionInfo = Schema.Struct({
   email: Schema.String,
 });
 export type LinearConnectionInfo = typeof LinearConnectionInfo.Type;
+export const LinearTeam = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  key: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+});
+export type LinearTeam = typeof LinearTeam.Type;
+
 export const LinearIssueView = Schema.Literals(["assigned", "triage", "all"]);
 export type LinearIssueView = typeof LinearIssueView.Type;
 export const LinearDesktopRequest = Schema.Struct({
-  operation: Schema.Literals(["status", "connect", "cancel", "disconnect", "issues", "issue"]),
+  operation: Schema.Literals([
+    "status",
+    "connect",
+    "cancel",
+    "disconnect",
+    "issues",
+    "issue",
+    "teams",
+  ]),
   workspace: TrimmedNonEmptyString,
   connectionKey: TrimmedNonEmptyString,
   query: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
   view: Schema.optional(LinearIssueView),
+  teamId: Schema.optional(TrimmedNonEmptyString),
   issueId: Schema.optional(TrimmedNonEmptyString),
   cursor: Schema.optional(Schema.String.check(Schema.isMaxLength(2000))),
 });
@@ -34,6 +50,7 @@ export const LinearDesktopResult = Schema.Struct({
   configured: Schema.Boolean,
   connection: Schema.NullOr(LinearConnectionInfo),
   issues: Schema.optional(Schema.Array(LinearIssue)),
+  teams: Schema.optional(Schema.Array(LinearTeam)),
   nextCursor: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type LinearDesktopResult = typeof LinearDesktopResult.Type;

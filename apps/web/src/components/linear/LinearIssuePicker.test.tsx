@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import {
   EnvironmentId,
   ProjectId,
@@ -11,7 +11,33 @@ import {
 } from "@t3tools/contracts";
 import { useLinearCreations } from "./linearCreation";
 import { useLinearIssueViews } from "./LinearIssueViews";
+import { useLinearTeamFilters } from "./LinearTeamSelect";
 import { LinearIssuePicker } from "./LinearIssuePicker";
+
+let intersect: (() => void) | undefined;
+beforeEach(() => {
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () =>
+          callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+      }
+      observe() {}
+      disconnect() {
+        intersect = undefined;
+      }
+    },
+  );
+});
+const reachEnd = () =>
+  act(async () => {
+    expect(intersect).toBeDefined();
+    intersect!();
+  });
 
 const state = vi.hoisted(() => ({
   running: false,
@@ -83,6 +109,15 @@ const request = vi.fn<(input: LinearDesktopRequest) => Promise<LinearDesktopResu
   issues: [issue],
   nextCursor: null,
 }));
+const teamRequest = vi.fn<(input: LinearDesktopRequest) => Promise<LinearDesktopResult>>(
+  async () => ({
+    configured: true,
+    connection: null,
+    teams: [{ id: "team-1", key: "ENG", name: "Engineering" }],
+  }),
+);
+const bridgeRequest = (input: LinearDesktopRequest) =>
+  input.operation === "teams" ? teamRequest(input) : request(input);
 const background = vi.fn(async () => ({
   status: "linked" as const,
   worktreePath: "/worktree",
@@ -95,7 +130,7 @@ const render = (
   creationEnabled = true,
 ) =>
   act(async () => {
-    Object.assign(window, { desktopBridge: { linearRequest: request } });
+    Object.assign(window, { desktopBridge: { linearRequest: bridgeRequest } });
     root.render(
       <LinearIssuePicker
         threadId={ThreadId.make("origin")}
@@ -128,6 +163,7 @@ afterEach(async () => {
   state.creationResult = null;
   useLinearCreations.setState({ entries: {} });
   useLinearIssueViews.setState({ byChat: {} });
+  useLinearTeamFilters.setState({ byProject: {} });
   vi.clearAllMocks();
   Object.assign(window, { desktopBridge: undefined });
 });
@@ -347,7 +383,8 @@ it("retains search across tabs, pages only the current view, and retains that vi
   });
   await click("Triage");
   expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ query: "login", view: "triage" });
-  await click("Load more");
+  expect(button("Load more")).toBeUndefined();
+  await reachEnd();
   expect(request.mock.calls.at(-1)?.[0]).toMatchObject({
     query: "login",
     view: "triage",
@@ -427,4 +464,160 @@ it("keeps a successful created-issue association when opening its panel fails", 
   expect(document.querySelector('[role="alert"]')?.textContent).toContain("Panel offline");
   expect(Object.values(useLinearCreations.getState().entries)).toEqual([]);
   expect(button("Use this issue")).toBeUndefined();
+});
+
+it("focuses search on opening despite the leading team selector", async () => {
+  await render();
+  await click("Linear issue");
+  expect(document.querySelector('[aria-label="Filter Linear teams"]')).not.toBeNull();
+  expect(document.activeElement).toBe(
+    document.querySelector('input[aria-label="Search Linear issues"]'),
+  );
+});
+
+it("remembers the team filter across reopening and stored-state rehydration, and clears it with All teams", async () => {
+  await render();
+  await click("Linear issue");
+  await click("All teams");
+  await act(async () => {
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((el) => el.textContent?.includes("Engineering"))!
+      .click();
+  });
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ teamId: "team-1", view: "assigned" });
+  await search("login");
+  await click("Triage");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({
+    teamId: "team-1",
+    query: "login",
+    view: "triage",
+  });
+  const saved = localStorage.getItem("t3code:linear-team-filters:v1")!;
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  useLinearTeamFilters.setState({ byProject: {} });
+  localStorage.setItem("t3code:linear-team-filters:v1", saved);
+  await useLinearTeamFilters.persist.rehydrate();
+  await render();
+  await click("Linear issue");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ teamId: "team-1" });
+  expect(document.activeElement).toBe(
+    document.querySelector('input[aria-label="Search Linear issues"]'),
+  );
+  await click("ENG");
+  await act(async () => {
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((el) => el.textContent === "All teams")!
+      .click();
+  });
+  expect(request.mock.calls.at(-1)?.[0]).not.toHaveProperty("teamId");
+});
+it("loads one next page at a time, keeps results on failure, and retries the same cursor", async () => {
+  request.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    issues: [issue],
+    nextCursor: "next",
+  });
+  await render();
+  await click("Linear issue");
+  let reject!: (cause: Error) => void;
+  request.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  await act(async () => {
+    const notify = intersect!;
+    notify();
+    notify();
+  });
+  expect(request.mock.calls.filter(([input]) => input.cursor === "next")).toHaveLength(1);
+  await act(async () => reject(new Error("Next page offline")));
+  expect(document.body.textContent).toContain("Fix login");
+  expect(document.body.textContent).toContain("Next page offline");
+  expect(intersect).toBeUndefined();
+  request.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    issues: [{ ...issue, id: "issue-2", title: "Next issue" }],
+    nextCursor: null,
+  });
+  await click("Retry");
+  expect(request.mock.calls.at(-1)?.[0].cursor).toBe("next");
+  expect(document.body.textContent).toContain("Fix login");
+  expect(document.body.textContent).toContain("Next issue");
+  expect(button("Load more")).toBeUndefined();
+});
+
+it("does not let a pending page or its old observer override a changed team filter", async () => {
+  request.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    issues: [issue],
+    nextCursor: "old-next",
+  });
+  await render();
+  await click("Linear issue");
+  const oldObserver = intersect!;
+  let resolve!: (value: LinearDesktopResult) => void;
+  request.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await reachEnd();
+  await click("All teams");
+  await act(async () => {
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((el) => el.textContent?.includes("Engineering"))!
+      .click();
+    oldObserver();
+  });
+  await act(async () =>
+    resolve({
+      configured: true,
+      connection: null,
+      issues: [{ ...issue, title: "Stale other team" }],
+      nextCursor: "stale",
+    }),
+  );
+  expect(document.body.textContent).not.toContain("Stale other team");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ teamId: "team-1" });
+  expect(request.mock.calls.at(-1)?.[0]).not.toHaveProperty("cursor");
+});
+it("retains a saved filter on team-load failure and retries the team list", async () => {
+  useLinearTeamFilters.getState().select(JSON.stringify(["env", "project", "acme"]), "team-1");
+  teamRequest.mockRejectedValueOnce(new Error("Teams offline"));
+  await render();
+  await click("Linear issue");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ teamId: "team-1" });
+  await click("Saved team");
+  expect(document.body.textContent).toContain("Could not load teams");
+  await click("Retry teams");
+  expect(document.body.textContent).toContain("Engineering");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ teamId: "team-1" });
+});
+
+it("includes teams beyond the first API page in the selector", async () => {
+  teamRequest.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    teams: [{ id: "team-1", key: "ENG", name: "Engineering" }],
+    nextCursor: "teams-next",
+  });
+  teamRequest.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    teams: [{ id: "team-2", key: "DES", name: "Design" }],
+    nextCursor: null,
+  });
+  await render();
+  await click("Linear issue");
+  expect(teamRequest.mock.calls.at(-1)?.[0].cursor).toBe("teams-next");
+  await click("All teams");
+  expect(document.body.textContent).toContain("DES · Design");
+  expect(document.body.textContent).toContain("ENG · Engineering");
 });

@@ -2,6 +2,7 @@ import * as NodeCrypto from "node:crypto";
 import {
   LinearConnectionInfo,
   LinearIssue,
+  LinearTeam,
   type LinearDesktopRequest,
   type LinearDesktopResult,
 } from "@t3tools/contracts";
@@ -60,6 +61,19 @@ const decodeIdentity = Schema.decodeUnknownSync(Identity);
 const decodeAssigned = Schema.decodeUnknownSync(Assigned);
 const decodeSearch = Schema.decodeUnknownSync(Search);
 const decodeIssues = Schema.decodeUnknownSync(Issues);
+const decodeTeams = Schema.decodeUnknownSync(
+  Schema.Struct({
+    data: Schema.Struct({
+      teams: Schema.Struct({
+        nodes: Schema.Array(LinearTeam),
+        pageInfo: Schema.Struct({
+          hasNextPage: Schema.Boolean,
+          endCursor: Schema.NullOr(Schema.String),
+        }),
+      }),
+    }),
+  }),
+);
 
 const decodeCreatedIssue = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -233,6 +247,23 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
         JSON.stringify({ ...credentials, [input.connectionKey]: credential }),
       );
     }
+    if (input.operation === "teams") {
+      const data = await graphql(
+        credential.accessToken,
+        "query Teams($after: String) { teams(first: 100, after: $after) { nodes { id key name } pageInfo { hasNextPage endCursor } } }",
+        { after: input.cursor ?? null },
+      );
+      try {
+        const page = decodeTeams(data).data.teams;
+        return {
+          ...result(),
+          teams: page.nodes,
+          nextCursor: page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null,
+        };
+      } catch {
+        throw new Error("Unable to load Linear teams. Try again.");
+      }
+    }
     if (input.operation === "issue") {
       if (!input.issueId) throw new Error("Choose a Linear issue to load.");
       const response = await graphql(
@@ -267,28 +298,33 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
     }
     const term = input.query?.trim();
     // Omitted views preserve the older caller's assigned-list/workspace-search behavior.
-    const filter =
+    const viewFilter =
       input.view === "assigned"
         ? { assignee: { id: { eq: credential.connection.userId } } }
         : input.view === "triage"
           ? { state: { type: { eq: "triage" } } }
           : {};
-    const query = input.view
+    const filter = {
+      ...viewFilter,
+      ...(input.teamId ? { team: { id: { eq: input.teamId } } } : {}),
+    };
+    const filtered = input.view !== undefined || input.teamId !== undefined;
+    const query = filtered
       ? term
-        ? `query Search($term: String!, $after: String, $filter: IssueFilter) { searchIssues(term: $term, filter: $filter, first: 50, after: $after) { ${fields} } }`
-        : `query Issues($after: String, $filter: IssueFilter) { issues(filter: $filter, first: 50, after: $after) { ${fields} } }`
+        ? `query Search($term: String!, $after: String, $filter: IssueFilter) { searchIssues(term: $term, filter: $filter, first: 50, after: $after, orderBy: updatedAt) { ${fields} } }`
+        : `query Issues($after: String, $filter: IssueFilter) { issues(filter: $filter, first: 50, after: $after, orderBy: updatedAt) { ${fields} } }`
       : term
-        ? `query Search($term: String!, $after: String) { searchIssues(term: $term, first: 50, after: $after) { ${fields} } }`
-        : `query Assigned($after: String) { viewer { assignedIssues(first: 50, after: $after) { ${fields} } } }`;
+        ? `query Search($term: String!, $after: String) { searchIssues(term: $term, first: 50, after: $after, orderBy: updatedAt) { ${fields} } }`
+        : `query Assigned($after: String) { viewer { assignedIssues(first: 50, after: $after, orderBy: updatedAt) { ${fields} } } }`;
     const data = await graphql(credential.accessToken, query, {
       ...(term ? { term } : {}),
-      ...(input.view ? { filter } : {}),
+      ...(filtered ? { filter } : {}),
       after: input.cursor ?? null,
     });
     try {
       const page = term
         ? decodeSearch(data).data.searchIssues
-        : input.view
+        : filtered
           ? decodeIssues(data).data.issues
           : decodeAssigned(data).data.viewer.assignedIssues;
       return {
