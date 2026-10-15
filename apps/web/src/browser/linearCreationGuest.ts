@@ -36,6 +36,7 @@ export function installLinearCreationGuest(token: string, workspace: string) {
     guest.result = result;
     observer.disconnect();
     document.removeEventListener("submit", submit, true);
+    document.removeEventListener("keydown", keyboardSubmit, true);
     clearTimeout(deadline);
     if (XMLHttpRequest.prototype.open === open) XMLHttpRequest.prototype.open = originalOpen;
     if (XMLHttpRequest.prototype.send === send) XMLHttpRequest.prototype.send = originalSend;
@@ -44,6 +45,9 @@ export function installLinearCreationGuest(token: string, workspace: string) {
     if (!dialog || !(event.target instanceof Node) || !dialog.contains(event.target)) return;
     submittedTitle =
       dialog.querySelector('[aria-label="Issue title"]')?.textContent?.trim() || null;
+  };
+  const keyboardSubmit = (event: KeyboardEvent) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit(event);
   };
   const optimisticIssueId = () => {
     if (!submittedTitle) return null;
@@ -168,6 +172,7 @@ export function installLinearCreationGuest(token: string, workspace: string) {
   XMLHttpRequest.prototype.open = open;
   XMLHttpRequest.prototype.send = send;
   document.addEventListener("submit", submit, true);
+  document.addEventListener("keydown", keyboardSubmit, true);
   observer.observe(document.body, { subtree: true, childList: true });
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   return true;
