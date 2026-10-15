@@ -47,7 +47,9 @@ export function LinearIssuePicker(props: Props) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? loadError;
   const [conflict, setConflict] = useState<{
     issue: LinearIssue;
     result: LinearIssueSetupResult;
@@ -70,7 +72,7 @@ export function LinearIssuePicker(props: Props) {
     async (after?: string, version = ++generation.current) => {
       if (!request) return;
       setLoading(true);
-      setError(null);
+      setLoadError(null);
       try {
         const result = await request({
           operation: "issues",
@@ -91,7 +93,7 @@ export function LinearIssuePicker(props: Props) {
         setLoadedQuery(debouncedQuery);
       } catch (cause) {
         if (version === generation.current)
-          setError(cause instanceof Error ? cause.message : "Unable to load Linear issues.");
+          setLoadError(cause instanceof Error ? cause.message : "Unable to load Linear issues.");
       } finally {
         if (version === generation.current) setLoading(false);
       }
@@ -109,12 +111,13 @@ export function LinearIssuePicker(props: Props) {
     if (busy || props.running) return;
     setOpen(false);
     setBusy(true);
-    setError(null);
+    setActionError(null);
+    setLoadError(null);
     try {
       const result = await props.onSelect(issue, takeover);
       setConflict(result.status === "conflict" ? { issue, result } : null);
     } catch (cause) {
-      setError(
+      setActionError(
         cause instanceof Error ? cause.message : "Unable to set up the Linear issue. Try again.",
       );
     } finally {
@@ -132,11 +135,18 @@ export function LinearIssuePicker(props: Props) {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
-          render={<ComposerControl size="xs" />}
-          disabled={busy}
-          aria-label={
-            props.linkedIssue ? `Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"
+          render={
+            <ComposerControl
+              size="xs"
+              className={
+                error
+                  ? "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive"
+                  : undefined
+              }
+            />
           }
+          disabled={busy}
+          aria-label={`${props.linkedIssue ? `Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"}${error ? " — error, open for details" : ""}`}
         >
           <LinearIcon aria-hidden="true" />
           <span>
@@ -197,7 +207,15 @@ export function LinearIssuePicker(props: Props) {
               </Button>
             )}
             {error && (
-              <Button variant="outline" size="sm" disabled={loading} onClick={() => void load()}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                onClick={() => {
+                  setActionError(null);
+                  void load();
+                }}
+              >
                 Retry
               </Button>
             )}
@@ -208,12 +226,13 @@ export function LinearIssuePicker(props: Props) {
                 disabled={props.running || busy}
                 onClick={() => {
                   setBusy(true);
+                  setActionError(null);
                   void props
                     .onUnlink()
                     .then(
                       () => setOpen(false),
                       (cause) =>
-                        setError(
+                        setActionError(
                           cause instanceof Error ? cause.message : "Unable to unlink issue.",
                         ),
                     )
@@ -226,11 +245,6 @@ export function LinearIssuePicker(props: Props) {
           </div>
         </PopoverPopup>
       </Popover>
-      {!open && error && (
-        <span role="alert" className="max-w-72 text-xs text-destructive">
-          {error}
-        </span>
-      )}
       <Dialog
         open={conflict !== null}
         onOpenChange={(value) => {
