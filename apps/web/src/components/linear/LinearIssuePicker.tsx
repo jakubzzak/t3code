@@ -325,7 +325,6 @@ export function LinearIssuePicker(props: Props) {
                     placeholder={linearIssueViews.find((item) => item.value === view)?.placeholder}
                     value={query}
                     onChange={(event) => {
-                      generation.current++;
                       if (listRef.current) listRef.current.scrollTop = 0;
                       setQuery(event.target.value);
                     }}

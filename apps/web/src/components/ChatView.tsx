@@ -114,7 +114,8 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+import { promoteLinearDraftThread } from "./linear/promoteLinearDraftThread";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import { isMacPlatform } from "../lib/utils";
@@ -1612,6 +1613,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
+  const router = useRouter();
   const citationLocation = useLocation({
     select: (location) => ({
       href: location.href,
@@ -5957,17 +5959,7 @@ export default function ChatView(props: ChatViewProps) {
         if (result.value.status === "linked") {
           setPendingServerThreadBranch(null);
           const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
-          if (draftId) {
-            // Keep the draft alive until its route has changed, otherwise the
-            // draft route redirects to the new-chat screen during promotion.
-            markPromotedDraftThreadByRef(ref);
-            await navigate({
-              to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(ref),
-              replace: true,
-            });
-            finalizePromotedDraftThreadByRef(ref);
-          }
+          if (draftId) await promoteLinearDraftThread(router, ref);
         }
         return result.value;
       } finally {
@@ -5986,7 +5978,7 @@ export default function ChatView(props: ChatViewProps) {
       activeThreadBranch,
       activeServerThread?.linkedLinearIssue?.id,
       draftId,
-      navigate,
+      router,
       sendInFlightRef,
     ],
   );
@@ -10328,7 +10320,7 @@ export default function ChatView(props: ChatViewProps) {
                                         if (result._tag === "Failure")
                                           throw squashAtomCommandFailure(result);
                                         if (result.value.status === "linked" && draftId)
-                                          finalizePromotedDraftThreadByRef(ref);
+                                          await promoteLinearDraftThread(router, ref);
                                         return result.value;
                                       }}
                                       onCreate={async () => {

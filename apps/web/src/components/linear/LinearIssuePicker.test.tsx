@@ -68,10 +68,6 @@ vi.mock("~/state/entities", () => ({
     { id: "previous", session: { status: state.running ? "running" : "idle" } },
   ],
 }));
-vi.mock("@tanstack/react-pacer", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@tanstack/react-pacer")>()),
-  useDebouncedValue: (value: string) => [value],
-}));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const container = document.createElement("div");
 document.body.append(container);
@@ -150,12 +146,14 @@ const render = (
   });
 const button = (text: string) =>
   [...document.querySelectorAll("button")].find((node) => node.textContent?.includes(text))!;
-const click = (text: string) =>
-  act(async () => {
+const click = async (text: string) => {
+  await act(async () => {
     const target = button(text);
     expect(target).toBeDefined();
     target.click();
   });
+  if (vi.isFakeTimers()) await act(async () => vi.advanceTimersByTimeAsync(0));
+};
 afterEach(async () => {
   await act(async () => root.unmount());
   root = createRoot(container);
@@ -165,6 +163,7 @@ afterEach(async () => {
   useLinearIssueViews.setState({ byChat: {} });
   useLinearTeamFilters.setState({ byProject: {} });
   vi.clearAllMocks();
+  vi.useRealTimers();
   Object.assign(window, { desktopBridge: undefined });
 });
 it("selects directly, explains a running conflict, and enables takeover only after the agent stops", async () => {
@@ -362,14 +361,20 @@ it("discards a previous view's pending response and resets its cursor", async ()
   expect(request.mock.calls.at(-1)?.[0]).not.toHaveProperty("cursor");
 });
 
-const search = async (text: string) =>
-  act(async () => {
+const search = async (text: string, settle = true) => {
+  vi.useFakeTimers();
+  await act(async () => {
     const input = document.querySelector<HTMLInputElement>(
       'input[aria-label="Search Linear issues"]',
     )!;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  if (settle) {
+    await act(async () => vi.advanceTimersByTimeAsync(350));
+    vi.useRealTimers();
+  }
+};
 it("retains search across tabs, pages only the current view, and retains that view across a remount", async () => {
   await render();
   await click("Linear issue");
@@ -620,4 +625,56 @@ it("includes teams beyond the first API page in the selector", async () => {
   await click("All teams");
   expect(document.body.textContent).toContain("DES · Design");
   expect(document.body.textContent).toContain("ENG · Engineering");
+});
+
+it("completes the pending initial load after typing and clearing before debounce", async () => {
+  let resolve!: (value: LinearDesktopResult) => void;
+  request.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await render();
+  await click("Linear issue");
+  await search("x", false);
+  await search("", false);
+  await act(async () => vi.advanceTimersByTimeAsync(350));
+  await act(async () => resolve({ configured: true, connection: null, issues: [issue] }));
+  expect(button("Fix login")).toBeDefined();
+  expect(document.body.textContent).not.toContain("Loading issues");
+  expect(request).toHaveBeenCalledTimes(1);
+});
+
+it("keeps a pending page valid when search returns to its original value before debounce", async () => {
+  request.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    issues: [issue],
+    nextCursor: "page-2",
+  });
+  await render();
+  await click("Linear issue");
+  let resolve!: (value: LinearDesktopResult) => void;
+  request.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await reachEnd();
+  await search("x", false);
+  await search("", false);
+  await act(async () => vi.advanceTimersByTimeAsync(350));
+  await act(async () =>
+    resolve({
+      configured: true,
+      connection: null,
+      issues: [{ ...issue, id: "second", title: "Second page issue" }],
+    }),
+  );
+  expect(button("Fix login")).toBeDefined();
+  expect(button("Second page issue")).toBeDefined();
+  expect(document.body.textContent).not.toContain("Loading issues");
+  expect(request).toHaveBeenCalledTimes(2);
 });
