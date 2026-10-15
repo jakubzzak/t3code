@@ -1,3 +1,4 @@
+import { ThreadLinearIssues } from "./orchestration/ThreadLinearIssues.ts";
 import * as ThreadCleanup from "./orchestration/ThreadCleanup.ts";
 import {
   sameUsageLimitCommandCoverage,
@@ -562,6 +563,7 @@ const makeWsRpcLayer = (
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const linearIssues = yield* ThreadLinearIssues;
       const review = yield* ReviewService.ReviewService;
       const fileFilter = yield* FileFilterService.FileFilterService;
       const threadCleanup = yield* ThreadCleanup.ThreadCleanup;
@@ -2123,6 +2125,7 @@ const makeWsRpcLayer = (
             },
             settings,
             shellResumeCompletionMarker: true,
+            linearIssueChats: true,
             ...(fileManagerRevealKind === undefined
               ? {}
               : {
@@ -3661,6 +3664,10 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "git",
             },
           ),
+        [WS_METHODS.linearIssueSelect]: (input) =>
+          observeRpcEffect(WS_METHODS.linearIssueSelect, linearIssues.select(input), {
+            "rpc.aggregate": "linear",
+          }),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,

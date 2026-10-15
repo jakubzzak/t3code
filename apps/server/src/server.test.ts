@@ -1,3 +1,4 @@
+import * as ThreadLinearIssues from "./orchestration/ThreadLinearIssues.ts";
 import * as ThreadCleanup from "./orchestration/ThreadCleanup.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -1096,6 +1097,7 @@ const buildAppUnderTest = (options?: {
 
     const appLayer = servedRoutesLayer
       .pipe(
+        Layer.provide(Layer.mock(ThreadLinearIssues.ThreadLinearIssues)({})),
         Layer.provide(
           Layer.succeed(ThreadCleanup.ThreadCleanup, {
             start: () => Effect.die("Cleanup not stubbed in this test"),

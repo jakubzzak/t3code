@@ -30,6 +30,7 @@ import {
   ModelSelection,
   ProjectId,
   ThreadLinkedPullRequest,
+  LinearIssue,
   ThreadTitleState,
   ThreadId,
   ThreadPullRequestSnapshot,
@@ -130,6 +131,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
+    linkedLinearIssue: Schema.NullOr(Schema.fromJsonString(LinearIssue)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
   }),
@@ -574,6 +576,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          linked_linear_issue_json AS "linkedLinearIssue",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -622,6 +625,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          linked_linear_issue_json AS "linkedLinearIssue",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -697,6 +701,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          linked_linear_issue_json AS "linkedLinearIssue",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -1301,6 +1306,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          linked_linear_issue_json AS "linkedLinearIssue",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -2372,6 +2378,7 @@ pending_approval_requests AS (
                 runtimeMode: row.runtimeMode,
                 interactionMode: row.interactionMode,
                 branch: row.branch,
+                linkedLinearIssue: row.linkedLinearIssue,
                 worktreePath: row.worktreePath,
                 ...mapThreadPullRequests(
                   pullRequestsByThread.get(row.threadId) ?? [],
@@ -2618,6 +2625,7 @@ pending_approval_requests AS (
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
                   branch: row.branch,
+                  linkedLinearIssue: row.linkedLinearIssue,
                   worktreePath: row.worktreePath,
                   ...mapThreadPullRequests(
                     pullRequestsByThread.get(row.threadId) ?? [],
@@ -2779,6 +2787,7 @@ pending_approval_requests AS (
                         runtimeMode: row.runtimeMode,
                         interactionMode: row.interactionMode,
                         branch: row.branch,
+                        linkedLinearIssue: row.linkedLinearIssue,
                         worktreePath: row.worktreePath,
                         branchPullRequest: row.branchPullRequest,
                         ...mapThreadPullRequests(
@@ -2965,6 +2974,7 @@ pending_approval_requests AS (
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
                   branch: row.branch,
+                  linkedLinearIssue: row.linkedLinearIssue,
                   worktreePath: row.worktreePath,
                   branchPullRequest: row.branchPullRequest,
                   ...mapThreadPullRequests(
@@ -3311,6 +3321,7 @@ pending_approval_requests AS (
         runtimeMode: threadRow.value.runtimeMode,
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
+        linkedLinearIssue: threadRow.value.linkedLinearIssue,
         worktreePath: threadRow.value.worktreePath,
         ...mapThreadPullRequests(
           pullRequestRows.map(mapPullRequestRow),
@@ -3613,6 +3624,7 @@ pending_approval_requests AS (
         runtimeMode: threadRow.value.runtimeMode,
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
+        linkedLinearIssue: threadRow.value.linkedLinearIssue,
         worktreePath: threadRow.value.worktreePath,
         ...mapThreadPullRequests(
           pullRequestRows.map(mapPullRequestRow),

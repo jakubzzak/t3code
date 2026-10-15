@@ -839,6 +839,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { modelSelection: event.payload.modelSelection }
               : {}),
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
+            ...(event.payload.linkedLinearIssue !== undefined
+              ? { linkedLinearIssue: event.payload.linkedLinearIssue }
+              : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
               : {}),

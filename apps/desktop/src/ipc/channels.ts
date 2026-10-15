@@ -123,3 +123,5 @@ export const CANCEL_PROVIDER_AUTH_CALLBACK_CHANNEL = "desktop:cancel-provider-au
 export const TERMINAL_COMMAND_GET_CHANNEL = "terminal-command:get";
 export const TERMINAL_COMMAND_INSTALL_CHANNEL = "terminal-command:install";
 export const TERMINAL_COMMAND_REMOVE_CHANNEL = "terminal-command:remove";
+
+export const LINEAR_REQUEST_CHANNEL = "desktop:linear:request";

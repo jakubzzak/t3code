@@ -1,3 +1,4 @@
+import * as ThreadLinearIssues from "./orchestration/ThreadLinearIssues.ts";
 import * as ThreadCleanup from "./orchestration/ThreadCleanup.ts";
 import * as ThreadProcesses from "./process/ThreadProcesses.ts";
 // @effect-diagnostics nodeBuiltinImport:off
@@ -527,6 +528,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ReplayMarkers.layer),
   Layer.provideMerge(ProviderAuthServiceLive),
   // Core Services
+  Layer.provideMerge(ThreadLinearIssues.layer),
   Layer.provideMerge(ServerSettingsLayerLive),
   Layer.provideMerge(CheckpointingLayerLive),
   // `GitHubCli` is the registry's own instance, exposed because the asset route fetches

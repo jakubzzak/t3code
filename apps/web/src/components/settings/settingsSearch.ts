@@ -152,11 +152,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["issue team workspace"],
   },
   {
-    id: "linear-login-email",
-    title: "Linear login email",
+    id: "linear-api-connection",
+    title: "Linear issue connection",
     to: "/settings/integrations",
     scope: "project",
-    searchTerms: ["linear account email override"],
+    desktopOnly: true,
+    searchTerms: ["OAuth connect reconnect disconnect assigned issues account email"],
   },
   {
     id: "storage-worktrees",

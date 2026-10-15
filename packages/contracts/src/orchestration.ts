@@ -1,3 +1,4 @@
+import { LinearIssue } from "./linear.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
@@ -801,6 +802,7 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  linkedLinearIssue: Schema.optional(Schema.NullOr(LinearIssue)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   // Optional so payloads from pre-link servers still decode.
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
@@ -892,6 +894,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  linkedLinearIssue: Schema.optional(Schema.NullOr(LinearIssue)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -1248,6 +1251,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  linkedLinearIssue: Schema.optional(Schema.NullOr(LinearIssue)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
 }).check(
   Schema.makeFilter(
@@ -1685,7 +1689,19 @@ const ThreadCleanupCompleteCommand = Schema.Struct({
   settledAt: Schema.optionalKey(IsoDateTime),
 });
 
+const ThreadLinearIssueSelectCommand = Schema.Struct({
+  type: Schema.Literal("thread.linear-issue.select"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  issue: LinearIssue,
+  worktreePath: TrimmedNonEmptyString,
+  expectedWorktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  expectedIssueId: Schema.NullOr(TrimmedNonEmptyString),
+  takeoverThreadIds: Schema.Array(ThreadId),
+});
+
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadLinearIssueSelectCommand,
   ThreadCleanupCompleteCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
@@ -1896,6 +1912,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // No longer produced; kept so persisted events from before
   // thread.pull-request-linked still decode and replay into the link table.
+  linkedLinearIssue: Schema.optional(Schema.NullOr(LinearIssue)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   updatedAt: IsoDateTime,
