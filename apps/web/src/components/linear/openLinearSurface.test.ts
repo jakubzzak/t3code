@@ -1,6 +1,7 @@
 import {
   DEFAULT_CLIENT_SETTINGS,
   type PreviewOpenInput,
+  type PreviewNavigateInput,
   type PreviewSessionSnapshot,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -34,7 +35,17 @@ function fixture() {
     AsyncResult.success(snapshot(input)),
   );
   const closePreview = vi.fn(async () => {});
-  return { threadRef, workspace: "team", branch: "ENG-123", openPreview, closePreview };
+  const navigatePreview = vi.fn(async ({ input }: { input: PreviewNavigateInput }) =>
+    AsyncResult.success({ ...snapshot({ ...input, surface: "linear" }), tabId: input.tabId }),
+  );
+  return {
+    threadRef,
+    workspace: "team",
+    branch: "ENG-123",
+    openPreview,
+    navigatePreview,
+    closePreview,
+  };
 }
 describe("opening Linear", () => {
   it("opens the branch issue once and preserves navigation when the branch changes", async () => {
@@ -45,6 +56,35 @@ describe("opening Linear", () => {
     });
     await openLinearSurface({ ...input, branch: "ENG-456" });
     expect(input.openPreview).toHaveBeenCalledTimes(1);
+  });
+  it("opens a selected issue in the same chat and retargets its existing Linear tab", async () => {
+    const input = fixture();
+    const tabId = await openLinearSurface(input);
+    useRightPanelStore.setState({ byThreadKey: {} });
+    const url = "https://linear.app/team/issue/ENG-456/selected-issue";
+    expect(await openLinearSurface({ ...input, url })).toBe(tabId);
+    expect(input.openPreview).toHaveBeenCalledTimes(1);
+    expect(input.navigatePreview).toHaveBeenCalledWith({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, tabId, url },
+    });
+    const sessions = Object.values(readThreadPreviewState(threadRef).sessions);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ threadId: threadRef.threadId, tabId, navStatus: { url } });
+    expect(Object.values(useRightPanelStore.getState().byThreadKey)).toEqual([
+      expect.objectContaining({ isOpen: true, activeSurfaceId: `browser:${tabId}` }),
+    ]);
+  });
+  it("opens the exact selected issue URL when this chat has no Linear tab", async () => {
+    const input = fixture();
+    const url = "https://linear.app/team/issue/ENG-456/selected-issue";
+    const tabId = await openLinearSurface({ ...input, url });
+    expect(readThreadPreviewState(threadRef).sessions[tabId]).toMatchObject({
+      threadId: threadRef.threadId,
+      surface: "linear",
+      navStatus: { url },
+    });
+    expect(input.navigatePreview).not.toHaveBeenCalled();
   });
   it("does not create a session when disabled", async () => {
     __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);

@@ -306,6 +306,9 @@ function PreviewAutomationHost(props: { readonly target: ConnectionTarget }) {
     [target],
   );
   const closeLinearPreview = useAtomCommand(previewEnvironment.close, "close Linear preview");
+  const navigateLinearPreview = useAtomCommand(previewEnvironment.navigate, {
+    reportFailure: false,
+  });
   const serverConfigs = useServerConfigs();
   const previewSessions = useActivePreviewSessions();
   const visibleRuntimeTabIds = useBrowserSurfaceStore(
@@ -469,6 +472,7 @@ function PreviewAutomationHost(props: { readonly target: ConnectionTarget }) {
                   .linearWorkspace,
                 branch: thread?.branch,
                 openPreview: open,
+                navigatePreview: navigateLinearPreview,
                 closePreview: closeLinearPreview,
                 ...(input.url ? { url: input.url } : {}),
               });
@@ -835,7 +839,16 @@ function PreviewAutomationHost(props: { readonly target: ConnectionTarget }) {
         browserActivity.release?.();
       }
     },
-    [closeLinearPreview, environmentId, listPreviews, open, registry, resize, serverConfigs],
+    [
+      closeLinearPreview,
+      navigateLinearPreview,
+      environmentId,
+      listPreviews,
+      open,
+      registry,
+      resize,
+      serverConfigs,
+    ],
   );
   const [requestHandlerAtom] = useState(() => Atom.make({ handle: handleRequest }));
   const setRequestHandler = useAtomSet(requestHandlerAtom);

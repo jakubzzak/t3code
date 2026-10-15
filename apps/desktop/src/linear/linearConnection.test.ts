@@ -1,3 +1,4 @@
+import type { LinearDesktopRequest } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { createLinearConnection, type LinearConnectionDependencies } from "./linearConnection.ts";
 
@@ -35,7 +36,13 @@ function fixture() {
           expires_in: 86400,
         });
       }
+      if (issueResponse && String(init?.body).includes("query Teams"))
+        return Response.json(issueResponse);
+      if (issueResponse && String(init?.body).includes("query Issues"))
+        return Response.json(issueResponse);
       if (issueResponse && String(init?.body).includes("query Assigned"))
+        return Response.json(issueResponse);
+      if (issueResponse && String(init?.body).includes("query CreatedIssue"))
         return Response.json(issueResponse);
       if (issueResponse && String(init?.body).includes("query Search"))
         return Response.json(issueResponse);
@@ -205,4 +212,87 @@ describe("Linear connection", () => {
     });
     expect((await f.client.request({ operation: "status", ...binding })).connection).toBeNull();
   });
+});
+
+it("verifies an exact created issue and rejects a mismatched workspace", async () => {
+  const f = fixture();
+  const input = { workspace: "acme", connectionKey: "env/project" };
+  await f.client.request({ ...input, operation: "connect" });
+  const issue = {
+    id: "created-id",
+    identifier: "ENG-1",
+    title: "Created",
+    url: "https://linear.app/acme/issue/ENG-1",
+    branchName: "eng-1-created",
+  };
+  f.setIssues({ data: { issue, organization: { urlKey: "acme" } } });
+  const result = await f.client.request({ ...input, operation: "issue", issueId: issue.id });
+  expect(result.issues).toEqual([{ ...issue, workspace: "acme" }]);
+  expect(JSON.parse(f.calls.at(-1)!.body).variables).toEqual({ id: issue.id });
+  f.setIssues({ data: { issue, organization: { urlKey: "other" } } });
+  await expect(
+    f.client.request({ ...input, operation: "issue", issueId: issue.id }),
+  ).rejects.toThrow("could not be verified");
+  f.setIssues({ data: { issue: { ...issue, id: "unrelated" }, organization: { urlKey: "acme" } } });
+  await expect(
+    f.client.request({ ...input, operation: "issue", issueId: issue.id }),
+  ).rejects.toThrow("could not be verified");
+});
+
+for (const [view, filter] of [
+  ["assigned", { assignee: { id: { eq: "user-1" } } }],
+  ["triage", { state: { type: { eq: "triage" } } }],
+  ["all", {}],
+] as const) {
+  it(`filters ${view} issues on the API before pagination, with and without search`, async () => {
+    const f = fixture();
+    const binding = { workspace: "acme", connectionKey: "env/project" };
+    await f.client.request({ ...binding, operation: "connect" });
+    const page = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "next" } };
+    for (const [term, teamId] of [
+      ["", undefined],
+      ["login", undefined],
+      ["", "team-1"],
+      ["login", "team-1"],
+    ] as const) {
+      f.setIssues({ data: term ? { searchIssues: page } : { issues: page } });
+      const input = {
+        ...binding,
+        operation: "issues",
+        view,
+        query: term,
+        cursor: "page-2",
+        ...(teamId ? { teamId } : {}),
+      } as LinearDesktopRequest;
+      const result = await f.client.request(input);
+      const sent = JSON.parse(f.calls.at(-1)!.body);
+      expect(sent.variables).toEqual({
+        filter: { ...filter, ...(teamId ? { team: { id: { eq: teamId } } } : {}) },
+        after: "page-2",
+        ...(term ? { term } : {}),
+      });
+      expect(sent.query).toContain("orderBy: updatedAt");
+      expect(sent.query).toContain("filter: $filter");
+      expect(result.nextCursor).toBe("next");
+      expect(result.issues).toEqual([]);
+    }
+  });
+}
+
+it("loads accessible team pages without exposing credentials", async () => {
+  const f = fixture();
+  const binding = { workspace: "acme", connectionKey: "env/project" };
+  await f.client.request({ ...binding, operation: "connect" });
+  const teams = [{ id: "team-1", key: "ENG", name: "Engineering" }];
+  f.setIssues({
+    data: { teams: { nodes: teams, pageInfo: { hasNextPage: true, endCursor: "teams-next" } } },
+  });
+  const result = await f.client.request({
+    ...binding,
+    operation: "teams",
+    cursor: "teams-start",
+  } as LinearDesktopRequest);
+  expect(result).toMatchObject({ teams, nextCursor: "teams-next" });
+  expect(JSON.parse(f.calls.at(-1)!.body).variables).toEqual({ after: "teams-start" });
+  expect(JSON.stringify(result)).not.toContain("private-");
 });

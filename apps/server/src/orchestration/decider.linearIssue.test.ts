@@ -1,5 +1,6 @@
 import {
   CommandId,
+  MessageId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -58,6 +59,62 @@ const issue = {
   branchName: "eng-123-fix-login",
 };
 it.layer(NodeServices.layer)("Linear issue associations", (it) => {
+  it.effect(
+    "links an existing conversation without creating a thread or replacing its history",
+    () =>
+      Effect.gen(function* () {
+        let model = makeReadModel({});
+        const thread = {
+          ...model.threads[0]!,
+          messages: [
+            {
+              id: MessageId.make("existing-message"),
+              role: "user" as const,
+              text: "Keep this conversation when linking the issue.",
+              turnId: null,
+              streaming: false,
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+          ],
+          session: {
+            threadId: model.threads[0]!.id,
+            status: "ready" as const,
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            runtimeMode: "full-access" as const,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: NOW,
+          },
+        };
+        model = { ...model, threads: [thread] };
+        const result = yield* decideOrchestrationCommand({
+          readModel: model,
+          command: {
+            type: "thread.linear-issue.select",
+            commandId: CommandId.make("link-existing"),
+            threadId: thread.id,
+            issue,
+            worktreePath: "/worktrees/project/eng-123-fix-login",
+            expectedWorktreePath: null,
+            expectedIssueId: null,
+            takeoverThreadIds: [],
+          },
+        });
+        for (const event of Array.isArray(result) ? result : [result])
+          model = yield* projectEvent(model, event);
+        expect(model.threads).toHaveLength(1);
+        expect(model.threads[0]).toMatchObject({
+          id: thread.id,
+          messages: thread.messages,
+          session: thread.session,
+          linkedLinearIssue: issue,
+          branch: issue.branchName,
+          worktreePath: "/worktrees/project/eng-123-fix-login",
+        });
+      }),
+  );
   it.effect("persists an issue through metadata events and replay, then unlinks it", () =>
     Effect.gen(function* () {
       let model = makeReadModel({});

@@ -1,3 +1,4 @@
+import { readThreadPreviewState } from "~/previewStateStore";
 import { CommandId, type LinearIssue, type LinearIssueSetupResult } from "@t3tools/contracts";
 import { gitEnvironment } from "../state/git";
 import { LinearIssuePicker } from "./linear/LinearIssuePicker";
@@ -113,7 +114,8 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+import { promoteLinearDraftThread } from "./linear/promoteLinearDraftThread";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import { isMacPlatform } from "../lib/utils";
@@ -274,6 +276,7 @@ import {
   sortProviderInstanceEntries,
 } from "../providerInstances";
 import {
+  getClientSettings,
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
@@ -369,6 +372,7 @@ import { useProjectClone } from "../state/projectClones";
 import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
+  readThreadShell,
   useProject,
   useProjects,
   useThread,
@@ -1553,6 +1557,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
+  const navigatePreview = useAtomCommand(previewEnvironment.navigate, { reportFailure: false });
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
@@ -1608,6 +1613,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
+  const router = useRouter();
   const citationLocation = useLocation({
     select: (location) => ({
       href: location.href,
@@ -4620,6 +4626,7 @@ export default function ChatView(props: ChatViewProps) {
         .linearWorkspace,
       branch: activeThread?.branch,
       openPreview,
+      navigatePreview,
       closePreview,
     }).catch((error: unknown) =>
       toastManager.add({
@@ -4636,6 +4643,7 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread,
     linearViewEnabled,
     openPreview,
+    navigatePreview,
     closePreview,
   ]);
   const { state: deviceState, loaded: deviceStateLoaded } = useDeviceState(
@@ -5918,7 +5926,7 @@ export default function ChatView(props: ChatViewProps) {
       sendInFlightRef.current = true;
       setLinearSetupPending(true);
       try {
-        if (!isServerThread) {
+        if (routeKind === "draft" && !isServerThread) {
           const created = await createThread({
             environmentId: activeThread.environmentId,
             input: {
@@ -5950,14 +5958,8 @@ export default function ChatView(props: ChatViewProps) {
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
         if (result.value.status === "linked") {
           setPendingServerThreadBranch(null);
-          if (draftId) {
-            const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
-            finalizePromotedDraftThreadByRef(ref);
-            await navigate({
-              to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(ref),
-            });
-          }
+          const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
+          if (draftId) await promoteLinearDraftThread(router, ref);
         }
         return result.value;
       } finally {
@@ -5969,13 +5971,15 @@ export default function ChatView(props: ChatViewProps) {
       activeThread,
       activeProject,
       isServerThread,
+      routeKind,
       createThread,
       runtimeMode,
       selectLinearIssue,
       activeThreadBranch,
       activeServerThread?.linkedLinearIssue?.id,
       draftId,
-      navigate,
+      router,
+      sendInFlightRef,
     ],
   );
 
@@ -10280,6 +10284,82 @@ export default function ChatView(props: ChatViewProps) {
                                     <LinearIssuePicker
                                       key={activeThread.id}
                                       environmentId={activeThread.environmentId}
+                                      threadId={activeThread.id}
+                                      onBackgroundCreated={async (issue) => {
+                                        const ref = scopeThreadRef(
+                                          activeThread.environmentId,
+                                          activeThread.id,
+                                        );
+                                        const current = readThreadShell(ref);
+                                        const config = appAtomRegistry
+                                          .get(environmentServerConfigsAtom)
+                                          .get(ref.environmentId);
+                                        if (
+                                          !current ||
+                                          !config ||
+                                          !getClientSettings().linearViewEnabled ||
+                                          resolveProjectSettings(config.settings, current.projectId)
+                                            .settings.linearWorkspace !== issue.workspace ||
+                                          current.linkedLinearIssue ||
+                                          current.session?.status === "starting" ||
+                                          current.session?.status === "running"
+                                        )
+                                          return null;
+                                        const result = await selectLinearIssue({
+                                          environmentId: ref.environmentId,
+                                          input: {
+                                            commandId: CommandId.make(randomHex(16)),
+                                            threadId: ref.threadId,
+                                            issue,
+                                            baseRef: current.branch ?? activeThreadBranch ?? "HEAD",
+                                            expectedWorktreePath: current.worktreePath,
+                                            expectedIssueId: null,
+                                            takeoverThreadIds: [],
+                                          },
+                                        });
+                                        if (result._tag === "Failure")
+                                          throw squashAtomCommandFailure(result);
+                                        if (result.value.status === "linked" && draftId)
+                                          await promoteLinearDraftThread(router, ref);
+                                        return result.value;
+                                      }}
+                                      onCreate={async () => {
+                                        const ref = scopeThreadRef(
+                                          activeThread.environmentId,
+                                          activeThread.id,
+                                        );
+                                        if (!isServerThread) {
+                                          const created = await createThread({
+                                            environmentId: ref.environmentId,
+                                            input: {
+                                              threadId: activeThread.id,
+                                              projectId: activeProject.id,
+                                              title: activeThread.title,
+                                              modelSelection: activeThread.modelSelection,
+                                              runtimeMode,
+                                              interactionMode: activeThread.interactionMode,
+                                              branch: activeThread.branch,
+                                              worktreePath: activeThread.worktreePath,
+                                              createdAt: activeThread.createdAt,
+                                            },
+                                          });
+                                          if (created._tag === "Failure")
+                                            throw squashAtomCommandFailure(created);
+                                        }
+                                        const tabId = await openLinearSurface({
+                                          threadRef: ref,
+                                          workspace: activeProjectSettings.settings.linearWorkspace,
+                                          branch: activeThread.branch,
+                                          openPreview,
+                                          navigatePreview,
+                                          closePreview,
+                                        });
+                                        return previewRuntimeTabId(
+                                          ref,
+                                          readThreadPreviewState(ref).serverEpoch,
+                                          tabId,
+                                        );
+                                      }}
                                       projectId={activeProject.id}
                                       workspace={activeProjectSettings.settings.linearWorkspace}
                                       linkedIssue={activeServerThread?.linkedLinearIssue ?? null}
@@ -10288,6 +10368,20 @@ export default function ChatView(props: ChatViewProps) {
                                         activeServerThread?.session?.status === "running"
                                       }
                                       onSelect={handleSelectLinearIssue}
+                                      onOpenIssue={async (issue) => {
+                                        await openLinearSurface({
+                                          threadRef: scopeThreadRef(
+                                            activeThread.environmentId,
+                                            activeThread.id,
+                                          ),
+                                          workspace: issue.workspace,
+                                          branch: issue.branchName,
+                                          url: issue.url,
+                                          openPreview,
+                                          navigatePreview,
+                                          closePreview,
+                                        });
+                                      }}
                                       onUnlink={async () => {
                                         const result = await updateThreadMetadata({
                                           environmentId: activeThread.environmentId,
