@@ -32,6 +32,8 @@ const COLOR_SCHEME_OPTIONS: ReadonlyArray<{
 ];
 
 interface Props {
+  onFind: () => void;
+  onCopyUrl: () => void;
   /** Active preview tab id. Tab-targeting actions are disabled without it. */
   tabId: string | null;
   /**
@@ -71,6 +73,8 @@ interface Props {
  * when the desktop bridge is present, so we can call it unconditionally.
  */
 export function PreviewMoreMenu({
+  onFind,
+  onCopyUrl,
   tabId,
   hasWebContents,
   zoomFactor,
@@ -109,6 +113,13 @@ export function PreviewMoreMenu({
         <TooltipPopup>More</TooltipPopup>
       </Tooltip>
       <MenuPopup align="end" sideOffset={6}>
+        <MenuItem onClick={onFind} disabled={tabDisabled}>
+          Find in page
+        </MenuItem>
+        <MenuItem onClick={onCopyUrl} disabled={tabDisabled}>
+          Copy URL
+        </MenuItem>
+        <MenuSeparator />
         <MenuItem onClick={callTab(bridge.hardReload)} disabled={tabDisabled}>
           Hard reload
         </MenuItem>

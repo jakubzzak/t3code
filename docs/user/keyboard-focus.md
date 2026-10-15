@@ -34,3 +34,14 @@ navigating the panel, use a fresh pair to release it. In the left and center pan
 clears panel selection. Closing the view menu returns to panel navigation; dismissing input
 suggestions can be the first Escape of a pair. Panel navigation is unavailable in narrow
 layouts and the mobile app.
+
+## Browser shortcuts
+
+In the desktop browser on macOS, Command+[ and Command+] move backward and forward
+through the current tab's history. Command+Shift+C copies the current page URL and
+confirms when it has been copied. These shortcuts apply only while the browser page
+or toolbar has focus.
+
+Command+F opens Find in the current page. Enter moves to the next match,
+Shift+Enter to the previous match, and Escape closes Find. Find and Copy URL are
+also available from the browser menu.

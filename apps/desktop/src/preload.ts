@@ -292,6 +292,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     },
   },
   preview: {
+    findInPage: (tabId, text, options) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_FIND_CHANNEL, { tabId, text, ...options }),
+    stopFindInPage: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_STOP_FIND_CHANNEL, { tabId }),
+    copyUrl: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_COPY_URL_CHANNEL, { tabId }),
+    onShortcut: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, tabId: unknown, action: unknown) => {
+        if (typeof tabId !== "string") return;
+        if (action === "back" || action === "forward" || action === "copy-url" || action === "find")
+          listener(tabId, action);
+      };
+      ipcRenderer.on(IpcChannels.PREVIEW_SHORTCUT_CHANNEL, handler);
+      return () => ipcRenderer.removeListener(IpcChannels.PREVIEW_SHORTCUT_CHANNEL, handler);
+    },
     createTab: (tabId, defaults) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_CREATE_TAB_CHANNEL, {
         tabId,

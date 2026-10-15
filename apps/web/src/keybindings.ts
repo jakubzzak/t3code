@@ -8,6 +8,7 @@ import {
   type ModelPickerJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
 } from "@t3tools/contracts";
+import { resolvePreviewShortcut } from "@t3tools/shared/preview";
 import { isElectron } from "./env";
 import { isMacPlatform } from "./lib/utils";
 
@@ -240,6 +241,17 @@ export function resolveShortcutCommand(
 ): KeybindingCommand | null {
   const platform = resolvePlatform(options);
   const context = resolveContext(options);
+
+  // Window capture handlers run before the browser toolbar's React handler.
+  // Let the focused desktop browser consume its chords without firing a thread command.
+  if (
+    context.isDesktop &&
+    context.previewFocus &&
+    isMacPlatform(platform) &&
+    resolvePreviewShortcut(event)
+  ) {
+    return null;
+  }
 
   for (let index = keybindings.length - 1; index >= 0; index -= 1) {
     const binding = keybindings[index];

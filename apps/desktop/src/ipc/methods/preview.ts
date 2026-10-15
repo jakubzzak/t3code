@@ -1,4 +1,6 @@
 import {
+  DesktopPreviewFindInputSchema,
+  DesktopPreviewFindResultSchema,
   DesktopPreviewAnnotationThemeInputSchema,
   DesktopPreviewArtifactInputSchema,
   DesktopPreviewAutomationClickInputSchema,
@@ -122,6 +124,36 @@ const tabMethod = (
       yield* invoke(manager, tabId);
     }),
   });
+
+export const findInPage = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_FIND_CHANNEL,
+  payload: DesktopPreviewFindInputSchema,
+  result: Schema.NullOr(DesktopPreviewFindResultSchema),
+  handler: Effect.fn("desktop.ipc.preview.findInPage")(function* ({
+    tabId,
+    text,
+    forward,
+    findNext,
+  }) {
+    return yield* (yield* PreviewManager.PreviewManager).findInPage(tabId, text, {
+      forward,
+      findNext,
+    });
+  }),
+});
+export const stopFindInPage = tabMethod(
+  IpcChannels.PREVIEW_STOP_FIND_CHANNEL,
+  "desktop.ipc.preview.stopFindInPage",
+  (manager, tabId) => manager.stopFindInPage(tabId),
+);
+export const copyUrl = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_COPY_URL_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Boolean,
+  handler: Effect.fn("desktop.ipc.preview.copyUrl")(function* ({ tabId }) {
+    return yield* (yield* PreviewManager.PreviewManager).copyUrl(tabId);
+  }),
+});
 
 export const goBack = tabMethod(
   IpcChannels.PREVIEW_GO_BACK_CHANNEL,
@@ -488,6 +520,9 @@ export const methods = [
   closeTab,
   registerWebview,
   navigate,
+  findInPage,
+  stopFindInPage,
+  copyUrl,
   goBack,
   goForward,
   refresh,

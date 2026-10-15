@@ -10,11 +10,12 @@ import {
 import {
   DEFAULT_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
+  type DesktopPreviewShortcut,
   type PreviewAnnotationPayload,
   type PreviewViewportSetting,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import { normalizePreviewUrl, resolvePreviewShortcut } from "@t3tools/shared/preview";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -43,6 +44,8 @@ import {
 } from "~/previewMiniPlayerStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
+import { isMacPlatform } from "~/lib/utils";
+import { PreviewFindBar } from "./PreviewFindBar";
 import { previewBridge } from "./previewBridge";
 import { subscribePreviewAction } from "./previewActionBus";
 import { openPreviewSession } from "./openPreviewSession";
@@ -108,6 +111,8 @@ export function PreviewView({
   onSendAnnotation,
 }: Props) {
   const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
+  const [findTarget, setFindTarget] = useState<{ tabId: string; url: string } | null>(null);
+  const [findFocusNonce, setFindFocusNonce] = useState(0);
   const [pickActive, setPickActive] = useState(false);
   const activeRecordingTabIds = useActiveBrowserRecordingTabIds();
   const pickActiveRef = useRef(false);
@@ -310,6 +315,58 @@ export function PreviewView({
   const handleForward = useCallback(() => {
     if (previewBridge && runtimeTabId) void previewBridge.goForward(runtimeTabId);
   }, [runtimeTabId]);
+
+  const handleBrowserCommand = useCallback(
+    (action: DesktopPreviewShortcut) => {
+      if (!previewBridge || !runtimeTabId || !visible) return;
+      if (action === "find") {
+        if (!desktopOverlay?.hasWebContents || showEmptyState || isUnreachable) return;
+        setFindTarget({ tabId: runtimeTabId, url });
+        setFindFocusNonce((nonce) => nonce + 1);
+        return;
+      }
+      const operation =
+        action === "back"
+          ? previewBridge.goBack(runtimeTabId)
+          : action === "forward"
+            ? previewBridge.goForward(runtimeTabId)
+            : previewBridge.copyUrl(runtimeTabId).then((copied) => {
+                if (copied) toastManager.add({ type: "success", title: "URL copied" });
+              });
+      void operation.catch((error) =>
+        toastManager.add({
+          type: "error",
+          title: action === "copy-url" ? "Unable to copy URL" : "Unable to navigate browser",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    },
+    [desktopOverlay?.hasWebContents, isUnreachable, runtimeTabId, showEmptyState, visible, url],
+  );
+
+  const findOpen =
+    visible && !loading && findTarget?.tabId === runtimeTabId && findTarget?.url === url;
+
+  useEffect(() => {
+    if (!previewBridge || !visible) return;
+    return previewBridge.onShortcut((targetTabId, action) => {
+      // Native events can arrive after focus moved. Never act on the newly focused panel.
+      if (
+        targetTabId !== runtimeTabId ||
+        document.activeElement?.getAttribute("data-preview-tab") !== runtimeTabId
+      )
+        return;
+      handleBrowserCommand(action);
+    });
+  }, [handleBrowserCommand, runtimeTabId, visible]);
+
+  const closeFind = () => {
+    setFindTarget(null);
+    const guest = Array.from(
+      document.querySelectorAll<HTMLElement>("webview[data-preview-tab]"),
+    ).find((element) => element.getAttribute("data-preview-tab") === runtimeTabId);
+    guest?.focus();
+  };
 
   const handleOpenInBrowser = useCallback(() => {
     if (!localApi || !url) return;
@@ -712,6 +769,20 @@ export function PreviewView({
     <div
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-thread-key={scopedThreadKey(threadRef)}
+      onKeyDownCapture={(event) => {
+        if (
+          !visible ||
+          !previewBridge ||
+          event.defaultPrevented ||
+          !isMacPlatform(navigator.platform)
+        )
+          return;
+        const action = resolvePreviewShortcut(event);
+        if (!action) return;
+        event.preventDefault();
+        event.stopPropagation();
+        handleBrowserCommand(action);
+      }}
       onKeyDown={showEmptyState ? handlePreviewStartNavigation : undefined}
     >
       {snapshot?.surface !== "linear" && (
@@ -776,12 +847,23 @@ export function PreviewView({
                 onToggleDeviceToolbar={handleToggleDeviceToolbar}
                 nativePictureInPicture={desktopOverlay?.pictureInPicture ?? false}
                 onNativePictureInPicture={handleNativePictureInPicture}
+                onFind={() => handleBrowserCommand("find")}
+                onCopyUrl={() => handleBrowserCommand("copy-url")}
               />
             ) : null
           }
         />
       )}
 
+      {findOpen && visible && runtimeTabId && previewBridge && (
+        <PreviewFindBar
+          key={`${runtimeTabId}:${url}`}
+          tabId={runtimeTabId}
+          bridge={previewBridge}
+          focusNonce={findFocusNonce}
+          onClose={closeFind}
+        />
+      )}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {runtimeTabId && snapshot && !showEmptyState ? (
           <BrowserSurfaceSlot
