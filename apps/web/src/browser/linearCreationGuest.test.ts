@@ -110,3 +110,12 @@ it("cancels a dismissed editor even after a submission that never sent a mutatio
   request().dispatchEvent(new Event("load"));
   expect(host.__t3LinearCreation?.result.status).toBe("cancelled");
 });
+
+it("correlates keyboard submission from the creation editor", async () => {
+  const dialog = await editor();
+  dialog
+    .querySelector('[aria-label="Issue title"]')!
+    .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }));
+  request().dispatchEvent(new Event("load"));
+  expect(host.__t3LinearCreation?.result).toEqual({ status: "created", issueId: id });
+});
