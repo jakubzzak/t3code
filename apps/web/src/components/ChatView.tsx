@@ -1,3 +1,4 @@
+import { readThreadPreviewState } from "~/previewStateStore";
 import { CommandId, type LinearIssue, type LinearIssueSetupResult } from "@t3tools/contracts";
 import { gitEnvironment } from "../state/git";
 import { LinearIssuePicker } from "./linear/LinearIssuePicker";
@@ -274,6 +275,7 @@ import {
   sortProviderInstanceEntries,
 } from "../providerInstances";
 import {
+  getClientSettings,
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
@@ -369,6 +371,7 @@ import { useProjectClone } from "../state/projectClones";
 import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
+  readThreadShell,
   useProject,
   useProjects,
   useThread,
@@ -10280,6 +10283,81 @@ export default function ChatView(props: ChatViewProps) {
                                     <LinearIssuePicker
                                       key={activeThread.id}
                                       environmentId={activeThread.environmentId}
+                                      threadId={activeThread.id}
+                                      onBackgroundCreated={async (issue) => {
+                                        const ref = scopeThreadRef(
+                                          activeThread.environmentId,
+                                          activeThread.id,
+                                        );
+                                        const current = readThreadShell(ref);
+                                        const config = appAtomRegistry
+                                          .get(environmentServerConfigsAtom)
+                                          .get(ref.environmentId);
+                                        if (
+                                          !current ||
+                                          !config ||
+                                          !getClientSettings().linearViewEnabled ||
+                                          resolveProjectSettings(config.settings, current.projectId)
+                                            .settings.linearWorkspace !== issue.workspace ||
+                                          current.linkedLinearIssue ||
+                                          current.session?.status === "starting" ||
+                                          current.session?.status === "running"
+                                        )
+                                          return null;
+                                        const result = await selectLinearIssue({
+                                          environmentId: ref.environmentId,
+                                          input: {
+                                            commandId: CommandId.make(randomHex(16)),
+                                            threadId: ref.threadId,
+                                            issue,
+                                            baseRef: current.branch ?? activeThreadBranch ?? "HEAD",
+                                            expectedWorktreePath: current.worktreePath,
+                                            expectedIssueId: null,
+                                            takeoverThreadIds: [],
+                                          },
+                                        });
+                                        if (result._tag === "Failure")
+                                          throw squashAtomCommandFailure(result);
+                                        if (result.value.status === "linked" && draftId)
+                                          finalizePromotedDraftThreadByRef(ref);
+                                        return result.value;
+                                      }}
+                                      onCreate={async () => {
+                                        const ref = scopeThreadRef(
+                                          activeThread.environmentId,
+                                          activeThread.id,
+                                        );
+                                        if (!isServerThread) {
+                                          const created = await createThread({
+                                            environmentId: ref.environmentId,
+                                            input: {
+                                              threadId: activeThread.id,
+                                              projectId: activeProject.id,
+                                              title: activeThread.title,
+                                              modelSelection: activeThread.modelSelection,
+                                              runtimeMode,
+                                              interactionMode: activeThread.interactionMode,
+                                              branch: activeThread.branch,
+                                              worktreePath: activeThread.worktreePath,
+                                              createdAt: activeThread.createdAt,
+                                            },
+                                          });
+                                          if (created._tag === "Failure")
+                                            throw squashAtomCommandFailure(created);
+                                        }
+                                        const tabId = await openLinearSurface({
+                                          threadRef: ref,
+                                          workspace: activeProjectSettings.settings.linearWorkspace,
+                                          branch: activeThread.branch,
+                                          openPreview,
+                                          closePreview,
+                                        });
+                                        return previewRuntimeTabId(
+                                          ref,
+                                          readThreadPreviewState(ref).serverEpoch,
+                                          tabId,
+                                        );
+                                      }}
                                       projectId={activeProject.id}
                                       workspace={activeProjectSettings.settings.linearWorkspace}
                                       linkedIssue={activeServerThread?.linkedLinearIssue ?? null}

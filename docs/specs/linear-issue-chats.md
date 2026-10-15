@@ -92,12 +92,11 @@ The association is an optional field on existing metadata events and a nullable 
 
 Disable the feature to recover from a client integration problem; this preserves associations, conversation history, and worktrees. Prefer a forward fix for server projection problems. Reverting application code does not remove the additive database column; retain it. Before a binary downgrade, back up the environment database and verify that version can read its migration history. No down migration, file deletion, or branch reset is part of this feature.
 
-## Open questions
+## Creation adapter constraint
 
-The following blocks PR 2's automatic association after creation, but does not block PR 1 or publishing this agreed product scope:
-
-- **Creation completion:** Verify a reliable way to identify the issue created through the embedded panel and correlate it with the originating chat. Any fallback requiring manual selection would change the agreed automatic association and needs a product decision.
-
-Non-blocking details to resolve during implementation: collision-safe project/directory naming without changing the Git branch name; multiple unsettled chats or ambiguous remote refs for one branch; and the display of linked issue metadata on web/mobile beyond the required chat visibility.
+Creation is correlated with a submission from the editor opened by T3, the exact issue UUID
+in its successful `issueCreate` response, and an OAuth API lookup in the configured workspace.
+A changed editor or mutation protocol must produce a recoverable error, never guess from
+navigation or the newest issue. OAuth remains read-only.
 
 OAuth implementation default, not a separately confirmed product decision: keep the personal connection and API requests on the desktop, with project bindings keyed by environment and project. Remote environments receive the issue association and Git setup request without receiving OAuth tokens. The registered application/client ID, callback route, and development/fork configuration still need to be established before end-to-end verification.

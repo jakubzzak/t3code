@@ -19,10 +19,11 @@ export const LinearConnectionInfo = Schema.Struct({
 });
 export type LinearConnectionInfo = typeof LinearConnectionInfo.Type;
 export const LinearDesktopRequest = Schema.Struct({
-  operation: Schema.Literals(["status", "connect", "cancel", "disconnect", "issues"]),
+  operation: Schema.Literals(["status", "connect", "cancel", "disconnect", "issues", "issue"]),
   workspace: TrimmedNonEmptyString,
   connectionKey: TrimmedNonEmptyString,
   query: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
+  issueId: Schema.optional(TrimmedNonEmptyString),
   cursor: Schema.optional(Schema.String.check(Schema.isMaxLength(2000))),
 });
 export type LinearDesktopRequest = typeof LinearDesktopRequest.Type;

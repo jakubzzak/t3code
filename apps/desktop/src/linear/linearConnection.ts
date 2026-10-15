@@ -1,6 +1,7 @@
 import * as NodeCrypto from "node:crypto";
 import {
   LinearConnectionInfo,
+  LinearIssue,
   type LinearDesktopRequest,
   type LinearDesktopResult,
 } from "@t3tools/contracts";
@@ -57,6 +58,22 @@ const decodeToken = Schema.decodeUnknownSync(Token);
 const decodeIdentity = Schema.decodeUnknownSync(Identity);
 const decodeAssigned = Schema.decodeUnknownSync(Assigned);
 const decodeSearch = Schema.decodeUnknownSync(Search);
+
+const decodeCreatedIssue = Schema.decodeUnknownSync(
+  Schema.Struct({
+    data: Schema.Struct({
+      issue: Schema.Struct({
+        id: Schema.String,
+        identifier: Schema.String,
+        title: Schema.String,
+        url: Schema.String,
+        branchName: Schema.String,
+      }),
+      organization: Schema.Struct({ urlKey: Schema.String }),
+    }),
+  }),
+);
+const decodeIssue = Schema.decodeUnknownSync(LinearIssue);
 
 /** Tokens never cross IPC. The adapter encrypts this document before persisting it. */
 export function createLinearConnection(dependencies: LinearConnectionDependencies) {
@@ -213,6 +230,38 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
       await dependencies.write(
         JSON.stringify({ ...credentials, [input.connectionKey]: credential }),
       );
+    }
+    if (input.operation === "issue") {
+      if (!input.issueId) throw new Error("Choose a Linear issue to load.");
+      const response = await graphql(
+        credential.accessToken,
+        "query CreatedIssue($id: String!) { issue(id: $id) { id identifier title url branchName } organization { urlKey } }",
+        { id: input.issueId },
+      );
+      try {
+        const decoded = decodeCreatedIssue(response);
+        if (
+          decoded.data.organization.urlKey !== input.workspace ||
+          decoded.data.issue.id !== input.issueId
+        )
+          throw new Error("Wrong issue or workspace");
+        const url = new URL(decoded.data.issue.url);
+        if (url.origin !== "https://linear.app" || url.pathname.split("/")[1] !== input.workspace)
+          throw new Error("Wrong workspace URL");
+        return {
+          ...result(),
+          issues: [
+            decodeIssue({
+              ...decoded.data.issue,
+              workspace: input.workspace,
+            }),
+          ],
+        };
+      } catch {
+        throw new Error(
+          "The created issue could not be verified in this project's Linear workspace. Retry once Linear has synced.",
+        );
+      }
     }
     const term = input.query?.trim();
     const data = await graphql(
