@@ -212,3 +212,14 @@ it("opens bot reports in pages without hiding human comments", () => {
     renderer.root.findAllByType("p").some((p) => p.children.join("").startsWith("Bot report")),
   ).toBe(false);
 });
+
+it("keeps an empty previews row below labels when comments have no deployments", () => {
+  act(() => {
+    renderer = create(render());
+  });
+  expect(
+    renderer.root
+      .findAllByType("span")
+      .some((span) => span.children.includes("No previews available")),
+  ).toBe(true);
+});

@@ -11,10 +11,11 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   HammerIcon,
+  GlobeIcon,
   TagIcon,
   UsersIcon,
 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
 import { useAtomCommand } from "~/state/use-atom-command";
 import { pullRequestEnvironment } from "~/state/pullRequests";
@@ -37,6 +38,7 @@ import {
   pullRequestReviewOutcomeRingClassName,
   pullRequestReviewOutcomeStaleLabel,
 } from "./pullRequestPresentation";
+import { PullRequestPreviews } from "./PullRequestPreviews";
 import { PullRequestLabelPicker } from "./PullRequestLabelPicker";
 import { PullRequestReviewerPicker } from "./PullRequestReviewerPicker";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
@@ -58,6 +60,8 @@ import { PullRequestMarkdownEditor } from "./PullRequestMarkdownEditor";
 import { PullRequestReactionBar } from "./PullRequestReactions";
 import { PullRequestConversationGhost } from "./PullRequestGhosts";
 import { sectionCollapseAnchorScrollTop } from "./pullRequestSummaryScroll.logic";
+
+const PullRequestPreviewBrowser = lazy(() => import("./PullRequestPreviewBrowser"));
 
 /** One reviewer, however a host happens to have cased their login this time. */
 function reviewerKey(login: string): string {
@@ -567,6 +571,11 @@ export function PullRequestSummaryTab({
       })),
   ];
 
+  const [preview, setPreview] = useState<{
+    environmentId: EnvironmentId;
+    pullRequest: string;
+    url: string;
+  } | null>(null);
   const openLink = useOpenLink(threadRef);
   const openCheck = (url: string) => {
     void openLink(url).catch((error: unknown) => {
@@ -707,6 +716,18 @@ export function PullRequestSummaryTab({
     );
   };
 
+  if (preview?.environmentId === environmentId && preview.pullRequest === detail.url) {
+    return (
+      <Suspense fallback={<p role="status">Opening preview...</p>}>
+        <PullRequestPreviewBrowser
+          environmentId={environmentId}
+          url={preview.url}
+          onClose={() => setPreview(null)}
+        />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto" data-pull-request-summary-scroll>
       <section className="px-4 pt-2.5 pb-1">
@@ -820,6 +841,21 @@ export function PullRequestSummaryTab({
               </span>
             </MetaRow>
           ) : null}
+          <MetaRow icon={<GlobeIcon className="size-3.5" />} label="Previews">
+            <PullRequestPreviews
+              key={`${environmentId}:${detail.url}`}
+              environmentId={environmentId}
+              threadRef={threadRef}
+              comments={detail.provider === "github" ? detail.comments : []}
+              pending={activityPending}
+              error={activityError}
+              truncated={detail.commentsTruncated}
+              onRetry={onRefresh}
+              onOpenStandalone={(url) =>
+                setPreview({ environmentId, pullRequest: detail.url, url })
+              }
+            />
+          </MetaRow>
         </div>
       </section>
 
