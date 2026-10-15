@@ -37,6 +37,8 @@ function fixture() {
       }
       if (issueResponse && String(init?.body).includes("query Assigned"))
         return Response.json(issueResponse);
+      if (issueResponse && String(init?.body).includes("query CreatedIssue"))
+        return Response.json(issueResponse);
       if (issueResponse && String(init?.body).includes("query Search"))
         return Response.json(issueResponse);
       return Response.json({
@@ -205,4 +207,29 @@ describe("Linear connection", () => {
     });
     expect((await f.client.request({ operation: "status", ...binding })).connection).toBeNull();
   });
+});
+
+it("verifies an exact created issue and rejects a mismatched workspace", async () => {
+  const f = fixture();
+  const input = { workspace: "acme", connectionKey: "env/project" };
+  await f.client.request({ ...input, operation: "connect" });
+  const issue = {
+    id: "created-id",
+    identifier: "ENG-1",
+    title: "Created",
+    url: "https://linear.app/acme/issue/ENG-1",
+    branchName: "eng-1-created",
+  };
+  f.setIssues({ data: { issue, organization: { urlKey: "acme" } } });
+  const result = await f.client.request({ ...input, operation: "issue", issueId: issue.id });
+  expect(result.issues).toEqual([{ ...issue, workspace: "acme" }]);
+  expect(JSON.parse(f.calls.at(-1)!.body).variables).toEqual({ id: issue.id });
+  f.setIssues({ data: { issue, organization: { urlKey: "other" } } });
+  await expect(
+    f.client.request({ ...input, operation: "issue", issueId: issue.id }),
+  ).rejects.toThrow("could not be verified");
+  f.setIssues({ data: { issue: { ...issue, id: "unrelated" }, organization: { urlKey: "acme" } } });
+  await expect(
+    f.client.request({ ...input, operation: "issue", issueId: issue.id }),
+  ).rejects.toThrow("could not be verified");
 });
