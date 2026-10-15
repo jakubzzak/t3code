@@ -2014,13 +2014,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         }).pipe(Effect.ignore),
       );
     };
+    // macOS can report several retained webviews as focused, so Electron's
+    // global lookup may return a different guest. Only the keyboard owner has
+    // a focused frame; isFocused also excludes an inactive application window.
+    const ownsKeyboardFocus = (contents: Electron.WebContents): boolean =>
+      contents.isFocused() && contents.focusedFrame !== null;
     const syncMenuShortcuts = (contents: Electron.WebContents, input: Electron.Input): void => {
       if (input.type !== "keyDown") return;
       // Native editing roles must remain available after the page handles the key.
       // Background automation must not edit whichever other renderer has focus.
       contents.setIgnoreMenuShortcuts(
-        !isPreviewEditingShortcut(input, hostPlatform) ||
-          webContents.getFocusedWebContents() !== contents,
+        !isPreviewEditingShortcut(input, hostPlatform) || !ownsKeyboardFocus(contents),
       );
     };
     // A popup opens with Electron's default handler, so the page inside it could
@@ -2045,7 +2049,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
               shiftKey: input.shift,
             })
           : null;
-      if (shortcut && webContents.getFocusedWebContents() === wc && wc.hostWebContents) {
+      if (shortcut && ownsKeyboardFocus(wc) && wc.hostWebContents) {
         event.preventDefault();
         wc.hostWebContents.send(PREVIEW_SHORTCUT_CHANNEL, tabId, shortcut);
         return;
