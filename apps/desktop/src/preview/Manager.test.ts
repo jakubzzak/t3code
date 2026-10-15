@@ -460,6 +460,8 @@ const makeFaviconWebContents = (options?: {
     getTitle: () => "Preview",
     isLoading: () => loading,
     isDevToolsOpened: () => false,
+    isFocused: vi.fn(() => false),
+    focusedFrame: null,
     getZoomFactor: () => 1,
     setZoomFactor: vi.fn(),
     setAudioMuted: vi.fn(),
@@ -703,6 +705,62 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect(
+    "uses the receiving guest's focused frame when Electron picks another guest",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const preview = makeFaviconWebContents();
+          const send = vi.fn();
+          Object.assign(preview.webContents, {
+            hostWebContents: { send },
+            isFocused: () => true,
+            focusedFrame: {},
+          });
+          fromId.mockReturnValue(preview.webContents);
+          // macOS can report every retained guest as focused. The global lookup
+          // returns the first one, even when this guest owns the focused frame.
+          getFocusedWebContents.mockReturnValue({ id: 99, isFocused: () => true } as never);
+          yield* manager.createTab("tab_native_focus");
+          yield* manager.registerWebview("tab_native_focus", 42);
+          const beforeInput = preview.listeners.get("before-input-event")!;
+          const input = {
+            type: "keyDown",
+            key: "c",
+            meta: true,
+            control: false,
+            alt: false,
+            shift: false,
+          };
+          beforeInput({ preventDefault: vi.fn() } as never, input as never);
+          expect(
+            (preview.webContents as Electron.WebContents).setIgnoreMenuShortcuts,
+          ).toHaveBeenLastCalledWith(false);
+          const preventDefault = vi.fn();
+          beforeInput({ preventDefault } as never, { ...input, shift: true } as never);
+          expect(preventDefault).toHaveBeenCalledOnce();
+          expect(send).toHaveBeenCalledExactlyOnceWith(
+            "desktop:preview-shortcut",
+            "tab_native_focus",
+            "copy-url",
+          );
+
+          // A retained/background guest can report isFocused=true but has no
+          // focused frame. Injected keys must not trigger host browser commands.
+          Object.assign(preview.webContents, { focusedFrame: null });
+          send.mockClear();
+          preventDefault.mockClear();
+          beforeInput({ preventDefault } as never, input as never);
+          expect(
+            (preview.webContents as Electron.WebContents).setIgnoreMenuShortcuts,
+          ).toHaveBeenLastCalledWith(true);
+          beforeInput({ preventDefault } as never, { ...input, shift: true } as never);
+          expect(send).not.toHaveBeenCalled();
+          expect(preventDefault).not.toHaveBeenCalled();
+        }),
+      ),
+  );
+
   effectIt.effect("copies the committed guest URL and propagates clipboard failures", () =>
     withManager((manager) =>
       Effect.gen(function* () {
@@ -744,11 +802,11 @@ describe("PreviewManager", () => {
         ] as const) {
           const input = { type: "keyDown", key, meta: true, control: false, alt: false, shift };
           const preventDefault = vi.fn();
-          getFocusedWebContents.mockReturnValue(null);
+          Object.assign(preview.webContents, { isFocused: () => false, focusedFrame: {} });
           beforeInput({ preventDefault } as never, input as never);
           expect(preventDefault).not.toHaveBeenCalled();
           expect(send).not.toHaveBeenCalled();
-          getFocusedWebContents.mockReturnValue(preview.webContents as never);
+          Object.assign(preview.webContents, { isFocused: () => true, focusedFrame: {} });
           beforeInput({ preventDefault } as never, input as never);
           expect(preventDefault).toHaveBeenCalledOnce();
           expect(send).toHaveBeenCalledExactlyOnceWith(
@@ -778,7 +836,7 @@ describe("PreviewManager", () => {
 
         for (const browser of [preview, popup]) {
           const contents = browser.webContents as Electron.WebContents;
-          getFocusedWebContents.mockReturnValue(browser.webContents as never);
+          Object.assign(browser.webContents, { isFocused: () => true, focusedFrame: {} });
           const beforeInput = browser.listeners.get("before-input-event")!;
           const preventDefault = vi.fn();
           const input = {
@@ -802,7 +860,7 @@ describe("PreviewManager", () => {
           expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
 
           // An injected paste in an unfocused guest cannot edit the active renderer.
-          getFocusedWebContents.mockReturnValue(null);
+          Object.assign(browser.webContents, { isFocused: () => false, focusedFrame: {} });
           beforeInput({ preventDefault } as never, input as never);
           expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
           expect(preventDefault).not.toHaveBeenCalled();
@@ -1045,6 +1103,8 @@ describe("PreviewManager", () => {
           getTitle: () => "Preview",
           isLoading: () => false,
           isDevToolsOpened: () => false,
+          isFocused: vi.fn(() => false),
+          focusedFrame: null,
           getZoomFactor: () => 1,
           setZoomFactor: vi.fn(),
           setAudioMuted: vi.fn(),
@@ -1757,6 +1817,8 @@ describe("PreviewManager", () => {
               id,
               isDestroyed: () => false,
               isDevToolsOpened: () => false,
+              isFocused: vi.fn(() => false),
+              focusedFrame: null,
               getType: () => "webview",
               getURL: () => "https://example.com",
               getTitle: () => "Example",
@@ -1860,6 +1922,8 @@ describe("PreviewManager", () => {
         id,
         isDestroyed: () => false,
         isDevToolsOpened: () => false,
+        isFocused: vi.fn(() => false),
+        focusedFrame: null,
         getType: () => "webview",
         getURL: () => "https://example.com",
         getTitle: () => "Example",
@@ -4220,6 +4284,8 @@ describe("PreviewManager", () => {
             getTitle: () => "Example",
             isLoading: () => false,
             isDevToolsOpened: () => false,
+            isFocused: vi.fn(() => false),
+            focusedFrame: null,
             getZoomFactor: () => 1,
             setZoomFactor: vi.fn(),
             setAudioMuted: vi.fn(),
@@ -4399,6 +4465,8 @@ describe("PreviewManager", () => {
           getTitle: () => "Example",
           isLoading: () => false,
           isDevToolsOpened: () => false,
+          isFocused: vi.fn(() => false),
+          focusedFrame: null,
           focus,
           sendInputEvent,
           getZoomFactor: () => 1,
@@ -4594,6 +4662,8 @@ describe("PreviewManager", () => {
           getTitle: () => "Example",
           isLoading: () => false,
           isDevToolsOpened: () => false,
+          isFocused: vi.fn(() => false),
+          focusedFrame: null,
           getZoomFactor: () => 1,
           setZoomFactor: vi.fn(),
           setAudioMuted: vi.fn(),
@@ -4671,6 +4741,8 @@ describe("PreviewManager", () => {
           getTitle: () => "Example",
           isLoading: () => false,
           isDevToolsOpened: () => false,
+          isFocused: vi.fn(() => false),
+          focusedFrame: null,
           getZoomFactor: () => 1,
           setZoomFactor: vi.fn(),
           setAudioMuted: vi.fn(),
@@ -4716,6 +4788,8 @@ describe("PreviewManager", () => {
         const wc = makeTestPreviewWebContents(vi.fn());
         Object.assign(wc, {
           isDevToolsOpened: () => false,
+          isFocused: vi.fn(() => false),
+          focusedFrame: null,
           loadURL: vi.fn(async () => undefined),
           reload: vi.fn(),
         });
