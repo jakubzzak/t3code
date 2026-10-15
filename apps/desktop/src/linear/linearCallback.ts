@@ -33,9 +33,15 @@ export async function receiveLinearCallback(input: {
         ),
       );
       server.on("request", (request, response) => {
-        const callback = new URL(request.url ?? "/", redirect.origin);
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("Content-Security-Policy", "default-src 'none'");
+        let callback: URL;
+        try {
+          callback = new URL(request.url ?? "/", redirect.origin);
+        } catch {
+          response.writeHead(400).end("Invalid sign-in callback.");
+          return;
+        }
         if (
           request.method !== "GET" ||
           callback.pathname !== redirect.pathname ||

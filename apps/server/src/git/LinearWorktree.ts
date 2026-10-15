@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
-import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
+import { GitVcsDriver, type CreateWorktreeOptions } from "../vcs/GitVcsDriver.ts";
 import { ServerConfig } from "../config.ts";
 
 export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(function* (input: {
@@ -11,6 +11,7 @@ export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(functio
   projectId: string;
   branchName: string;
   baseRef: string;
+  submodules?: CreateWorktreeOptions["submodules"];
 }) {
   const git = yield* GitVcsDriver;
   const fs = yield* FileSystem.FileSystem;
@@ -57,14 +58,15 @@ export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(functio
     for (const name of remotes.stdout.trim().split("\n").filter(Boolean)) {
       const url = yield* run(["config", "--get", `remote.${name}.url`]);
       if (!parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url.stdout.trim())) continue;
-      if (
-        yield* git.remoteBranchExists({
-          cwd: input.cwd,
-          remoteName: name,
-          refName: input.branchName,
-        })
-      )
-        matches.push(name);
+      const advertised = yield* run(
+        ["ls-remote", "--exit-code", "--heads", "--", name, `refs/heads/${input.branchName}`],
+        true,
+      );
+      if (advertised.exitCode === 0) matches.push(name);
+      else if (advertised.exitCode !== 2)
+        return yield* new LinearIssueSetupError({
+          detail: `Unable to check the Linear branch on GitHub remote '${name}'. Check access and retry.`,
+        });
     }
     if (matches.length > 1)
       return yield* new LinearIssueSetupError({
@@ -94,13 +96,16 @@ export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(functio
         "The Linear worktree directory already exists but is not registered for this branch. Resolve the directory conflict and retry.",
     });
   yield* fs.makeDirectory(path.dirname(worktreePath), { recursive: true });
-  const result = yield* git.createWorktree({
-    cwd: input.cwd,
-    path: worktreePath,
-    refName,
-    ...(local.exitCode === 0 ? {} : { newRefName: input.branchName }),
-    baseRefName: input.baseRef,
-  });
+  const result = yield* git.createWorktree(
+    {
+      cwd: input.cwd,
+      path: worktreePath,
+      refName,
+      ...(local.exitCode === 0 ? {} : { newRefName: input.branchName }),
+      baseRefName: input.baseRef,
+    },
+    { submodules: input.submodules ?? null },
+  );
   if (remote)
     yield* git.setBranchUpstream({
       cwd: input.cwd,

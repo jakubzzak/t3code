@@ -57,7 +57,7 @@ it.layer(TestLayer)("Linear worktrees", (it) => {
         expect(yield* fs.readFileString(path.join(first.path, "unfinished.txt"))).toBe("keep me");
       }),
   );
-  it.effect("fetches an existing GitHub branch and sets tracking without changing its name", () =>
+  it.effect("discovers uncached GitHub branches and rejects ambiguous or unavailable remotes", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const git = yield* GitVcsDriver.GitVcsDriver;
@@ -83,6 +83,7 @@ it.layer(TestLayer)("Linear worktrees", (it) => {
         "https://github.com/linear-fixture/repo.git",
       ]);
       yield* run(["push", "origin", "HEAD:refs/heads/team/eng-456-existing"]);
+      yield* run(["update-ref", "-d", "refs/remotes/origin/team/eng-456-existing"]);
       // The selected base does not exist: only the actual GitHub branch can satisfy this request.
       const result = yield* prepareLinearWorktree({
         cwd,
@@ -102,6 +103,44 @@ it.layer(TestLayer)("Linear worktrees", (it) => {
       });
       expect(branch.stdout.trim()).toBe("team/eng-456-existing");
       expect(upstream.stdout.trim()).toBe("origin/team/eng-456-existing");
+      const absent = yield* prepareLinearWorktree({
+        cwd,
+        projectId: "remote-test",
+        branchName: "eng-new",
+        baseRef: "main",
+      });
+      expect(absent.created).toBe(true);
+      yield* run(["push", "origin", "HEAD:refs/heads/eng-ambiguous"]);
+      yield* run(["remote", "add", "mirror", "https://github.com/linear-fixture/repo.git"]);
+      const ambiguous = yield* prepareLinearWorktree({
+        cwd,
+        projectId: "remote-test",
+        branchName: "eng-ambiguous",
+        baseRef: "main",
+      }).pipe(Effect.flip);
+      expect(ambiguous.message).toContain("multiple GitHub remotes");
+      yield* run(["remote", "remove", "mirror"]);
+      yield* run(["config", "--unset", `url.${remote}.insteadOf`]);
+      yield* run([
+        "config",
+        `url.${remote}/missing.insteadOf`,
+        "https://github.com/linear-fixture/repo.git",
+      ]);
+      const unavailable = yield* prepareLinearWorktree({
+        cwd,
+        projectId: "remote-test",
+        branchName: "eng-unavailable",
+        baseRef: "main",
+      }).pipe(Effect.flip);
+      expect(unavailable.message).toContain("Unable to check");
+      expect(
+        (yield* git.execute({
+          cwd,
+          args: ["show-ref", "--verify", "--quiet", "refs/heads/eng-unavailable"],
+          operation: "test",
+          allowNonZeroExit: true,
+        })).exitCode,
+      ).toBe(1);
     }),
   );
   it.effect("uses the local branch even when the selected base is unavailable", () =>

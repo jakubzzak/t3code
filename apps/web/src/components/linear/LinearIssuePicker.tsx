@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { LinkIcon } from "lucide-react";
+import { LinearIcon } from "./LinearIcon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useThreadShellsForProjectRefs } from "~/state/entities";
 import { ComposerControl } from "../chat/ComposerControl";
@@ -138,7 +138,7 @@ export function LinearIssuePicker(props: Props) {
             props.linkedIssue ? `Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"
           }
         >
-          <LinkIcon aria-hidden="true" />
+          <LinearIcon aria-hidden="true" />
           <span>
             {busy ? "Setting up issue…" : (props.linkedIssue?.identifier ?? "Linear issue")}
           </span>

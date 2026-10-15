@@ -23,6 +23,14 @@ it("rejects unrelated callbacks, accepts matching state, and returns a readable 
     authorizationUrl: "https://linear.app/oauth/authorize",
     signal: new AbortController().signal,
     openExternal: async () => {
+      const malformedStatus = await new Promise<number | undefined>((resolve, reject) => {
+        const request = NodeHttp.get(redirectUri, { path: "//[" }, (response) => {
+          response.resume();
+          response.on("end", () => resolve(response.statusCode));
+        });
+        request.on("error", reject);
+      });
+      expect(malformedStatus).toBe(400);
       const invalid = await fetch(`${redirectUri}?code=wrong&state=wrong`);
       expect(invalid.status).toBe(400);
       response.resolve(fetch(`${redirectUri}?code=accepted&state=expected-state`));
