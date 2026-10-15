@@ -7,8 +7,15 @@ import type {
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { useDebouncedValue } from "@tanstack/react-pacer";
+import {
+  beginLinearCreation,
+  setupBackgroundLinearCreation,
+  clearLinearCreation,
+  useLinearCreations,
+  verifyLinearCreation,
+} from "./linearCreation";
 import { LinearIcon } from "./LinearIcon";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useThreadShellsForProjectRefs } from "~/state/entities";
 import { ComposerControl } from "../chat/ComposerControl";
 import { Button } from "../ui/button";
@@ -25,6 +32,9 @@ import {
 } from "../ui/dialog";
 
 interface Props {
+  threadId?: ThreadId;
+  onCreate?: () => Promise<string>;
+  onBackgroundCreated?: (issue: LinearIssue) => Promise<LinearIssueSetupResult | null>;
   environmentId: EnvironmentId;
   projectId: ProjectId;
   workspace: string;
@@ -49,11 +59,27 @@ export function LinearIssuePicker(props: Props) {
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const error = actionError ?? loadError;
-  const [conflict, setConflict] = useState<{
+  const creationKey = JSON.stringify([
+    props.environmentId,
+    props.threadId,
+    props.projectId,
+    props.workspace,
+  ]);
+  const creation = useLinearCreations((state) => state.entries[creationKey]);
+  const error = actionError ?? creation?.error ?? loadError;
+  const mounted = useRef(true);
+  const latest = useRef(props);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const [localConflict, setConflict] = useState<{
     issue: LinearIssue;
     result: LinearIssueSetupResult;
   } | null>(null);
+  const conflict = localConflict ?? creation?.conflict ?? null;
   const generation = useRef(0);
   const refs = useMemo(
     () =>
@@ -116,6 +142,11 @@ export function LinearIssuePicker(props: Props) {
     try {
       const result = await props.onSelect(issue, takeover);
       setConflict(result.status === "conflict" ? { issue, result } : null);
+      if (
+        result.status === "linked" &&
+        useLinearCreations.getState().entries[creationKey]?.issue?.id === issue.id
+      )
+        clearLinearCreation(creationKey);
     } catch (cause) {
       setActionError(
         cause instanceof Error ? cause.message : "Unable to set up the Linear issue. Try again.",
@@ -123,6 +154,46 @@ export function LinearIssuePicker(props: Props) {
     } finally {
       setBusy(false);
     }
+  };
+  const selectCreated = useRef(select);
+  useLayoutEffect(() => {
+    latest.current = props;
+    selectCreated.current = select;
+  });
+  const createIssue = () => {
+    if (!props.onCreate || props.running || busy) return;
+    setOpen(false);
+    void beginLinearCreation({
+      key: creationKey,
+      workspace: props.workspace,
+      connectionKey,
+      open: props.onCreate,
+      onCreated: (issue) => {
+        if (
+          (!mounted.current ||
+            latest.current.environmentId !== props.environmentId ||
+            latest.current.threadId !== props.threadId) &&
+          props.onBackgroundCreated
+        ) {
+          void setupBackgroundLinearCreation(creationKey, issue, () =>
+            props.onBackgroundCreated!(issue),
+          );
+          return;
+        }
+        if (
+          mounted.current &&
+          latest.current.workspace === props.workspace &&
+          latest.current.projectId === props.projectId &&
+          !latest.current.running &&
+          !latest.current.linkedIssue
+        )
+          void selectCreated.current(issue);
+      },
+    });
+  };
+  const dismissConflict = () => {
+    if (conflict?.issue.id === creation?.issue?.id) clearLinearCreation(creationKey);
+    setConflict(null);
   };
   const targetRunning =
     conflict?.result.conflicts.some((item) => {
@@ -145,7 +216,7 @@ export function LinearIssuePicker(props: Props) {
               }
             />
           }
-          disabled={busy}
+          disabled={busy || creation?.status === "setting-up"}
           aria-label={`${props.linkedIssue ? `Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"}${error ? " — error, open for details" : ""}`}
         >
           <LinearIcon aria-hidden="true" />
@@ -219,6 +290,15 @@ export function LinearIssuePicker(props: Props) {
                 Retry
               </Button>
             )}
+            {creation?.status === "error" && creation.issueId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void verifyLinearCreation(creationKey)}
+              >
+                Retry created issue
+              </Button>
+            )}
             {props.linkedIssue && (
               <Button
                 variant="ghost"
@@ -243,12 +323,72 @@ export function LinearIssuePicker(props: Props) {
               </Button>
             )}
           </div>
+          {props.onCreate && (
+            <div className="mt-2 border-t pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={props.running || busy || Boolean(creation)}
+                onClick={createIssue}
+              >
+                {creation?.status === "pending" ? "Creating issue in Linear…" : "Create issue"}
+              </Button>
+              {creation?.status === "error" && (
+                <Button variant="ghost" size="sm" onClick={() => clearLinearCreation(creationKey)}>
+                  Dismiss creation error
+                </Button>
+              )}
+            </div>
+          )}
         </PopoverPopup>
       </Popover>
       <Dialog
+        open={creation?.status === "ready" && Boolean(creation.issue) && !conflict && !busy}
+        onOpenChange={(value) => {
+          if (!value) clearLinearCreation(creationKey);
+        }}
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>
+              {props.linkedIssue ? "Switch to the new Linear issue?" : "Use the new Linear issue?"}
+            </DialogTitle>
+            <DialogDescription>
+              {creation?.issue?.identifier}: {creation?.issue?.title}. Set up its branch and
+              worktree for this chat. Your conversation is preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            {props.running && (
+              <p role="status">
+                Wait for the agent in this chat to finish before switching issues.
+              </p>
+            )}
+            {(actionError || creation?.error) && (
+              <p role="alert" className="text-sm text-destructive">
+                {actionError ?? creation?.error}
+              </p>
+            )}
+          </DialogPanel>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => clearLinearCreation(creationKey)}>
+              Keep current chat
+            </Button>
+            <Button
+              disabled={props.running || busy}
+              onClick={() => {
+                if (creation?.issue) void select(creation.issue);
+              }}
+            >
+              Use this issue
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+      <Dialog
         open={conflict !== null}
         onOpenChange={(value) => {
-          if (!value && !busy) setConflict(null);
+          if (!value && !busy) dismissConflict();
         }}
       >
         <DialogPopup>
@@ -269,7 +409,7 @@ export function LinearIssuePicker(props: Props) {
                     size="sm"
                     disabled={busy}
                     onClick={() => {
-                      setConflict(null);
+                      dismissConflict();
                       props.onOpenThread(item.threadId);
                     }}
                   >
@@ -292,7 +432,7 @@ export function LinearIssuePicker(props: Props) {
             )}
           </DialogPanel>
           <DialogFooter>
-            <Button variant="ghost" disabled={busy} onClick={() => setConflict(null)}>
+            <Button variant="ghost" disabled={busy} onClick={dismissConflict}>
               Cancel
             </Button>
             <Button

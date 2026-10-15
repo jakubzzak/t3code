@@ -83,6 +83,12 @@ to you; search finds accessible issues across the workspace. Linking is optional
 before or after a conversation starts. It opens the issue's existing worktree or creates one
 using Linear's suggested branch name on the connected computer.
 
+Choose **Create issue** at the bottom of the picker to use Linear's editor in the right panel.
+After creation, an unlinked chat uses the new issue automatically. A linked chat asks before
+switching. If an agent starts while the editor is open, finish the turn and choose **Use this
+issue**; T3 does not queue a switch. Leaving the chat keeps creation tied to its originating chat.
+Canceling the editor leaves the chat unchanged.
+
 If another active chat uses that worktree, choose to open it or use the current chat and settle
 the previous one. Switching is unavailable while either agent is running. **Unlink issue**
 removes the association while keeping the conversation and files. Linked chats remain usable
