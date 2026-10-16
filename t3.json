@@ -3,6 +3,11 @@
   "iconPath": "assets/dev/blueprint-web-apple-touch-180.png",
   "scripts": [
     {
+      "name": "Build & Install macOS App",
+      "command": "node scripts/install-desktop-macos.ts",
+      "icon": "build"
+    },
+    {
       "name": "Setup Worktree",
       "command": "node scripts/setup-worktree.ts",
       "icon": "configure",

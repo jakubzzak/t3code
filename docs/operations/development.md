@@ -137,6 +137,20 @@ Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](
 
 ## Desktop artifacts
 
+For a local macOS install, use the **Build & Install macOS App** project action or
+`vp run install:desktop:macos`. It rebuilds the current checkout, including public
+configuration from `.env.local` such as `T3CODE_LINEAR_CLIENT_ID`, and replaces the
+app in `/Applications` only after packaging and signature verification succeed.
+The action quits only the installed copy, then opens the replacement. Local installs
+use `~/.t3-local-build` for app data, including Finder and Dock
+launches, so they do not try to decrypt the release app's saved connections.
+The installer continues independently if the app running the action closes; its
+build log is saved under `.logs/install-desktop-macos-*.log`.
+Signing uses `T3CODE_MACOS_SIGNING_IDENTITY` from `.env.local` when set, otherwise
+an available Apple Development or Developer ID Application identity from Keychain.
+Without one, it falls back to ad-hoc signing, whose identity changes on rebuild;
+macOS privacy permissions may then need to be removed and granted again.
+
 Local artifact builds are unsigned by default and write to `release/`:
 
 ```sh
