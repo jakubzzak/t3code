@@ -49,6 +49,7 @@ import {
 import packageJson from "../../../package.json" with { type: "json" };
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
+const SKILLS_HEALTH_PROBE_TIMEOUT_MS = 3_000;
 
 type CodexRateLimitsProbe =
   | {
@@ -444,11 +445,33 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     } satisfies CodexAppServerProviderSnapshot;
   }
 
-  const [skillsResponse, models, rateLimits] = yield* Effect.all(
+  const [skills, models, rateLimits] = yield* Effect.all(
     [
-      client.request("skills/list", {
-        cwds: [input.cwd],
-      }),
+      // Skill directories can live on slow network or cloud-backed filesystems.
+      // They must not turn a working account and model catalog into a failed
+      // health check. The workspace probe has its own, longer discovery budget.
+      client
+        .request("skills/list", {
+          cwds: [input.cwd],
+        })
+        .pipe(
+          Effect.map((response) => parseCodexSkillsListResponse(response, input.cwd)),
+          Effect.timeoutOption(Duration.millis(SKILLS_HEALTH_PROBE_TIMEOUT_MS)),
+          Effect.flatMap(
+            Option.match({
+              onSome: Effect.succeed,
+              onNone: () =>
+                Effect.logDebug("Codex skills exceeded the health-check budget.").pipe(
+                  Effect.as<ReadonlyArray<ServerProviderSkill>>([]),
+                ),
+            }),
+          ),
+          Effect.catch((cause) =>
+            Effect.logDebug("Codex skills health-check read failed.", { cause }).pipe(
+              Effect.as<ReadonlyArray<ServerProviderSkill>>([]),
+            ),
+          ),
+        ),
       requestAllCodexModels(client),
       // Usage is an enrichment: a failure or a slow answer degrades to "no
       // usage this probe" rather than costing the account and models.
@@ -483,7 +506,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     models: applyPreferredCodexDefaultModel(
       appendCustomCodexModels(models, input.customModels ?? []),
     ),
-    skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
+    skills,
   } satisfies CodexAppServerProviderSnapshot;
 });
 
@@ -497,7 +520,7 @@ export const probeCodexSkillsForCwd = Effect.fn("probeCodexSkillsForCwd")(functi
   const { client } = yield* withCodexAppServerClient(input);
   const skillsResponse = yield* client.request("skills/list", { cwds: [input.cwd] });
   return parseCodexSkillsListResponse(skillsResponse, input.cwd);
-});
+}, Effect.timeout("60 seconds"));
 
 const emptyCodexModelsFromSettings = (codexSettings: CodexSettings): ServerProvider["models"] =>
   appendCustomCodexModels([], codexSettings.customModels);
