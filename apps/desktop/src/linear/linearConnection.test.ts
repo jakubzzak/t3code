@@ -18,6 +18,7 @@ function fixture() {
   let cancel = false;
   let now = 0;
   let issueResponse: unknown = null;
+  let issuePages: unknown[] = [];
   let refreshes = 0;
   const dependencies: LinearConnectionDependencies = {
     clientId: "test-client",
@@ -45,6 +46,10 @@ function fixture() {
           expires_in: 86400,
         });
       }
+      if (issuePages.length && /query (Issues|Search|Assigned)/.test(String(init?.body)))
+        return Response.json(issuePages.shift());
+      if (issueResponse && String(init?.body).includes("query States"))
+        return Response.json(issueResponse);
       if (issueResponse && String(init?.body).includes("query Teams"))
         return Response.json(issueResponse);
       if (issueResponse && String(init?.body).includes("query Issues"))
@@ -78,6 +83,9 @@ function fixture() {
     },
     setIssues: (data: unknown) => {
       issueResponse = data;
+    },
+    setPages: (pages: unknown[]) => {
+      issuePages = pages;
     },
     refreshes: () => refreshes,
   };
@@ -153,6 +161,7 @@ describe("Linear connection", () => {
                 branchName: "eng-1-one",
                 priority: 1,
                 state: issueState,
+                assignee: null,
               },
             ],
             pageInfo: { hasNextPage: true, endCursor: "next" },
@@ -247,6 +256,7 @@ it("verifies an exact created issue and rejects a mismatched workspace", async (
     branchName: "eng-1-created",
     priority: 2,
     state: issueState,
+    assignee: null,
   };
   f.setIssues({ data: { issue, organization: { urlKey: "acme" } } });
   const result = await f.client.request({ ...input, operation: "issue", issueId: issue.id });
@@ -279,6 +289,7 @@ for (const [view, filter] of [
       branchName: "eng-1-one",
       priority: 0,
       state: issueState,
+      assignee: null,
     };
     const page = { nodes: [issue], pageInfo: { hasNextPage: true, endCursor: "next" } };
     for (const [term, teamId] of [
@@ -332,6 +343,7 @@ it.each([
       branchName: "eng-1-one",
       priority: 1,
       state: { ...issueState, type, position },
+      assignee: null,
     };
     f.setIssues({
       data: { issues: { nodes: [issue], pageInfo: { hasNextPage: false, endCursor: null } } },
@@ -363,3 +375,137 @@ it("loads accessible team pages without exposing credentials", async () => {
   expect(JSON.parse(f.calls.at(-1)!.body).variables).toEqual({ after: "teams-start" });
   expect(JSON.stringify(result)).not.toContain("private-");
 });
+
+it("loads actual team workflow statuses across pages", async () => {
+  const f = fixture();
+  const binding = { workspace: "acme", connectionKey: "env/project" };
+  await f.client.request({ ...binding, operation: "connect" });
+  const state = {
+    id: "testing",
+    name: "Testing",
+    type: "started",
+    color: "#4cb782",
+    position: 3,
+    team: { id: "team-1", key: "ENG" },
+  };
+  f.setIssues({
+    data: {
+      workflowStates: { nodes: [state], pageInfo: { hasNextPage: true, endCursor: "next-state" } },
+    },
+  });
+  const result = await f.client.request({
+    ...binding,
+    operation: "states",
+    teamId: "team-1",
+    cursor: "previous",
+  });
+  expect(result.states).toEqual([state]);
+  expect(result.nextCursor).toBe("next-state");
+  expect(JSON.parse(f.calls.at(-1)!.body).variables).toEqual({
+    after: "previous",
+    filter: { team: { id: { eq: "team-1" } } },
+  });
+});
+
+it("combines status and priority filters with the triage/team scope and returns the assignee", async () => {
+  const f = fixture();
+  const binding = { workspace: "acme", connectionKey: "env/project" };
+  await f.client.request({ ...binding, operation: "connect" });
+  const assignee = { name: "Ada", avatarUrl: "https://example.com/ada.png" };
+  const issue = {
+    id: "i",
+    identifier: "ENG-1",
+    title: "One",
+    url: "https://linear.app/acme/issue/ENG-1",
+    branchName: "eng-1",
+    priority: 1,
+    state: issueState,
+    assignee,
+  };
+  f.setIssues({
+    data: { issues: { nodes: [issue], pageInfo: { hasNextPage: false, endCursor: null } } },
+  });
+  const result = await f.client.request({
+    ...binding,
+    operation: "issues",
+    view: "triage",
+    teamId: "team-1",
+    stateIds: ["triage-1", "triage-2"],
+    priorities: [0, 1],
+  });
+  expect(result.issues?.[0]?.assignee).toEqual(assignee);
+  const sent = JSON.parse(f.calls.at(-1)!.body);
+  expect(sent.query).toContain("assignee { name avatarUrl }");
+  expect(sent.variables.filter).toEqual({
+    state: { type: { eq: "triage" }, id: { in: ["triage-1", "triage-2"] } },
+    team: { id: { eq: "team-1" } },
+    priority: { in: [0, 1] },
+  });
+});
+
+it.each(["", "login"])(
+  "pages urgency globally, including empty buckets and no priority, for search '%s'",
+  async (term) => {
+    const f = fixture();
+    const binding = { workspace: "acme", connectionKey: "env/project" };
+    await f.client.request({ ...binding, operation: "connect" });
+    const issue = (id: string, priority: number) => ({
+      id,
+      identifier: `ENG-${id}`,
+      title: `Issue ${id}`,
+      url: `https://linear.app/acme/issue/ENG-${id}`,
+      branchName: `eng-${id}`,
+      priority,
+      state: issueState,
+      assignee: null,
+    });
+    const page = (nodes: ReturnType<typeof issue>[], endCursor: string | null = null) => ({
+      data: {
+        [term ? "searchIssues" : "issues"]: {
+          nodes,
+          pageInfo: { hasNextPage: endCursor !== null, endCursor },
+        },
+      },
+    });
+    f.setPages([
+      page([issue("1", 1)], "urgent-next"),
+      page([issue("2", 1)]),
+      page([]),
+      page([issue("3", 0)]),
+    ]);
+    const input = {
+      ...binding,
+      operation: "issues" as const,
+      view: "assigned" as const,
+      sort: "priority" as const,
+      query: term,
+      teamId: "team-1",
+      stateIds: ["testing"],
+      priorities: [0, 1, 3] as const,
+    };
+    const first = await f.client.request(input);
+    expect(first.issues?.map((i) => i.id)).toEqual(["1"]);
+    const second = await f.client.request({ ...input, cursor: first.nextCursor! });
+    expect(second.issues?.map((i) => i.id)).toEqual(["2"]);
+    const third = await f.client.request({ ...input, cursor: second.nextCursor! });
+    expect(third.issues?.map((i) => i.id)).toEqual(["3"]);
+    expect(third.nextCursor).toBeNull();
+    const sent = f.calls
+      .filter((call) => /query (Issues|Search)/.test(call.body))
+      .map((call) => JSON.parse(call.body));
+    expect(sent.map((call) => call.variables.filter.priority.in)).toEqual([[1], [1], [3], [0]]);
+    expect(sent.map((call) => call.variables.after)).toEqual([null, "urgent-next", null, null]);
+    for (const call of sent) {
+      expect(call.query).toContain("orderBy: updatedAt");
+      expect(call.variables.filter).toMatchObject({
+        assignee: { id: { eq: "user-1" } },
+        team: { id: { eq: "team-1" } },
+        state: { id: { in: ["testing"] } },
+      });
+      if (term) expect(call.variables.term).toBe(term);
+    }
+    await expect(
+      f.client.request({ ...input, cursor: '{"priority":4,"after":null}' }),
+    ).rejects.toThrow("Invalid Linear sort cursor");
+  },
+);

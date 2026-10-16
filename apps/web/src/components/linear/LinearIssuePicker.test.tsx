@@ -12,6 +12,7 @@ import {
 import { useLinearCreations } from "./linearCreation";
 import { useLinearIssueViews } from "./LinearIssueViews";
 import { useLinearTeamFilters } from "./LinearTeamSelect";
+import { useLinearIssuePreferences } from "./linearIssuePreferences";
 import { LinearIssuePicker } from "./LinearIssuePicker";
 
 let intersect: (() => void) | undefined;
@@ -112,8 +113,36 @@ const teamRequest = vi.fn<(input: LinearDesktopRequest) => Promise<LinearDesktop
     teams: [{ id: "team-1", key: "ENG", name: "Engineering" }],
   }),
 );
+const stateRequest = vi.fn<(input: LinearDesktopRequest) => Promise<LinearDesktopResult>>(
+  async () => ({
+    configured: true,
+    connection: null,
+    states: [
+      {
+        id: "testing",
+        name: "Testing",
+        type: "started",
+        color: "#4cb782",
+        position: 2,
+        team: { id: "team-1", key: "ENG" },
+      },
+      {
+        id: "grooming",
+        name: "Grooming",
+        type: "unstarted",
+        color: "#c951f9",
+        position: 1,
+        team: { id: "team-1", key: "ENG" },
+      },
+    ],
+  }),
+);
 const bridgeRequest = (input: LinearDesktopRequest) =>
-  input.operation === "teams" ? teamRequest(input) : request(input);
+  input.operation === "teams"
+    ? teamRequest(input)
+    : input.operation === "states"
+      ? stateRequest(input)
+      : request(input);
 const background = vi.fn(async () => ({
   status: "linked" as const,
   worktreePath: "/worktree",
@@ -162,6 +191,7 @@ afterEach(async () => {
   useLinearCreations.setState({ entries: {} });
   useLinearIssueViews.setState({ byChat: {} });
   useLinearTeamFilters.setState({ byProject: {} });
+  useLinearIssuePreferences.setState({ byProject: {} });
   vi.clearAllMocks();
   vi.useRealTimers();
   Object.assign(window, { desktopBridge: undefined });
@@ -237,7 +267,7 @@ it("automatically sets up a created issue in an unlinked chat", async () => {
   select.mockResolvedValueOnce({ status: "linked", worktreePath: "/worktree", conflicts: [] });
   await render();
   await click("Linear issue");
-  await click("Create new issue");
+  await click("Create issue");
   await act(async () => {
     state.creationResult!(createdResult);
   });
@@ -247,7 +277,7 @@ it("automatically sets up a created issue in an unlinked chat", async () => {
 it("asks before replacing an issue, and declining leaves the current context", async () => {
   await render(false, { ...issue, id: "old", identifier: "ENG-2" });
   await click("ENG-2");
-  await click("Create new issue");
+  await click("Create issue");
   await act(async () => {
     state.creationResult!(createdResult);
   });
@@ -259,7 +289,7 @@ it("asks before replacing an issue, and declining leaves the current context", a
 it("preserves creation if an agent starts, and never queues a switch when it stops", async () => {
   await render();
   await click("Linear issue");
-  await click("Create new issue");
+  await click("Create issue");
   await render(true);
   await act(async () => {
     state.creationResult!(createdResult);
@@ -274,7 +304,7 @@ it("preserves creation if an agent starts, and never queues a switch when it sto
 it("retains the result for its originating chat after leaving it", async () => {
   await render();
   await click("Linear issue");
-  await click("Create new issue");
+  await click("Create issue");
   await act(async () => root.unmount());
   root = createRoot(container);
   await act(async () => {
@@ -288,7 +318,7 @@ it("retains the result for its originating chat after leaving it", async () => {
 it("cancelling creation never sets up an issue", async () => {
   await render();
   await click("Linear issue");
-  await click("Create new issue");
+  await click("Create issue");
   await act(async () => {
     state.creationResult!({ status: "cancelled" });
   });
@@ -299,7 +329,7 @@ it("cancelling creation never sets up an issue", async () => {
 it("sets up the origin in the background without switching the displayed chat", async () => {
   await render(false, null, true);
   await click("Linear issue");
-  await click("Create new issue");
+  await click("Create issue");
   await act(async () => root.unmount());
   root = createRoot(container);
   await act(async () => {
@@ -330,10 +360,10 @@ it("browses all three views without switching the linked issue, retaining the ta
 it("keeps the create action visible and disabled while running", async () => {
   await render(true);
   await click("Linear issue");
-  expect(button("Create new issue")).toBeDefined();
-  expect(button("Create new issue").disabled).toBe(true);
+  expect(button("Create issue")).toBeDefined();
+  expect(button("Create issue").disabled).toBe(true);
   await click("Triage");
-  expect(button("Create new issue").disabled).toBe(true);
+  expect(button("Create issue").disabled).toBe(true);
   expect(select).not.toHaveBeenCalled();
 });
 it("discards a previous view's pending response and resets its cursor", async () => {
@@ -419,16 +449,16 @@ it("keeps creation available through loading, empty and failed searches, and exp
   await render();
   await click("Linear issue");
   expect(document.body.textContent).toContain("Loading issues");
-  expect(button("Create new issue").disabled).toBe(false);
+  expect(button("Create issue").disabled).toBe(false);
   await act(async () => resolve({ configured: true, connection: null, issues: [] }));
   expect(document.body.textContent).toContain("No issues found");
-  expect(button("Create new issue").disabled).toBe(false);
+  expect(button("Create issue").disabled).toBe(false);
   request.mockRejectedValueOnce(new Error("Temporary query failure"));
   await click("Triage");
   expect(document.querySelector('[role="alert"]')?.textContent).toBe("Temporary query failure");
-  expect(button("Create new issue").disabled).toBe(false);
+  expect(button("Create issue").disabled).toBe(false);
   await render(false, null, false, false);
-  expect(button("Create new issue").disabled).toBe(true);
+  expect(button("Create issue").disabled).toBe(true);
   expect(document.body.textContent).toContain("Issue creation is unavailable for this chat");
 });
 it("discards a pending search after the query changes", async () => {
@@ -460,7 +490,7 @@ it("keeps a successful created-issue association when opening its panel fails", 
   openIssue.mockRejectedValueOnce(new Error("Panel offline"));
   await render();
   await click("Linear issue");
-  await click("Create new issue");
+  await click("Create issue");
   await act(async () => state.creationResult!(createdResult));
   await click("Linear issue");
   expect(document.querySelector('[role="alert"]')?.textContent).toContain(
@@ -478,6 +508,36 @@ it("focuses search on opening despite the leading team selector", async () => {
   expect(document.activeElement).toBe(
     document.querySelector('input[aria-label="Search Linear issues"]'),
   );
+});
+
+it("shows assignees in triage and all issues but omits them from assigned to me", async () => {
+  request.mockImplementationOnce(async () => ({
+    configured: true,
+    connection: null,
+    issues: [{ ...issue, assignee: { name: "Ada", avatarUrl: "https://example.com/ada.png" } }],
+  }));
+  await render();
+  await click("Linear issue");
+  expect(document.querySelector('[alt="Assignee: Ada"]')).toBeNull();
+  request.mockImplementationOnce(async () => ({
+    configured: true,
+    connection: null,
+    issues: [{ ...issue, assignee: { name: "Ada", avatarUrl: "https://example.com/ada.png" } }],
+  }));
+  await click("Triage");
+  const avatar = document.querySelector('[alt="Assignee: Ada"]');
+  expect(avatar).not.toBeNull();
+  await act(async () => avatar!.dispatchEvent(new Event("error")));
+  expect(document.querySelector('[aria-label="Assignee: Ada"]')).not.toBeNull();
+  request.mockImplementationOnce(async () => ({
+    configured: true,
+    connection: null,
+    issues: [{ ...issue, assignee: null }],
+  }));
+  await click("All issues");
+  expect(document.querySelector('[aria-label="Assignee: Unassigned"]')).not.toBeNull();
+  await click("Assigned to me");
+  expect(document.querySelector('[aria-label^="Assignee:"]')).toBeNull();
 });
 
 it("refreshes priority and status icons from Linear, muting urgent issues when completed", async () => {
@@ -759,4 +819,119 @@ it("keeps a pending page valid when search returns to its original value before 
   expect(button("Second page issue")).toBeDefined();
   expect(document.body.textContent).not.toContain("Loading issues");
   expect(request).toHaveBeenCalledTimes(2);
+});
+
+const clickMenu = (role: string, text: string) =>
+  act(async () => {
+    const node = [...document.querySelectorAll<HTMLElement>(`[role="${role}"]`)].find((el) =>
+      el.textContent?.includes(text),
+    );
+    expect(node).toBeDefined();
+    node!.click();
+  });
+const clickControl = (label: string) =>
+  act(async () => {
+    const node = document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    expect(node).not.toBeNull();
+    node!.click();
+  });
+const escapeMenu = () =>
+  act(async () => {
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  });
+
+it("persists sort and grouped multiselect filters, restores them on reopening, and can reset them", async () => {
+  await render();
+  await click("Linear issue");
+  await clickControl("Filter issues");
+  await clickMenu("menuitemcheckbox", "Testing");
+  await clickMenu("menuitemcheckbox", "Grooming");
+  await clickMenu("menuitemcheckbox", "Urgent");
+  await clickMenu("menuitemcheckbox", "High");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({
+    stateIds: ["testing", "grooming"],
+    priorities: [1, 2],
+  });
+  await escapeMenu();
+  await clickControl("Sort issues");
+  await clickMenu("menuitemradio", "Urgency");
+  expect(request.mock.calls.at(-1)?.[0].sort).toBe("priority");
+  const saved = localStorage.getItem("t3code:linear-issue-preferences:v1")!;
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  useLinearIssuePreferences.setState({ byProject: {} });
+  localStorage.setItem("t3code:linear-issue-preferences:v1", saved);
+  await useLinearIssuePreferences.persist.rehydrate();
+  await render();
+  await click("Linear issue");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({
+    sort: "priority",
+    stateIds: ["testing", "grooming"],
+    priorities: [1, 2],
+  });
+  await clickControl("Filter issues");
+  await clickMenu("menuitem", "Clear filters");
+  expect(request.mock.calls.at(-1)?.[0]).not.toHaveProperty("stateIds");
+  expect(request.mock.calls.at(-1)?.[0]).not.toHaveProperty("priorities");
+  await clickControl("Sort issues");
+  await clickMenu("menuitemradio", "Latest updated");
+  expect(request.mock.calls.at(-1)?.[0].sort).toBe("updatedAt");
+});
+
+it("ignores a pending old page after changing sort", async () => {
+  request.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    issues: [issue],
+    nextCursor: "old-page",
+  });
+  await render();
+  await click("Linear issue");
+  let resolve!: (value: LinearDesktopResult) => void;
+  request.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await reachEnd();
+  await clickControl("Sort issues");
+  await clickMenu("menuitemradio", "Urgency");
+  await act(async () =>
+    resolve({
+      configured: true,
+      connection: null,
+      issues: [{ ...issue, title: "Stale ordering" }],
+      nextCursor: "stale",
+    }),
+  );
+  expect(document.body.textContent).not.toContain("Stale ordering");
+  expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ sort: "priority" });
+  expect(request.mock.calls.at(-1)?.[0]).not.toHaveProperty("cursor");
+});
+
+it("loads status pages and lets a saved unavailable status be removed after a load failure", async () => {
+  useLinearIssuePreferences.getState().select(JSON.stringify(["env", "project", "acme"]), {
+    sort: "updatedAt",
+    stateIds: ["old-status"],
+    priorities: [],
+  });
+  stateRequest.mockRejectedValueOnce(new Error("Offline"));
+  await render();
+  await click("Linear issue");
+  await clickControl("Filter issues");
+  expect(document.body.textContent).toContain("Retry statuses");
+  await clickMenu("menuitemcheckbox", "Saved status");
+  expect(request.mock.calls.at(-1)?.[0]).not.toHaveProperty("stateIds");
+  stateRequest.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    states: [],
+    nextCursor: "next-status-page",
+  });
+  await clickMenu("menuitem", "Retry statuses");
+  expect(stateRequest.mock.calls.at(-1)?.[0].cursor).toBe("next-status-page");
+  expect(document.body.textContent).toContain("Testing");
 });

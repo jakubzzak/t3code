@@ -10,6 +10,9 @@ export const LinearIssue = Schema.Struct({
   branchName: TrimmedNonEmptyString,
   // Older linked issues and desktop clients do not carry display metadata.
   priority: Schema.optional(Schema.Literals([0, 1, 2, 3, 4])),
+  assignee: Schema.optional(
+    Schema.NullOr(Schema.Struct({ name: Schema.String, avatarUrl: Schema.NullOr(Schema.String) })),
+  ),
   state: Schema.optional(
     Schema.Struct({
       name: Schema.String,
@@ -35,6 +38,19 @@ export const LinearTeam = Schema.Struct({
 });
 export type LinearTeam = typeof LinearTeam.Type;
 
+export const LinearWorkflowState = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: Schema.String,
+  color: Schema.String,
+  type: Schema.String,
+  position: Schema.Number,
+  team: Schema.Struct({ id: Schema.String, key: Schema.String }),
+});
+export type LinearWorkflowState = typeof LinearWorkflowState.Type;
+
+export const LinearIssueSort = Schema.Literals(["updatedAt", "priority"]);
+export type LinearIssueSort = typeof LinearIssueSort.Type;
+
 export const LinearIssueView = Schema.Literals(["assigned", "triage", "all"]);
 export type LinearIssueView = typeof LinearIssueView.Type;
 export const LinearDesktopRequest = Schema.Struct({
@@ -46,12 +62,16 @@ export const LinearDesktopRequest = Schema.Struct({
     "issues",
     "issue",
     "teams",
+    "states",
   ]),
   workspace: TrimmedNonEmptyString,
   connectionKey: TrimmedNonEmptyString,
   query: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
   view: Schema.optional(LinearIssueView),
   teamId: Schema.optional(TrimmedNonEmptyString),
+  sort: Schema.optional(LinearIssueSort),
+  stateIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  priorities: Schema.optional(Schema.Array(Schema.Literals([0, 1, 2, 3, 4]))),
   issueId: Schema.optional(TrimmedNonEmptyString),
   cursor: Schema.optional(Schema.String.check(Schema.isMaxLength(2000))),
 });
@@ -61,6 +81,7 @@ export const LinearDesktopResult = Schema.Struct({
   connection: Schema.NullOr(LinearConnectionInfo),
   issues: Schema.optional(Schema.Array(LinearIssue)),
   teams: Schema.optional(Schema.Array(LinearTeam)),
+  states: Schema.optional(Schema.Array(LinearWorkflowState)),
   nextCursor: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type LinearDesktopResult = typeof LinearDesktopResult.Type;

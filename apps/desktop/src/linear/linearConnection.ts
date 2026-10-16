@@ -3,6 +3,7 @@ import {
   LinearConnectionInfo,
   LinearIssue,
   LinearTeam,
+  LinearWorkflowState,
   type LinearDesktopRequest,
   type LinearDesktopResult,
 } from "@t3tools/contracts";
@@ -43,6 +44,9 @@ const ApiIssue = Schema.Struct({
   url: Schema.String,
   branchName: Schema.String,
   priority: Schema.Literals([0, 1, 2, 3, 4]),
+  assignee: Schema.NullOr(
+    Schema.Struct({ name: Schema.String, avatarUrl: Schema.NullOr(Schema.String) }),
+  ),
   state: Schema.Struct({
     name: Schema.String,
     color: Schema.String,
@@ -62,7 +66,7 @@ const Assigned = Schema.Struct({
 });
 const Search = Schema.Struct({ data: Schema.Struct({ searchIssues: IssuePage }) });
 const Issues = Schema.Struct({ data: Schema.Struct({ issues: IssuePage }) });
-const issueFields = `id identifier title url branchName priority
+const issueFields = `id identifier title url branchName priority assignee { name avatarUrl }
   state { name color type position team { states(filter: { type: { eq: "started" } }) { nodes { position } } } }`;
 const fields = `nodes { ${issueFields} } pageInfo { hasNextPage endCursor }`;
 
@@ -95,6 +99,25 @@ const decodeCreatedIssue = Schema.decodeUnknownSync(
   }),
 );
 const decodeIssue = Schema.decodeUnknownSync(LinearIssue);
+const decodeStates = Schema.decodeUnknownSync(
+  Schema.Struct({
+    data: Schema.Struct({
+      workflowStates: Schema.Struct({
+        nodes: Schema.Array(LinearWorkflowState),
+        pageInfo: Schema.Struct({
+          hasNextPage: Schema.Boolean,
+          endCursor: Schema.NullOr(Schema.String),
+        }),
+      }),
+    }),
+  }),
+);
+const decodePriorityCursor = Schema.decodeUnknownSync(
+  Schema.Struct({
+    priority: Schema.Literals([1, 2, 3, 4, 0]),
+    after: Schema.NullOr(Schema.String),
+  }),
+);
 
 function toLinearIssue(issue: typeof ApiIssue.Type, workspace: string): LinearIssue {
   const { state, ...fields } = issue;
@@ -268,6 +291,26 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
         JSON.stringify({ ...credentials, [input.connectionKey]: credential }),
       );
     }
+    if (input.operation === "states") {
+      const data = await graphql(
+        credential.accessToken,
+        "query States($after: String, $filter: WorkflowStateFilter) { workflowStates(first: 100, after: $after, filter: $filter) { nodes { id name color type position team { id key } } pageInfo { hasNextPage endCursor } } }",
+        {
+          after: input.cursor ?? null,
+          filter: input.teamId ? { team: { id: { eq: input.teamId } } } : {},
+        },
+      );
+      try {
+        const page = decodeStates(data).data.workflowStates;
+        return {
+          ...result(),
+          states: page.nodes,
+          nextCursor: page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null,
+        };
+      } catch {
+        throw new Error("Unable to load Linear statuses. Try again.");
+      }
+    }
     if (input.operation === "teams") {
       const data = await graphql(
         credential.accessToken,
@@ -315,7 +358,7 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
     const term = input.query?.trim();
     // Omitted views preserve the older caller's assigned-list/workspace-search behavior.
     const viewFilter =
-      input.view === "assigned"
+      input.view === "assigned" || (input.view === undefined && !term)
         ? { assignee: { id: { eq: credential.connection.userId } } }
         : input.view === "triage"
           ? { state: { type: { eq: "triage" } } }
@@ -323,8 +366,21 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
     const filter = {
       ...viewFilter,
       ...(input.teamId ? { team: { id: { eq: input.teamId } } } : {}),
+      ...(input.stateIds?.length
+        ? {
+            state: {
+              ...("state" in viewFilter ? viewFilter.state : {}),
+              id: { in: input.stateIds },
+            },
+          }
+        : {}),
+      ...(input.priorities?.length ? { priority: { in: input.priorities } } : {}),
     };
-    const filtered = input.view !== undefined || input.teamId !== undefined;
+    const filtered =
+      input.view !== undefined ||
+      input.teamId !== undefined ||
+      Boolean(input.stateIds?.length || input.priorities?.length) ||
+      input.sort === "priority";
     const query = filtered
       ? term
         ? `query Search($term: String!, $after: String, $filter: IssueFilter) { searchIssues(term: $term, filter: $filter, first: 50, after: $after, orderBy: updatedAt) { ${fields} } }`
@@ -332,25 +388,64 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
       : term
         ? `query Search($term: String!, $after: String) { searchIssues(term: $term, first: 50, after: $after, orderBy: updatedAt) { ${fields} } }`
         : `query Assigned($after: String) { viewer { assignedIssues(first: 50, after: $after, orderBy: updatedAt) { ${fields} } } }`;
-    const data = await graphql(credential.accessToken, query, {
-      ...(term ? { term } : {}),
-      ...(filtered ? { filter } : {}),
-      after: input.cursor ?? null,
-    });
-    try {
-      const page = term
-        ? decodeSearch(data).data.searchIssues
-        : filtered
-          ? decodeIssues(data).data.issues
-          : decodeAssigned(data).data.viewer.assignedIssues;
-      return {
-        ...result(),
-        issues: page.nodes.map((issue) => toLinearIssue(issue, input.workspace)),
-        nextCursor: page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null,
-      };
-    } catch {
-      throw new Error("Linear could not load issues. Try again or reconnect Linear.");
+    const loadPage = async (pageFilter: typeof filter, after: string | null) => {
+      const data = await graphql(credential.accessToken, query, {
+        ...(term ? { term } : {}),
+        ...(filtered ? { filter: pageFilter } : {}),
+        after,
+      });
+      try {
+        return term
+          ? decodeSearch(data).data.searchIssues
+          : filtered
+            ? decodeIssues(data).data.issues
+            : decodeAssigned(data).data.viewer.assignedIssues;
+      } catch {
+        throw new Error("Linear could not load issues. Try again or reconnect Linear.");
+      }
+    };
+    if (input.sort === "priority") {
+      // Search only supports date ordering. Page priority buckets instead of sorting
+      // a partial result set or loading every matching issue into desktop memory.
+      const priorities = ([1, 2, 3, 4, 0] as const).filter(
+        (priority) => !input.priorities?.length || input.priorities.includes(priority),
+      );
+      let cursor;
+      try {
+        cursor = input.cursor ? decodePriorityCursor(JSON.parse(input.cursor)) : null;
+        if (cursor && !priorities.includes(cursor.priority)) throw new Error("Changed priorities");
+      } catch {
+        throw new Error("Invalid Linear sort cursor. Reopen the issue picker.");
+      }
+      const start = cursor ? priorities.indexOf(cursor.priority) : 0;
+      for (let index = start; index < priorities.length; index++) {
+        const priority = priorities[index]!;
+        const page = await loadPage(
+          { ...filter, priority: { in: [priority] } },
+          index === start ? (cursor?.after ?? null) : null,
+        );
+        const nextPriority = priorities[index + 1];
+        const next =
+          page.pageInfo.hasNextPage && page.pageInfo.endCursor
+            ? { priority, after: page.pageInfo.endCursor }
+            : nextPriority !== undefined
+              ? { priority: nextPriority, after: null }
+              : null;
+        if (page.nodes.length || !next || next.priority === priority)
+          return {
+            ...result(),
+            issues: page.nodes.map((issue) => toLinearIssue(issue, input.workspace)),
+            nextCursor: next ? JSON.stringify(next) : null,
+          };
+      }
+      return { ...result(), issues: [], nextCursor: null };
     }
+    const page = await loadPage(filter, input.cursor ?? null);
+    return {
+      ...result(),
+      issues: page.nodes.map((issue) => toLinearIssue(issue, input.workspace)),
+      nextCursor: page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null,
+    };
   };
   return {
     request: (input: LinearDesktopRequest): Promise<LinearDesktopResult> => {
