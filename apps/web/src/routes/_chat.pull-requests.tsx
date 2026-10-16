@@ -2127,6 +2127,10 @@ function PullRequestsRouteView() {
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
           >
             <PullRequestDetailPanel
+              visible={
+                rightPanelState.isOpen &&
+                activePullRequestSurface?.id === renderedPullRequestSurface.id
+              }
               getShortcutContext={getShortcutContext}
               shortcutsEnabled={activePullRequestSurface?.id === renderedPullRequestSurface.id}
               key={renderedPullRequestSurface.id}

@@ -415,6 +415,7 @@ function PullRequestBaseFreshnessWarning({
 }
 
 export function PullRequestDetailPanel({
+  visible = true,
   environmentId,
   shortcutsEnabled,
   getShortcutContext,
@@ -431,6 +432,7 @@ export function PullRequestDetailPanel({
 }: {
   environmentId: EnvironmentId;
   shortcutsEnabled: boolean;
+  visible?: boolean;
   getShortcutContext: () => ShortcutMatchContext;
   onSelectPullRequest?: ((reference: PullRequestRef) => void) | undefined;
   /**
@@ -2729,6 +2731,7 @@ export function PullRequestDetailPanel({
             {mountedTabs.has("summary") ? (
               <div className={cn("absolute inset-0", tab !== "summary" && "invisible")}>
                 <PullRequestSummaryTab
+                  visible={visible && tab === "summary"}
                   environmentId={environmentId}
                   threadRef={threadRef}
                   reference={reference}

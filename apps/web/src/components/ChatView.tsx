@@ -9731,6 +9731,7 @@ export default function ChatView(props: ChatViewProps) {
       // reader's feet. A link the agent wrote can open any other one here, and that one has to be
       // checkable out like it is anywhere else.
       <PullRequestDetailPanel
+        visible={rightPanelOpen && activeRightPanelSurface?.id === renderedRightPanelSurface.id}
         getShortcutContext={getShortcutContext}
         shortcutsEnabled={
           rightPanelOpen && activeRightPanelSurface?.id === renderedRightPanelSurface.id
