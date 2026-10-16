@@ -1,9 +1,9 @@
 import Constants from "expo-constants";
+import { Image } from "expo-image";
 import type { NativeStackNavigationOptions } from "@react-navigation/native-stack";
 import { Platform, View } from "react-native";
 
 import { AppText as Text } from "./AppText";
-import { T3Wordmark } from "./T3Wordmark";
 import { IPAD_HOME_TITLE_OFFSET } from "../lib/layoutMetrics";
 import { resolveMobileStageLabel } from "../lib/mobileBranding";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
@@ -32,19 +32,23 @@ export function CompactBrandTitle(
   return (
     <View
       aria-level={1}
-      accessibilityLabel="T3 Code, Threads"
+      accessibilityLabel="Blackbird, Threads"
       accessible
       role="heading"
       className="flex-row items-center gap-1.5"
       style={[{ marginLeft: titleOffset }, Platform.OS === "android" && { gap: 5.25 * scale }]}
     >
-      <T3Wordmark colorClassName="accent-icon" height={Math.round(15 * scale)} />
+      <Image
+        source={require("../../../../assets/blackbird-icon.png")}
+        accessibilityIgnoresInvertColors
+        style={{ width: 24 * scale, height: 24 * scale, borderRadius: 6 * scale }}
+      />
       <Text
         allowFontScaling={props.allowFontScaling}
         className="font-t3-medium text-foreground-muted"
         style={{ fontSize: 21 * scale, letterSpacing: -0.5 * scale }}
       >
-        Code
+        Blackbird
       </Text>
       <View
         className="rounded-full bg-subtle px-1.5 py-0.5"
