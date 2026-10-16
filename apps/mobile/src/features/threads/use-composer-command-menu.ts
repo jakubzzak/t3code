@@ -43,8 +43,6 @@ import { useComposerPathSearch, useComposerPullRequestSearch } from "../../state
 import type { ComposerCommandItem } from "./ComposerCommandPopover";
 import { matchesSlashSkillQuery } from "./composerSlashSkillSearch";
 
-const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
-
 function composerSelectionAtEnd(draftMessage: string): ComposerEditorSelection {
   return { start: draftMessage.length, end: draftMessage.length };
 }
@@ -238,57 +236,53 @@ export function useComposerCommandMenu({
     projectCwd &&
     selectedProviderStatus?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === projectCwd),
   );
-  const workspaceRefreshKeyRef = useRef<string | null>(null);
-  const workspaceRefreshRetryRef = useRef<{ key: string; notBefore: number } | null>(null);
-  const hadWorkspaceSnapshotRef = useRef(false);
+  const [workspaceRefreshAttempt, setWorkspaceRefreshAttempt] = useState(0);
+  const workspaceRefreshRequest = useMemo(
+    () => ({
+      environmentId,
+      instanceId: selectedProviderInstanceId,
+      cwd: projectCwd,
+      attempt: workspaceRefreshAttempt,
+    }),
+    [environmentId, selectedProviderInstanceId, projectCwd, workspaceRefreshAttempt],
+  );
+  const [failedWorkspaceRequest, setFailedWorkspaceRequest] = useState<
+    typeof workspaceRefreshRequest | null
+  >(null);
+  const retryWorkspaceSkills = useCallback(() => {
+    setWorkspaceRefreshAttempt((attempt) => attempt + 1);
+  }, []);
+  const workspaceSkillsFailed =
+    !hasWorkspaceSnapshot && failedWorkspaceRequest === workspaceRefreshRequest;
+  const workspaceSkillsLoading = Boolean(
+    environmentId &&
+    projectCwd &&
+    selectedProviderInstanceId &&
+    !hasWorkspaceSnapshot &&
+    !workspaceSkillsFailed,
+  );
   useEffect(() => {
-    if (hadWorkspaceSnapshotRef.current && !hasWorkspaceSnapshot) {
-      workspaceRefreshKeyRef.current = null;
-      workspaceRefreshRetryRef.current = null;
-    }
-    hadWorkspaceSnapshotRef.current = hasWorkspaceSnapshot;
-  }, [hasWorkspaceSnapshot]);
-  useEffect(() => {
-    if (!environmentId || !projectCwd || !selectedProviderInstanceId) return;
-    const key = `${environmentId}:${selectedProviderInstanceId}:${projectCwd}`;
-    if (workspaceRefreshKeyRef.current === key) return;
-    if (hasWorkspaceSnapshot) {
-      workspaceRefreshKeyRef.current = key;
-      workspaceRefreshRetryRef.current = null;
-      return;
-    }
-    const retry = workspaceRefreshRetryRef.current;
-    if (retry?.key === key && Date.now() < retry.notBefore) return;
-    workspaceRefreshKeyRef.current = key;
-    const retryLater = () => {
-      if (workspaceRefreshKeyRef.current !== key) return;
-      workspaceRefreshKeyRef.current = null;
-      workspaceRefreshRetryRef.current = {
-        key,
-        notBefore: Date.now() + WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS,
-      };
+    const { environmentId, instanceId, cwd } = workspaceRefreshRequest;
+    if (!environmentId || !cwd || !instanceId || hasWorkspaceSnapshot) return;
+    let cancelled = false;
+    const failed = () => {
+      if (!cancelled) setFailedWorkspaceRequest(workspaceRefreshRequest);
     };
     void refreshProviders({
       environmentId,
-      input: { instanceId: selectedProviderInstanceId, cwd: projectCwd },
+      input: { instanceId, cwd },
     }).then((result) => {
       const refreshed =
         result._tag === "Success" &&
         result.value.providers
-          .find((provider) => provider.instanceId === selectedProviderInstanceId)
-          ?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === projectCwd);
-      if (!refreshed && workspaceRefreshKeyRef.current === key) {
-        retryLater();
-      }
-    }, retryLater);
-  }, [
-    draftMessage,
-    environmentId,
-    hasWorkspaceSnapshot,
-    projectCwd,
-    refreshProviders,
-    selectedProviderInstanceId,
-  ]);
+          .find((provider) => provider.instanceId === instanceId)
+          ?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === cwd);
+      if (!refreshed) failed();
+    }, failed);
+    return () => {
+      cancelled = true;
+    };
+  }, [hasWorkspaceSnapshot, refreshProviders, workspaceRefreshRequest]);
 
   const trigger = useMemo(() => {
     if (!enabled || selection.start !== selection.end) {
@@ -556,13 +550,20 @@ export function useComposerCommandMenu({
     items,
     skills,
     isLoading:
-      trigger?.kind === "pull-request" ? pullRequestSearch.isPending : pathSearch.isPending,
+      trigger?.kind === "skill"
+        ? workspaceSkillsLoading
+        : trigger?.kind === "pull-request"
+          ? pullRequestSearch.isPending
+          : trigger?.kind === "path" && pathSearch.isPending,
+    onRetry: trigger?.kind === "skill" && workspaceSkillsFailed ? retryWorkspaceSkills : undefined,
     error:
-      trigger?.kind === "pull-request"
-        ? pullRequestProjectId === null || pullRequestRepository === null
-          ? "Pull requests are unavailable for this project."
-          : pullRequestSearch.error
-        : null,
+      trigger?.kind === "skill" && workspaceSkillsFailed
+        ? "Could not load workspace skills."
+        : trigger?.kind === "pull-request"
+          ? pullRequestProjectId === null || pullRequestRepository === null
+            ? "Pull requests are unavailable for this project."
+            : pullRequestSearch.error
+          : null,
     onSelect,
   };
 }

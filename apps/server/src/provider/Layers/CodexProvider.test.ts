@@ -1,6 +1,115 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { CodexSettings } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
-import { applyPreferredCodexDefaultModel, mapCodexModelCapabilities } from "./CodexProvider.ts";
+import {
+  applyPreferredCodexDefaultModel,
+  checkCodexProviderStatus,
+  mapCodexModelCapabilities,
+  probeCodexSkillsForCwd,
+} from "./CodexProvider.ts";
+
+import { makeProbeSpawner } from "../testUtils/codexProbeSpawner.ts";
+
+const probeSkill = {
+  name: "test-skill",
+  description: "Test skill",
+  path: `${process.cwd()}/test-skill/SKILL.md`,
+  scope: "user",
+  enabled: true,
+};
+const skillsResponse = {
+  data: [{ cwd: process.cwd(), skills: [probeSkill], errors: [] }],
+};
+const settings = Schema.decodeSync(CodexSettings)({});
+
+it.layer(NodeServices.layer)("Codex skill probes", (it) => {
+  it.effect("keeps account and models ready when skill discovery stalls", () =>
+    Effect.gen(function* () {
+      const mock = yield* makeProbeSpawner(Effect.never);
+      const fiber = yield* checkCodexProviderStatus(settings).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, mock.spawner),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(mock.requested);
+      yield* TestClock.adjust("11 seconds");
+      const status = yield* Fiber.join(fiber);
+      assert.strictEqual(status.status, "ready");
+      assert.strictEqual(status.auth.status, "authenticated");
+      assert.strictEqual(status.models[0]?.slug, "gpt-test");
+      assert.deepStrictEqual(status.skills, []);
+      yield* Deferred.await(mock.closed);
+    }),
+  );
+
+  it.effect("keeps account and models ready when skill discovery fails", () =>
+    Effect.gen(function* () {
+      const mock = yield* makeProbeSpawner(
+        Effect.succeed({
+          error: { code: -32603, message: "Cannot read skill directory" },
+        }),
+      );
+      const status = yield* checkCodexProviderStatus(settings).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, mock.spawner),
+      );
+      assert.strictEqual(status.status, "ready");
+      assert.strictEqual(status.auth.status, "authenticated");
+      assert.strictEqual(status.models[0]?.slug, "gpt-test");
+      yield* Deferred.await(mock.closed);
+    }),
+  );
+
+  it.effect("includes skills when discovery finishes within the health-check budget", () =>
+    Effect.gen(function* () {
+      const mock = yield* makeProbeSpawner(Effect.succeed({ result: skillsResponse }));
+      const status = yield* checkCodexProviderStatus(settings).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, mock.spawner),
+      );
+      assert.strictEqual(status.status, "ready");
+      assert.deepStrictEqual(status.skills, [probeSkill]);
+      yield* Deferred.await(mock.closed);
+    }),
+  );
+
+  it.effect("allows a workspace skill scan to finish after twenty seconds", () =>
+    Effect.gen(function* () {
+      const response = yield* Deferred.make<{ result: typeof skillsResponse }>();
+      const mock = yield* makeProbeSpawner(Deferred.await(response));
+      const fiber = yield* probeCodexSkillsForCwd({ binaryPath: "codex", cwd: process.cwd() }).pipe(
+        Effect.scoped,
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, mock.spawner),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(mock.requested);
+      yield* TestClock.adjust("25 seconds");
+      yield* Deferred.succeed(response, { result: skillsResponse });
+      assert.deepStrictEqual(yield* Fiber.join(fiber), [probeSkill]);
+      yield* Deferred.await(mock.closed);
+    }),
+  );
+
+  it.effect("fails and closes a workspace scan that never answers", () =>
+    Effect.gen(function* () {
+      const mock = yield* makeProbeSpawner(Effect.never);
+      const fiber = yield* probeCodexSkillsForCwd({ binaryPath: "codex", cwd: process.cwd() }).pipe(
+        Effect.scoped,
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, mock.spawner),
+        Effect.flip,
+        Effect.forkChild,
+      );
+      yield* Deferred.await(mock.requested);
+      yield* TestClock.adjust("61 seconds");
+      assert.strictEqual((yield* Fiber.join(fiber))._tag, "TimeoutError");
+      yield* Deferred.await(mock.closed);
+    }),
+  );
+});
 
 it("maps current Codex model capability fields", () => {
   const capabilities = mapCodexModelCapabilities({

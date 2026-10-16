@@ -22,6 +22,7 @@ import { memo, useLayoutEffect, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
 import { PierreEntryIcon } from "./PierreEntryIcon";
@@ -75,6 +76,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   isLoading: boolean;
   triggerKind: ComposerTriggerKind | null;
   emptyStateText?: string;
+  onRetry?: (() => void) | undefined;
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
@@ -141,6 +143,17 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                       ? "No matching files or folders."
                       : "No matching command."))}
             </p>
+            {props.onRetry && !props.isLoading ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={props.onRetry}
+              >
+                Retry loading skills
+              </Button>
+            ) : null}
           </div>
         )}
       </ComposerBanner.Surface>

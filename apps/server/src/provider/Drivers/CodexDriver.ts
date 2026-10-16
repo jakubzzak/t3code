@@ -269,7 +269,6 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
                 environment: processEnv,
               }).pipe(
                 Effect.scoped,
-                Effect.timeout("20 seconds"),
                 Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
               ),
             ]).pipe(
