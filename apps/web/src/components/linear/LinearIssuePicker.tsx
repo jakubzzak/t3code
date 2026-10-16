@@ -7,7 +7,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { Tabs } from "@base-ui/react/tabs";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, UnlinkIcon } from "lucide-react";
 import { LinearIssueViewTabs, linearIssueViews, useLinearIssueViews } from "./LinearIssueViews";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -20,6 +20,13 @@ import {
 } from "./linearCreation";
 import { LinearTeamSelect, useLinearTeamFilters } from "./LinearTeamSelect";
 import { LinearIcon } from "./LinearIcon";
+import { LinearIssueRow } from "./LinearIssueRow";
+import { LinearIssueControls } from "./LinearIssueControls";
+import {
+  defaultLinearIssuePreferences,
+  useLinearIssuePreferences,
+  type LinearIssuePreferences,
+} from "./linearIssuePreferences";
 import {
   type KeyboardEvent,
   useCallback,
@@ -82,8 +89,11 @@ export function LinearIssuePicker(props: Props) {
   const view = useLinearIssueViews((state) => state.byChat[creationKey] ?? "assigned");
   const teamKey = JSON.stringify([props.environmentId, props.projectId, props.workspace]);
   const teamId = useLinearTeamFilters((state) => state.byProject[teamKey] ?? "");
-  const queryKey = JSON.stringify([creationKey, teamId, view, query]);
-  const debouncedKey = JSON.stringify([creationKey, teamId, view, debouncedQuery]);
+  const preferences = useLinearIssuePreferences(
+    (state) => state.byProject[teamKey] ?? defaultLinearIssuePreferences,
+  );
+  const queryKey = JSON.stringify([creationKey, teamId, view, query, preferences]);
+  const debouncedKey = JSON.stringify([creationKey, teamId, view, debouncedQuery, preferences]);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pageRequest = useRef<string | null>(null);
@@ -129,6 +139,9 @@ export function LinearIssuePicker(props: Props) {
           connectionKey,
           query: debouncedQuery,
           view,
+          sort: preferences.sort,
+          ...(preferences.stateIds.length ? { stateIds: preferences.stateIds } : {}),
+          ...(preferences.priorities.length ? { priorities: preferences.priorities } : {}),
           ...(teamId ? { teamId } : {}),
           ...(after ? { cursor: after } : {}),
         });
@@ -149,7 +162,16 @@ export function LinearIssuePicker(props: Props) {
         if (version === generation.current) setLoading(false);
       }
     },
-    [request, props.workspace, connectionKey, debouncedQuery, teamId, view, debouncedKey],
+    [
+      request,
+      props.workspace,
+      connectionKey,
+      debouncedQuery,
+      teamId,
+      view,
+      debouncedKey,
+      preferences,
+    ],
   );
   useEffect(() => {
     const version = ++generation.current;
@@ -194,6 +216,13 @@ export function LinearIssuePicker(props: Props) {
     },
     [teamKey, teamId],
   );
+  const changePreferences = (value: LinearIssuePreferences) => {
+    generation.current++;
+    setLoadedKey(null);
+    setCursor(null);
+    if (listRef.current) listRef.current.scrollTop = 0;
+    useLinearIssuePreferences.getState().select(teamKey, value);
+  };
   const select = async (issue: LinearIssue, takeover: readonly ThreadId[] = []) => {
     if (busy || props.running) return;
     setOpen(false);
@@ -382,18 +411,13 @@ export function LinearIssuePicker(props: Props) {
                 onKeyDown={navigateIssues}
               >
                 {(loadedKey === queryKey ? issues : []).map((issue) => (
-                  <button
+                  <LinearIssueRow
                     key={issue.id}
-                    type="button"
+                    issue={issue}
+                    showAssignee={view !== "assigned"}
                     disabled={props.running || busy || query !== debouncedQuery}
-                    className="flex w-full gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
-                    onClick={() => void select(issue)}
-                  >
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {issue.identifier}
-                    </span>
-                    <span className="min-w-0 truncate">{issue.title}</span>
-                  </button>
+                    onSelect={() => void select(issue)}
+                  />
                 ))}
                 {!loading && !error && loadedKey === queryKey && issues.length === 0 && (
                   <p className="py-3 text-center text-sm text-muted-foreground">No issues found.</p>
@@ -427,29 +451,6 @@ export function LinearIssuePicker(props: Props) {
                   Retry created issue
                 </Button>
               )}
-              {props.linkedIssue && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={props.running || busy}
-                  onClick={() => {
-                    setBusy(true);
-                    setActionError(null);
-                    void props
-                      .onUnlink()
-                      .then(
-                        () => setOpen(false),
-                        (cause) =>
-                          setActionError(
-                            cause instanceof Error ? cause.message : "Unable to unlink issue.",
-                          ),
-                      )
-                      .finally(() => setBusy(false));
-                  }}
-                >
-                  Unlink issue
-                </Button>
-              )}
             </Tabs.Root>
             <div className="mt-2 flex shrink-0 flex-col gap-2 border-t pt-2">
               {creationDisabledReason && !props.running && (
@@ -457,26 +458,56 @@ export function LinearIssuePicker(props: Props) {
                   {creationDisabledReason}
                 </p>
               )}
-              <div className="flex items-center justify-end gap-2">
-                {creation?.status === "error" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => clearLinearCreation(creationKey)}
-                  >
-                    Dismiss creation error
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={creationDisabledReason !== null}
-                  title={creationDisabledReason ?? undefined}
-                  onClick={createIssue}
-                >
-                  <PlusIcon aria-hidden="true" />
-                  Create new issue
+              {creation?.status === "error" && (
+                <Button variant="ghost" size="sm" onClick={() => clearLinearCreation(creationKey)}>
+                  Dismiss creation error
                 </Button>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <LinearIssueControls
+                  key={JSON.stringify([connectionKey, props.workspace, teamId])}
+                  workspace={props.workspace}
+                  connectionKey={connectionKey}
+                  teamId={teamId}
+                  value={preferences}
+                  onChange={changePreferences}
+                />
+                <div className="flex items-center gap-1">
+                  {props.linkedIssue && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={props.running || busy}
+                      onClick={() => {
+                        setBusy(true);
+                        setActionError(null);
+                        void props
+                          .onUnlink()
+                          .then(
+                            () => setOpen(false),
+                            (cause) =>
+                              setActionError(
+                                cause instanceof Error ? cause.message : "Unable to unlink issue.",
+                              ),
+                          )
+                          .finally(() => setBusy(false));
+                      }}
+                    >
+                      <UnlinkIcon aria-hidden="true" />
+                      Unlink issue
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={creationDisabledReason !== null}
+                    title={creationDisabledReason ?? undefined}
+                    onClick={createIssue}
+                  >
+                    <PlusIcon aria-hidden="true" />
+                    Create issue
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
