@@ -989,8 +989,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "../../state/server";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 
-const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
-
 const extendReplacementRangeForTrailingSpace = (
   text: string,
   rangeEnd: number,
@@ -1962,57 +1960,54 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
-  const workspaceRefreshKeyRef = useRef<string | null>(null);
-  const workspaceRefreshRetryRef = useRef<{ key: string; notBefore: number } | null>(null);
-  const hadWorkspaceSnapshotRef = useRef(false);
+  const selectedProviderInstanceId = selectedProviderEntry?.instanceId;
+  const hasWorkspaceSnapshot = Boolean(
+    gitCwd &&
+    selectedProviderStatus?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd),
+  );
+  const [workspaceRefreshAttempt, setWorkspaceRefreshAttempt] = useState(0);
+  const workspaceRefreshRequest = useMemo(
+    () => ({
+      environmentId,
+      instanceId: selectedProviderInstanceId,
+      cwd: gitCwd,
+      attempt: workspaceRefreshAttempt,
+    }),
+    [environmentId, selectedProviderInstanceId, gitCwd, workspaceRefreshAttempt],
+  );
+  const [failedWorkspaceRequest, setFailedWorkspaceRequest] = useState<
+    typeof workspaceRefreshRequest | null
+  >(null);
+  const retryWorkspaceSkills = useCallback(() => {
+    setWorkspaceRefreshAttempt((attempt) => attempt + 1);
+  }, []);
+  const workspaceSkillsFailed =
+    !hasWorkspaceSnapshot && failedWorkspaceRequest === workspaceRefreshRequest;
+  const workspaceSkillsLoading = Boolean(
+    gitCwd && selectedProviderInstanceId && !hasWorkspaceSnapshot && !workspaceSkillsFailed,
+  );
   useEffect(() => {
-    const hasWorkspaceSnapshot = Boolean(
-      gitCwd &&
-      selectedProviderStatus?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd),
-    );
-    if (hadWorkspaceSnapshotRef.current && !hasWorkspaceSnapshot) {
-      workspaceRefreshKeyRef.current = null;
-      workspaceRefreshRetryRef.current = null;
-    }
-    hadWorkspaceSnapshotRef.current = hasWorkspaceSnapshot;
-  }, [gitCwd, selectedProviderStatus]);
-  useEffect(() => {
-    if (!gitCwd || !selectedProviderEntry) return;
-    const key = `${environmentId}:${selectedProviderEntry.instanceId}:${gitCwd}`;
-    const hasWorkspaceSnapshot = selectedProviderStatus?.workspaceSnapshots?.some(
-      (snapshot) => snapshot.cwd === gitCwd,
-    );
-    if (workspaceRefreshKeyRef.current === key) return;
-    if (hasWorkspaceSnapshot) {
-      workspaceRefreshKeyRef.current = key;
-      workspaceRefreshRetryRef.current = null;
-      return;
-    }
-    const retry = workspaceRefreshRetryRef.current;
-    if (retry?.key === key && Date.now() < retry.notBefore) return;
-    workspaceRefreshKeyRef.current = key;
-    const retryLater = () => {
-      if (workspaceRefreshKeyRef.current !== key) return;
-      workspaceRefreshKeyRef.current = null;
-      workspaceRefreshRetryRef.current = {
-        key,
-        notBefore: Date.now() + WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS,
-      };
+    const { environmentId, instanceId, cwd } = workspaceRefreshRequest;
+    if (!environmentId || !cwd || !instanceId || hasWorkspaceSnapshot) return;
+    let cancelled = false;
+    const failed = () => {
+      if (!cancelled) setFailedWorkspaceRequest(workspaceRefreshRequest);
     };
     void refreshProviders({
       environmentId,
-      input: { instanceId: selectedProviderEntry.instanceId, cwd: gitCwd },
+      input: { instanceId, cwd },
     }).then((result) => {
-      const hasWorkspaceSnapshot =
+      const refreshed =
         result._tag === "Success" &&
         result.value.providers
-          .find((provider) => provider.instanceId === selectedProviderEntry.instanceId)
-          ?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd);
-      if (!hasWorkspaceSnapshot && workspaceRefreshKeyRef.current === key) {
-        retryLater();
-      }
-    }, retryLater);
-  }, [environmentId, gitCwd, prompt, refreshProviders, selectedProviderEntry]);
+          .find((provider) => provider.instanceId === instanceId)
+          ?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === cwd);
+      if (!refreshed) failed();
+    }, failed);
+    return () => {
+      cancelled = true;
+    };
+  }, [hasWorkspaceSnapshot, refreshProviders, workspaceRefreshRequest]);
   const selectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],
@@ -2577,6 +2572,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const isComposerMenuLoading =
+    (composerTriggerKind === "skill" && workspaceSkillsLoading) ||
     (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
     (composerTriggerKind === "pull-request" &&
       pullRequestProjectId !== null &&
@@ -2587,7 +2583,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         exactPullRequestLookup.isPending));
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
-      return "No skills found. Try / to browse provider commands.";
+      if (workspaceSkillsFailed) return "Could not load workspace skills.";
+      return composerTrigger?.query
+        ? "No matching skills. Try / to browse provider commands."
+        : "No skills found. Try / to browse provider commands.";
     }
     if (composerTriggerKind === "pull-request") {
       if (pullRequestProjectId === null || pullRequestRepository === null) {
@@ -2607,6 +2606,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ? "No matching files or folders."
       : "No matching command.";
   }, [
+    workspaceSkillsFailed,
     composerTrigger,
     composerTriggerKind,
     pullRequestLookup.data?.errors,
@@ -6467,9 +6467,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               <div role="status" aria-atomic="true" className="sr-only">
                 {composerSuggestionsVisible && composerMenuItems.length === 0
                   ? isComposerMenuLoading
-                    ? composerTriggerKind === "pull-request"
-                      ? "Finding pull request..."
-                      : "Searching workspace files..."
+                    ? composerTriggerKind === "skill"
+                      ? "Searching workspace skills..."
+                      : composerTriggerKind === "pull-request"
+                        ? "Finding pull request..."
+                        : "Searching workspace files..."
                     : composerMenuEmptyState
                   : ""}
               </div>
@@ -6482,6 +6484,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isLoading={isComposerMenuLoading}
                     triggerKind={composerTriggerKind}
                     emptyStateText={composerMenuEmptyState}
+                    onRetry={
+                      composerTriggerKind === "skill" && workspaceSkillsFailed
+                        ? retryWorkspaceSkills
+                        : undefined
+                    }
                     activeItemId={activeComposerMenuItem?.id ?? null}
                     onHighlightedItemChange={onComposerMenuItemHighlighted}
                     onSelect={onSelectComposerItem}

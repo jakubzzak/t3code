@@ -58,6 +58,7 @@ interface ComposerCommandPopoverProps {
   readonly triggerKind: ComposerTriggerKind | null;
   readonly isLoading: boolean;
   readonly error?: string | null;
+  readonly onRetry?: (() => void) | undefined;
   readonly onSelect: (item: ComposerCommandItem) => void;
 }
 
@@ -119,7 +120,11 @@ function groupLabel(triggerKind: ComposerTriggerKind | null): string | null {
 
 function emptyText(triggerKind: ComposerTriggerKind | null, isLoading: boolean): string {
   if (isLoading) {
-    return triggerKind === "path" ? "Searching files…" : "Loading…";
+    return triggerKind === "skill"
+      ? "Searching workspace skills…"
+      : triggerKind === "path"
+        ? "Searching files…"
+        : "Loading…";
   }
   switch (triggerKind) {
     case "pull-request":
@@ -214,6 +219,11 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
           <Text className="text-xs text-foreground-tertiary">
             {props.error ?? emptyText(props.triggerKind, props.isLoading)}
           </Text>
+          {props.onRetry && !props.isLoading ? (
+            <Pressable accessibilityRole="button" onPress={props.onRetry} className="py-2">
+              <Text className="text-sm text-foreground">Retry loading skills</Text>
+            </Pressable>
+          ) : null}
         </View>
       )}
     </PopoverSurface>

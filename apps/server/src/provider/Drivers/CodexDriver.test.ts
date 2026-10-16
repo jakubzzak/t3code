@@ -18,6 +18,12 @@ import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
+import * as PubSub from "effect/PubSub";
+import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
+import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
+import { ProviderRegistryLive } from "../Layers/ProviderRegistry.ts";
+import { makeProbeSpawner } from "../testUtils/codexProbeSpawner.ts";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
@@ -75,6 +81,74 @@ const noSpawn = ChildProcessSpawner.make(() =>
 const encodeCredentials = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 it.layer(testLayer)("CodexDriver", (it) => {
+  it.effect(
+    "publishes skills through the registry when a driver scan takes over twenty seconds",
+    () =>
+      Effect.gen(function* () {
+        const response = yield* Deferred.make<{ result: unknown }>();
+        const scanStarted = yield* Deferred.make<void>();
+        let healthChecked = false;
+        const mock = yield* makeProbeSpawner(
+          Effect.suspend(() =>
+            healthChecked
+              ? Deferred.succeed(scanStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(response)),
+                )
+              : Effect.succeed({ result: { data: [] } }),
+          ),
+        );
+        const instance = yield* CodexDriver.create({
+          instanceId: ProviderInstanceId.make("slow-skills"),
+          displayName: "Codex test",
+          enabled: true,
+          environment: [],
+          config: CodexDriver.defaultConfig(),
+        }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, mock.spawner));
+        yield* instance.snapshot.refresh;
+        healthChecked = true;
+        const changes = yield* PubSub.unbounded<void>();
+        const services = yield* Layer.build(
+          ProviderRegistryLive.pipe(
+            Layer.provide(
+              Layer.succeed(ProviderInstanceRegistry, {
+                getInstance: () => Effect.succeed(instance),
+                listInstances: Effect.succeed([instance]),
+                listUnavailable: Effect.succeed([]),
+                streamChanges: Stream.fromPubSub(changes),
+                subscribeChanges: PubSub.subscribe(changes),
+              }),
+            ),
+          ),
+        );
+        const registry = yield* ProviderRegistry.pipe(Effect.provide(services));
+        const scan = yield* registry
+          .refreshWorkspaceSnapshot({
+            instanceId: instance.instanceId,
+            cwd: process.cwd(),
+          })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(scanStarted);
+        yield* TestClock.adjust("25 seconds");
+        const skill = {
+          name: "slow-skill",
+          description: "Late discovery",
+          path: `${process.cwd()}/SKILL.md`,
+          scope: "user",
+          enabled: true,
+        };
+        yield* Deferred.succeed(response, {
+          result: { data: [{ cwd: process.cwd(), skills: [skill], errors: [] }] },
+        });
+        yield* Fiber.join(scan);
+        expect(
+          (yield* registry.getProviders)[0]?.workspaceSnapshots?.find(
+            (snapshot) => snapshot.cwd === process.cwd(),
+          )?.skills,
+        ).toEqual([skill]);
+        yield* Deferred.await(mock.closed);
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("disconnect refreshes a restored managed account while its auth flow is idle", () =>
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("restored-managed-account");
