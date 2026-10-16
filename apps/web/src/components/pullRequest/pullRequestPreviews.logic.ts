@@ -8,7 +8,8 @@ export function pullRequestPreviews(comments: ReadonlyArray<Pick<PullRequestComm
   const destinations = new Map<string, string>();
   const labelCounts = new Map<string, number>();
   for (const comment of comments) {
-    for (const match of comment.body.matchAll(/https:\/\/[^\s<>"'`]+/gi)) {
+    // Stop at the Markdown label/destination boundary in [https://…](https://…).
+    for (const match of comment.body.matchAll(/https:\/\/(?:(?!\]\()[^\s<>"'`])+/gi)) {
       let url = match[0].replace(/[.,;:!?\]}]+$/, "");
       // A Markdown link or surrounding sentence may close after a URL whose path itself
       // contains balanced parentheses. Keep those path characters, trim only extra closers.

@@ -6,6 +6,23 @@ const otherCheckout = "https://prod-2570-two.checkout.staging.jurata.ch";
 const backstage = "https://prod-2570-one.backstage.staging.jurata.ch";
 
 describe("pullRequestPreviews", () => {
+  it("finds deployment comments whose Markdown link text is the destination URL", () => {
+    const cockpit = "https://prod-2570-one.cockpit.staging.jurata.ch";
+    const urls = [checkout, backstage, cockpit, otherCheckout];
+    const body = [
+      "## Preview Deployment",
+      "Here is a preview of this PR:",
+      ...urls.map((url) => `**Preview URL:** [${url}](${url})`),
+    ].join("\n\n");
+
+    expect(pullRequestPreviews([{ body }])).toEqual([
+      { url: checkout, label: "checkout.staging.jurata.ch", ambiguous: true },
+      { url: backstage, label: "backstage.staging.jurata.ch", ambiguous: false },
+      { url: cockpit, label: "cockpit.staging.jurata.ch", ambiguous: false },
+      { url: otherCheckout, label: "checkout.staging.jurata.ch", ambiguous: true },
+    ]);
+  });
+
   it("finds plain, Markdown and autolink destinations across comments regardless of headings", () => {
     expect(
       pullRequestPreviews([
@@ -62,5 +79,12 @@ describe("pullRequestPreviews", () => {
         { body: `(${checkout}/view(item)). [Review](${backstage}/a(b)?x=1#part),` },
       ]).map((p) => p.url),
     ).toEqual([`${checkout}/view(item)`, `${backstage}/a(b)?x=1#part`]);
+  });
+
+  it("preserves URL paths, bracketed query parameters and fragments in URL-labelled links", () => {
+    const url = `${checkout}/view(item)?filter[]=active#details`;
+    expect(pullRequestPreviews([{ body: `**Preview URL:** [${url}](${url}).` }])).toEqual([
+      { url, label: "checkout.staging.jurata.ch", ambiguous: false },
+    ]);
   });
 });
