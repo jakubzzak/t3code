@@ -1,5 +1,5 @@
 import type { LinearWorkflowState } from "@t3tools/contracts";
-import { ArrowDownIcon, ArrowDownWideNarrowIcon, FilterIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowDownWideNarrowIcon, ClockIcon, FilterIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import {
@@ -201,7 +201,7 @@ export function LinearIssueControls({
           </MenuGroup>
           <MenuSeparator />
           <MenuGroup>
-            <MenuGroupLabel>Urgencies</MenuGroupLabel>
+            <MenuGroupLabel>Priorities</MenuGroupLabel>
             {priorities.map((priority) => (
               <MenuCheckboxItem
                 key={priority.value}
@@ -239,7 +239,7 @@ export function LinearIssueControls({
         <MenuTrigger
           render={<Button variant="ghost" size="icon-sm" />}
           aria-label="Sort issues"
-          title={value.sort === "priority" ? "Sort issues (urgency)" : "Sort issues"}
+          title={value.sort === "priority" ? "Sort issues (priority)" : "Sort issues"}
         >
           <ArrowDownWideNarrowIcon aria-hidden="true" />
           {value.sort !== "updatedAt" && <ActiveDot />}
@@ -253,13 +253,17 @@ export function LinearIssueControls({
           >
             <MenuRadioItem value="updatedAt">
               <span className="flex items-center gap-2">
+                <ClockIcon aria-hidden="true" />
                 Latest updated <ArrowDownIcon aria-label="Descending" />
                 <MenuRadioItemIndicator />
               </span>
             </MenuRadioItem>
             <MenuRadioItem value="priority">
               <span className="flex items-center gap-2">
-                Urgency <ArrowDownIcon aria-label="Descending" />
+                <span aria-hidden="true" className="flex shrink-0">
+                  <LinearPriorityIcon priority={2} />
+                </span>
+                Priority <ArrowDownIcon aria-label="Descending" />
                 <MenuRadioItemIndicator />
               </span>
             </MenuRadioItem>

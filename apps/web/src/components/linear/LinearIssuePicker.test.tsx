@@ -856,7 +856,7 @@ it("persists sort and grouped multiselect filters, restores them on reopening, a
   });
   await escapeMenu();
   await clickControl("Sort issues");
-  await clickMenu("menuitemradio", "Urgency");
+  await clickMenu("menuitemradio", "Priority");
   expect(request.mock.calls.at(-1)?.[0].sort).toBe("priority");
   const saved = localStorage.getItem("t3code:linear-issue-preferences:v1")!;
   await act(async () => root.unmount());
@@ -898,7 +898,7 @@ it("ignores a pending old page after changing sort", async () => {
   );
   await reachEnd();
   await clickControl("Sort issues");
-  await clickMenu("menuitemradio", "Urgency");
+  await clickMenu("menuitemradio", "Priority");
   await act(async () =>
     resolve({
       configured: true,
