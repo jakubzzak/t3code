@@ -43,16 +43,18 @@ function pointer(clientX = 100) {
 
 function Panel({
   edge = "left",
+  defaultWidth = 400,
   maxWidth = 800,
   storageKey = "test-panel-width",
 }: {
   edge?: "left" | "right";
+  defaultWidth?: number;
   maxWidth?: number;
   storageKey?: string;
 }) {
   const resize = useResizableWidth({
     storageKey,
-    defaultWidth: 400,
+    defaultWidth,
     minWidth: 200,
     maxWidth,
     edge,
@@ -194,6 +196,33 @@ describe("panel resize cleanup", () => {
 });
 
 describe("panel width storage changes", () => {
+  it("follows the measured default until resized, then reopens at the saved width", async () => {
+    await act(() => renderer.update(<Panel defaultWidth={600} />));
+    expect(result.width).toBe(600);
+    expect(setItem).not.toHaveBeenCalled();
+    await act(() => {
+      result.handlers.onPointerDown(pointer());
+      result.handlers.onPointerUp(pointer(50));
+    });
+    expect(result.width).toBe(650);
+    await act(() => renderer.update(<Panel defaultWidth={700} />));
+    expect(result.width).toBe(650);
+    await act(() => renderer.unmount());
+    await act(() => {
+      renderer = create(<Panel defaultWidth={700} />);
+    });
+    expect(result.width).toBe(650);
+  });
+
+  it("preserves the saved width when reopening in a temporarily narrow container", async () => {
+    savedWidths.set("thread-b", "750");
+    await act(() => renderer.update(<Panel storageKey="thread-b" maxWidth={500} />));
+    expect(result.width).toBe(500);
+    await act(() => renderer.update(<Panel storageKey="thread-b" maxWidth={800} />));
+    expect(result.width).toBe(750);
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
   it("restores separate thread widths without remounting and retains them after reload", async () => {
     await act(() => {
       result.handlers.onPointerDown(pointer());

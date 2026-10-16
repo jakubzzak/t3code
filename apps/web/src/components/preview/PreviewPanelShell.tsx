@@ -22,7 +22,6 @@ const PREVIEW_PANEL_MIN_WIDTH = 360;
  * sibling column's space.
  */
 const PREVIEW_PANEL_MAX_WIDTH_FRACTION = 0.7;
-const PREVIEW_PANEL_DEFAULT_WIDTH = 540;
 /**
  * Width reserved for the sibling column (chat, pull-request list) sharing the
  * panel's flex row. The viewport fraction alone is not enough: the app
@@ -59,7 +58,7 @@ export function PreviewPanelShell(props: {
    * the other's remembered width.
    */
   widthStorageKey?: string;
-  /** Overrides the initial width (px) before the user has resized the panel. */
+  /** Overrides the initial half-container width (px) before a user resize. */
   defaultWidth?: number;
   children: ReactNode;
 }) {
@@ -70,10 +69,10 @@ export function PreviewPanelShell(props: {
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Only inline non-maximized mode applies `width`/`maxWidth`; skip the
   // container measurement (and its re-renders) everywhere else.
-  const maxWidth = useClampedMaxWidth(hostRef, isInline && !maximized);
+  const { maxWidth, defaultWidth } = usePanelWidthBounds(hostRef, isInline && !maximized);
   const { width, handlers } = useResizableWidth({
     storageKey: props.widthStorageKey ?? PREVIEW_PANEL_WIDTH_STORAGE_KEY,
-    defaultWidth: props.defaultWidth ?? PREVIEW_PANEL_DEFAULT_WIDTH,
+    defaultWidth: props.defaultWidth ?? defaultWidth,
     minWidth: PREVIEW_PANEL_MIN_WIDTH,
     maxWidth,
     edge: "left",
@@ -164,7 +163,7 @@ export function PreviewPanelShell(props: {
  * Row measurement only runs when `enabled`; modes without a resize handle
  * never apply the resulting width, so they skip the observer entirely.
  */
-function useClampedMaxWidth(hostRef: RefObject<HTMLDivElement | null>, enabled: boolean): number {
+function usePanelWidthBounds(hostRef: RefObject<HTMLDivElement | null>, enabled: boolean) {
   const [vw, setVw] = useState(() => (typeof window === "undefined" ? 1280 : window.innerWidth));
   const [containerWidth, setContainerWidth] = useState<number | undefined>(undefined);
   useEffect(() => {
@@ -203,5 +202,8 @@ function useClampedMaxWidth(hostRef: RefObject<HTMLDivElement | null>, enabled: 
       observer.disconnect();
     };
   }, [hostRef, enabled]);
-  return getPreviewPanelMaxWidth(vw, containerWidth);
+  return {
+    maxWidth: getPreviewPanelMaxWidth(vw, containerWidth),
+    defaultWidth: (containerWidth ?? vw) / 2,
+  };
 }

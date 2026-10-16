@@ -15,6 +15,7 @@ const WidthSchema = Schema.Finite;
 export interface UseResizableWidthOptions {
   /** localStorage key the persisted width is stored under. */
   readonly storageKey: string;
+  /** Used until resized; may change as the panel's container is measured. */
   readonly defaultWidth: number;
   readonly minWidth: number;
   readonly maxWidth: number;
@@ -59,13 +60,12 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
 
   // No cross-tab subscription: panel width is per-window state.
   const readWidth = () => {
-    if (typeof window === "undefined") return defaultWidth;
+    if (typeof window === "undefined") return null;
     try {
-      const stored = getLocalStorageItem(storageKey, WidthSchema);
-      return clamp(stored ?? defaultWidth);
+      return getLocalStorageItem(storageKey, WidthSchema);
     } catch (error) {
       console.error("Could not read persisted panel width.", error);
-      return defaultWidth;
+      return null;
     }
   };
   const [widthState, setWidthState] = useState(() => ({ storageKey, width: readWidth() }));
@@ -74,7 +74,8 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     setWidthState({ storageKey, width: readWidth() });
   }
 
-  const clampedWidth = clamp(widthState.width);
+  // Keep the remembered width intact when the window temporarily cannot fit it.
+  const clampedWidth = clamp(widthState.width ?? defaultWidth);
   const latestOptions = useRef({ clamp, storageKey });
   useLayoutEffect(() => {
     latestOptions.current = { clamp, storageKey };
