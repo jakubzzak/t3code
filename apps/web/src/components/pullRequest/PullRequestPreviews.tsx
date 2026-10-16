@@ -104,6 +104,7 @@ export function PullRequestPreviews({
           const pill = (
             <Badge
               variant="info"
+              className="min-w-0 max-w-full"
               render={<button type="button" />}
               aria-label={`Open preview ${preview.url}`}
               onClick={() => void open(preview.url)}
@@ -113,7 +114,7 @@ export function PullRequestPreviews({
                 void copy(preview.url);
               }}
             >
-              {preview.label}
+              <span className="truncate">{preview.label}</span>
               <ExternalLinkIcon aria-hidden />
             </Badge>
           );
@@ -123,7 +124,9 @@ export function PullRequestPreviews({
               <TooltipPopup>{preview.url}</TooltipPopup>
             </Tooltip>
           ) : (
-            <span key={preview.url}>{pill}</span>
+            <span key={preview.url} className="min-w-0 max-w-full">
+              {pill}
+            </span>
           );
         })
       )}

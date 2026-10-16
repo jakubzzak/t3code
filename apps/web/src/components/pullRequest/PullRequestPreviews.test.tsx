@@ -15,6 +15,11 @@ const { openPreview, closePreview } = vi.hoisted(() => ({
   openPreview: vi.fn(),
   closePreview: vi.fn(),
 }));
+vi.mock("~/connection/catalog", async () => {
+  const { Atom, AsyncResult } = await import("effect/unstable/reactivity");
+  const connection = Atom.make(AsyncResult.success({ phase: "connected" }));
+  return { environmentCatalog: { stateAtom: () => connection } };
+});
 vi.mock("~/state/preview", () => ({
   previewEnvironment: { open: openPreview, close: closePreview },
 }));
@@ -28,9 +33,15 @@ vi.mock("../ui/tooltip", () => ({
 vi.mock("../preview/PreviewPanel", () => ({ PreviewPanel: () => <div>Browser content</div> }));
 import PullRequestPreviewBrowser from "./PullRequestPreviewBrowser";
 import { PullRequestPreviews } from "./PullRequestPreviews";
+import { environmentCatalog } from "~/connection/catalog";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { toastManager } from "../ui/toast";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
-import { readThreadPreviewState, resetPreviewStateForTests } from "~/previewStateStore";
+import {
+  applyPreviewServerSnapshot,
+  readThreadPreviewState,
+  resetPreviewStateForTests,
+} from "~/previewStateStore";
 
 const environmentId = EnvironmentId.make("remote");
 const threadRef = { environmentId, threadId: ThreadId.make("review-thread") };
@@ -251,4 +262,94 @@ it("closes a standalone session that finishes opening after its view was dismiss
   expect(
     readThreadPreviewState({ environmentId, threadId: request.input.threadId }).snapshot,
   ).toBeNull();
+});
+
+function reconnect() {
+  // The mocked atom only needs the phase consumed by cleanup.
+  const atom = environmentCatalog.stateAtom(environmentId);
+  const set = appAtomRegistry.set.bind(appAtomRegistry) as (atom: unknown, value: unknown) => void;
+  set(atom, AsyncResult.success({ phase: "disconnected" }));
+  set(atom, AsyncResult.success({ phase: "connected" }));
+}
+
+it("keeps failed cleanup suppressed after unmount and retries on reconnect", async () => {
+  closePreview.mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("Disconnected"))));
+  await act(async () => {
+    renderer = create(
+      <PullRequestPreviewBrowser environmentId={environmentId} url={url} onClose={() => {}} />,
+    );
+  });
+  const owner = { environmentId, threadId: openPreview.mock.calls[0]![0].input.threadId };
+  const staleSnapshot = readThreadPreviewState(owner).snapshot;
+  await act(async () => renderer.unmount());
+  applyPreviewServerSnapshot(owner, staleSnapshot);
+  expect(readThreadPreviewState(owner).snapshot).toBeNull();
+  expect(readThreadPreviewState(owner).suppressedTabIds.has("preview-tab")).toBe(true);
+  expect(toastManager.add).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "Preview cleanup pending" }),
+  );
+  await act(async () => {
+    renderer = create(
+      <PullRequestPreviewBrowser environmentId={environmentId} url={other} onClose={() => {}} />,
+    );
+  });
+  const reopenedOwner = { environmentId, threadId: openPreview.mock.calls[1]![0].input.threadId };
+  expect(reopenedOwner.threadId).not.toBe(owner.threadId);
+  expect(readThreadPreviewState(owner).snapshot).toBeNull();
+  await act(async () => reconnect());
+  expect(closePreview).toHaveBeenCalledTimes(2);
+  expect(readThreadPreviewState(reopenedOwner).snapshot?.navStatus).toMatchObject({ url: other });
+  await act(async () => reconnect());
+  expect(closePreview).toHaveBeenCalledTimes(2);
+});
+
+it("retries a late-open cleanup when reconnect happens during the failed close", async () => {
+  const makeSnapshot = openPreview.getMockImplementation()!;
+  let finishOpen!: () => void;
+  openPreview.mockImplementationOnce(
+    (request) =>
+      new Promise((resolve) => {
+        finishOpen = () => resolve(makeSnapshot(request));
+      }),
+  );
+  let failClose!: () => void;
+  closePreview.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        failClose = () => resolve(AsyncResult.failure(Cause.fail(new Error("Disconnected"))));
+      }),
+  );
+  await act(async () => {
+    renderer = create(
+      <PullRequestPreviewBrowser environmentId={environmentId} url={url} onClose={() => {}} />,
+    );
+  });
+  const owner = { environmentId, threadId: openPreview.mock.calls[0]![0].input.threadId };
+  await act(async () => renderer.unmount());
+  await act(async () => finishOpen());
+  await act(async () => reconnect());
+  expect(closePreview).toHaveBeenCalledTimes(1);
+  await act(async () => failClose());
+  expect(closePreview).toHaveBeenCalledTimes(2);
+  expect(readThreadPreviewState(owner).snapshot).toBeNull();
+  await act(async () => reconnect());
+  expect(closePreview).toHaveBeenCalledTimes(2);
+});
+
+it("offers manual retry after a rejected close without restoring the abandoned session", async () => {
+  closePreview.mockRejectedValueOnce(new Error("Lost response"));
+  await act(async () => {
+    renderer = create(
+      <PullRequestPreviewBrowser environmentId={environmentId} url={url} onClose={() => {}} />,
+    );
+  });
+  const owner = { environmentId, threadId: openPreview.mock.calls[0]![0].input.threadId };
+  await act(async () => renderer.unmount());
+  expect(readThreadPreviewState(owner).snapshot).toBeNull();
+  const notification = vi
+    .mocked(toastManager.add)
+    .mock.calls.find(([value]) => value.title === "Preview cleanup pending")![0];
+  await act(async () => notification.actionProps!.onClick!({} as never));
+  expect(closePreview).toHaveBeenCalledTimes(2);
+  expect(readThreadPreviewState(owner).snapshot).toBeNull();
 });

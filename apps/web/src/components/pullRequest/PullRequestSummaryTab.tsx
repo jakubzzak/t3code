@@ -459,6 +459,7 @@ function CommentGroup({
 const COMMENT_PAGE = 10;
 
 export function PullRequestSummaryTab({
+  visible = true,
   environmentId,
   threadRef,
   reference,
@@ -473,6 +474,7 @@ export function PullRequestSummaryTab({
   onRefresh,
   onRefreshChecks = onRefresh,
 }: {
+  visible?: boolean;
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef | null;
   reference: PullRequestRef;
@@ -720,6 +722,7 @@ export function PullRequestSummaryTab({
     return (
       <Suspense fallback={<p role="status">Opening preview...</p>}>
         <PullRequestPreviewBrowser
+          visible={visible}
           environmentId={environmentId}
           url={preview.url}
           onClose={() => setPreview(null)}

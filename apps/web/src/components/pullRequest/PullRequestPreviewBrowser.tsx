@@ -13,7 +13,7 @@ import { previewEnvironment } from "~/state/preview";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { PreviewPanel } from "../preview/PreviewPanel";
 import { openPreviewSession } from "../preview/openPreviewSession";
-import { closePreviewSession } from "../preview/closePreviewSession";
+import { closePullRequestPreviewSession } from "./closePullRequestPreviewSession";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 
@@ -22,23 +22,25 @@ export default function PullRequestPreviewBrowser({
   environmentId,
   url,
   onClose,
+  visible = true,
 }: {
   environmentId: EnvironmentId;
   url: string;
   onClose: () => void;
+  visible?: boolean;
 }) {
   const [threadRef] = useState(() =>
     scopeThreadRef(environmentId, ThreadId.make(`pr-preview-${randomUUID()}`)),
   );
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
-  const closePreview = useAtomCommand(previewEnvironment.close, "close PR preview");
+  const closePreview = useAtomCommand(previewEnvironment.close, { reportFailure: false });
   const [tabId, setTabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const close = (snapshot: PreviewSessionSnapshot) =>
-      closePreviewSession({ threadRef, tabId: snapshot.tabId, snapshot, closePreview });
+      closePullRequestPreviewSession({ threadRef, tabId: snapshot.tabId, closePreview });
     void openPreviewSession({ threadRef, url, openPreview })
       .then(async (result) => {
         if (result._tag === "Failure") {
@@ -78,7 +80,7 @@ export default function PullRequestPreviewBrowser({
         {error ? (
           <p className="p-6 text-sm text-muted-foreground">{error}</p>
         ) : tabId ? (
-          <PreviewPanel mode="embedded" threadRef={threadRef} tabId={tabId} visible />
+          <PreviewPanel mode="embedded" threadRef={threadRef} tabId={tabId} visible={visible} />
         ) : (
           <p className="p-6 text-sm text-muted-foreground" role="status">
             Opening preview...
