@@ -15,6 +15,7 @@ import {
   MenuSeparator,
   MenuItem,
 } from "../ui/menu";
+import { LinearPriorityIcon, LinearStatusIcon } from "./LinearIssueIcons";
 import type { LinearIssuePreferences } from "./linearIssuePreferences";
 
 const priorities = [
@@ -154,10 +155,25 @@ export function LinearIssueControls({
                 }
               >
                 <span className="flex items-center gap-2">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: state.color }}
-                  />
+                  <span aria-hidden="true" className="flex shrink-0">
+                    <LinearStatusIcon
+                      state={{
+                        ...state,
+                        progress:
+                          (states.filter(
+                            (item) =>
+                              item.team.id === state.team.id &&
+                              item.type === "started" &&
+                              item.position < state.position,
+                          ).length +
+                            1) /
+                          (states.filter(
+                            (item) => item.team.id === state.team.id && item.type === "started",
+                          ).length +
+                            1),
+                      }}
+                    />
+                  </span>
                   {state.name}
                   {!teamId && (
                     <span className="text-xs text-muted-foreground">{state.team.key}</span>
@@ -200,7 +216,12 @@ export function LinearIssueControls({
                   })
                 }
               >
-                {priority.label}
+                <span className="flex items-center gap-2">
+                  <span aria-hidden="true" className="flex shrink-0">
+                    <LinearPriorityIcon priority={priority.value} />
+                  </span>
+                  {priority.label}
+                </span>
               </MenuCheckboxItem>
             ))}
           </MenuGroup>

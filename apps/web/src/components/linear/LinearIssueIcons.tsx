@@ -39,6 +39,57 @@ function StatusShape({ state }: { state: NonNullable<LinearIssue["state"]> }) {
   );
 }
 
+export function LinearPriorityIcon({
+  priority,
+  closed = false,
+}: {
+  priority: NonNullable<LinearIssue["priority"]>;
+  closed?: boolean;
+}) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className="size-3.5 shrink-0"
+      fill="currentColor"
+      style={{ color: priority === 1 && !closed ? "#ff6b26" : "#999a9c" }}
+      role="img"
+      aria-label={`Priority: ${priorityNames[priority]}`}
+    >
+      <title>{priorityNames[priority]}</title>
+      {priority === 0 ? (
+        <path d="M1 7h3v2H1Zm5.5 0h3v2h-3ZM12 7h3v2h-3Z" />
+      ) : priority === 1 ? (
+        <path
+          fillRule="evenodd"
+          d="M3 1h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Zm4.1 3 .3 5h1.2l.3-5Zm.9 6a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"
+        />
+      ) : (
+        <>
+          <rect x="1" y="9" width="3" height="6" rx="1" />
+          <rect x="6" y="5" width="3" height="10" rx="1" opacity={priority <= 3 ? 1 : 0.4} />
+          <rect x="11" y="1" width="3" height="14" rx="1" opacity={priority === 2 ? 1 : 0.4} />
+        </>
+      )}
+    </svg>
+  );
+}
+
+export function LinearStatusIcon({ state }: { state: NonNullable<LinearIssue["state"]> }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className="size-3.5 shrink-0"
+      fill="currentColor"
+      style={{ color: state.color }}
+      role="img"
+      aria-label={`Status: ${state.name}`}
+    >
+      <title>{state.name}</title>
+      <StatusShape state={state} />
+    </svg>
+  );
+}
+
 /** Linear's priority and workflow glyphs, with the team's own status colors. */
 export function LinearIssueIcons({ issue }: { issue: LinearIssue }) {
   const { priority, state } = issue;
@@ -46,45 +97,8 @@ export function LinearIssueIcons({ issue }: { issue: LinearIssue }) {
     state?.type === "completed" || state?.type === "canceled" || state?.type === "duplicate";
   return (
     <>
-      {priority !== undefined && (
-        <svg
-          viewBox="0 0 16 16"
-          className="size-3.5 shrink-0"
-          fill="currentColor"
-          style={{ color: priority === 1 && !closed ? "#ff6b26" : "#999a9c" }}
-          role="img"
-          aria-label={`Priority: ${priorityNames[priority]}`}
-        >
-          <title>{priorityNames[priority]}</title>
-          {priority === 0 ? (
-            <path d="M1 7h3v2H1Zm5.5 0h3v2h-3ZM12 7h3v2h-3Z" />
-          ) : priority === 1 ? (
-            <path
-              fillRule="evenodd"
-              d="M3 1h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Zm4.1 3 .3 5h1.2l.3-5Zm.9 6a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"
-            />
-          ) : (
-            <>
-              <rect x="1" y="9" width="3" height="6" rx="1" />
-              <rect x="6" y="5" width="3" height="10" rx="1" opacity={priority <= 3 ? 1 : 0.4} />
-              <rect x="11" y="1" width="3" height="14" rx="1" opacity={priority === 2 ? 1 : 0.4} />
-            </>
-          )}
-        </svg>
-      )}
-      {state && (
-        <svg
-          viewBox="0 0 16 16"
-          className="size-3.5 shrink-0"
-          fill="currentColor"
-          style={{ color: state.color }}
-          role="img"
-          aria-label={`Status: ${state.name}`}
-        >
-          <title>{state.name}</title>
-          <StatusShape state={state} />
-        </svg>
-      )}
+      {priority !== undefined && <LinearPriorityIcon priority={priority} closed={closed} />}
+      {state && <LinearStatusIcon state={state} />}
     </>
   );
 }
