@@ -480,6 +480,61 @@ it("focuses search on opening despite the leading team selector", async () => {
   );
 });
 
+const pressArrow = (key: "ArrowDown" | "ArrowUp") =>
+  act(async () => {
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+  });
+
+it("navigates issues and appended pages with arrows, returning from the first issue to search", async () => {
+  request.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    issues: [issue, { ...issue, id: "second", title: "Second issue" }],
+    nextCursor: "next",
+  });
+  await render();
+  await click("Linear issue");
+  const input = document.querySelector('input[aria-label="Search Linear issues"]');
+  await pressArrow("ArrowUp");
+  expect(document.activeElement).toBe(input);
+  await pressArrow("ArrowDown");
+  expect(document.activeElement).toBe(button("Fix login"));
+  await pressArrow("ArrowDown");
+  expect(document.activeElement).toBe(button("Second issue"));
+  await pressArrow("ArrowDown");
+  expect(document.activeElement).toBe(button("Second issue"));
+  request.mockResolvedValueOnce({
+    configured: true,
+    connection: null,
+    issues: [{ ...issue, id: "third", title: "Third issue" }],
+    nextCursor: null,
+  });
+  await reachEnd();
+  await pressArrow("ArrowDown");
+  expect(document.activeElement).toBe(button("Third issue"));
+  await pressArrow("ArrowUp");
+  expect(document.activeElement).toBe(button("Second issue"));
+  await pressArrow("ArrowUp");
+  expect(document.activeElement).toBe(button("Fix login"));
+  await pressArrow("ArrowUp");
+  expect(document.activeElement).toBe(input);
+  expect(select).not.toHaveBeenCalled();
+});
+
+it.each(["empty", "disabled"])("keeps focus in search when the issue list is %s", async (state) => {
+  if (state === "empty") {
+    request.mockResolvedValueOnce({ configured: true, connection: null, issues: [] });
+  }
+  await render(state === "disabled");
+  await click("Linear issue");
+  const input = document.querySelector('input[aria-label="Search Linear issues"]');
+  await pressArrow("ArrowDown");
+  expect(document.activeElement).toBe(input);
+  expect(select).not.toHaveBeenCalled();
+});
+
 it("remembers the team filter across reopening and stored-state rehydration, and clears it with All teams", async () => {
   await render();
   await click("Linear issue");

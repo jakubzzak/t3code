@@ -20,7 +20,15 @@ import {
 } from "./linearCreation";
 import { LinearTeamSelect, useLinearTeamFilters } from "./LinearTeamSelect";
 import { LinearIcon } from "./LinearIcon";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useThreadShellsForProjectRefs } from "~/state/entities";
 import { ComposerControl } from "../chat/ComposerControl";
 import { Button } from "../ui/button";
@@ -282,6 +290,28 @@ export function LinearIssuePicker(props: Props) {
     if (listRef.current) listRef.current.scrollTop = 0;
     useLinearIssueViews.getState().select(creationKey, value as LinearIssueView);
   };
+  const navigateIssues = (event: KeyboardEvent<HTMLElement>) => {
+    if (
+      (event.key !== "ArrowDown" && event.key !== "ArrowUp") ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.nativeEvent.isComposing
+    )
+      return;
+    const buttons = Array.from(
+      listRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+    );
+    const index = buttons.findIndex((button) => button === event.target);
+    if (index === -1 && (event.target !== searchRef.current || event.key === "ArrowUp")) return;
+    event.preventDefault();
+    if (event.key === "ArrowUp" && index === 0) {
+      searchRef.current?.focus();
+    } else {
+      buttons[index + (event.key === "ArrowDown" ? 1 : -1)]?.focus();
+    }
+  };
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
@@ -305,11 +335,11 @@ export function LinearIssuePicker(props: Props) {
           </span>
         </PopoverTrigger>
         <PopoverPopup width="lg" padding="compact" side="top" align="end" initialFocus={searchRef}>
-          <div className="flex max-h-[calc(var(--available-height)-1rem)] flex-col">
+          <div className="flex h-96 max-h-[calc(var(--available-height)-1rem)] flex-col">
             <Tabs.Root
               value={view}
               onValueChange={changeView}
-              className="flex min-h-0 flex-col gap-2"
+              className="flex min-h-0 flex-1 flex-col gap-2"
             >
               <div className="flex shrink-0 items-center gap-1">
                 <LinearTeamSelect
@@ -324,6 +354,7 @@ export function LinearIssuePicker(props: Props) {
                     aria-label="Search Linear issues"
                     placeholder={linearIssueViews.find((item) => item.value === view)?.placeholder}
                     value={query}
+                    onKeyDown={navigateIssues}
                     onChange={(event) => {
                       if (listRef.current) listRef.current.scrollTop = 0;
                       setQuery(event.target.value);
@@ -345,9 +376,10 @@ export function LinearIssuePicker(props: Props) {
               <Tabs.Panel
                 value={view}
                 ref={listRef}
-                className="min-h-0 max-h-64 space-y-1 overflow-y-auto"
+                className="min-h-0 flex-1 space-y-1 overflow-y-auto"
                 aria-label="Linear issues"
                 aria-busy={loading}
+                onKeyDown={navigateIssues}
               >
                 {(loadedKey === queryKey ? issues : []).map((issue) => (
                   <button

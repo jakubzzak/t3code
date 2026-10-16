@@ -94,7 +94,7 @@ export function LinearTeamSelect(props: {
         >
           <SelectValue>{props.value ? (selected?.key ?? "Saved team") : "All teams"}</SelectValue>
         </SelectTrigger>
-        <SelectPopup>
+        <SelectPopup alignItemWithTrigger={false}>
           <SelectItem value="">All teams</SelectItem>
           {props.value && !selected && (
             <SelectItem value={props.value} disabled>
