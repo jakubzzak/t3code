@@ -480,6 +480,33 @@ it("focuses search on opening despite the leading team selector", async () => {
   );
 });
 
+it("refreshes priority and status icons from Linear, muting urgent issues when completed", async () => {
+  const urgentIssue = {
+    ...issue,
+    priority: 1 as const,
+    state: { name: "Testing", color: "#4cb782", type: "started", progress: 0.75 },
+  };
+  request.mockResolvedValueOnce({ configured: true, connection: null, issues: [urgentIssue] });
+  await render();
+  await click("Linear issue");
+  const icon = (label: string) =>
+    button("Fix login").querySelector<SVGElement>(`[aria-label="${label}"]`)!;
+  expect(icon("Priority: Urgent").style.color).toBe("rgb(255, 107, 38)");
+  expect(icon("Status: Testing").style.color).toBe("rgb(76, 183, 130)");
+
+  const completedIssue = {
+    ...urgentIssue,
+    state: { name: "Done", color: "#6568d8", type: "completed", progress: 0 },
+  };
+  request.mockResolvedValueOnce({ configured: true, connection: null, issues: [completedIssue] });
+  await click("All issues");
+  expect(icon("Priority: Urgent").style.color).toBe("rgb(153, 154, 156)");
+  expect(icon("Status: Done").style.color).toBe("rgb(101, 104, 216)");
+  expect(icon("Status: Testing")).toBeNull();
+  await click("Fix login");
+  expect(select.mock.calls.at(-1)?.[0]).toEqual(completedIssue);
+});
+
 const pressArrow = (key: "ArrowDown" | "ArrowUp") =>
   act(async () => {
     document.activeElement?.dispatchEvent(

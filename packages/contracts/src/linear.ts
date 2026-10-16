@@ -8,6 +8,16 @@ export const LinearIssue = Schema.Struct({
   url: TrimmedNonEmptyString,
   workspace: TrimmedNonEmptyString,
   branchName: TrimmedNonEmptyString,
+  // Older linked issues and desktop clients do not carry display metadata.
+  priority: Schema.optional(Schema.Literals([0, 1, 2, 3, 4])),
+  state: Schema.optional(
+    Schema.Struct({
+      name: Schema.String,
+      color: Schema.String,
+      type: Schema.String,
+      progress: Schema.Number,
+    }),
+  ),
 });
 export type LinearIssue = typeof LinearIssue.Type;
 

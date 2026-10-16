@@ -2,6 +2,15 @@ import type { LinearDesktopRequest } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { createLinearConnection, type LinearConnectionDependencies } from "./linearConnection.ts";
 
+const issueState = {
+  name: "Testing",
+  color: "#4cb782",
+  type: "started",
+  position: 8.5,
+  team: { states: { nodes: [{ position: 8.5 }, { position: -1 }, { position: 2 }] } },
+};
+const displayState = { name: "Testing", color: "#4cb782", type: "started", progress: 0.75 };
+
 function fixture() {
   let saved: string | null = null;
   const calls: { url: string; body: string }[] = [];
@@ -142,6 +151,8 @@ describe("Linear connection", () => {
                 title: "One",
                 url: "https://linear.app/acme/issue/ENG-1",
                 branchName: "eng-1-one",
+                priority: 1,
+                state: issueState,
               },
             ],
             pageInfo: { hasNextPage: true, endCursor: "next" },
@@ -158,8 +169,18 @@ describe("Linear connection", () => {
     expect(f.saved()).toContain("rotated-refresh");
     expect(results[0]).toMatchObject({
       nextCursor: "next",
-      issues: [{ identifier: "ENG-1", workspace: "acme", branchName: "eng-1-one" }],
+      issues: [
+        {
+          identifier: "ENG-1",
+          workspace: "acme",
+          branchName: "eng-1-one",
+          priority: 1,
+          state: displayState,
+        },
+      ],
     });
+    expect(JSON.parse(f.calls.at(-1)!.body).query).toContain("priority");
+    expect(JSON.parse(f.calls.at(-1)!.body).query).toContain("state { name color type position");
   });
   it("keeps project bindings separate and removes only the disconnected binding", async () => {
     const f = fixture();
@@ -224,10 +245,12 @@ it("verifies an exact created issue and rejects a mismatched workspace", async (
     title: "Created",
     url: "https://linear.app/acme/issue/ENG-1",
     branchName: "eng-1-created",
+    priority: 2,
+    state: issueState,
   };
   f.setIssues({ data: { issue, organization: { urlKey: "acme" } } });
   const result = await f.client.request({ ...input, operation: "issue", issueId: issue.id });
-  expect(result.issues).toEqual([{ ...issue, workspace: "acme" }]);
+  expect(result.issues).toEqual([{ ...issue, workspace: "acme", state: displayState }]);
   expect(JSON.parse(f.calls.at(-1)!.body).variables).toEqual({ id: issue.id });
   f.setIssues({ data: { issue, organization: { urlKey: "other" } } });
   await expect(
@@ -248,7 +271,16 @@ for (const [view, filter] of [
     const f = fixture();
     const binding = { workspace: "acme", connectionKey: "env/project" };
     await f.client.request({ ...binding, operation: "connect" });
-    const page = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "next" } };
+    const issue = {
+      id: "i",
+      identifier: "ENG-1",
+      title: "One",
+      url: "https://linear.app/acme/issue/ENG-1",
+      branchName: "eng-1-one",
+      priority: 0,
+      state: issueState,
+    };
+    const page = { nodes: [issue], pageInfo: { hasNextPage: true, endCursor: "next" } };
     for (const [term, teamId] of [
       ["", undefined],
       ["login", undefined],
@@ -273,11 +305,46 @@ for (const [view, filter] of [
       });
       expect(sent.query).toContain("orderBy: updatedAt");
       expect(sent.query).toContain("filter: $filter");
+      expect(sent.query).toContain("priority");
+      expect(sent.query).toContain("state { name color type position");
       expect(result.nextCursor).toBe("next");
-      expect(result.issues).toEqual([]);
+      expect(result.issues).toEqual([{ ...issue, workspace: "acme", state: displayState }]);
     }
   });
 }
+
+it.each([
+  { type: "started", position: -1, progress: 0.25 },
+  { type: "started", position: 2, progress: 0.5 },
+  { type: "started", position: 8.5, progress: 0.75 },
+  { type: "completed", position: 10, progress: 0 },
+])(
+  "normalizes $type status at position $position without forwarding the team's workflow",
+  async ({ type, position, progress }) => {
+    const f = fixture();
+    const binding = { workspace: "acme", connectionKey: "env/project" };
+    await f.client.request({ ...binding, operation: "connect" });
+    const issue = {
+      id: "i",
+      identifier: "ENG-1",
+      title: "One",
+      url: "https://linear.app/acme/issue/ENG-1",
+      branchName: "eng-1-one",
+      priority: 1,
+      state: { ...issueState, type, position },
+    };
+    f.setIssues({
+      data: { issues: { nodes: [issue], pageInfo: { hasNextPage: false, endCursor: null } } },
+    });
+    const result = await f.client.request({ ...binding, operation: "issues", view: "all" });
+    expect(result.issues?.[0]?.state).toEqual({
+      name: issueState.name,
+      color: issueState.color,
+      type,
+      progress,
+    });
+  },
+);
 
 it("loads accessible team pages without exposing credentials", async () => {
   const f = fixture();

@@ -20,6 +20,7 @@ import {
 } from "./linearCreation";
 import { LinearTeamSelect, useLinearTeamFilters } from "./LinearTeamSelect";
 import { LinearIcon } from "./LinearIcon";
+import { LinearIssueIcons } from "./LinearIssueIcons";
 import {
   type KeyboardEvent,
   useCallback,
@@ -386,9 +387,10 @@ export function LinearIssuePicker(props: Props) {
                     key={issue.id}
                     type="button"
                     disabled={props.running || busy || query !== debouncedQuery}
-                    className="flex w-full gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
                     onClick={() => void select(issue)}
                   >
+                    <LinearIssueIcons issue={issue} />
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {issue.identifier}
                     </span>

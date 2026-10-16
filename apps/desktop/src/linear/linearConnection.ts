@@ -36,16 +36,25 @@ const Identity = Schema.Struct({
     organization: Schema.Struct({ urlKey: Schema.String }),
   }),
 });
-const IssuePage = Schema.Struct({
-  nodes: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      identifier: Schema.String,
-      title: Schema.String,
-      url: Schema.String,
-      branchName: Schema.String,
+const ApiIssue = Schema.Struct({
+  id: Schema.String,
+  identifier: Schema.String,
+  title: Schema.String,
+  url: Schema.String,
+  branchName: Schema.String,
+  priority: Schema.Literals([0, 1, 2, 3, 4]),
+  state: Schema.Struct({
+    name: Schema.String,
+    color: Schema.String,
+    type: Schema.String,
+    position: Schema.Number,
+    team: Schema.Struct({
+      states: Schema.Struct({ nodes: Schema.Array(Schema.Struct({ position: Schema.Number })) }),
     }),
-  ),
+  }),
+});
+const IssuePage = Schema.Struct({
+  nodes: Schema.Array(ApiIssue),
   pageInfo: Schema.Struct({ hasNextPage: Schema.Boolean, endCursor: Schema.NullOr(Schema.String) }),
 });
 const Assigned = Schema.Struct({
@@ -53,7 +62,9 @@ const Assigned = Schema.Struct({
 });
 const Search = Schema.Struct({ data: Schema.Struct({ searchIssues: IssuePage }) });
 const Issues = Schema.Struct({ data: Schema.Struct({ issues: IssuePage }) });
-const fields = "nodes { id identifier title url branchName } pageInfo { hasNextPage endCursor }";
+const issueFields = `id identifier title url branchName priority
+  state { name color type position team { states(filter: { type: { eq: "started" } }) { nodes { position } } } }`;
+const fields = `nodes { ${issueFields} } pageInfo { hasNextPage endCursor }`;
 
 const decodeCredentials = Schema.decodeUnknownSync(Credentials);
 const decodeToken = Schema.decodeUnknownSync(Token);
@@ -78,18 +89,28 @@ const decodeTeams = Schema.decodeUnknownSync(
 const decodeCreatedIssue = Schema.decodeUnknownSync(
   Schema.Struct({
     data: Schema.Struct({
-      issue: Schema.Struct({
-        id: Schema.String,
-        identifier: Schema.String,
-        title: Schema.String,
-        url: Schema.String,
-        branchName: Schema.String,
-      }),
+      issue: ApiIssue,
       organization: Schema.Struct({ urlKey: Schema.String }),
     }),
   }),
 );
 const decodeIssue = Schema.decodeUnknownSync(LinearIssue);
+
+function toLinearIssue(issue: typeof ApiIssue.Type, workspace: string): LinearIssue {
+  const { state, ...fields } = issue;
+  // The pie advances with the state's order within its team's started statuses.
+  const started = state.team.states.nodes;
+  const progress =
+    state.type === "started"
+      ? (started.filter((other) => other.position < state.position).length + 1) /
+        (started.length + 1)
+      : 0;
+  return decodeIssue({
+    ...fields,
+    workspace,
+    state: { name: state.name, color: state.color, type: state.type, progress },
+  });
+}
 
 /** Tokens never cross IPC. The adapter encrypts this document before persisting it. */
 export function createLinearConnection(dependencies: LinearConnectionDependencies) {
@@ -268,7 +289,7 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
       if (!input.issueId) throw new Error("Choose a Linear issue to load.");
       const response = await graphql(
         credential.accessToken,
-        "query CreatedIssue($id: String!) { issue(id: $id) { id identifier title url branchName } organization { urlKey } }",
+        `query CreatedIssue($id: String!) { issue(id: $id) { ${issueFields} } organization { urlKey } }`,
         { id: input.issueId },
       );
       try {
@@ -283,12 +304,7 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
           throw new Error("Wrong workspace URL");
         return {
           ...result(),
-          issues: [
-            decodeIssue({
-              ...decoded.data.issue,
-              workspace: input.workspace,
-            }),
-          ],
+          issues: [toLinearIssue(decoded.data.issue, input.workspace)],
         };
       } catch {
         throw new Error(
@@ -329,7 +345,7 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
           : decodeAssigned(data).data.viewer.assignedIssues;
       return {
         ...result(),
-        issues: page.nodes.map((issue) => ({ ...issue, workspace: input.workspace })),
+        issues: page.nodes.map((issue) => toLinearIssue(issue, input.workspace)),
         nextCursor: page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null,
       };
     } catch {
