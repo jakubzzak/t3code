@@ -11,7 +11,7 @@ let container: HTMLDivElement;
 let cleanup: () => void;
 const initial: RightPanelSurface[] = [
   { id: "files", kind: "files" },
-  { id: "agents", kind: "agents" },
+  { id: "pull-requests", kind: "pull-requests" },
 ];
 const noop = () => {};
 Element.prototype.getAnimations ??= () => [];
@@ -41,6 +41,15 @@ function Harness({ empty = false, list = false, linear = false } = {}) {
     <aside data-navigation-section="surfaces">
       <RightPanelTabs
         mode="inline"
+        keybindings={[]}
+        getShortcutContext={() => ({
+          terminalFocus: false,
+          terminalOpen: false,
+          previewFocus: false,
+          previewOpen: false,
+          isWeb: true,
+          isDesktop: false,
+        })}
         surfaces={surfaces}
         activeSurfaceId={active?.id ?? null}
         environmentId={null}
@@ -72,20 +81,19 @@ function Harness({ empty = false, list = false, linear = false } = {}) {
         onAddBrowserInProfile={addBrowser}
         onAddTerminal={addTerminal}
         onAddFiles={() => setActive(initial[0]!)}
-        onAddAgents={() => setActive(initial[1]!)}
         onAddDiff={noop}
+        onAddPullRequests={() => undefined}
         onAddPullRequest={noop}
         onAddLinear={noop}
         onAddDevice={noop}
         browserAvailable
         terminalAvailable
         filesAvailable
-        agentsAvailable
         diffAvailable={false}
+        pullRequestsAvailable={false}
         pullRequestAvailable={false}
         linearAvailable={false}
         deviceAvailable={false}
-        liveAgentCount={0}
       >
         <div key={active?.id}>
           <p data-current-view>{active?.kind}</p>
@@ -141,27 +149,27 @@ afterEach(async () => {
 });
 
 it("keeps the active view on entry, switches only with Option arrows, and clamps both ends", async () => {
-  expect(view()).toBe("agents");
+  expect(view()).toBe("pull-requests");
   expect(selected()).toBe("surfaces");
   expect(document.activeElement).toBe(document.body);
   await press("ArrowLeft");
-  expect(view()).toBe("agents");
+  expect(view()).toBe("pull-requests");
   await press("ArrowLeft", { altKey: true });
   expect(view()).toBe("files");
   await press("ArrowLeft", { altKey: true });
   expect(view()).toBe("files");
   await press("ArrowRight", { altKey: true });
   await press("ArrowRight", { altKey: true });
-  expect(view()).toBe("agents");
+  expect(view()).toBe("pull-requests");
   expect(document.activeElement).toBe(document.body);
 });
 
 it("enters the first input with Tab and leaves input shortcuts alone", async () => {
   await press("Tab");
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("agents input");
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("pull-requests input");
   await press("ArrowLeft", { altKey: true });
   await press("t", { metaKey: true, shiftKey: true });
-  expect(view()).toBe("agents");
+  expect(view()).toBe("pull-requests");
   expect(document.querySelectorAll("[data-active-tab]")).toHaveLength(2);
   await press("Escape");
   await press("Escape");
@@ -185,7 +193,7 @@ it("opens the plus menu by keyboard and returns to panel navigation on cancel", 
   expect(document.querySelector('[role="menu"]')).not.toBeNull();
   await press("Escape");
   expect(selected()).toBe("surfaces");
-  expect(view()).toBe("agents");
+  expect(view()).toBe("pull-requests");
   expect(document.activeElement).toBe(document.body);
 });
 

@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { act, cloneElement, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import * as Cause from "effect/Cause";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
@@ -16,7 +16,7 @@ const { openPreview, closePreview } = vi.hoisted(() => ({
   closePreview: vi.fn(),
 }));
 vi.mock("~/connection/catalog", async () => {
-  const { Atom, AsyncResult } = await import("effect/unstable/reactivity");
+  const { Atom, AsyncResult } = await import("effect/reactivity");
   const connection = Atom.make(AsyncResult.success({ phase: "connected" }));
   return { environmentCatalog: { stateAtom: () => connection } };
 });

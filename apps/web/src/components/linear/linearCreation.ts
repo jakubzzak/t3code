@@ -1,4 +1,4 @@
-import { randomHex } from "~/lib/utils";
+import { randomUUID } from "~/lib/utils";
 import type { LinearIssue, LinearIssueSetupResult } from "@t3tools/contracts";
 import { create } from "zustand";
 import { installLinearCreationGuest } from "~/browser/linearCreationGuest";
@@ -96,7 +96,7 @@ export async function beginLinearCreation(input: {
   };
   put(input.key, entry);
   let tabId: string | undefined;
-  const token = randomHex(16);
+  const token = randomUUID();
   try {
     tabId = await input.open();
     const runtimeTabId = tabId;

@@ -10,20 +10,21 @@ import { it } from "@effect/vitest";
 import type { DesktopAppActivationRequest } from "@t3tools/contracts";
 import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
 import {
-  HostProcessPlatform,
-  HostProcessUserId,
-  HostProcessWorkingDirectory,
-} from "@t3tools/shared/hostProcess";
+  HomeDirectory as HostProcessHomeDirectory,
+  Platform as HostProcessPlatform,
+  UserId as HostProcessUserId,
+  WorkingDirectory as HostProcessWorkingDirectory,
+} from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { DesktopLauncherRegistration } from "@t3tools/contracts";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { afterEach, describe, expect, vi } from "vite-plus/test";
 
-import { makeCli } from "../bin.ts";
+import { makeCli } from "../binCli.ts";
 
 vi.mock("node:child_process", { spy: true });
 
@@ -40,7 +41,7 @@ const encodeRegistration = Schema.encodeSync(Schema.fromJsonString(DesktopLaunch
 
 vi.mock("./server.ts", async (importOriginal) => {
   const server = await importOriginal<typeof import("./server.ts")>();
-  return { ...server, runServerCommand: () => Effect.fail(new UnexpectedServerStartup({})) };
+  return { ...server, runDefaultServerCommand: () => Effect.fail(new UnexpectedServerStartup({})) };
 });
 
 afterEach(() => {
@@ -50,6 +51,7 @@ afterEach(() => {
 
 const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
   Command.runWith(makeCli(), { version: "0.0.0" })(args).pipe(
+    Effect.provideService(HostProcessHomeDirectory, NodeOS.homedir()),
     Effect.provide(
       Layer.mergeAll(
         NodeServices.layer,
@@ -404,8 +406,9 @@ describe("t3 app", () => {
     ),
   );
 
-  for (const responseKind of ["failure", "invalid"] as const) {
-    it.effect(`never falls back after the default desktop sends a ${responseKind} response`, () =>
+  it.effect.each(["failure", "invalid"] as const)(
+    "never falls back after the default desktop sends a %s response",
+    (responseKind) =>
       withTempDirectory("t3-app-response-test-", (root) =>
         Effect.gen(function* () {
           vi.mocked(NodeOS.homedir).mockReturnValue(root);
@@ -450,6 +453,5 @@ describe("t3 app", () => {
           }
         }).pipe(Effect.scoped),
       ),
-    );
-  }
+  );
 });

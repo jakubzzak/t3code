@@ -299,7 +299,7 @@ export function LinearIssuePicker(props: Props) {
     conflict?.result.conflicts.some((item) => {
       const live = threads.find((thread) => thread.id === item.threadId);
       return live
-        ? live.session?.status === "starting" || live.session?.status === "running"
+        ? live.runtime?.status === "starting" || live.runtime?.status === "running"
         : item.running;
     }) ?? false;
   const creationDisabledReason = props.running

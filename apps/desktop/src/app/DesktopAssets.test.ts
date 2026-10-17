@@ -11,7 +11,7 @@ import * as DesktopAssets from "./DesktopAssets.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
-const environmentLayer = DesktopEnvironment.layer({
+const layerEnvironment = DesktopEnvironment.layer({
   dirname: "/repo/apps/desktop/dist-electron",
   homeDirectory: "/Users/alice",
   platform: "darwin",
@@ -28,10 +28,11 @@ const environmentLayer = DesktopEnvironment.layer({
 );
 
 describe("DesktopAssets", () => {
-  for (const platform of ["darwin", "linux"] as const) {
-    it.effect(`uses the ${platform} source-tree icon for unpackaged development`, () =>
+  it.effect.each(["darwin", "linux"] as const)(
+    "uses the %s source-tree icon for unpackaged development",
+    (platform) =>
       Effect.gen(function* () {
-        const developmentEnvironmentLayer = DesktopEnvironment.layer({
+        const layerDevelopmentEnvironment = DesktopEnvironment.layer({
           dirname: "/repo/apps/desktop/dist-electron",
           homeDirectory: "/Users/alice",
           platform,
@@ -50,13 +51,13 @@ describe("DesktopAssets", () => {
             ),
           ),
         );
-        const fileSystemLayer = FileSystem.layerNoop({
+        const layerFileSystem = FileSystem.layerNoop({
           exists: (path) => Effect.succeed(String(path).includes("/assets/blackbird")),
         });
         const assets = yield* DesktopAssets.DesktopAssets.pipe(
           Effect.provide(
             DesktopAssets.layer.pipe(
-              Layer.provide(Layer.merge(fileSystemLayer, developmentEnvironmentLayer)),
+              Layer.provide(Layer.merge(layerFileSystem, layerDevelopmentEnvironment)),
             ),
           ),
         );
@@ -72,8 +73,7 @@ describe("DesktopAssets", () => {
         );
         assert.isTrue(Option.isNone(icons.icns));
       }),
-    );
-  }
+  );
 
   it.effect("preserves the failed asset candidate and filesystem cause", () =>
     Effect.gen(function* () {
@@ -86,13 +86,13 @@ describe("DesktopAssets", () => {
         pathOrDescriptor: candidatePath,
         description: "private filesystem diagnostic",
       });
-      const fileSystemLayer = FileSystem.layerNoop({
+      const layerFileSystem = FileSystem.layerNoop({
         exists: (path) => (path === candidatePath ? Effect.fail(cause) : Effect.succeed(false)),
       });
-      const assetsLayer = DesktopAssets.layer.pipe(
-        Layer.provide(Layer.merge(fileSystemLayer, environmentLayer)),
+      const layerAssets = DesktopAssets.layer.pipe(
+        Layer.provide(Layer.merge(layerFileSystem, layerEnvironment)),
       );
-      const assets = yield* DesktopAssets.DesktopAssets.pipe(Effect.provide(assetsLayer));
+      const assets = yield* DesktopAssets.DesktopAssets.pipe(Effect.provide(layerAssets));
 
       const error = yield* assets.resolveResourcePath(fileName).pipe(Effect.flip);
 

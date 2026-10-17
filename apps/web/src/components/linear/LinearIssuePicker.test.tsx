@@ -66,7 +66,7 @@ vi.mock("../preview/previewBridge", () => ({
 }));
 vi.mock("~/state/entities", () => ({
   useThreadShellsForProjectRefs: () => [
-    { id: "previous", session: { status: state.running ? "running" : "idle" } },
+    { id: "previous", runtime: { status: state.running ? "running" : "idle" } },
   ],
 }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
