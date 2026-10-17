@@ -172,7 +172,9 @@ on web and mobile. Disconnecting Linear or turning off the feature preserves exi
 New worktrees go in the `worktrees` folder of the T3 home directory. To put them somewhere else,
 such as another drive, set **Settings → Storage → Worktree location** to an absolute path like
 `D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
-are, and cleanup covers both the default folder and the custom one.
+are, and cleanup covers both the default folder and the custom one. Linear issue worktrees
+use this location too. To keep all projects' worktrees inside one checkout, choose a path such
+as `~/Developer/t3code/.worktrees` and ignore `/.worktrees/` in that checkout's `.gitignore`.
 
 ## Storage cleanup
 

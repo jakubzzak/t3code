@@ -75,14 +75,21 @@ const makeTestLayer = (
     Layer.provideMerge(ProjectStore.layer.pipe(Layer.provide(database))),
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provide(
-      Layer.mock(ServerSettingsService)({
-        getSettings: Effect.succeed({
-          ...DEFAULT_SERVER_SETTINGS,
-          linearWorkspace: "acme",
-          worktreeSubmodules: "recursive",
-          projectSettingsOverrides: { "linear-project": { worktreeSubmodules: "none" } },
+      Layer.unwrap(
+        Effect.gen(function* () {
+          const config = yield* ServerConfig;
+          const path = yield* Path.Path;
+          return Layer.mock(ServerSettingsService)({
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              linearWorkspace: "acme",
+              worktreeSubmodules: "recursive",
+              worktreesDirectory: path.join(config.baseDir, ".worktrees"),
+              projectSettingsOverrides: { "linear-project": { worktreeSubmodules: "none" } },
+            }),
+          });
         }),
-      }),
+      ),
     ),
     Layer.provide(
       Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
@@ -186,6 +193,12 @@ it.layer(makeTestLayer())("Linear chat setup", (it) => {
           threadId: previousId,
         });
         expect(first.status).toBe("linked");
+        const config = yield* ServerConfig;
+        const path = yield* Path.Path;
+        const customRoot = path.join(config.baseDir, ".worktrees");
+        expect(first.worktreePath.startsWith((yield* fs.realPath(customRoot)) + path.sep)).toBe(
+          true,
+        );
         const conflict = yield* linear.select({
           ...input,
           commandId: CommandId.make("conflict"),
@@ -204,7 +217,6 @@ it.layer(makeTestLayer())("Linear chat setup", (it) => {
         });
         expect(takeover.status).toBe("linked");
         expect(takeover.worktreePath).toBe(first.worktreePath);
-        const path = yield* Path.Path;
         expect(yield* fs.readFileString(path.join(first.worktreePath, "setup-runs.txt"))).toBe(
           "setup\n",
         );
