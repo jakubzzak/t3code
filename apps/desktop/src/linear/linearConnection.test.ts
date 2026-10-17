@@ -193,8 +193,9 @@ describe("Linear connection", () => {
   });
   it("keeps project bindings separate and removes only the disconnected binding", async () => {
     const f = fixture();
-    for (const connectionKey of ["env/one", "env/two"])
+    for (const connectionKey of ["env/one", "env/two"]) {
       await f.client.request({ operation: "connect", workspace: "acme", connectionKey });
+    }
     await f.client.request({
       operation: "disconnect",
       workspace: "acme",
@@ -272,12 +273,13 @@ it("verifies an exact created issue and rejects a mismatched workspace", async (
   ).rejects.toThrow("could not be verified");
 });
 
-for (const [view, filter] of [
+it.each([
   ["assigned", { assignee: { id: { eq: "user-1" } } }],
   ["triage", { state: { type: { eq: "triage" } } }],
   ["all", {}],
-] as const) {
-  it(`filters ${view} issues on the API before pagination, with and without search`, async () => {
+] as const)(
+  "filters %s issues on the API before pagination, with and without search",
+  async (view, filter) => {
     const f = fixture();
     const binding = { workspace: "acme", connectionKey: "env/project" };
     await f.client.request({ ...binding, operation: "connect" });
@@ -321,8 +323,8 @@ for (const [view, filter] of [
       expect(result.nextCursor).toBe("next");
       expect(result.issues).toEqual([{ ...issue, workspace: "acme", state: displayState }]);
     }
-  });
-}
+  },
+);
 
 it.each([
   { type: "started", position: -1, progress: 0.25 },

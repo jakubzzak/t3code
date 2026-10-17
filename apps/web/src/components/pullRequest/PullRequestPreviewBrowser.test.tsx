@@ -5,12 +5,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
 vi.mock("~/connection/catalog", async () => {
-  const { Atom, AsyncResult } = await import("effect/unstable/reactivity");
+  const { Atom, AsyncResult } = await import("effect/reactivity");
   const connection = Atom.make(AsyncResult.success({ phase: "connected" }));
   return { environmentCatalog: { stateAtom: () => connection } };
 });
 vi.mock("~/state/preview", async () => {
-  const { AsyncResult } = await import("effect/unstable/reactivity");
+  const { AsyncResult } = await import("effect/reactivity");
   return {
     previewEnvironment: {
       open: vi.fn(async ({ input }: { input: PreviewOpenInput }) =>

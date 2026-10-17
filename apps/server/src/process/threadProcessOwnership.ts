@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Node crypto implements the adapter-specific hash and credential encoding.
 import * as NodeCrypto from "node:crypto";
 
 /** Stable across server restarts, isolated by the environment's data directory. */

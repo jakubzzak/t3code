@@ -1,24 +1,26 @@
-import type { EnvironmentId, OrchestrationMessage, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
 import { markdownCodeBlocks, type MarkdownCodeLanguageChange } from "@t3tools/shared/markdownCode";
 import { useCallback } from "react";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 
-export type EditableMarkdownMessage = Pick<
-  OrchestrationMessage,
-  "id" | "text" | "updatedAt" | "streaming"
->;
+export interface EditableMarkdownMessage {
+  readonly id: MessageId;
+  readonly text: string;
+  readonly updatedAt: string;
+  readonly streaming: boolean;
+}
 
 export function useMessageCodeLanguage(
-  message: EditableMarkdownMessage,
+  message: EditableMarkdownMessage | undefined,
   environmentId: EnvironmentId,
   threadId: ThreadId,
   markdown: string,
 ) {
   const save = useAtomCommand(threadEnvironment.setCodeLanguage, { reportFailure: false });
-  return useCallback(
+  const changeLanguage = useCallback(
     async (change: MarkdownCodeLanguageChange) => {
-      if (message.streaming) throw new Error("Message is still streaming.");
+      if (!message || message.streaming) throw new Error("Message is still streaming.");
       const displayed = markdownCodeBlocks(markdown);
       const original = markdownCodeBlocks(message.text);
       const index = displayed.findIndex((block) => block.start === change.blockStart);
@@ -47,4 +49,5 @@ export function useMessageCodeLanguage(
     },
     [message, environmentId, threadId, markdown, save],
   );
+  return message ? changeLanguage : undefined;
 }

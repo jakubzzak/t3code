@@ -31,12 +31,25 @@ const enqueueDesktopTabOperation = (
   return pending;
 };
 
+/**
+ * Runs a call against a desktop tab after the tab's create and earlier calls,
+ * so a setting sent while the tab is being created still lands on it.
+ */
+export function withDesktopTab(tabId: string, operation: () => Promise<void>): void {
+  void enqueueDesktopTabOperation(tabId, operation).catch(() => undefined);
+}
+
 export interface AcquiredDesktopTab {
   readonly ready: Promise<void>;
   readonly release: () => void;
 }
 
-export function acquireDesktopTab(tabId: string, surface?: "linear"): AcquiredDesktopTab {
+/** `serverTab` names the server tab this desktop tab renders, so the server can drive it. */
+export function acquireDesktopTab(
+  tabId: string,
+  serverTab?: { readonly threadId: string; readonly tabId: string },
+  surface?: "linear",
+): AcquiredDesktopTab {
   const current =
     leases.get(tabId) ??
     ({
@@ -48,6 +61,7 @@ export function acquireDesktopTab(tabId: string, surface?: "linear"): AcquiredDe
         previewBridge?.createTab(tabId, {
           ...browserDefaultTabState(await resolveBrowserDefaults()),
           ...(surface ? { surface } : {}),
+          ...(serverTab === undefined ? {} : { serverTab }),
         }),
       ),
     } satisfies DesktopTabLease);

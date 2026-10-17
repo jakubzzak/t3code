@@ -2,7 +2,10 @@
 import { type DesktopTerminalCommandState, DesktopLauncherRegistration } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
-import { HostProcessEnvironment, HostProcessExecutablePath } from "@t3tools/shared/hostProcess";
+import {
+  Environment as HostProcessEnvironment,
+  ExecutablePath as HostProcessExecutablePath,
+} from "@t3tools/shared/HostProcess";
 import * as Option from "effect/Option";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";

@@ -1,10 +1,11 @@
+import * as FileSystem from "effect/FileSystem";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 const decodeProbeRequest = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
@@ -19,12 +20,19 @@ const decodeProbeRequest = Schema.decodeUnknownEffect(
 export const makeProbeSpawner = Effect.fnUntraced(function* (
   skills: Effect.Effect<{ result: unknown } | { error: { code: number; message: string } }>,
 ) {
+  const fs = yield* FileSystem.FileSystem;
+  const codexHome = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-probe-" });
+  yield* fs.writeFileString(
+    `${codexHome}/models_cache.json`,
+    '{"fetched_at":"2099-01-01T00:00:00.000Z"}',
+  );
   const requested = yield* Deferred.make<void>();
   const closed = yield* Deferred.make<void>();
   const spawner = ChildProcessSpawner.make(() =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope;
       const output = yield* Queue.unbounded<Uint8Array>();
+      const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
       let pending = "";
@@ -42,7 +50,7 @@ export const makeProbeSpawner = Effect.fnUntraced(function* (
                   return Effect.succeed({
                     result: {
                       userAgent: "codex/0.162.1",
-                      codexHome: process.cwd(),
+                      codexHome,
                       platformFamily: "unix",
                       platformOs: "macos",
                     },
@@ -95,9 +103,9 @@ export const makeProbeSpawner = Effect.fnUntraced(function* (
       yield* Effect.addFinalizer(() => Deferred.succeed(closed, undefined));
       return ChildProcessSpawner.makeHandle({
         pid: ChildProcessSpawner.ProcessId(1),
-        exitCode: Effect.never,
+        exitCode: Deferred.await(exited),
         isRunning: Effect.succeed(true),
-        kill: () => Effect.void,
+        kill: () => Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0)).pipe(Effect.asVoid),
         unref: Effect.succeed(Effect.void),
         stdin,
         stdout: Stream.fromQueue(output),

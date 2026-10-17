@@ -15,11 +15,11 @@ import {
 } from "@t3tools/contracts";
 import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
 import {
-  HostProcessPlatform,
-  HostProcessEnvironment,
-  HostProcessUserId,
-  HostProcessWorkingDirectory,
-} from "@t3tools/shared/hostProcess";
+  Platform as HostProcessPlatform,
+  Environment as HostProcessEnvironment,
+  UserId as HostProcessUserId,
+  WorkingDirectory as HostProcessWorkingDirectory,
+} from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
