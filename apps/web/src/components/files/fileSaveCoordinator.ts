@@ -2,9 +2,11 @@ import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
 export interface FileSaveCoordinatorOptions<A, E> {
   readonly debounceMs: number;
+  readonly canPersist?: () => boolean;
   readonly persist: (contents: string) => Promise<AtomCommandResult<A, E>>;
   readonly onPendingChange: (pending: boolean) => void;
-  readonly onConfirmed: (contents: string) => void;
+  /** Return false when another editor has newer unsaved contents. */
+  readonly onConfirmed: (contents: string) => boolean | void;
 }
 
 export class FileSaveCoordinator<A = unknown, E = unknown> {
@@ -65,15 +67,25 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
       this.latestRevision === this.discardedRevision
     )
       return;
+    if (this.options.canPersist?.() === false) {
+      if (this.waiters.some((waiter) => waiter.revision === this.latestRevision)) {
+        this.discardedRevision = this.latestRevision;
+        this.options.onPendingChange(false);
+      }
+      for (const waiter of this.waiters) waiter.resolve(false);
+      this.waiters = [];
+      return;
+    }
 
     this.saving = true;
     const contents = this.latestContents;
     const revision = this.latestRevision;
     const result = await this.options.persist(contents);
     const succeeded = result._tag === "Success";
+    let confirmed = false;
     if (succeeded) {
       this.confirmedRevision = revision;
-      this.options.onConfirmed(contents);
+      confirmed = this.options.onConfirmed(contents) !== false;
     } else if (this.waiters.some((waiter) => waiter.revision === revision)) {
       // Awaited picker edits retain the saved UI on failure. Do not later flush
       // their rejected contents on close as if they were unsaved editor text.
@@ -87,7 +99,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     });
     this.saving = false;
     if (revision === this.latestRevision) {
-      if (succeeded || this.discardedRevision === revision) this.options.onPendingChange(false);
+      if (confirmed || this.discardedRevision === revision) this.options.onPendingChange(false);
       return;
     }
 

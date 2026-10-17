@@ -27,9 +27,7 @@ function fixture() {
   }
   const automation = {
     status: vi.fn(),
-    snapshot: vi.fn(),
     press: vi.fn(),
-    scroll: vi.fn(),
     waitFor: vi.fn(async () => {}),
     evaluate: vi.fn(
       async (_tab: string, input: { expression: string }) =>
@@ -40,8 +38,6 @@ function fixture() {
           Event,
         }) as unknown,
     ),
-    click: vi.fn(),
-    type: vi.fn(),
   } satisfies DesktopPreviewBridge["automation"];
   const input = dom.window.document.querySelector("input")!;
   return { dom, input, automation, clicked, assist: createLinearLoginAssist(automation, "tab") };

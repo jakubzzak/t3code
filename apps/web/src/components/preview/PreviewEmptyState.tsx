@@ -48,7 +48,10 @@ export function PreviewEmptyState({
   }
 
   return (
-    <div className="flex h-full min-h-0 overflow-y-auto px-5 py-8" data-preview-start-list>
+    <div
+      className="scrollbar-gutter-both flex h-full min-h-0 overflow-y-auto px-5 py-8"
+      data-preview-start-list
+    >
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         {recents.length > 0 ? (
           <div className="flex flex-col gap-3">

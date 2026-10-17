@@ -76,6 +76,7 @@ export async function openLinearSurface<E>(input: {
     threadRef: input.threadRef,
     openPreview: input.openPreview,
     surface: "linear",
+    runtime: "desktop",
     viewport: FILL_PREVIEW_VIEWPORT,
     ...(url ? { url } : {}),
   });

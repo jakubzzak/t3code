@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Node crypto implements the adapter-specific hash and credential encoding.
 import * as Clock from "effect/Clock";
 import * as NodeCrypto from "node:crypto";
 import { LinearDesktopRequest, LinearDesktopResult } from "@t3tools/contracts";
