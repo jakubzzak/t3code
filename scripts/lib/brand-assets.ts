@@ -1,3 +1,13 @@
+// Blackbird uses the same artwork in every desktop and web release channel.
+export const BLACKBIRD_ASSET_PATHS = {
+  iconPng: "assets/blackbird-icon.png",
+  macIconPng: "assets/blackbird/macos-1024.png",
+  faviconIco: "assets/blackbird/favicon.ico",
+  favicon16Png: "assets/blackbird/favicon-16x16.png",
+  favicon32Png: "assets/blackbird/favicon-32x32.png",
+  appleTouchIconPng: "assets/blackbird-icon.png",
+} as const;
+
 export const BRAND_ASSET_PATHS = {
   developmentIconComposerProject: "assets/dev/app-icon.icon",
   developmentIosIconPng: "assets/dev/blueprint-ios-1024.png",
@@ -57,32 +67,11 @@ const WEB_ICON_TARGET_FILENAMES = {
   appleTouchIconPng: "apple-touch-icon.png",
 } as const;
 
-const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
-  development: {
-    faviconIco: BRAND_ASSET_PATHS.developmentWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.developmentWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.developmentWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.developmentWebAppleTouchIconPng,
-  },
-  nightly: {
-    faviconIco: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.nightlyWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.nightlyWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.nightlyWebAppleTouchIconPng,
-  },
-  production: {
-    faviconIco: BRAND_ASSET_PATHS.productionWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.productionWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.productionWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
-  },
-} as const satisfies Record<WebAssetBrand, Record<keyof typeof WEB_ICON_TARGET_FILENAMES, string>>;
-
 export function resolveWebIconOverrides(
-  brand: WebAssetBrand,
+  _brand: WebAssetBrand,
   targetDirectory: string,
 ): ReadonlyArray<IconOverride> {
-  const sourcePaths = WEB_ICON_SOURCE_PATHS_BY_BRAND[brand];
+  const sourcePaths = BLACKBIRD_ASSET_PATHS;
   return [
     {
       sourceRelativePath: sourcePaths.faviconIco,
