@@ -28,44 +28,51 @@ const layerEnvironment = DesktopEnvironment.layer({
 );
 
 describe("DesktopAssets", () => {
-  it.effect("uses canonical source-tree icons for unpackaged development", () =>
-    Effect.gen(function* () {
-      const layerDevelopmentEnvironment = DesktopEnvironment.layer({
-        dirname: "/repo/apps/desktop/dist-electron",
-        homeDirectory: "/Users/alice",
-        platform: "linux",
-        processArch: "x64",
-        appVersion: "1.2.3",
-        appPath: "/repo",
-        isPackaged: false,
-        resourcesPath: "/repo/apps/desktop/resources",
-        runningUnderArm64Translation: false,
-      }).pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            NodeServices.layer,
-            NodePath.layerPosix,
-            DesktopConfig.layerTest({ VITE_DEV_SERVER_URL: "http://localhost:5733" }),
+  it.effect.each(["darwin", "linux"] as const)(
+    "uses the %s source-tree icon for unpackaged development",
+    (platform) =>
+      Effect.gen(function* () {
+        const layerDevelopmentEnvironment = DesktopEnvironment.layer({
+          dirname: "/repo/apps/desktop/dist-electron",
+          homeDirectory: "/Users/alice",
+          platform,
+          processArch: "x64",
+          appVersion: "1.2.3",
+          appPath: "/repo",
+          isPackaged: false,
+          resourcesPath: "/repo/apps/desktop/resources",
+          runningUnderArm64Translation: false,
+        }).pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              NodeServices.layer,
+              NodePath.layerPosix,
+              DesktopConfig.layerTest({ VITE_DEV_SERVER_URL: "http://localhost:5733" }),
+            ),
           ),
-        ),
-      );
-      const layerFileSystem = FileSystem.layerNoop({
-        exists: (path) => Effect.succeed(String(path).includes("/assets/dev/")),
-      });
-      const assets = yield* DesktopAssets.DesktopAssets.pipe(
-        Effect.provide(
-          DesktopAssets.layer.pipe(
-            Layer.provide(Layer.merge(layerFileSystem, layerDevelopmentEnvironment)),
+        );
+        const layerFileSystem = FileSystem.layerNoop({
+          exists: (path) => Effect.succeed(String(path).includes("/assets/blackbird")),
+        });
+        const assets = yield* DesktopAssets.DesktopAssets.pipe(
+          Effect.provide(
+            DesktopAssets.layer.pipe(
+              Layer.provide(Layer.merge(layerFileSystem, layerDevelopmentEnvironment)),
+            ),
           ),
-        ),
-      );
+        );
 
-      const icons = yield* assets.iconPaths;
+        const icons = yield* assets.iconPaths;
 
-      assert.match(Option.getOrThrow(icons.ico), /assets\/dev\/blueprint-windows\.ico$/);
-      assert.match(Option.getOrThrow(icons.png), /assets\/dev\/blueprint-universal-1024\.png$/);
-      assert.isTrue(Option.isNone(icons.icns));
-    }),
+        assert.match(Option.getOrThrow(icons.ico), /assets\/blackbird\/favicon\.ico$/);
+        assert.equal(
+          Option.getOrThrow(icons.png),
+          platform === "darwin"
+            ? "/repo/assets/blackbird/macos-1024.png"
+            : "/repo/assets/blackbird-icon.png",
+        );
+        assert.isTrue(Option.isNone(icons.icns));
+      }),
   );
 
   it.effect("preserves the failed asset candidate and filesystem cause", () =>
