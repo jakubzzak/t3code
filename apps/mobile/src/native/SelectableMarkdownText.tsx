@@ -61,6 +61,11 @@ export function SelectableMarkdownText(props: SelectableMarkdownTextProps) {
     ],
   );
   const [selected, setSelected] = useState<number | null>(null);
+  const [candidates, setCandidates] = useState<readonly number[]>([]);
+  const closeCode = () => {
+    setSelected(null);
+    setCandidates([]);
+  };
   const selectedBlock = selected === null ? undefined : nestedBlocks[selected];
   return (
     <>
@@ -73,26 +78,52 @@ export function SelectableMarkdownText(props: SelectableMarkdownTextProps) {
           const matches = nestedBlocks
             .map((value, index) => ({ value, index }))
             .filter(({ value }) => value.code === block.code && value.language === block.language);
-          // An identical nested block cannot be identified by the native press event.
+          // Native press events omit source positions; let the user choose an occurrence.
+          setCandidates([]);
           if (matches.length === 1) setSelected(matches[0]!.index);
+          else if (matches.length > 1) setCandidates(matches.map(({ index }) => index));
           else props.onCodeBlockPress?.(block);
         }}
       />
       <Modal
-        visible={selectedBlock !== undefined}
+        visible={selectedBlock !== undefined || candidates.length > 0}
         transparent
         animationType="slide"
-        onRequestClose={() => setSelected(null)}
+        onRequestClose={closeCode}
       >
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "#0008" }}>
           <Pressable
             accessibilityLabel="Close code block"
             style={{ flex: 1 }}
-            onPress={() => setSelected(null)}
+            onPress={closeCode}
           />
           <ScrollView
             style={{ maxHeight: "80%", backgroundColor: textStyle.codeBlockBackgroundColor }}
           >
+            {candidates.length > 0 && (
+              <View style={{ padding: 16, gap: 12 }}>
+                <Text style={{ color: textStyle.color }}>
+                  Choose which matching code block to edit
+                </Text>
+                {candidates.map((index) => {
+                  const block = nestedBlocks[index]!;
+                  const line = props.markdown.slice(0, block.start).split("\n").length;
+                  return (
+                    <Pressable
+                      key={block.start}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setSelected(index);
+                        setCandidates([]);
+                      }}
+                      style={{ paddingVertical: 12 }}
+                    >
+                      <Text style={{ color: textStyle.linkColor }}>Code block on line {line}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
             {selectedBlock && (
               <MarkdownCodeBlock
                 key={`${selected}:${selectedBlock.language}`}
@@ -103,11 +134,7 @@ export function SelectableMarkdownText(props: SelectableMarkdownTextProps) {
                 renderDiagram={props.renderDiagram}
               />
             )}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSelected(null)}
-              style={{ padding: 16 }}
-            >
+            <Pressable accessibilityRole="button" onPress={closeCode} style={{ padding: 16 }}>
               <Text style={{ color: textStyle.linkColor }}>Close</Text>
             </Pressable>
           </ScrollView>
