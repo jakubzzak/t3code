@@ -55,6 +55,32 @@ it.layer(TestLayer)("Linear worktrees", (it) => {
         const again = yield* prepareLinearWorktree(input);
         expect(again).toEqual({ path: first.path, created: false });
         expect(yield* fs.readFileString(path.join(first.path, "unfinished.txt"))).toBe("keep me");
+        const customRoot = yield* fs.makeTempDirectoryScoped();
+        // Changing the location must not migrate or recreate an existing checkout.
+        for (const worktreesDirectory of [customRoot, "relative/invalid"]) {
+          expect(yield* prepareLinearWorktree({ ...input, worktreesDirectory })).toEqual(again);
+          expect(yield* fs.readFileString(path.join(first.path, "unfinished.txt"))).toBe("keep me");
+        }
+        const created = yield* prepareLinearWorktree({
+          ...input,
+          branchName: "team/eng-124-new-location",
+          worktreesDirectory: customRoot,
+        });
+        expect(created.created).toBe(true);
+        expect(created.path).toBe(
+          path.join(
+            yield* fs.realPath(customRoot),
+            `${path.basename(cwd)}-${input.projectId}`,
+            "team%2Feng-124-new-location",
+          ),
+        );
+        expect(
+          (yield* git.execute({
+            cwd: created.path,
+            args: ["branch", "--show-current"],
+            operation: "test",
+          })).stdout.trim(),
+        ).toBe("team/eng-124-new-location");
       }),
   );
   it.effect("discovers uncached GitHub branches and rejects ambiguous or unavailable remotes", () =>
@@ -205,6 +231,20 @@ it.layer(TestLayer)("Linear worktrees", (it) => {
         };
         const invalid = yield* prepareLinearWorktree(input).pipe(Effect.flip);
         expect(invalid.message).toContain("suggested branch name");
+        for (const worktreesDirectory of ["relative/worktrees", path.parse(cwd).root]) {
+          const invalidLocation = yield* prepareLinearWorktree({
+            ...input,
+            branchName: "eng-invalid-location",
+            worktreesDirectory,
+          }).pipe(Effect.flip);
+          expect(invalidLocation.message).toContain("Settings → Storage");
+          expect(
+            (yield* run(
+              ["show-ref", "--verify", "--quiet", "refs/heads/eng-invalid-location"],
+              true,
+            )).exitCode,
+          ).toBe(1);
+        }
         const collision = path.join(
           config.worktreesDir,
           `${path.basename(cwd)}-collision-test`,

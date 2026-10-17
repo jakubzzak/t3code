@@ -3,8 +3,10 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { GitVcsDriver, type CreateWorktreeOptions } from "../vcs/GitVcsDriver.ts";
 import { ServerConfig } from "../config.ts";
+import { resolveWorktreesDirectory } from "../worktreesDirectory.ts";
 
 export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(function* (input: {
   cwd: string;
@@ -12,6 +14,7 @@ export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(functio
   branchName: string;
   baseRef: string;
   submodules?: CreateWorktreeOptions["submodules"];
+  worktreesDirectory?: string;
 }) {
   const git = yield* GitVcsDriver;
   const fs = yield* FileSystem.FileSystem;
@@ -39,6 +42,18 @@ export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(functio
     if (existing && (yield* fs.exists(existing))) return { path: existing, created: false };
     return yield* new LinearIssueSetupError({
       detail: "The branch has a missing worktree. Repair or prune it before trying again.",
+    });
+  }
+  const parentDirectory = resolveWorktreesDirectory(
+    input.worktreesDirectory ?? "",
+    config.worktreesDir,
+    path,
+    yield* HostProcess.HomeDirectory,
+  );
+  if (parentDirectory === null) {
+    return yield* new LinearIssueSetupError({
+      detail:
+        "The worktree location must be an absolute folder on this machine, not a drive root. Change it in Settings → Storage.",
     });
   }
   const local = yield* run(
@@ -89,7 +104,7 @@ export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(functio
     (name) => `%${name.charCodeAt(0).toString(16)}${name.slice(1)}`,
   );
   const projectDirectory = `${path.basename(input.cwd)}-${encodeURIComponent(input.projectId)}`;
-  const worktreePath = path.join(config.worktreesDir, projectDirectory, directory);
+  const worktreePath = path.join(parentDirectory, projectDirectory, directory);
   if (yield* fs.exists(worktreePath))
     return yield* new LinearIssueSetupError({
       detail:

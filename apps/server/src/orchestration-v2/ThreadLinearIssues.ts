@@ -92,6 +92,7 @@ export const make = Effect.gen(function* () {
       branchName: input.issue.branchName,
       baseRef: input.baseRef,
       submodules: configured.worktreeSubmodules,
+      worktreesDirectory: configured.worktreesDirectory,
     }).pipe(Effect.provide(context));
     const targetSnapshot = yield* snapshots.getShellSnapshot();
     const targetConflicts = targetSnapshot.threads.filter(
