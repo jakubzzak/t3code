@@ -266,7 +266,7 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
           if (!response.ok && response.status !== 400) throw new Error();
         } catch {
           throw new Error(
-            "Disconnected locally, but Linear revocation failed. Revoke T3 Code in Linear’s application settings.",
+            "Disconnected locally, but Linear revocation failed. Revoke this app in Linear’s application settings.",
           );
         }
       }

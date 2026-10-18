@@ -18,7 +18,12 @@ const { openPreview, closePreview } = vi.hoisted(() => ({
 vi.mock("~/connection/catalog", async () => {
   const { Atom, AsyncResult } = await import("effect/reactivity");
   const connection = Atom.make(AsyncResult.success({ phase: "connected" }));
-  return { environmentCatalog: { stateAtom: () => connection } };
+  return {
+    environmentCatalog: {
+      stateAtom: () => connection,
+      catalogValueAtom: Atom.make({ isReady: true, entries: new Map() }),
+    },
+  };
 });
 vi.mock("~/state/preview", () => ({
   previewEnvironment: { open: openPreview, close: closePreview },
@@ -196,7 +201,7 @@ it("keeps copying available in a web client without pretending the desktop brows
   expect(toastManager.add).toHaveBeenCalledWith(
     expect.objectContaining({
       type: "error",
-      title: "Preview is only available in the T3 Code desktop app.",
+      title: "Preview is only available in the Blackbird desktop app.",
     }),
   );
   await act(async () =>

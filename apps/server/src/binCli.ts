@@ -64,7 +64,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       Argument.optional,
     ),
   }).pipe(
-    Command.withDescription("Run the T3 Code server."),
+    Command.withDescription("Run the Blackbird server."),
     Command.withHandler(
       Effect.fnUntraced(function* (flags) {
         if (Option.isSome(flags.cwd))

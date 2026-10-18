@@ -40,7 +40,7 @@ it("rejects unrelated callbacks, accepts matching state, and returns a readable 
   expect(result).toBe("accepted");
   const browser = await response.promise;
   expect(browser.status).toBe(200);
-  expect(await browser.text()).toContain("Return to T3 Code");
+  expect(await browser.text()).toContain("Return to Blackbird");
 });
 
 it("releases the callback port on cancellation so sign-in can be retried", async () => {

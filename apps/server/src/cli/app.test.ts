@@ -228,7 +228,7 @@ describe("t3 directory", () => {
           NodeFSP.writeFile(
             NodePath.join(baseDir, "desktop-launcher.json"),
             encodeRegistration({
-              executablePath: "/installed/T3 Code",
+              executablePath: "/installed/Blackbird",
               args: [],
               stateDir: NodePath.join(baseDir, "userdata"),
               backendPort: 17834,
@@ -254,7 +254,7 @@ describe("t3 directory", () => {
         yield* runCli([root], { T3CODE_HOME: baseDir });
         expect(NodeChildProcess.spawn).toHaveBeenCalledTimes(1);
         expect(NodeChildProcess.spawn).toHaveBeenCalledWith(
-          "/installed/T3 Code",
+          "/installed/Blackbird",
           [],
           expect.objectContaining({
             env: expect.objectContaining({ T3CODE_PORT: "17834" }),
@@ -328,7 +328,7 @@ describe("t3 app", () => {
           _tag: "DesktopAppUnreachableError",
           candidateAddresses: [expect.any(String)],
           workspaceRoot: yield* HostProcessWorkingDirectory,
-          message: expect.stringContaining("Could not reach the T3 Code desktop app."),
+          message: expect.stringContaining("Could not reach the Blackbird desktop app."),
           cause: { code: "ENOENT" },
         });
         expect(yield* pathExists(baseDir)).toBe(false);
