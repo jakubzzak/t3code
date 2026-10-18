@@ -8,6 +8,7 @@ const originalWindow = globalThis.window;
 
 afterEach(() => {
   vi.resetModules();
+  vi.unstubAllEnvs();
 
   if (originalWindow === undefined) {
     Reflect.deleteProperty(globalThis, "window");
@@ -18,6 +19,15 @@ afterEach(() => {
 });
 
 describe("branding", () => {
+  it("uses the plain product name for regular production builds", async () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "");
+
+    const branding = await import("./branding");
+
+    expect(branding.APP_DISPLAY_NAME).toBe("Blackbird");
+  });
+
   it("uses injected desktop branding when available", async () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
