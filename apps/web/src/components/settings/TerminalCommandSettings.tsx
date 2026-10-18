@@ -78,7 +78,8 @@ export function TerminalCommandSettings() {
           {state?.status === "conflict" ? (
             <p>
               An existing command was found at <code>{state.conflictingPath}</code>. Update or
-              remove that installation yourself, then check again. T3 Code will leave it unchanged.
+              remove that installation yourself, then check again. Blackbird will leave it
+              unchanged.
             </p>
           ) : null}
           {state?.installed ? (

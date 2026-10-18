@@ -65,7 +65,7 @@ export class DesktopAppUnreachableError extends Schema.TaggedError<DesktopAppUnr
   },
 ) {
   override get message(): string {
-    return "Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.";
+    return "Could not reach the Blackbird desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running Blackbird server is not enough.";
   }
 }
 
@@ -79,7 +79,7 @@ export class DesktopAppRequestFailedError extends Schema.TaggedError<DesktopAppR
   },
 ) {
   override get message(): string {
-    return `T3 Code could not open ${this.workspaceRoot} (${this.code}).`;
+    return `Blackbird could not open ${this.workspaceRoot} (${this.code}).`;
   }
 }
 
@@ -281,7 +281,7 @@ const open = Effect.fn("DesktopAppLauncher.open")(function* (flags: {
     });
   }
 
-  yield* Console.log(`Opened ${workspaceRoot} in T3 Code.`);
+  yield* Console.log(`Opened ${workspaceRoot} in Blackbird.`);
 });
 
 export class DesktopWorkspaceInvalidError extends Schema.TaggedError<DesktopWorkspaceInvalidError>()(
@@ -317,7 +317,7 @@ export class DesktopAppLaunchError extends Schema.TaggedError<DesktopAppLaunchEr
   { workspaceRoot: Schema.String, cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return `Could not open ${this.workspaceRoot}. Start T3 Code and install or repair its terminal command in Settings → General, then try again.`;
+    return `Could not open ${this.workspaceRoot}. Start Blackbird and install or repair its terminal command in Settings → General, then try again.`;
   }
 }
 

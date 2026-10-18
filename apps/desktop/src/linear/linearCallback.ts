@@ -52,13 +52,13 @@ export async function receiveLinearCallback(input: {
         }
         const value = callback.searchParams.get("code");
         if (!value || callback.searchParams.has("error")) {
-          response.writeHead(400).end("Sign-in was not completed. Return to T3 Code.");
+          response.writeHead(400).end("Sign-in was not completed. Return to Blackbird.");
           reject(new Error("Linear authorization was declined."));
           return;
         }
         response
           .writeHead(200, { "Content-Type": "text/plain; charset=utf-8" })
-          .end("Linear authorization received. Return to T3 Code.");
+          .end("Linear authorization received. Return to Blackbird.");
         resolve(value);
       });
       server.listen(Number(redirect.port), "127.0.0.1", () => {

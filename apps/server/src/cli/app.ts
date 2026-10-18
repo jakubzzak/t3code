@@ -21,6 +21,6 @@ export const appCommand = Command.make("app", {
     Argument.optional,
   ),
 }).pipe(
-  Command.withDescription("Open a project in the running T3 Code desktop app."),
+  Command.withDescription("Open a project in the running Blackbird desktop app."),
   Command.withHandler(openDesktopProject),
 );

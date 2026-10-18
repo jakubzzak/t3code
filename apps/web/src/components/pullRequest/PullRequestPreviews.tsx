@@ -44,7 +44,7 @@ export function PullRequestPreviews({
     if (!isPreviewSupportedInRuntime()) {
       toastManager.add({
         type: "error",
-        title: "Preview is only available in the T3 Code desktop app.",
+        title: "Preview is only available in the Blackbird desktop app.",
       });
       return;
     }
