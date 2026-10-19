@@ -1,12 +1,16 @@
-# Project Git integration
+# Project Git integration and shared worktree location
 
 ## Problem and outcome
 
 Some projects are plain workspaces rather than Git-oriented development projects. Users need to work with agents and files without repository details, controls, or background Git activity throughout the project's experience.
 
+For projects that use Git, keep new worktrees together under `~/Developer/.worktrees/<project>/<branch>`, outside individual repository checkouts and T3 application data.
+
 ## Scope
 
 Add a per-project **Git integration** setting, on by default, across web, desktop, and mobile. It controls T3's integration for the project and all its threads, including threads using existing worktrees. It does not uninstall Git, remove a repository, or restrict an agent or user from explicitly running Git through a shell.
+
+Include configuring the existing environment-level **Worktree location** to `~/Developer/.worktrees` on this machine. This is a local configuration choice, not a new application default or a change to other machines. Existing worktrees remain at their current paths.
 
 ## Required behavior
 
@@ -19,6 +23,8 @@ Add a per-project **Git integration** setting, on by default, across web, deskto
 - Hide and disable Git-backed file restore and checkpoint diffs while off. Conversation history and agent messages remain available; there is no requirement to scrub Git text from past messages or tool output.
 - Turning integration back on restores the project's Git features and automatic behavior according to its retained settings and current repository state. Resume checkpoint capture for future work; do not fabricate checkpoints or per-turn diffs for the disabled interval.
 - If saving fails, show the error without presenting the change as saved. After reconnecting, display the server's persisted value.
+- With Git integration enabled, new ordinary and Linear worktrees use the configured shared root, retaining the existing project and branch naming rules. Scheduled and delegated worktree creation must honor the same setting. Reuse existing checkouts at their registered paths; do not move, delete, or recreate them to match the new root. Explicitly supplied worktree paths retain their existing meaning.
+- Apply the shared location to the current local app environment and the previously configured local dev environment, each through its normal settings persistence. Settings belong to environments; configuring one does not configure the other. Preserve unrelated preferences and retained worktree roots used for existing-worktree management.
 
 ## Acceptance criteria
 
@@ -27,12 +33,14 @@ Add a per-project **Git integration** setting, on by default, across web, deskto
 3. Disable integration on a project with dirty files and an existing worktree thread. Its files, repository, checkpoint data, and thread working directory remain intact. File restore is unavailable, and new ordinary threads use the project directory.
 4. Restart or reconnect from another client: the disabled state persists. Re-enable it: Git features return using retained preferences and current repository state, without claiming checkpoint coverage for turns performed while disabled.
 5. A failed settings write is visible and does not become a falsely persisted state. Explicitly asking an agent to run a Git shell command remains possible while T3 integration is disabled.
+6. In each configured local environment, a Git-enabled project creates new worktrees under `~/Developer/.worktrees`, grouped by project, through ordinary, Linear, scheduled, and delegated creation paths. Selecting an existing worktree elsewhere reuses it without moving it or changing dirty files. A Git-disabled project creates no worktree regardless of the configured location.
 
 ## Constraints and decisions
 
 - Use the existing project settings and permissions conventions; this is an environment-owned project choice, not a client-only display preference. Shared contracts and server behavior must agree across clients.
 - [Checkpoint storage](../../apps/server/src/checkpointing/CheckpointStore.ts) uses Git-backed snapshots. Disabling checkpoints and file restore is intentional; adding a non-Git snapshot system is outside scope.
 - Suppress unnecessary work at its source rather than continuing background Git activity behind hidden UI. Scheduled and delegated paths must honor the same project choice as interactive paths.
+- The shared root supersedes the earlier choice of `~/Developer/t3code/.worktrees`; see [Central worktree directory](central-worktree-directory.md). Its location outside repositories avoids nesting unrelated projects inside the T3 checkout. No new repository ignore rule is needed for `~/Developer/.worktrees`; retain the existing `/.worktrees/` exclusion for any old checkouts beneath the T3 repository.
 
 ## Assumptions
 
