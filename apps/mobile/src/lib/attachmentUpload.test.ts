@@ -1,3 +1,7 @@
+vi.mock("../state/projectHome", () => ({
+  projectHomeEnvironment: { attach: Symbol("library-attach") },
+}));
+vi.mock("../state/server", () => ({ environmentServerConfigsAtom: Symbol("server-configs") }));
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";

@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { AuthOrchestrationOperateScope, type EnvironmentId } from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, ThreadId, type EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { useEffect, useRef } from "react";
 
@@ -14,6 +14,7 @@ import {
   type ComposerAttachmentUploadState,
 } from "../lib/composerAttachmentUploadQueue";
 import { appAtomRegistry } from "./atom-registry";
+import { environmentThreadShells } from "./threads";
 import { useServerConfigs } from "./entities";
 import { flattenQueuedThreadMessages, threadOutboxManager } from "./thread-outbox";
 import { useThreadOutboxMessages } from "./use-thread-outbox";
@@ -69,13 +70,14 @@ export function useComposerAttachmentUploadWorker() {
     ensureComposerDraftsLoaded();
     const queue = createComposerAttachmentUploadQueue({
       onChange: (states) => appAtomRegistry.set(composerAttachmentUploadsAtom, states),
-      upload: async ({ environmentId, attachment }, signal, onProgress) => {
+      upload: async ({ environmentId, projectId, attachment }, signal, onProgress) => {
         const release = isFileBackedComposerAttachment(attachment)
           ? retainComposerAttachmentFileForPreview(attachment)
           : undefined;
         try {
           const result = await prepareTurnAttachments({
             environmentId,
+            projectId,
             attachments: [attachment],
             supportsImageUploads: true,
             signal,
@@ -129,11 +131,28 @@ export function useComposerAttachmentUploadWorker() {
         !operableEnvironments.has(environmentId)
       )
         return [];
+      const queuedMessage = key.startsWith("pending-task:")
+        ? queued.find((message) => `pending-task:${message.messageId}` === key)
+        : undefined;
       return draft.attachments
         .filter((attachment) =>
           canUploadComposerAttachment(attachment, serverConfigs.get(environmentId)),
         )
-        .map((attachment) => ({ environmentId, attachment }));
+        .map((attachment) => ({
+          environmentId,
+          attachment,
+          projectId:
+            draft.project?.projectId ??
+            queuedMessage?.creation?.projectId ??
+            appAtomRegistry.get(
+              environmentThreadShells.threadShellAtom({
+                environmentId,
+                threadId:
+                  queuedMessage?.threadId ??
+                  ThreadId.make(key.slice(environmentId.length + 1).split("~queued-edit~")[0]!),
+              }),
+            )?.projectId,
+        }));
     });
     queueRef.current?.sync(requests);
   }, [connectedEnvironments, drafts, operableEnvironments, queuedMessages, serverConfigs]);

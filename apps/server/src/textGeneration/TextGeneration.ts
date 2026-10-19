@@ -31,6 +31,7 @@ export class TextGeneration extends Context.Service<TextGeneration, ProviderText
 ) {}
 
 type TextGenerationOp =
+  | "generateProjectContext"
   | "generateFileFilter"
   | "generateCommitMessage"
   | "generatePrContent"
@@ -61,6 +62,10 @@ export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   return TextGeneration.of({
+    generateProjectContext: (input) =>
+      resolveInstance(registry, "generateProjectContext", input.modelSelection.instanceId).pipe(
+        Effect.flatMap((generation) => generation.generateProjectContext(input)),
+      ),
     generateFileFilter: (input) =>
       resolveInstance(registry, "generateFileFilter", input.modelSelection.instanceId).pipe(
         Effect.flatMap((generation) => generation.generateFileFilter(input)),

@@ -1,3 +1,6 @@
+import { appAtomRegistry } from "../../state/atom-registry";
+import { projectHomeEnvironment } from "../../state/projectHome";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { buildProjectThreadStartTurnInput } from "../../lib/projectThreadStartTurn";
@@ -423,6 +426,23 @@ function ThreadRouteContent(
     }, [props.renderInspector]),
   );
   const routeEnvironmentRuntime = useRemoteEnvironmentRuntime(environmentId);
+  const homeProjectId = selectedThread?.projectId;
+  const homeThreadId = selectedThread?.id;
+  const homeEnvironmentId = selectedThread?.environmentId;
+  const homeSupported =
+    routeEnvironmentRuntime?.serverConfig?.environment.capabilities.projectHome === true;
+  useEffect(() => {
+    if (!homeSupported || !homeProjectId || !homeThreadId || !homeEnvironmentId) return;
+    void runAtomCommand(
+      appAtomRegistry,
+      projectHomeEnvironment.visit,
+      {
+        environmentId: homeEnvironmentId,
+        input: { projectId: homeProjectId, threadId: homeThreadId },
+      },
+      { reportFailure: false },
+    );
+  }, [homeSupported, homeProjectId, homeThreadId, homeEnvironmentId]);
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
   const routeConnectionError = routeEnvironmentRuntime?.connectionError ?? null;

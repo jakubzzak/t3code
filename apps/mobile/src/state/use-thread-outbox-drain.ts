@@ -243,6 +243,14 @@ export async function prepareQueuedMessageAttachments(
   let deliveryRevision = revision;
   const result = await prepareTurnAttachments({
     environmentId: queuedMessage.environmentId,
+    projectId:
+      queuedMessage.creation?.projectId ??
+      appAtomRegistry.get(
+        environmentThreadShells.threadShellAtom({
+          environmentId: queuedMessage.environmentId,
+          threadId: queuedMessage.threadId,
+        }),
+      )?.projectId,
     attachments: queuedMessage.attachments,
     supportsImageUploads,
     persistUploadedReferences: async (draftAttachments) => {

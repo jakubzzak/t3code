@@ -1,3 +1,4 @@
+import * as ProjectHome from "../../project/ProjectHomeService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -5,6 +6,7 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv
 import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation";
 import {
   DEFAULT_SERVER_SETTINGS,
+  ProjectHomeError,
   ChatImageAttachment,
   CommandId,
   EnvironmentId,
@@ -877,6 +879,9 @@ it.effect("only the caller that prepared a pending upload can discard it", () =>
   }).pipe(
     Effect.provide(
       McpHttpServer.layerAttachmentToolkit.pipe(
+        Layer.provide(
+          Layer.mock(ProjectHome.ProjectHomeService)({ validateProject: () => Effect.void }),
+        ),
         Layer.provideMerge(McpServer.McpServer.layer),
         Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
         Layer.provide(ServerSecretStore.layer),
@@ -886,3 +891,45 @@ it.effect("only the caller that prepared a pending upload can discard it", () =>
     ),
   ),
 );
+
+it.effect("library tools bind discovery and retrieval to the calling project's scope", () => {
+  const projectId = McpToolAccessTestkit.liveThreadShell(threadId).projectId;
+  return Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const call = (name: string, args: Record<string, unknown>) =>
+      server
+        .callTool({ name, arguments: args })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    const found = yield* call("t3_library_list", { query: "release" });
+    expect(found.structuredContent).toEqual({ entries: [], total: 0 });
+    const refused = yield* call("t3_library_read", { id: "another-project-file" });
+    expect(declaredFailure(refused)).toMatchObject({ code: "orchestration_error" });
+  }).pipe(
+    Effect.provide(
+      McpHttpServer.layerAttachmentToolkit.pipe(
+        Layer.provide(
+          Layer.mock(ProjectHome.ProjectHomeService)({
+            list: (input) => {
+              expect(input.projectId).toBe(projectId);
+              expect(input.query).toBe("release");
+              return Effect.succeed({ entries: [], total: 0 });
+            },
+            read: (id, assetId) => {
+              expect(id).toBe(projectId);
+              expect(assetId).toBe("another-project-file");
+              return Effect.fail(new ProjectHomeError({ projectId: id, operation: "read asset" }));
+            },
+          }),
+        ),
+        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
+        Layer.provide(ServerSecretStore.layer),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-library-" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  );
+});

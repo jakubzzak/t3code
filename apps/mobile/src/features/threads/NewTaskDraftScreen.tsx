@@ -1,3 +1,4 @@
+import { ProjectHome } from "./ProjectHome";
 import { useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
@@ -1610,6 +1611,24 @@ export function NewTaskDraftScreen(props: {
         testID="new-task-hero-scroll"
       >
         {hero}
+        {selectedEnvironmentServerConfig?.environment.capabilities.projectHome && flow.draftKey && (
+          <ProjectHome
+            key={`${selectedProject.environmentId}:${selectedProject.id}`}
+            projectRef={{
+              environmentId: selectedProject.environmentId,
+              projectId: selectedProject.id,
+            }}
+            draftKey={flow.draftKey}
+            onOpenThread={(id) =>
+              navigation.dispatch(
+                StackActions.push("Thread", {
+                  environmentId: String(selectedProject.environmentId),
+                  threadId: String(id),
+                }),
+              )
+            }
+          />
+        )}
       </ScrollView>
     </View>
   );

@@ -1,3 +1,5 @@
+import * as ProjectHome from "./project/ProjectHomeService.ts";
+import * as ProjectHomeStore from "./project/ProjectHomeStore.ts";
 import * as CleanupEffectOutbox from "./orchestration-v2/EffectOutbox.ts";
 import * as ThreadLinearIssues from "./orchestration-v2/ThreadLinearIssues.ts";
 import * as ThreadCleanup from "./orchestration-v2/ThreadCleanup.ts";
@@ -601,6 +603,13 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   // Core Services
+  Layer.provideMerge(
+    ProjectHome.layer.pipe(
+      Layer.provideMerge(ProjectHomeStore.layer),
+      Layer.provide(ProjectionStoreV2.layer),
+      Layer.provide(TextGeneration.layer.pipe(Layer.provide(layerSourceControlProviderRegistry))),
+    ),
+  ),
   Layer.provideMerge(ThreadCleanup.layer),
   Layer.provideMerge(ThreadProcesses.layer),
   Layer.provideMerge(CleanupEffectOutbox.layer),

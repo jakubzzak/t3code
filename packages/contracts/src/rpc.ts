@@ -1,3 +1,4 @@
+import * as ProjectHome from "./projectHome.ts";
 import { LinearIssueSetupInput, LinearIssueSetupResult, LinearIssueSetupError } from "./linear.ts";
 import { ThreadCleanupInput, ThreadCleanupSnapshot, ThreadCleanupError } from "./threadCleanup.ts";
 import {
@@ -400,6 +401,15 @@ export const WS_METHODS = {
   assetsPersistChatAttachments: "assets.persistChatAttachments",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
+  projectHomeOpen: "projectHome.open",
+  projectHomeSnapshot: "projectHome.snapshot",
+  projectHomeCustomize: "projectHome.customize",
+  projectHomeVisit: "projectHome.visit",
+  projectLibraryList: "projectLibrary.list",
+  projectLibraryRead: "projectLibrary.read",
+  projectLibrarySaveLink: "projectLibrary.saveLink",
+  projectLibraryRetry: "projectLibrary.retry",
+  projectLibraryAttach: "projectLibrary.attach",
 
   // MCP Apps methods
   mcpAppsCallTool: "mcpApps.callTool",
@@ -1320,6 +1330,57 @@ const WsAttachmentsCreateUploadUrlRpc = Rpc.make(WS_METHODS.attachmentsCreateUpl
   error: Schema.Union([AttachmentUploadSigningKeyError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectHomeOpenRpc = Rpc.make(WS_METHODS.projectHomeOpen, {
+  payload: ProjectHome.ProjectHomeInput,
+  success: ProjectHome.ProjectHomeSnapshot,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectHomeSnapshotRpc = Rpc.make(WS_METHODS.projectHomeSnapshot, {
+  payload: ProjectHome.ProjectHomeInput,
+  success: ProjectHome.ProjectHomeSnapshot,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectHomeCustomizeRpc = Rpc.make(WS_METHODS.projectHomeCustomize, {
+  payload: ProjectHome.ProjectHomeUpdateInput,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectHomeVisitRpc = Rpc.make(WS_METHODS.projectHomeVisit, {
+  payload: ProjectHome.ProjectHomeVisitInput,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectLibraryListRpc = Rpc.make(WS_METHODS.projectLibraryList, {
+  payload: ProjectHome.ProjectLibraryListInput,
+  success: ProjectHome.ProjectLibraryListResult,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectLibraryReadRpc = Rpc.make(WS_METHODS.projectLibraryRead, {
+  payload: ProjectHome.ProjectLibraryItemInput,
+  success: ProjectHome.ProjectLibraryPreview,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectLibrarySaveLinkRpc = Rpc.make(WS_METHODS.projectLibrarySaveLink, {
+  payload: ProjectHome.ProjectLibraryLinkInput,
+  success: ProjectHome.ProjectLibraryEntry,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectLibraryRetryRpc = Rpc.make(WS_METHODS.projectLibraryRetry, {
+  payload: ProjectHome.ProjectLibraryItemInput,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectLibraryAttachRpc = Rpc.make(WS_METHODS.projectLibraryAttach, {
+  payload: ProjectHome.ProjectLibraryItemInput,
+  success: ProjectHome.ProjectLibraryAttachment,
+  error: Schema.Union([ProjectHome.ProjectHomeError, EnvironmentAuthorizationError]),
+});
+
 const WsAttachmentsDeleteRpc = Rpc.make(WS_METHODS.attachmentsDelete, {
   payload: AttachmentDeleteInput,
   error: EnvironmentAuthorizationError,
@@ -1907,6 +1968,18 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
+export const ProjectHomeWsRpcGroup = RpcGroup.make(
+  WsProjectHomeOpenRpc,
+  WsProjectHomeSnapshotRpc,
+  WsProjectHomeCustomizeRpc,
+  WsProjectHomeVisitRpc,
+  WsProjectLibraryListRpc,
+  WsProjectLibraryReadRpc,
+  WsProjectLibrarySaveLinkRpc,
+  WsProjectLibraryRetryRpc,
+  WsProjectLibraryAttachRpc,
+).middleware(RpcScopeAuthorization);
+
 export const WsRpcGroup = RpcGroup.make(
   WsThreadCleanupStart,
   WsThreadCleanupSubscribe,
@@ -2031,6 +2104,16 @@ export const WsRpcGroup = RpcGroup.make(
   WsAssetsPersistChatAttachmentsRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
+  WsProjectHomeOpenRpc,
+  WsProjectHomeSnapshotRpc,
+  WsProjectHomeCustomizeRpc,
+  WsProjectHomeVisitRpc,
+  WsProjectLibraryListRpc,
+  WsProjectLibraryReadRpc,
+  WsProjectLibrarySaveLinkRpc,
+  WsProjectLibraryRetryRpc,
+  WsProjectLibraryAttachRpc,
+
   WsMcpAppsCallToolRpc,
   WsMcpAppsToolInfoRpc,
   WsMcpAppsReadResourceRpc,

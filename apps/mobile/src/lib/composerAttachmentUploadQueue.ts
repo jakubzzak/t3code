@@ -1,10 +1,11 @@
-import { EnvironmentId, type ServerConfig } from "@t3tools/contracts";
+import { EnvironmentId, type ProjectId, type ServerConfig } from "@t3tools/contracts";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 
 import { parseLegacyNewTaskDraftKey } from "../state/new-task-draft-key";
 import type { DraftComposerAttachment } from "./composerImages";
 
 export interface ComposerAttachmentUploadRequest {
+  readonly projectId?: ProjectId | undefined;
   readonly environmentId: EnvironmentId;
   readonly attachment: DraftComposerAttachment;
 }

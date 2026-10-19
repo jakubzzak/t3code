@@ -69,3 +69,4 @@ export * from "./threadCleanup.ts";
 export * from "./linear.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+export * from "./projectHome.ts";

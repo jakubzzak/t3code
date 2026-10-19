@@ -1,6 +1,12 @@
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, ThreadId, TrimmedNonEmptyString, TurnItemId } from "./baseSchemas.ts";
+import {
+  NonNegativeInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+  TurnItemId,
+} from "./baseSchemas.ts";
 import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -94,6 +100,7 @@ export type AssetCreateUrlResult = typeof AssetCreateUrlResult.Type;
 export const ATTACHMENT_UPLOAD_URL_TTL_MS = 10 * 60_000;
 
 const ImageAttachmentCreateUploadUrlInput = Schema.Struct({
+  projectId: Schema.optionalKey(ProjectId),
   type: Schema.optionalKey(Schema.Literal("image")),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: Schema.Literals(PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES),
@@ -104,6 +111,7 @@ const ImageAttachmentCreateUploadUrlInput = Schema.Struct({
 });
 
 const FileAttachmentCreateUploadUrlInput = Schema.Struct({
+  projectId: Schema.optionalKey(ProjectId),
   type: Schema.Literal("file"),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),

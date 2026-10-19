@@ -260,6 +260,8 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
       ),
     );
   const textGeneration: ProviderInstance["textGeneration"] = {
+    generateProjectContext: (value) =>
+      protect("generateProjectContext", nativeGeneration.generateProjectContext(value)),
     generateFileFilter: (value) =>
       protect("generateFileFilter", nativeGeneration.generateFileFilter(value)),
     generateCommitMessage: (value) =>

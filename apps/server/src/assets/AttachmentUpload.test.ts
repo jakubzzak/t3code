@@ -10,11 +10,15 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import { ProjectId } from "@t3tools/contracts";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { base64UrlEncode, signPayload } from "../auth/utils.ts";
 import * as ServerConfig from "../config.ts";
+import * as Home from "../project/ProjectHomeService.ts";
+import * as Store from "../project/ProjectHomeStore.ts";
+import * as Sqlite from "../persistence/Sqlite.ts";
 import { parseThreadSegmentFromAttachmentId } from "../attachmentStore.ts";
 import {
   ATTACHMENT_UPLOAD_ROUTE_PREFIX,
@@ -25,6 +29,17 @@ import {
 } from "./AttachmentUpload.ts";
 
 const layerTest = ServerSecretStore.layer.pipe(
+  Layer.provideMerge(
+    Layer.unwrap(
+      Effect.gen(function* () {
+        const store = yield* Store.ProjectHomeStore;
+        return Layer.mock(Home.ProjectHomeService)({
+          validateProject: () => Effect.void,
+          retainUpload: (input) => store.retainUpload(input).pipe(Effect.asVoid),
+        });
+      }),
+    ).pipe(Layer.provideMerge(Store.layer), Layer.provideMerge(Sqlite.layerMemory)),
+  ),
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-attachment-upload-" })),
   Layer.provideMerge(NodeServices.layer),
 );
@@ -49,6 +64,35 @@ const encodeLegacyAttachmentUploadClaims = Schema.encodeEffect(
 );
 
 describe("AttachmentUpload", () => {
+  it.effect(
+    "retains successful project uploads after draft removal, but never retains rejected transfers",
+    () =>
+      Effect.gen(function* () {
+        const projectId = ProjectId.make("library-project");
+        const store = yield* Store.ProjectHomeStore;
+        const issued = yield* issueAttachmentUploadUrl({ ...uploadInput, projectId });
+        const claims = yield* validateAttachmentUploadToken(
+          issued.relativeUrl.slice(`${ATTACHMENT_UPLOAD_ROUTE_PREFIX}/`.length),
+        );
+        expect((yield* storeAttachmentUpload(claims!, new Uint8Array(3))).ok).toBe(false);
+        expect(yield* store.list(projectId)).toHaveLength(0);
+        expect((yield* storeAttachmentUpload(claims!, new Uint8Array(6))).ok).toBe(true);
+        yield* deletePendingAttachment(issued.attachmentId);
+        expect(yield* store.list(projectId)).toHaveLength(1);
+      }).pipe(Effect.provide(layerTest)),
+  );
+  it.effect("binds the library project to the signed upload token", () =>
+    Effect.gen(function* () {
+      const issued = yield* issueAttachmentUploadUrl({
+        ...uploadInput,
+        projectId: ProjectId.make("library-project"),
+      });
+      const token = issued.relativeUrl.slice(`${ATTACHMENT_UPLOAD_ROUTE_PREFIX}/`.length);
+      expect(yield* validateAttachmentUploadToken(token)).toMatchObject({
+        projectId: "library-project",
+      });
+    }).pipe(Effect.provide(layerTest)),
+  );
   it.effect("signs the attachment metadata and validates the upload token", () =>
     Effect.gen(function* () {
       const issued = yield* issueAttachmentUploadUrl(uploadInput);

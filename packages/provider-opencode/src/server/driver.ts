@@ -150,6 +150,11 @@ function selectOpenCodeRuntimeTextGeneration(
   v2: ProviderTextGeneration,
 ): ProviderTextGeneration {
   return {
+    generateProjectContext: (input) =>
+      byOpenCodeRuntime(probe.get, {
+        v1: v1.generateProjectContext(input),
+        v2: v2.generateProjectContext(input),
+      }),
     generateFileFilter: (input) =>
       byOpenCodeRuntime(probe.get, {
         v1: v1.generateFileFilter(input),

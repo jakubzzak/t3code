@@ -1,3 +1,7 @@
+import { projectHomeEnvironment } from "../../state/projectHome";
+import { useEnvironmentQuery } from "../../state/query";
+import { useServerConfigs } from "../../state/entities";
+import { addLibraryToComposer } from "../../lib/projectLibrary";
 import type {
   EnvironmentId,
   ProjectId,
@@ -366,6 +370,16 @@ export function useComposerCommandMenu({
     }
     return detectComposerTrigger(draftMessage, selection.end);
   }, [draftMessage, enabled, selection]);
+  const librarySupported =
+    useServerConfigs().get(environmentId!)?.environment.capabilities.projectHome === true;
+  const library = useEnvironmentQuery(
+    environmentId && pullRequestProjectId && librarySupported && trigger?.kind === "path"
+      ? projectHomeEnvironment.list({
+          environmentId,
+          input: { projectId: pullRequestProjectId, query: trigger.query, limit: 20 },
+        })
+      : null,
+  );
   const pathSearch = useComposerPathSearch({
     environmentId,
     cwd: trigger?.kind === "path" ? projectCwd : null,
@@ -532,6 +546,13 @@ export function useComposerCommandMenu({
         : [];
       return [
         ...threadItems,
+        ...(library.data?.entries ?? []).map((entry) => ({
+          id: `library:${entry.id}`,
+          type: "library" as const,
+          entry,
+          label: entry.title,
+          description: `Local library · ${entry.originalName}`,
+        })),
         ...pathSearch.entries.map((entry) => {
           const parts = entry.path.split("/");
           return {
@@ -555,6 +576,7 @@ export function useComposerCommandMenu({
     hasCompactableConversation,
     onUpdateInteractionMode,
     pathSearch.entries,
+    library.data,
     pullRequestSearch.entries,
     projectCwd,
     selectedProviderStatus,
@@ -566,6 +588,20 @@ export function useComposerCommandMenu({
   const onSelect = useCallback(
     (item: ComposerCommandItem) => {
       if (!trigger) return;
+      if (item.type === "library") {
+        if (!ownerKey || !environmentId || !pullRequestProjectId) return;
+        void addLibraryToComposer(environmentId, pullRequestProjectId, item.entry, ownerKey, {
+          text: draftMessage,
+          start: trigger.rangeStart,
+          end: trigger.rangeEnd,
+        }).catch((error) =>
+          Alert.alert(
+            "Could not add library item",
+            error instanceof Error ? error.message : "Try again.",
+          ),
+        );
+        return;
+      }
       if (item.type === "thread") {
         if (!ownerKey || trigger.kind !== "path") return;
         const shell = threadShells.find(

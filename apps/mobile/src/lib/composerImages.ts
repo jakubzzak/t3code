@@ -8,6 +8,7 @@ import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type EnvironmentId,
+  type ProjectId,
   type PastedTextAttachmentSource,
   type UploadChatImageAttachment,
 } from "@t3tools/contracts";
@@ -37,6 +38,7 @@ export interface DraftComposerImageAttachment extends Omit<UploadChatImageAttach
 }
 
 export interface DraftComposerFileAttachment {
+  readonly libraryProjectId?: ProjectId;
   readonly id: string;
   readonly type: "file";
   readonly name: string;
@@ -116,7 +118,7 @@ export type FileBackedComposerAttachment = DraftComposerAttachment & { readonly 
 export function isFileBackedComposerAttachment(
   attachment: DraftComposerAttachment,
 ): attachment is FileBackedComposerAttachment {
-  return attachment.fileUri !== undefined;
+  return attachment.fileUri !== undefined && attachment.fileUri.length > 0;
 }
 
 /**

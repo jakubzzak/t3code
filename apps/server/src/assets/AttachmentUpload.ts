@@ -1,5 +1,6 @@
 import {
   ATTACHMENT_UPLOAD_URL_TTL_MS,
+  ProjectId,
   type AttachmentCreateUploadUrlInput,
   AttachmentUploadSigningKeyError,
 } from "@t3tools/contracts";
@@ -30,6 +31,7 @@ import {
 } from "../auth/utils.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ProjectHome from "../project/ProjectHomeService.ts";
 import { inferImageExtension } from "../imageMime.ts";
 
 export const ATTACHMENT_UPLOAD_ROUTE_PREFIX = "/api/attachments/upload";
@@ -40,6 +42,7 @@ const PENDING_ATTACHMENT_SWEEP_INTERVAL_MS = 15 * 60_000;
 const lastPendingSweepByDirectory = new Map<string, number>();
 
 const AttachmentUploadClaims = Schema.Struct({
+  projectId: Schema.optionalKey(ProjectId),
   version: Schema.Literal(1),
   kind: Schema.Literal("attachment-upload"),
   type: Schema.Literals(["image", "file"]).pipe(
@@ -73,6 +76,12 @@ const loadSigningSecret = Effect.gen(function* () {
 export const issueAttachmentUploadUrl = Effect.fn("AttachmentUpload.issueUrl")(function* (
   input: AttachmentCreateUploadUrlInput,
 ) {
+  if (input.projectId !== undefined) {
+    const home = yield* ProjectHome.ProjectHomeService;
+    yield* home
+      .validateProject(input.projectId)
+      .pipe(Effect.mapError((cause) => new AttachmentUploadSigningKeyError({ cause })));
+  }
   const secret = yield* loadSigningSecret.pipe(
     Effect.mapError((cause) => new AttachmentUploadSigningKeyError({ cause })),
   );
@@ -100,6 +109,7 @@ export const issueAttachmentUploadUrl = Effect.fn("AttachmentUpload.issueUrl")(f
   const expiresAt = nowMs + ATTACHMENT_UPLOAD_URL_TTL_MS;
   const encodedPayload = base64UrlEncode(
     encodeAttachmentUploadClaims({
+      ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
       version: 1,
       kind: "attachment-upload",
       type: attachmentType,
@@ -202,6 +212,10 @@ export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(functio
       } satisfies StoreAttachmentUploadResult;
     }
     yield* fileSystem.rename(partPath, finalPath);
+    if (claims.projectId !== undefined) {
+      const home = yield* ProjectHome.ProjectHomeService;
+      yield* home.retainUpload({ ...claims, projectId: claims.projectId });
+    }
     return { ok: true } satisfies StoreAttachmentUploadResult;
   }).pipe(
     Effect.catch((cause) =>

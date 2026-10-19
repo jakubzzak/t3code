@@ -1,3 +1,6 @@
+import { projectHomeEnvironment } from "../../state/projectHome";
+import { prepareLibraryAttachment } from "../../lib/projectLibrary";
+import { useServerConfigs } from "../../state/entities";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -2109,6 +2112,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         environmentId,
         image: attachment,
         draftTarget: attachmentDraftTarget,
+        projectId: pullRequestProjectId,
       });
     }
   }, [
@@ -2732,6 +2736,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [pullRequestProjectId, threadPullRequests],
   );
 
+  const librarySupported =
+    useServerConfigs().get(environmentId)?.environment.capabilities.projectHome === true;
+  const libraryQuery = useEnvironmentQuery(
+    librarySupported && pullRequestProjectId && composerTrigger?.kind === "path"
+      ? projectHomeEnvironment.list({
+          environmentId,
+          input: { projectId: pullRequestProjectId, query: composerTrigger.query, limit: 20 },
+        })
+      : null,
+  );
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -2744,6 +2758,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           excludeThreadId: activeThreadId,
           query: composerTrigger.query,
         }),
+        ...(libraryQuery.data?.entries ?? []).map((entry) => ({
+          id: `library:${entry.id}`,
+          type: "library" as const,
+          entry,
+          label: entry.title,
+          description: `Local library · ${entry.originalName}`,
+        })),
         ...workspaceEntries.entries.map((entry) => ({
           id: `path:${entry.kind}:${entry.path}`,
           type: "path" as const,
@@ -2906,6 +2927,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderStatus,
     settings.showSkillsInSlashMenu,
     workspaceEntries.entries,
+    libraryQuery.data,
   ]);
 
   const composerMenuOpen = Boolean(composerTrigger);
@@ -4015,6 +4037,45 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
     const { snapshot, trigger } = resolveActiveComposerTrigger();
     if (!trigger) return;
+    if (item.type === "library") {
+      if (!pullRequestProjectId) return;
+      void prepareLibraryAttachment(environmentId, pullRequestProjectId, item.entry)
+        .then((file) => {
+          if (composerDraftTargetKey !== composerDraftTargetKeyRef.current) return;
+          const accepted = addComposerDraftFiles(attachmentDraftTarget, [file], {
+            allowDuplicates: true,
+            appendReference: false,
+          });
+          if (
+            !accepted.includes(file.id) &&
+            !useComposerDraftStore
+              .getState()
+              .getComposerDraft(attachmentDraftTarget)
+              ?.files.some((value) => value.id === file.id)
+          ) {
+            setComposerSubmissionError(
+              "The draft attachment limit was reached. Remove an attachment and try again.",
+            );
+            return;
+          }
+          const reference = formatInlineContextReference(fileContextReference(file));
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            `${reference} `,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+          );
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          } else if (accepted.includes(file.id)) {
+            removeComposerDraftFile(attachmentDraftTarget, file.id);
+          }
+        })
+        .catch(() =>
+          setComposerSubmissionError("Could not attach the Local library item. Try again."),
+        );
+      return;
+    }
     if (item.type === "path") {
       const replacement = `${serializeComposerFileLink(item.path)} `;
       const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -7178,6 +7239,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                           environmentId,
                                           image,
                                           draftTarget: attachmentDraftTarget,
+                                          projectId: pullRequestProjectId,
                                         })
                                       }
                                       disabled={!canOperateThread}
@@ -7278,6 +7340,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                         environmentId,
                                         image: file,
                                         draftTarget: attachmentDraftTarget,
+                                        projectId: pullRequestProjectId,
                                       })
                                     }
                                     disabled={!canOperateThread}
@@ -7357,6 +7420,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                         environmentId,
                                         image: file,
                                         draftTarget: attachmentDraftTarget,
+                                        projectId: pullRequestProjectId,
                                       })
                                     }
                                     disabled={!canOperateThread}

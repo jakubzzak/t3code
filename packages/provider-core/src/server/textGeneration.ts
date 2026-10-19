@@ -6,6 +6,7 @@ import type {
   ModelSelection,
   PullRequestReviewGuide,
   TextGenerationError,
+  GeneratedProjectContext,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 
@@ -119,6 +120,9 @@ export type ReviewGuideGenerationResult = Omit<
 
 /** Commit, change request, branch, and title generation backed by one provider instance. */
 export interface ProviderTextGeneration {
+  readonly generateProjectContext: (
+    input: ProjectContextGenerationInput,
+  ) => Effect.Effect<GeneratedProjectContext, TextGenerationError>;
   readonly generateFileFilter: (
     input: FileFilterGenerationInput & { cwd: string; modelSelection: ModelSelection },
   ) => Effect.Effect<FileFilterGenerationResult, TextGenerationError>;
@@ -152,4 +156,12 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+}
+
+export interface ProjectContextGenerationInput {
+  cwd: string;
+  modelSelection: ModelSelection;
+  kind: "briefing" | "asset";
+  context: string;
+  instructions: string;
 }

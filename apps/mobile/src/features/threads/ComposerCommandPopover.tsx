@@ -3,6 +3,7 @@ import {
   type ProviderSkillSourceKind,
 } from "@t3tools/client-runtime/providerSkills";
 import type {
+  ProjectLibraryEntry,
   PullRequestContextMetadata,
   ScopedThreadRef,
   ServerProviderSkill,
@@ -17,6 +18,13 @@ import { AppText as Text } from "../../components/AppText";
 import { GlassSurface } from "../../components/GlassSurface";
 import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 export type ComposerCommandItem =
+  | {
+      readonly id: string;
+      readonly type: "library";
+      readonly entry: ProjectLibraryEntry;
+      readonly label: string;
+      readonly description: string;
+    }
   | {
       readonly id: string;
       readonly type: "pull-request";
@@ -108,6 +116,8 @@ function itemIcon(item: ComposerCommandItem): AppSymbolName | null {
       return SKILL_SOURCE_SYMBOL_BY_KIND[resolveProviderSkillSourceKind(item.skill)];
     case "path":
       return null;
+    case "library":
+      return "folder";
     case "thread":
       return "text.bubble";
   }

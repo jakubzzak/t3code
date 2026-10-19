@@ -1,3 +1,6 @@
+vi.mock("../../state/projectHome", () => ({ projectHomeEnvironment: {} }));
+vi.mock("../../state/entities", () => ({ useServerConfigs: () => new Map() }));
+vi.mock("../../lib/projectLibrary", () => ({ addLibraryToComposer: () => Promise.resolve() }));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   EnvironmentId,

@@ -59,6 +59,37 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect("checks the destination grant again for project home and library writes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        registry.set(sessions(other), AsyncResult.success(grant(false)));
+        for (const method of [
+          WS_METHODS.projectHomeOpen,
+          WS_METHODS.projectHomeCustomize,
+          WS_METHODS.projectHomeVisit,
+          WS_METHODS.projectLibrarySaveLink,
+          WS_METHODS.projectLibraryRetry,
+          WS_METHODS.projectLibraryAttach,
+        ]) {
+          const access = createCommandPermissions(runtime, method);
+          expect(registry.get(access.permissionAtom(env))).toBe(true);
+          expect(registry.get(access.permissionAtom(other))).toBe(false);
+          yield* access.authorize(registry, env);
+          expect((yield* access.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+          registry.set(sessions(env), AsyncResult.success(grant(false)));
+          expect((yield* access.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+        }
+      }),
+    ),
+  );
+
   it.effect("requires the destination settings grant to run storage cleanup", () =>
     Effect.scoped(
       Effect.gen(function* () {

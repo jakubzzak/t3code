@@ -1,3 +1,5 @@
+import { ProjectHomeWsRpcGroup } from "@t3tools/contracts";
+import * as ProjectHome from "./project/ProjectHomeService.ts";
 import { ThreadLinearIssues } from "./orchestration-v2/ThreadLinearIssues.ts";
 import * as ThreadCleanup from "./orchestration-v2/ThreadCleanup.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
@@ -1197,6 +1199,36 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
+const CoreWsRpcGroup = ServerWsRpcGroup.omit(
+  WS_METHODS.projectHomeOpen,
+  WS_METHODS.projectHomeSnapshot,
+  WS_METHODS.projectHomeCustomize,
+  WS_METHODS.projectHomeVisit,
+  WS_METHODS.projectLibraryList,
+  WS_METHODS.projectLibraryRead,
+  WS_METHODS.projectLibrarySaveLink,
+  WS_METHODS.projectLibraryRetry,
+  WS_METHODS.projectLibraryAttach,
+);
+const layerHomeRpc = ProjectHomeWsRpcGroup.middleware(RpcInstrumentation).toLayer(
+  Effect.gen(function* () {
+    const projectHome = yield* ProjectHome.ProjectHomeService;
+    return {
+      [WS_METHODS.projectHomeOpen]: (input) => projectHome.open(input.projectId),
+      [WS_METHODS.projectHomeSnapshot]: (input) => projectHome.snapshot(input.projectId),
+      [WS_METHODS.projectHomeCustomize]: (input) =>
+        projectHome.customize(input.projectId, input.preferences),
+      [WS_METHODS.projectHomeVisit]: (input) => projectHome.visit(input.projectId, input.threadId),
+      [WS_METHODS.projectLibraryList]: (input) => projectHome.list(input),
+      [WS_METHODS.projectLibraryRead]: (input) => projectHome.read(input.projectId, input.id),
+      [WS_METHODS.projectLibrarySaveLink]: (input) =>
+        projectHome.saveLink(input.projectId, input.url),
+      [WS_METHODS.projectLibraryRetry]: (input) => projectHome.retry(input.projectId, input.id),
+      [WS_METHODS.projectLibraryAttach]: (input) => projectHome.attach(input.projectId, input.id),
+    };
+  }),
+);
+
 const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientOrigin: OrchestrationClientOrigin,
@@ -1204,7 +1236,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  CoreWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1835,7 +1867,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = CoreWsRpcGroup.of({
         [WS_METHODS.threadCleanupStart]: (input) => threadCleanup.start(input),
         [WS_METHODS.threadCleanupSubscribe]: (input) => threadCleanup.subscribe(input.threadId),
         [WS_METHODS.linearIssueSelect]: (input) => linearIssues.select(input),
@@ -3230,6 +3262,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.merge(layerHomeRpc),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.

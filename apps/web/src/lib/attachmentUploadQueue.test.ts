@@ -1,4 +1,13 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { addLibraryToComposer } from "./projectLibrary";
+vi.mock("../state/projectHome", () => ({
+  projectHomeEnvironment: { attach: Symbol("library-attach") },
+}));
+vi.mock("../state/server", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return { environmentServerConfigsAtom: Atom.make(new Map()) };
+});
+vi.mock("../state/entities", () => ({ readThreadShell: () => null }));
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { Atom, AsyncResult } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -584,6 +593,90 @@ describe("attachmentUploadQueue", () => {
       input: { resource: { _tag: "attachment", attachmentId: "pending-restored-pdf" } },
     });
     expect(TestXmlHttpRequest.requests).toHaveLength(0);
+  });
+
+  it("keeps distinct library files with the same filename and size as separate inline references", async () => {
+    const draftId = DraftId.make("library-same-name");
+    const projectId = ProjectId.make("project");
+    const entry = {
+      projectId,
+      kind: "file" as const,
+      originalName: "notes.txt",
+      attachmentId: "library-original",
+      mimeType: "text/plain",
+      sizeBytes: 10,
+      url: null,
+      title: "Release notes",
+      summary: "",
+      labels: [],
+      status: "ready" as const,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    mocks.runAtomCommand.mockResolvedValue({
+      _tag: "Success",
+      value: {
+        attachmentId: "pending-copy",
+        name: entry.originalName,
+        mimeType: entry.mimeType,
+        sizeBytes: 10,
+      },
+    });
+    try {
+      await addLibraryToComposer(
+        firstEnvironment,
+        projectId,
+        { ...entry, id: "library-first" },
+        draftId,
+      );
+      await addLibraryToComposer(
+        firstEnvironment,
+        projectId,
+        { ...entry, id: "library-second" },
+        draftId,
+      );
+      const draft = useComposerDraftStore.getState().getComposerDraft(draftId);
+      expect(draft?.files.map((file) => file.id)).toEqual(["library-first", "library-second"]);
+      expect(draft?.prompt).toContain("library-first");
+      expect(draft?.prompt).toContain("library-second");
+    } finally {
+      useComposerDraftStore.getState().clearDraftThread(draftId);
+    }
+  });
+
+  it("restores an expired library reference without local bytes or another upload", async () => {
+    const draftId = DraftId.make("draft-library-expired");
+    const file: ComposerFileAttachment = {
+      ...makeFile("library-original"),
+      file: null,
+      libraryProjectId: ProjectId.make("project"),
+      uploadedAttachmentId: "pending-expired-pdf",
+      uploadEnvironmentId: firstEnvironment,
+    };
+    mocks.executeAtomQuery.mockResolvedValueOnce({
+      _tag: "Failure",
+      error: { _tag: "AssetAttachmentNotFoundError" },
+    });
+    mocks.runAtomCommand.mockResolvedValueOnce({
+      _tag: "Success",
+      value: {
+        attachmentId: "pending-restored-pdf",
+        name: file.name,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+      },
+    });
+    useComposerDraftStore.getState().addFiles(draftId, [file]);
+    startAttachmentUpload({ environmentId: firstEnvironment, image: file, draftTarget: draftId });
+    await awaitAttachmentUploads([file.id]);
+    expect(readAttachmentUpload(file.id)).toMatchObject({
+      status: "ready",
+      attachmentId: "pending-restored-pdf",
+    });
+    expect(
+      useComposerDraftStore.getState().getComposerDraft(draftId)?.files[0]?.uploadedAttachmentId,
+    ).toBe("pending-restored-pdf");
+    expect(TestXmlHttpRequest.requests).toHaveLength(0);
+    useComposerDraftStore.getState().clearDraftThread(draftId);
   });
 
   it("turns an expired persisted file into a marker that a re-pick can replace", async () => {

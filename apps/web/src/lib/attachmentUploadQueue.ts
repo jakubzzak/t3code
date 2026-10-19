@@ -1,8 +1,13 @@
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import { projectHomeEnvironment } from "../state/projectHome";
+import { readThreadShell } from "../state/entities";
+import { environmentServerConfigsAtom } from "../state/server";
 import {
   AuthOrchestrationOperateScope,
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
   type ChatAttachment,
   type EnvironmentId,
+  type ProjectId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
@@ -49,6 +54,7 @@ interface UploadJob {
    * the current owner because the file can move while the upload is pending.
    */
   readonly draftTarget?: ComposerThreadTarget;
+  readonly projectId?: ProjectId | null;
   readonly previous?: ReadyAttachmentUpload;
   /**
    * The draft's persisted server-side upload, to verify instead of re-upload.
@@ -209,6 +215,36 @@ async function runUpload(job: UploadJob): Promise<void> {
       stampDraftFileUpload(job, job.persistedAttachmentId);
       return;
     }
+    if (
+      verification.status === "missing" &&
+      job.image.type === "file" &&
+      job.image.libraryProjectId
+    ) {
+      const result = await runAtomCommand(
+        appAtomRegistry,
+        projectHomeEnvironment.attach,
+        {
+          environmentId: job.environmentId,
+          input: { projectId: job.image.libraryProjectId, id: job.image.id },
+        },
+        { reportFailure: false },
+      );
+      if (job.cancelled) return;
+      if (result._tag === "Success") {
+        setUploadState(job.image.id, {
+          status: "ready",
+          environmentId: job.environmentId,
+          attachmentId: result.value.attachmentId,
+        });
+        stampDraftFileUpload(job, result.value.attachmentId);
+      } else
+        setUploadState(job.image.id, {
+          status: "failed",
+          environmentId: job.environmentId,
+          reason: "Could not restore the library attachment. Retry when connected.",
+        });
+      return;
+    }
     if (verification.status === "missing" && !job.image.file && job.image.type === "file") {
       const draftTarget = resolveCurrentFileDraftTarget(job);
       if (
@@ -280,12 +316,24 @@ async function runUpload(job: UploadJob): Promise<void> {
     });
     return;
   }
+  const projectId =
+    job.projectId ??
+    (job.draftTarget === undefined
+      ? undefined
+      : (useComposerDraftStore.getState().getDraftThread(job.draftTarget)?.projectId ??
+        (typeof job.draftTarget === "string"
+          ? undefined
+          : readThreadShell(job.draftTarget)?.projectId)));
+  const supportsLibrary =
+    appAtomRegistry.get(environmentServerConfigsAtom).get(job.environmentId)?.environment
+      .capabilities.projectHome === true;
   const result = await runAttachmentUploadCycle({
     registry: appAtomRegistry,
     createUploadUrl: attachmentEnvironment.createUploadUrl,
     remove: attachmentEnvironment.remove,
     environmentId: job.environmentId,
     upload: {
+      ...(supportsLibrary && projectId ? { projectId } : {}),
       ...(job.image.type === "file" ? { type: "file" as const } : {}),
       name: job.image.name,
       mimeType,
@@ -415,6 +463,7 @@ export function startAttachmentUpload(input: {
   readonly image: ComposerImageAttachment | ComposerFileAttachment;
   /** Draft that owns the file; lets a background completion persist its ids. */
   readonly draftTarget?: ComposerThreadTarget;
+  readonly projectId?: ProjectId | null;
 }): void {
   if (!readEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope)) return;
   const existingJob = jobsByImageId.get(input.image.id);
@@ -452,6 +501,7 @@ export function startAttachmentUpload(input: {
   });
   const job: UploadJob = {
     image: input.image,
+    ...(input.projectId ? { projectId: input.projectId } : {}),
     environmentId: input.environmentId,
     ...(input.draftTarget !== undefined ? { draftTarget: input.draftTarget } : {}),
     ...(previous ? { previous } : {}),
@@ -573,6 +623,7 @@ export function retryAttachmentUpload(input: {
   readonly environmentId: EnvironmentId;
   readonly image: ComposerImageAttachment | ComposerFileAttachment;
   readonly draftTarget?: ComposerThreadTarget;
+  readonly projectId?: ProjectId | null;
 }): void {
   if (!readEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope)) return;
   const previous = readAttachmentUpload(input.image.id);

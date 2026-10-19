@@ -60,6 +60,24 @@ also send files to T3 Code through another app's system share sheet.
 
 See [images and videos](#images-and-videos-in-messages) for previewing and saving media.
 
+## Reuse project context
+
+Open a new conversation in a project to see its briefing, recently opened chats,
+and **Local library**. Customize the briefing focus and visible sections there.
+The briefing refreshes when you open the page, at most once an hour; chat and
+saved files remain usable while it updates or when generation is unavailable.
+
+With an updated client and server, completed uploads stay in Local library even
+if you remove them from an unsent message. Save links explicitly from the project
+home. Type `@` to find a saved item by its title, original filename, or labels,
+or open its preview and choose **Add to chat**. Removing a reference keeps the
+saved original. Failed processing can be retried without uploading again;
+unsupported document formats remain available through **Open original**.
+
+The library belongs to the project's environment, outside the checkout and Git.
+Your other devices can use it when connected to that environment. Older clients
+keep their existing upload behavior, and previous uploads are not added retroactively.
+
 ## Send while the agent is working
 
 On web and desktop, choose **Settings → General → Follow-up behavior** to queue

@@ -11,6 +11,7 @@ import type {
   ChatFileAttachment,
   ChatImageAttachment,
   EnvironmentId,
+  ProjectId,
   UploadChatImageAttachment,
 } from "@t3tools/contracts";
 import {
@@ -19,6 +20,8 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
+import { projectHomeEnvironment } from "../state/projectHome";
+import { environmentServerConfigsAtom } from "../state/server";
 import { appAtomRegistry } from "../state/atom-registry";
 import { assetEnvironment } from "../state/assets";
 import { attachmentEnvironment } from "../state/attachments";
@@ -322,6 +325,7 @@ async function uploadFileBytes(
  * the pending uploads this call minted, so the owner cannot leak them.
  */
 export async function prepareTurnAttachments(input: {
+  readonly projectId?: ProjectId | undefined;
   readonly environmentId: EnvironmentId;
   readonly attachments: ReadonlyArray<DraftComposerAttachment>;
   /** Older environments continue to receive inline images. */
@@ -411,13 +415,31 @@ export async function prepareTurnAttachments(input: {
         // "missing": the pending upload expired, upload the bytes again.
       }
 
+      if (attachment.type === "file" && attachment.libraryProjectId) {
+        const refreshed = await runAtomCommand(appAtomRegistry, projectHomeEnvironment.attach, {
+          environmentId,
+          input: { projectId: attachment.libraryProjectId, id: attachment.id },
+        });
+        if (refreshed._tag !== "Success") throw squashAtomCommandFailure(refreshed);
+        pendingAttachmentIds.push(refreshed.value.attachmentId);
+        createdAttachmentIds.push(refreshed.value.attachmentId);
+        uploadedAttachments.push(uploadedReference(attachment, refreshed.value.attachmentId));
+        continue;
+      }
       requireUploadAccess();
       const result = await runAttachmentUploadCycle({
         registry: appAtomRegistry,
         createUploadUrl: attachmentEnvironment.createUploadUrl,
         remove: attachmentEnvironment.remove,
         environmentId,
-        upload: attachmentUploadInput(attachment),
+        upload: {
+          ...attachmentUploadInput(attachment),
+          ...(input.projectId &&
+          appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment
+            .capabilities.projectHome
+            ? { projectId: input.projectId }
+            : {}),
+        },
         // Read the connection at transfer time: the environment may have
         // reconnected on a new base URL since this cycle started.
         resolveUploadUrl: (relativeUrl) => {

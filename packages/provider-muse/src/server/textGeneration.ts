@@ -1,3 +1,4 @@
+import { buildProjectContextPrompt } from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
   MUSE_DEFAULT_MODEL,
@@ -347,6 +348,12 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
   return {
+    generateProjectContext: (input) =>
+      runMuseJson({
+        operation: "generateProjectContext",
+        modelSelection: input.modelSelection,
+        ...buildProjectContextPrompt(input),
+      }),
     generateFileFilter: (input) =>
       runMuseJson({
         operation: "generateFileFilter",

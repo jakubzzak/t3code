@@ -16,6 +16,7 @@ import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import type { ProviderTextGeneration } from "./textGeneration.ts";
 import {
   buildFileFilterPrompt,
+  buildProjectContextPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -191,6 +192,13 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
   });
 
   return {
+    generateProjectContext: (input) =>
+      run({
+        operation: "generateProjectContext",
+        cwd: input.cwd,
+        modelSelection: input.modelSelection,
+        ...buildProjectContextPrompt(input),
+      }),
     generateFileFilter: (input) =>
       run({
         operation: "generateFileFilter",

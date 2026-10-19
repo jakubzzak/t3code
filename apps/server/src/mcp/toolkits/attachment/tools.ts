@@ -1,3 +1,5 @@
+import * as Home from "../../../project/ProjectHomeService.ts";
+import { ProjectLibraryListResult, ProjectLibraryPreview } from "@t3tools/contracts";
 import { McpAttachmentInput } from "./input.ts";
 import {
   AttachmentCreateUploadUrlInput,
@@ -28,6 +30,7 @@ const shared = {
     ServerSecretStore.ServerSecretStore,
     FileSystem.FileSystem,
     Crypto.Crypto,
+    Home.ProjectHomeService,
   ],
 };
 const AttachmentUploadTool = Tool.make("t3_attachment_prepare_upload", {
@@ -65,7 +68,30 @@ const AttachmentSendTool = Tool.make("t3_thread_send_attachments", {
 })
   .annotate(Tool.Destructive, true)
   .annotate(Tool.OpenWorld, true);
+const LibraryListTool = Tool.make("t3_library_list", {
+  ...shared,
+  description:
+    "Search the calling thread's project Local library across all saved uploads and links. Retrieve relevant content on demand with t3_library_read; library files are outside the checkout.",
+  parameters: Schema.Struct({
+    query: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(300))),
+    offset: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+    limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
+  }),
+  success: ProjectLibraryListResult,
+}).annotate(Tool.Readonly, true);
+const LibraryReadTool = Tool.make("t3_library_read", {
+  ...shared,
+  description:
+    "Read a saved Local library item by its stable id, scoped to the calling thread's project. Returns extracted content, summary, original identity and whether the content was truncated; originalPath points to the retained bytes on this environment for tools that can read files.",
+  parameters: Schema.Struct({ id: Schema.String }),
+  success: Schema.Struct({
+    ...ProjectLibraryPreview.fields,
+    originalPath: Schema.NullOr(Schema.String),
+  }),
+}).annotate(Tool.Readonly, true);
 export const AttachmentToolkit = Toolkit.make(
+  LibraryListTool,
+  LibraryReadTool,
   AttachmentUploadTool,
   AttachmentDiscardTool,
   AttachmentSendTool,

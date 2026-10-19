@@ -1,3 +1,6 @@
+import { resolveAttachmentPathById } from "../../../attachmentStore.ts";
+import * as ServerConfig from "../../../config.ts";
+import * as Home from "../../../project/ProjectHomeService.ts";
 import {
   ATTACHMENT_UPLOAD_URL_TTL_MS,
   type ChatAttachment,
@@ -11,7 +14,7 @@ import * as Upload from "../../../assets/AttachmentUpload.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { newCommandId, readThread, unavailable } from "../../threadAccess.ts";
+import { newCommandId, readThread, loadCaller, unavailable } from "../../threadAccess.ts";
 import { AttachmentToolkit } from "./tools.ts";
 
 export function resolveAttachmentReferences(
@@ -45,17 +48,54 @@ const uploadOwner = McpInvocationContext.McpInvocationContext.pipe(
   Effect.map((scope) => scope.thread?.threadId ?? scope.requestNamespace),
 );
 
+const callerProject = Effect.gen(function* () {
+  const { caller } = yield* loadCaller();
+  if (!caller)
+    return yield* new OrchestratorMcpFailure({
+      code: "invalid_request",
+      message: "Open a project thread to access its Local library.",
+    });
+  return caller.projectId;
+});
+
 export const layer = McpToolAccess.toLayer(
   AttachmentToolkit,
   Effect.sync(() => {
     // Which caller prepared each pending upload, so only that caller can discard it.
     const uploadOwners = new Map<string, { readonly owner: string; readonly issuedAt: number }>();
     return {
+      t3_library_list: McpToolAccess.readsAsCaller((input) =>
+        Effect.gen(function* () {
+          const projectId = yield* callerProject;
+          const home = yield* Home.ProjectHomeService;
+          return yield* home.list({ ...input, projectId }).pipe(Effect.mapError(unavailable));
+        }),
+      ),
+      t3_library_read: McpToolAccess.readsAsCaller((input) =>
+        Effect.gen(function* () {
+          const projectId = yield* callerProject;
+          const home = yield* Home.ProjectHomeService;
+          const preview = yield* home.read(projectId, input.id).pipe(Effect.mapError(unavailable));
+          const config = yield* ServerConfig.ServerConfig;
+          return {
+            ...preview,
+            originalPath: preview.entry.attachmentId
+              ? resolveAttachmentPathById({
+                  attachmentsDir: config.attachmentsDir,
+                  attachmentId: preview.entry.attachmentId,
+                })
+              : null,
+          };
+        }),
+      ),
       t3_attachment_prepare_upload: McpToolAccess.writes((input) =>
         Effect.gen(function* () {
-          const result = yield* Upload.issueAttachmentUploadUrl(input.upload).pipe(
-            Effect.mapError(unavailable),
-          );
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          const projectId = scope.thread ? yield* callerProject : input.upload.projectId;
+          const result = yield* Upload.issueAttachmentUploadUrl({
+            ...input.upload,
+            ...(projectId ? { projectId } : {}),
+          }).pipe(Effect.mapError(unavailable));
           const now = yield* Clock.currentTimeMillis;
           for (const [id, entry] of uploadOwners) {
             if (now - entry.issuedAt > UPLOAD_OWNER_TTL_MS) uploadOwners.delete(id);

@@ -155,6 +155,7 @@ export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "prev
 }
 
 export interface ComposerFileAttachment extends Omit<ChatFileAttachment, "previewUrl"> {
+  libraryProjectId?: ProjectId;
   file: File | null;
   uploadedAttachmentId?: string;
   uploadEnvironmentId?: EnvironmentId;
@@ -194,6 +195,7 @@ function clearStaleFileUploadMetadata(
 }
 
 export const PersistedComposerFileAttachment = Schema.Struct({
+  libraryProjectId: Schema.optionalKey(ProjectId),
   id: Schema.String,
   name: Schema.String,
   mimeType: Schema.String,
@@ -211,6 +213,7 @@ export type PersistedComposerFileAttachment = typeof PersistedComposerFileAttach
  * `attachmentId`) and hydrates as a needs-reattach row instead of vanishing.
  */
 export const PersistedComposerDraftFileAttachment = Schema.Struct({
+  libraryProjectId: Schema.optionalKey(ProjectId),
   id: Schema.String,
   name: Schema.String,
   mimeType: Schema.String,
@@ -2247,6 +2250,7 @@ export function partializeComposerDraftStoreState(
               mimeType: file.mimeType,
               sizeBytes: file.sizeBytes,
               ...(file.source ? { source: file.source } : {}),
+              ...(file.libraryProjectId ? { libraryProjectId: file.libraryProjectId } : {}),
               ...(file.uploadedAttachmentId && file.uploadEnvironmentId
                 ? {
                     attachmentId: file.uploadedAttachmentId,
@@ -2537,6 +2541,7 @@ function toHydratedThreadDraft(
       sizeBytes: file.sizeBytes,
       file: null,
       ...(file.source ? { source: file.source } : {}),
+      ...(file.libraryProjectId ? { libraryProjectId: file.libraryProjectId } : {}),
       // A marker without an attachment id hydrates as needs-reattach: no
       // bytes, no server-side upload, only the metadata to tell the user
       // what to attach again.

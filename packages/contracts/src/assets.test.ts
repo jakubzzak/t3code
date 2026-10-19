@@ -16,6 +16,23 @@ const uploadInput = {
 } as const;
 
 describe("AttachmentCreateUploadUrlInput", () => {
+  it("preserves project ownership for library uploads while accepting legacy uploads", () => {
+    const decode = Schema.decodeUnknownSync(AttachmentCreateUploadUrlInput);
+    expect(decode({ ...uploadInput, projectId: "project-library" })).toMatchObject({
+      projectId: "project-library",
+    });
+    expect(decode(uploadInput)).toEqual(uploadInput);
+    expect(
+      decode({
+        type: "file",
+        name: "notes.md",
+        mimeType: "text/markdown",
+        sizeBytes: 4,
+        projectId: "project-library",
+      }),
+    ).toMatchObject({ projectId: "project-library" });
+  });
+
   it("accepts supported image attachments", () => {
     expect(isUploadInput(uploadInput)).toBe(true);
   });

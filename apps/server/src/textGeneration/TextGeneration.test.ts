@@ -19,6 +19,8 @@ const makeStubTextGeneration = (
   overrides: Partial<TextGeneration.TextGeneration["Service"]>,
 ): TextGeneration.TextGeneration["Service"] =>
   TextGeneration.TextGeneration.of({
+    generateProjectContext: () =>
+      Effect.die("generateProjectContext stub not configured for this test"),
     generateFileFilter: () => Effect.die("generateFileFilter stub not configured for this test"),
     generateCommitMessage: () =>
       Effect.die("generateCommitMessage stub not configured for this test"),

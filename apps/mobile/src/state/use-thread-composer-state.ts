@@ -521,6 +521,7 @@ export function useThreadComposerState() {
       const capabilities = selectedEnvironmentRuntime?.serverConfig?.environment.capabilities;
       const prepared = await prepareTurnAttachments({
         environmentId: thread.environmentId,
+        projectId: thread.projectId,
         attachments: draft.attachments,
         supportsImageUploads: capabilities?.attachmentUploads === true,
       });

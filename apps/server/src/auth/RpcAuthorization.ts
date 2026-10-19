@@ -163,6 +163,16 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.assetsPersistChatAttachments]: AuthOrchestrationOperateScope,
   [WS_METHODS.attachmentsCreateUploadUrl]: AuthOrchestrationOperateScope,
   [WS_METHODS.attachmentsDelete]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectHomeOpen]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectHomeSnapshot]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectHomeCustomize]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectHomeVisit]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectLibraryList]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectLibraryRead]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectLibrarySaveLink]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectLibraryRetry]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectLibraryAttach]: AuthOrchestrationOperateScope,
+
   [WS_METHODS.providerUploadFeedback]: AuthOrchestrationOperateScope,
   // An app's tool calls can change things on its server, like a user action.
   [WS_METHODS.mcpAppsCallTool]: AuthOrchestrationOperateScope,

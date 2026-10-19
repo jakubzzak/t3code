@@ -129,6 +129,15 @@ three mockup directions are design references, not three required product modes.
 
 ## Constraints and decisions
 
+- Tracking exception: proceed without a Linear issue, as explicitly requested.
+- Rollout requires a supporting client and server. Older clients retain their
+  existing upload behavior; new clients hide library operations on older servers.
+  Add storage without rewriting existing attachments or backfilling old uploads.
+  Roll back code without deleting library records or originals; re-upgrading must
+  recover access. Install the server before upgrading connected clients.
+- Prefer the existing environment-owned asset storage and authenticated access
+  paths for cross-device use. The Local library label must not introduce a separate
+  browser-local store or prevent connected clients from accessing their files.
 - Reuse the existing composer, mention sources, attachment transport, and preview
   surfaces. The existing [pending-upload lifecycle](../../packages/client-runtime/src/state/attachments.ts)
   permits expiry and removal; durable library ownership must be independent of it.

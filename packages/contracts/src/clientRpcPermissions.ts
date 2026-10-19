@@ -11,6 +11,13 @@ import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
+  [WS_METHODS.projectHomeOpen]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectHomeCustomize]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectHomeVisit]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectLibrarySaveLink]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectLibraryRetry]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectLibraryAttach]: AuthOrchestrationOperateScope,
+
   [WS_METHODS.serverRunStorageCleanup]: AuthSettingsWriteScope,
   // Endpoint checks exist to configure exports, so they need the same grant as saving them.
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,

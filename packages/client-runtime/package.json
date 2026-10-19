@@ -422,6 +422,10 @@
     "./state/thread-cleanup": {
       "types": "./src/state/threadCleanup.ts",
       "default": "./src/state/threadCleanup.ts"
+    },
+    "./state/projectHome": {
+      "types": "./src/state/projectHome.ts",
+      "default": "./src/state/projectHome.ts"
     }
   },
   "scripts": {
