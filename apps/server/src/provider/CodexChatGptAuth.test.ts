@@ -619,7 +619,7 @@ it.effect(
           "state",
         ]);
         assert.strictEqual(first.searchParams.get("client_id"), "dynamic_agent_client");
-        assert.strictEqual(first.searchParams.get("agent_name_hint"), "T3 Code");
+        assert.strictEqual(first.searchParams.get("agent_name_hint"), "Blackbird");
         assert.strictEqual(first.searchParams.get("response_type"), "code");
         assert.strictEqual(
           first.searchParams.get("scope"),
@@ -707,6 +707,9 @@ it.effect(
           response.body,
           'content="1;url=http://localhost:7001/settings/providers?instanceId=codex_work"',
         );
+        assert.include(response.body, "Return to Blackbird");
+        assert.include(response.body, "<strong>Blackbird</strong>");
+        assert.notInclude(response.body, "T3 Code");
         assert.notInclude(response.body, "secret-code");
         assert.include(response.body, 'history.replaceState(null,"","/auth/callback")');
         assert.notInclude(response.body, "authorization-code");
