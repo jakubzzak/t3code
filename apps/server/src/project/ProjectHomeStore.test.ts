@@ -4,6 +4,7 @@ import { ProjectId, ThreadId, DEFAULT_PROJECT_HOME_PREFERENCES } from "@t3tools/
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 import * as ServerConfig from "../config.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
@@ -138,7 +139,9 @@ describe("ProjectHomeStore", () => {
         expect(
           sweepStalePendingAttachments({
             attachmentsDir: config.attachmentsDir,
-            nowMs: Date.now() + 7 * 24 * 60 * 60 * 1000,
+            nowMs:
+              Option.getOrThrow((yield* fs.stat(pending)).mtime).getTime() +
+              7 * 24 * 60 * 60 * 1000,
           }).deleted,
         ).toBe(1);
         expect(yield* fs.exists(pending)).toBe(false);
