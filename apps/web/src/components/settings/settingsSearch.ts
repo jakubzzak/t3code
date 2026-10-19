@@ -212,6 +212,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["storage cleanup run now results report removed kept failed"],
   },
   {
+    id: "git-integration",
+    title: "Git integration",
+    to: "/settings/source-control",
+    scope: "project",
+    searchTerms: ["git disable checkpoint restore plain workspace"],
+  },
+  {
     id: "storage-worktrees",
     title: "Worktree cleanup",
     to: "/settings/storage",

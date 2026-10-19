@@ -2420,35 +2420,38 @@ export function GeneralSettingsPanel() {
 
         {supportsAutoSettlement ? (
           <>
-            <SettingsRow
-              serverScoped
-              settingKeys={["sidebarAutoSettleOnMerge"]}
-              {...searchableSetting("auto-settle-merged-threads")}
-              description="Settle a thread when its pull request merges. Closed pull requests still settle automatically."
-              resetAction={
-                settings.sidebarAutoSettleOnMerge !==
-                DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge ? (
-                  <SettingResetButton
-                    label="auto-settle on merge"
-                    onClick={() =>
-                      updateSettings({
-                        sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
-                      })
+            {settings.gitEnabled && (
+              <SettingsRow
+                serverScoped
+                settingKeys={["sidebarAutoSettleOnMerge"]}
+                {...searchableSetting("auto-settle-merged-threads")}
+                description="Settle a thread when its pull request merges. Closed pull requests still settle automatically."
+                resetAction={
+                  settings.sidebarAutoSettleOnMerge !==
+                  DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge ? (
+                    <SettingResetButton
+                      label="auto-settle on merge"
+                      onClick={() =>
+                        updateSettings({
+                          sidebarAutoSettleOnMerge:
+                            DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <ScopedSwitch
+                    settingKeys={["sidebarAutoSettleOnMerge"]}
+                    checked={settings.sidebarAutoSettleOnMerge}
+                    onCheckedChange={(checked) =>
+                      updateSettings({ sidebarAutoSettleOnMerge: Boolean(checked) })
                     }
+                    aria-label="Auto-settle merged threads"
                   />
-                ) : null
-              }
-              control={
-                <ScopedSwitch
-                  settingKeys={["sidebarAutoSettleOnMerge"]}
-                  checked={settings.sidebarAutoSettleOnMerge}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ sidebarAutoSettleOnMerge: Boolean(checked) })
-                  }
-                  aria-label="Auto-settle merged threads"
-                />
-              }
-            />
+                }
+              />
+            )}
 
             <SettingsRow
               serverScoped
@@ -2496,7 +2499,9 @@ export function GeneralSettingsPanel() {
                 }
               />
             ) : null}
-            {settings.sidebarAutoSettleAfterDays !== null && supportsAutoSettlementScope ? (
+            {settings.gitEnabled &&
+            settings.sidebarAutoSettleAfterDays !== null &&
+            supportsAutoSettlementScope ? (
               <SettingsRow
                 serverScoped
                 settingKeys={["sidebarAutoSettleKeepPullRequests"]}
@@ -2620,133 +2625,146 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
-        <SettingsRow
-          {...searchableSetting("hide-whitespace-changes")}
-          description="Set whether the diff panel ignores whitespace-only edits by default."
-          resetAction={
-            settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace ? (
-              <SettingResetButton
-                label="diff whitespace changes"
-                onClick={() =>
-                  updateSettings({
-                    diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
-                  })
+        {settings.gitEnabled && (
+          <SettingsRow
+            {...searchableSetting("hide-whitespace-changes")}
+            description="Set whether the diff panel ignores whitespace-only edits by default."
+            resetAction={
+              settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace ? (
+                <SettingResetButton
+                  label="diff whitespace changes"
+                  onClick={() =>
+                    updateSettings({
+                      diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.diffIgnoreWhitespace}
+                onCheckedChange={(checked) =>
+                  updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
                 }
+                aria-label="Hide whitespace changes by default"
               />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.diffIgnoreWhitespace}
-              onCheckedChange={(checked) =>
-                updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
-              }
-              aria-label="Hide whitespace changes by default"
-            />
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("default-diff-file-state")}
-          description="Start with files expanded or collapsed when opening diffs or a pull request's Code tab."
-          resetAction={
-            settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed ? (
-              <SettingResetButton
-                label="default diff file state"
-                onClick={() =>
-                  updateSettings({
-                    diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.diffFilesCollapsed ? "collapsed" : "expanded"}
-              onValueChange={(value) => {
-                if (value === "expanded" || value === "collapsed") {
-                  updateSettings({ diffFilesCollapsed: value === "collapsed" });
-                }
-              }}
-            >
-              <SelectTrigger
-                size="sm"
-                className="w-full sm:w-40"
-                aria-label="Default diff file state"
+            }
+          />
+        )}
+        {settings.gitEnabled && (
+          <SettingsRow
+            {...searchableSetting("default-diff-file-state")}
+            description="Start with files expanded or collapsed when opening diffs or a pull request's Code tab."
+            resetAction={
+              settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed ? (
+                <SettingResetButton
+                  label="default diff file state"
+                  onClick={() =>
+                    updateSettings({
+                      diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={settings.diffFilesCollapsed ? "collapsed" : "expanded"}
+                onValueChange={(value) => {
+                  if (value === "expanded" || value === "collapsed") {
+                    updateSettings({ diffFilesCollapsed: value === "collapsed" });
+                  }
+                }}
               >
-                <SelectValue>{settings.diffFilesCollapsed ? "Collapsed" : "Expanded"}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="expanded">
-                  Expanded
-                </SelectItem>
-                <SelectItem hideIndicator value="collapsed">
-                  Collapsed
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("diff-layout")}
-          description="Show diffs stacked or side by side. The toggle in the diff toolbar changes this too."
-          resetAction={
-            settings.diffLayout !== DEFAULT_UNIFIED_SETTINGS.diffLayout ? (
-              <SettingResetButton
-                label="diff layout"
-                onClick={() => updateSettings({ diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout })}
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.diffLayout}
-              onValueChange={(value) => {
-                if (value === "stacked" || value === "split") {
-                  updateSettings({ diffLayout: value });
-                }
-              }}
-            >
-              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Diff layout">
-                <SelectValue>{DIFF_LAYOUT_LABELS[settings.diffLayout]}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="stacked">
-                  {DIFF_LAYOUT_LABELS.stacked}
-                </SelectItem>
-                <SelectItem hideIndicator value="split">
-                  {DIFF_LAYOUT_LABELS.split}
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
+                <SelectTrigger
+                  size="sm"
+                  className="w-full sm:w-40"
+                  aria-label="Default diff file state"
+                >
+                  <SelectValue>
+                    {settings.diffFilesCollapsed ? "Collapsed" : "Expanded"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem hideIndicator value="expanded">
+                    Expanded
+                  </SelectItem>
+                  <SelectItem hideIndicator value="collapsed">
+                    Collapsed
+                  </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        )}
+        {settings.gitEnabled && (
+          <SettingsRow
+            {...searchableSetting("diff-layout")}
+            description="Show diffs stacked or side by side. The toggle in the diff toolbar changes this too."
+            resetAction={
+              settings.diffLayout !== DEFAULT_UNIFIED_SETTINGS.diffLayout ? (
+                <SettingResetButton
+                  label="diff layout"
+                  onClick={() =>
+                    updateSettings({ diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={settings.diffLayout}
+                onValueChange={(value) => {
+                  if (value === "stacked" || value === "split") {
+                    updateSettings({ diffLayout: value });
+                  }
+                }}
+              >
+                <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Diff layout">
+                  <SelectValue>{DIFF_LAYOUT_LABELS[settings.diffLayout]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem hideIndicator value="stacked">
+                    {DIFF_LAYOUT_LABELS.stacked}
+                  </SelectItem>
+                  <SelectItem hideIndicator value="split">
+                    {DIFF_LAYOUT_LABELS.split}
+                  </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        )}
 
-        <SettingsRow
-          {...searchableSetting("proactive-panels")}
-          description="Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines."
-          resetAction={
-            settings.proactivePanelsEnabled !== DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled ? (
-              <SettingResetButton
-                label="proactive panels"
-                onClick={() =>
-                  updateSettings({
-                    proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
-                  })
+        {settings.gitEnabled && (
+          <SettingsRow
+            {...searchableSetting("proactive-panels")}
+            description="Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines."
+            resetAction={
+              settings.proactivePanelsEnabled !==
+              DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled ? (
+                <SettingResetButton
+                  label="proactive panels"
+                  onClick={() =>
+                    updateSettings({
+                      proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.proactivePanelsEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({ proactivePanelsEnabled: Boolean(checked) })
                 }
+                aria-label="Proactive panels"
               />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.proactivePanelsEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ proactivePanelsEnabled: Boolean(checked) })
-              }
-              aria-label="Proactive panels"
-            />
-          }
-        />
+            }
+          />
+        )}
 
         <SettingsRow
           {...searchableSetting("skills-in-slash-menu")}
@@ -3080,36 +3098,38 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="projects-and-threads" title="Projects & threads">
-        <SettingsRow
-          serverScoped
-          settingKeys={["newWorktreesStartFromOrigin"]}
-          {...searchableSetting("start-from-origin")}
-          description="Creates the worktree from the latest matching branch on origin instead of your local branch."
-          resetAction={
-            settings.newWorktreesStartFromOrigin !==
-            DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
-              <SettingResetButton
-                label="new worktrees start from origin"
-                onClick={() =>
-                  updateSettings({
-                    newWorktreesStartFromOrigin:
-                      DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
-                  })
+        {settings.gitEnabled && (
+          <SettingsRow
+            serverScoped
+            settingKeys={["newWorktreesStartFromOrigin"]}
+            {...searchableSetting("start-from-origin")}
+            description="Creates the worktree from the latest matching branch on origin instead of your local branch."
+            resetAction={
+              settings.newWorktreesStartFromOrigin !==
+              DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
+                <SettingResetButton
+                  label="new worktrees start from origin"
+                  onClick={() =>
+                    updateSettings({
+                      newWorktreesStartFromOrigin:
+                        DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <ScopedSwitch
+                settingKeys={["newWorktreesStartFromOrigin"]}
+                checked={settings.newWorktreesStartFromOrigin}
+                onCheckedChange={(checked) =>
+                  updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
                 }
+                aria-label="Start new worktrees from origin by default"
               />
-            ) : null
-          }
-          control={
-            <ScopedSwitch
-              settingKeys={["newWorktreesStartFromOrigin"]}
-              checked={settings.newWorktreesStartFromOrigin}
-              onCheckedChange={(checked) =>
-                updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
-              }
-              aria-label="Start new worktrees from origin by default"
-            />
-          }
-        />
+            }
+          />
+        )}
         <SettingsRow
           serverScoped
           settingKeys={["addProjectBaseDirectory"]}

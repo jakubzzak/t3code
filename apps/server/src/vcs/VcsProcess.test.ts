@@ -21,6 +21,7 @@ import {
 } from "@t3tools/contracts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as VcsProcess from "./VcsProcess.ts";
+import * as GitIntegration from "../project/GitIntegration.ts";
 
 const encodeExitError = Schema.encodeEffect(Schema.fromJsonString(VcsProcessExitError));
 
@@ -55,6 +56,41 @@ const captureProcessResult = (
   );
 
 describe("VcsProcess.run", () => {
+  it.effect("does not start a Git process after the project disables integration", () =>
+    Effect.gen(function* () {
+      let starts = 0;
+      const service = yield* VcsProcess.make.pipe(
+        Effect.provideService(ProcessRunner.ProcessRunner, {
+          run: () => {
+            starts++;
+            return Effect.succeed({
+              code: ChildProcessSpawner.ExitCode(0),
+              stdout: "",
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              timedOut: false,
+              stdoutInvalidUtf8: false,
+              stderrInvalidUtf8: false,
+            });
+          },
+        }),
+        Effect.provideService(GitIntegration.GitIntegration, {
+          isEnabled: () => Effect.succeed(false),
+          isProjectEnabled: () => Effect.succeed(false),
+        }),
+      );
+      const exit = yield* Effect.exit(service.run(baseInput));
+      expect(starts).toBe(0);
+      expect(Exit.isFailure(exit)).toBe(true);
+      yield* service.run({
+        ...baseInput,
+        operation: "source-control.discovery.probe",
+        args: ["--version"],
+      });
+      expect(starts).toBe(1);
+    }),
+  );
   it.effect.each([
     { stderr: "fatal: Unable to create '/private/repo/index.lock': File exists", retryable: true },
     {

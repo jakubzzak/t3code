@@ -192,7 +192,10 @@ export const autoPullProjects = Effect.fn("autoPullProjects")(function* (
   const workspaceRoots = [
     ...new Set(
       projects
-        .filter((project) => resolveProjectSettings(settings, project.id).settings.defaultAutoPull)
+        .filter((project) => {
+          const effective = resolveProjectSettings(settings, project.id).settings;
+          return effective.gitEnabled && effective.defaultAutoPull;
+        })
         .map((project) => project.workspaceRoot),
     ),
   ];

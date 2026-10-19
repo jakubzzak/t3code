@@ -83,6 +83,7 @@ type QuickActionIcon =
 
 /** The subset of git-control wiring the standalone git menu needs. */
 export type ThreadGitMenuProps = {
+  readonly gitEnabled?: boolean;
   readonly environmentId: EnvironmentId | string;
   readonly threadId: ThreadId | string;
   readonly currentBranch: string | null;
@@ -126,7 +127,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
 
   const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? "Detached HEAD";
   const busy = gitOperationLabel !== null;
-  const isRepo = gitStatus?.isRepo ?? true;
+  const isRepo = props.gitEnabled !== false && (gitStatus?.isRepo ?? true);
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus?.isDefaultRef ?? false;
 
@@ -444,16 +445,26 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
 export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
   return useMemo(
-    () => [actionItems.git, actionItems.files, actionItems.terminal] as HeaderItems,
-    [actionItems],
+    () =>
+      [
+        ...(props.gitEnabled !== false ? [actionItems.git] : []),
+        actionItems.files,
+        actionItems.terminal,
+      ] as HeaderItems,
+    [actionItems, props.gitEnabled],
   );
 }
 
 export function useThreadGitCenterHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
   return useMemo(
-    () => [actionItems.files, actionItems.git, actionItems.terminal] as HeaderItems,
-    [actionItems],
+    () =>
+      [
+        actionItems.files,
+        ...(props.gitEnabled !== false ? [actionItems.git] : []),
+        actionItems.terminal,
+      ] as HeaderItems,
+    [actionItems, props.gitEnabled],
   );
 }
 
@@ -543,7 +554,9 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
           separateBackground
         />
       ) : null}
-      {showActionControls ? createNativeHeaderMenu(threadGitMenuDefinition(props, model)) : null}
+      {showActionControls && props.gitEnabled !== false
+        ? createNativeHeaderMenu(threadGitMenuDefinition(props, model))
+        : null}
     </NativeHeaderToolbar>
   );
 }
@@ -560,7 +573,8 @@ export function ThreadGitMenu(props: ThreadGitMenuProps) {
 
 /** Returns menu data because native toolbars serialize direct items rather than rendering component children. */
 export function useThreadGitMenuDefinition(props: ThreadGitMenuProps): ScreenHeaderMenu | null {
-  return threadGitMenuDefinition(props, useThreadGitControlModel(props));
+  const model = useThreadGitControlModel(props);
+  return props.gitEnabled === false ? null : threadGitMenuDefinition(props, model);
 }
 
 function threadGitMenuDefinition(

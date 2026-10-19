@@ -2618,6 +2618,20 @@ export default function ChatView(props: ChatViewProps) {
     () => resolveProjectSettings(settings, activeProject?.id ?? null, activeProject ?? undefined),
     [activeProject, settings],
   );
+  const gitEnabled = activeProjectSettings.settings.gitEnabled !== false;
+  useEffect(() => {
+    if (gitEnabled || !activeThreadRef) return;
+    const store = useRightPanelStore.getState();
+    for (const surface of rightPanelState.surfaces) {
+      if (
+        surface.kind === "diff" ||
+        surface.kind === "pull-request" ||
+        surface.kind === "pull-requests"
+      )
+        store.closeSurface(activeThreadRef, surface.id);
+    }
+  }, [gitEnabled, activeThreadRef, rightPanelState.surfaces]);
+
   const activeProjectScripts = useMemo(
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
@@ -4239,7 +4253,7 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
+  const gitStatusCwd = gitEnabled ? (activeThread?.worktreePath ?? gitCwd) : null;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
       ? null
@@ -4368,7 +4382,8 @@ export default function ChatView(props: ChatViewProps) {
       rememberCheckoutIsRepo(environmentId, gitStatusCwd, liveIsGitRepo);
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
-  const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  const isGitRepo =
+    gitEnabled && (liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true);
   // When context is enabled, keep a hidden, off-flow strip mounted so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
@@ -4446,6 +4461,7 @@ export default function ChatView(props: ChatViewProps) {
     [keybindings, terminalShortcutLabelOptions],
   );
   const onToggleDiff = () => {
+    if (!gitEnabled) return;
     if (!isServerThread) {
       return;
     }
@@ -5437,11 +5453,11 @@ export default function ChatView(props: ChatViewProps) {
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequests = visibleThreadPullRequests(
-    (activeThreadShell ?? activeThread)?.pullRequests ?? [],
+    gitEnabled ? ((activeThreadShell ?? activeThread)?.pullRequests ?? []) : [],
   );
   const visiblePullRequestCount = visiblePullRequests.length;
   const pullRequestsSurfaceAvailable =
-    isServerThread && supportsThreadPullRequests && visiblePullRequestCount > 0;
+    gitEnabled && isServerThread && supportsThreadPullRequests && visiblePullRequestCount > 0;
   const addPullRequestsSurface = () => {
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
@@ -5617,6 +5633,7 @@ export default function ChatView(props: ChatViewProps) {
   const persistedLinkedThreadPullRequestStatus = useLinkedThreadPullRequest(
     activeThreadRef?.environmentId ?? null,
     persistedLinkedThreadPullRequest,
+    gitEnabled,
   );
   const replacementLinkedThreadPullRequest = useMemo(() => {
     const detected = gitStatusQuery.data?.pr;
@@ -5652,8 +5669,9 @@ export default function ChatView(props: ChatViewProps) {
     persistedLinkedThreadPullRequest,
     persistedLinkedThreadPullRequestStatus?.pr.state,
   ]);
-  const linkedThreadPullRequest =
-    replacementLinkedThreadPullRequest ?? persistedLinkedThreadPullRequest;
+  const linkedThreadPullRequest = gitEnabled
+    ? (replacementLinkedThreadPullRequest ?? persistedLinkedThreadPullRequest)
+    : null;
   const linkedThreadPullRequestKey = linkedThreadPullRequest
     ? JSON.stringify([
         linkedThreadPullRequest.projectId,
@@ -6902,9 +6920,12 @@ export default function ChatView(props: ChatViewProps) {
     activeThread.worktreePath === null &&
     !envLocked,
   );
-  const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
-    : derivedEnvMode;
+  const envMode: DraftThreadEnvMode =
+    !gitEnabled && !activeThread?.worktreePath
+      ? "local"
+      : canOverrideServerThreadEnvMode
+        ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+        : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
       ? pendingServerThreadBranch
@@ -7096,11 +7117,12 @@ export default function ChatView(props: ChatViewProps) {
         ? null
         : resolveThreadReferenceCopyTarget({
             threadId: activeThreadId,
-            openPanelPullRequestUrl,
-            pullRequests: activeThread?.pullRequests,
-            linkedPullRequestUrl: linkedThreadPullRequest?.url ?? null,
+            openPanelPullRequestUrl: gitEnabled ? openPanelPullRequestUrl : null,
+            pullRequests: gitEnabled ? activeThread?.pullRequests : [],
+            linkedPullRequestUrl: gitEnabled ? (linkedThreadPullRequest?.url ?? null) : null,
           }),
     [
+      gitEnabled,
       activeThreadId,
       isServerThread,
       activeThread?.pullRequests,
@@ -8492,6 +8514,7 @@ export default function ChatView(props: ChatViewProps) {
       setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
       return;
     }
+    if (!gitEnabled) restoreFiles = false;
     if (restoreFiles === undefined) {
       setPendingRevert({ turnCount, messageId, routeThreadKey });
       return;
@@ -8585,7 +8608,7 @@ export default function ChatView(props: ChatViewProps) {
     readonly checkpointId: string;
     readonly scopeId: string;
   }) => {
-    if (!activeThread || isRevertingCheckpoint) return;
+    if (!gitEnabled || !activeThread || isRevertingCheckpoint) return;
     if (activeEnvironmentUnavailable && activeEnvironmentUnavailableLabel) {
       setThreadError(
         activeThread.id,
@@ -8847,7 +8870,7 @@ export default function ChatView(props: ChatViewProps) {
       notifyDirectAnnotationAttached();
       return;
     }
-    const multipleModelSelections = sendCtx.multipleModelSelections;
+    const multipleModelSelections = gitEnabled ? sendCtx.multipleModelSelections : null;
     if (
       multipleModelSelections !== null &&
       serverConfig?.environment.capabilities.requiredWorktreeBootstrap !== true
@@ -10771,6 +10794,7 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {
+    if (!gitEnabled && mode === "worktree") return;
     if (multipleModelSelections !== null) return;
     if (canOverrideServerThreadEnvMode) {
       setPendingServerThreadEnvMode(mode);
@@ -10916,6 +10940,7 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const onOpenTurnDiff = (runId: RunId, filePath?: string) => {
+    if (!gitEnabled) return;
     if (!isServerThread || !activeThreadRef) return;
     const diffOpen =
       selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) === "diff";
@@ -11012,7 +11037,7 @@ export default function ChatView(props: ChatViewProps) {
         newShortcutLabel={newTerminalShortcutLabel ?? undefined}
         closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
       />
-    ) : renderedRightPanelSurface?.kind === "diff" ? (
+    ) : renderedRightPanelSurface?.kind === "diff" && gitEnabled ? (
       <Suspense fallback={null}>
         <DiffPanel
           key={activeThreadKey}
@@ -11021,14 +11046,18 @@ export default function ChatView(props: ChatViewProps) {
           workspaceMutationId={workspaceMutationId}
         />
       </Suspense>
-    ) : renderedRightPanelSurface?.kind === "pull-request" && !pullRequestsCapabilityKnown ? (
+    ) : gitEnabled &&
+      renderedRightPanelSurface?.kind === "pull-request" &&
+      !pullRequestsCapabilityKnown ? (
       <PullRequestDetailGhost />
-    ) : renderedRightPanelSurface?.kind === "pull-request" && !supportsPullRequests ? (
+    ) : gitEnabled &&
+      renderedRightPanelSurface?.kind === "pull-request" &&
+      !supportsPullRequests ? (
       <PullRequestsUnavailableState
         title="Pull requests unavailable"
         error="Update this environment's Blackbird server to browse pull requests."
       />
-    ) : renderedRightPanelSurface?.kind === "pull-request" ? (
+    ) : gitEnabled && renderedRightPanelSurface?.kind === "pull-request" ? (
       // No onClose: the surface tab's own X owns closing here, and a second X in the header
       // would be the same action twice. The thread context also drops the checkout button, so it
       // is only right for the thread's own pull request, whose branch is already under the
@@ -11075,7 +11104,7 @@ export default function ChatView(props: ChatViewProps) {
             : undefined
         }
       />
-    ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
+    ) : gitEnabled && renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
@@ -11140,6 +11169,7 @@ export default function ChatView(props: ChatViewProps) {
   ) : null;
   const showLinearInComposer = isDraftHeroState && mountComposerContextStrip;
   const linearIssueControl =
+    gitEnabled &&
     isElectron &&
     linearViewEnabled &&
     serverConfig?.linearIssueChats &&
@@ -11254,7 +11284,7 @@ export default function ChatView(props: ChatViewProps) {
     anchor: threadPanelPopoverAnchorRef,
     handle: threadPanelPopoverHandle,
     onPresentationChange: setThreadPanelPresentation,
-    forceNewWorktree: multipleModelSelections !== null,
+    forceNewWorktree: gitEnabled && multipleModelSelections !== null,
     environmentId: activeThread.environmentId,
     threadId: activeThread.id,
     ...(draftId ? { draftId } : {}),
@@ -11268,6 +11298,7 @@ export default function ChatView(props: ChatViewProps) {
     showOpenInPicker,
     gitCwd,
     isGitRepo,
+    gitEnabled,
     envLocked,
     availableEnvironments: logicalProjectEnvironments,
     autoEnvironmentLabel,
@@ -11289,7 +11320,7 @@ export default function ChatView(props: ChatViewProps) {
       : {}),
     startFromOrigin,
     onStartFromOriginChange,
-    ...(canCheckoutPullRequestIntoThread
+    ...(gitEnabled && canCheckoutPullRequestIntoThread
       ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
       : {}),
     onComposerFocusRequest: scheduleComposerFocusStable,
@@ -11576,7 +11607,9 @@ export default function ChatView(props: ChatViewProps) {
                 latestRun={paintOnlyDisplayedTimeline ? null : activeActivityRun}
                 runningRunId={paintOnlyDisplayedTimeline ? null : activeRunningTurnId}
                 turnDiffSummaries={
-                  paintOnlyDisplayedTimeline ? EMPTY_HELD_TURN_DIFF_SUMMARIES : turnDiffSummaries
+                  paintOnlyDisplayedTimeline || !gitEnabled
+                    ? EMPTY_HELD_TURN_DIFF_SUMMARIES
+                    : turnDiffSummaries
                 }
                 activeThreadEnvironmentId={
                   displayedThreadRef?.environmentId ?? activeThread.environmentId
@@ -11590,7 +11623,7 @@ export default function ChatView(props: ChatViewProps) {
                 onOpenThread={onOpenRelatedThreadStable}
                 parentThreadLink={paintOnlyDisplayedTimeline ? null : parentThreadLink}
                 onForkFromRun={paintOnlyDisplayedTimeline ? async () => {} : onForkFromRunStable}
-                onRollbackCheckpoint={onTimelineRollbackCheckpointStable}
+                onRollbackCheckpoint={gitEnabled ? onTimelineRollbackCheckpointStable : undefined}
                 supportsConversationRollback={
                   !paintOnlyDisplayedTimeline && supportsConversationRollback
                 }
@@ -11743,10 +11776,11 @@ export default function ChatView(props: ChatViewProps) {
                             <ChatComposer
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
-                              multipleModelSelections={multipleModelSelections}
+                              multipleModelSelections={gitEnabled ? multipleModelSelections : null}
                               supportsMultipleModels={
+                                gitEnabled &&
                                 serverConfig?.environment.capabilities.requiredWorktreeBootstrap ===
-                                true
+                                  true
                               }
                               onMultipleModelSelectionsChange={setMultipleModelSelectionsStable}
                               composerRef={composerRef}
@@ -11854,9 +11888,13 @@ export default function ChatView(props: ChatViewProps) {
                                 supportsPullRequests ? (activeProject?.id ?? null) : null
                               }
                               pullRequestRepository={
-                                supportsPullRequests ? activeProjectRepository : null
+                                gitEnabled && supportsPullRequests ? activeProjectRepository : null
                               }
-                              threadPullRequests={(activeThreadShell ?? activeThread)?.pullRequests}
+                              threadPullRequests={
+                                gitEnabled
+                                  ? (activeThreadShell ?? activeThread)?.pullRequests
+                                  : undefined
+                              }
                               restingControlsHost={restingComposerControlsHost}
                               restingControlsHaveLeadingContext={
                                 mountComposerContextStrip &&
@@ -11939,7 +11977,7 @@ export default function ChatView(props: ChatViewProps) {
                                 linearIssueControl={
                                   showLinearInComposer ? linearIssueControl : null
                                 }
-                                forceNewWorktree={multipleModelSelections !== null}
+                                forceNewWorktree={gitEnabled && multipleModelSelections !== null}
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
@@ -11958,7 +11996,7 @@ export default function ChatView(props: ChatViewProps) {
                                   : {})}
                                 envLocked={envLocked || linearSetupPending}
                                 onComposerFocusRequest={scheduleComposerFocusStable}
-                                {...(canCheckoutPullRequestIntoThread
+                                {...(gitEnabled && canCheckoutPullRequestIntoThread
                                   ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
                                   : {})}
                                 {...(hasMultipleEnvironments
@@ -12206,16 +12244,18 @@ export default function ChatView(props: ChatViewProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (!pendingRevert || pendingRevert.routeThreadKey !== routeThreadKey) return;
-                setPendingRevert(null);
-                void onRevertToTurnCount(pendingRevert.turnCount, pendingRevert.messageId, true);
-              }}
-            >
-              Revert files too
-            </Button>
+            {gitEnabled && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (!pendingRevert || pendingRevert.routeThreadKey !== routeThreadKey) return;
+                  setPendingRevert(null);
+                  void onRevertToTurnCount(pendingRevert.turnCount, pendingRevert.messageId, true);
+                }}
+              >
+                Revert files too
+              </Button>
+            )}
             <Button
               onClick={() => {
                 if (!pendingRevert || pendingRevert.routeThreadKey !== routeThreadKey) return;
@@ -12242,7 +12282,7 @@ export default function ChatView(props: ChatViewProps) {
     <FileMetadataThreadProvider
       threadRef={activeThreadRef}
       cwd={activeWorkspaceRoot}
-      checkpoints={serverProjection?.checkpoints}
+      checkpoints={gitEnabled ? serverProjection?.checkpoints : undefined}
     >
       {content}
     </FileMetadataThreadProvider>

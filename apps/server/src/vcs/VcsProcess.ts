@@ -19,6 +19,7 @@ import {
   VcsProcessTimeoutError,
 } from "@t3tools/contracts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as GitIntegration from "../project/GitIntegration.ts";
 
 export interface VcsProcessInput {
   readonly operation: string;
@@ -114,11 +115,22 @@ const isTransientGitExit = (stderr: string) =>
   /(?:unable to stat|lstat\(|error: open\()[^\n]+: no such file or directory/i.test(stderr);
 
 export const make = Effect.gen(function* () {
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const vcsProcesses = yield* Semaphore.make(VCS_PROCESS_CONCURRENCY);
   const githubProcesses = yield* Semaphore.make(GITHUB_PROCESS_CONCURRENCY);
 
   const runUnbounded = Effect.fn("VcsProcess.runUnbounded")(function* (input: VcsProcessInput) {
+    // Installation/authentication probes describe the environment, not a repository.
+    // Its launch directory may happen to be a project whose Git integration is off.
+    if (
+      input.operation !== "source-control.discovery.probe" &&
+      input.operation !== "source-control.discovery.auth"
+    ) {
+      yield* GitIntegration.assertEnabled(input.cwd).pipe(
+        Effect.provideService(GitIntegration.GitIntegration, gitIntegration),
+      );
+    }
     const baseError = {
       operation: input.operation,
       command: input.command,

@@ -118,6 +118,7 @@ it("does not commit running state when inherited background routing cannot be re
             projectionReadCount += 1;
             return Effect.succeed({
               ...projection,
+              hasCheckpointBaseline: false,
               hasConversation: projection.messages.some(
                 (m) =>
                   m.role === "user" &&
@@ -507,6 +508,7 @@ function makeLocalCommandHarness(input: {
   const getTurnStartContext = vi.fn(() =>
     Effect.succeed({
       ...projection,
+      hasCheckpointBaseline: false,
       hasConversation: projection.messages.some(
         (m) =>
           m.role === "user" &&
@@ -540,6 +542,7 @@ function makeLocalCommandHarness(input: {
           getRuntimeRecoveryProjection: () =>
             Effect.as(failReadIfRunning, {
               ...projection,
+              hasCheckpointBaseline: false,
               hasConversation: projection.messages.some(
                 (m) =>
                   m.role === "user" &&

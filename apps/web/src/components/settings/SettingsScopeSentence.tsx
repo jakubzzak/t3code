@@ -191,7 +191,11 @@ function EnvironmentScopeMenu({
 }
 
 function ProjectScopeMenu({ value, groups, onChange }: SettingsScopeMenuProps) {
-  const selected = groups.find((group) => group.projectKey === value.project);
+  const selected =
+    groups.find((group) => group.projectKey === value.project) ??
+    groups.find((group) =>
+      group.memberProjects.some((member) => member.physicalProjectKey === value.project),
+    );
   return (
     <ScopeMenu
       ariaLabel="Project scope"

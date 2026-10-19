@@ -802,6 +802,22 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
+      if (
+        input.workspaceStrategy.type === "worktree" &&
+        !resolveProjectSettings(
+          yield* serverSettings.getSettings.pipe(
+            Effect.mapError(mapError(input, "resolve-project")),
+          ),
+          input.projectId,
+        ).settings.gitEnabled
+      ) {
+        return yield* mapError(
+          input,
+          "provision-worktree",
+        )(
+          "Git integration is disabled for this project. Enable it in project settings to create a worktree.",
+        );
+      }
       if (input.reuseExistingThread === true && input.threadId === undefined) {
         return yield* mapError(
           input,

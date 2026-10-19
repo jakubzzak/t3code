@@ -1614,7 +1614,7 @@ export function NewTaskDraftScreen(props: {
     </View>
   );
 
-  const workspaceControls = (
+  const workspaceControls = flow.canChooseWorkspace ? (
     <View className="flex-row items-center gap-1 px-2">
       <ComposerInlineControl
         accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
@@ -1643,7 +1643,7 @@ export function NewTaskDraftScreen(props: {
         onPress={() => openContextPicker("NewTaskBranch")}
       />
     </View>
-  );
+  ) : null;
 
   const composerDock = (
     <View

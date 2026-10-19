@@ -85,6 +85,7 @@ import * as ServerOwnership from "./serverOwnership.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import * as GitIntegration from "./project/GitIntegration.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as NativeAppIconResolver from "./assets/NativeAppIconResolver.ts";
 import * as AntigravityInstallation from "./provider/AntigravityInstallation.ts";
@@ -1127,6 +1128,7 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(FetchHttpClient.layer),
       // PR reads, Git operations, and WebSocket discovery share one process limiter.
       Layer.provide(VcsProcess.layer),
+      Layer.provideMerge(GitIntegration.layer.pipe(Layer.provideMerge(layerServerSettings))),
       // Every agent and terminal spawn reads this, so it sits below everything.
       Layer.provideMerge(AgentScopeLive.layer),
       Layer.provideMerge(layerPlatformServices),

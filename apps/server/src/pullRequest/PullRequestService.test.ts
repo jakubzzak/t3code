@@ -1,3 +1,4 @@
+import * as GitIntegration from "../project/GitIntegration.ts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeV8 from "node:v8";
@@ -534,6 +535,7 @@ function fakeProvider(
 }
 
 function makeService(input: {
+  readonly gitEnabled?: boolean;
   readonly settings?: ServerSettings;
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
@@ -545,6 +547,10 @@ function makeService(input: {
   return Effect.flatMap(
     Layer.build(
       Layer.mergeAll(
+        Layer.succeed(GitIntegration.GitIntegration, {
+          isEnabled: () => Effect.succeed(input.gitEnabled ?? true),
+          isProjectEnabled: () => Effect.succeed(input.gitEnabled ?? true),
+        }),
         Layer.mock(ServerSettingsService.ServerSettingsService)({
           getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
         }),
@@ -7902,4 +7908,33 @@ it.effect.each([
       });
       assert.deepStrictEqual(calls, [expected]);
     }),
+);
+
+it.effect("does not discover or read pull requests for a Git-disabled project", () =>
+  Effect.gen(function* () {
+    const entry = project({
+      id: "disabled",
+      title: "Plain",
+      workspaceRoot: "/repo",
+      repository: "team/project",
+      provider: SourceControlProviderKind.make("github"),
+    });
+    const service = yield* makeService({
+      gitEnabled: false,
+      projects: [entry],
+      resolveRepositoryIdentity: () => Effect.die("Unexpected repository discovery"),
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          listChangeRequests: () => Effect.die("Unexpected hosting request"),
+        }),
+      ],
+    });
+    const result = yield* service.list({ state: "open" });
+    assert.deepEqual(result.entries, []);
+    const error = yield* service
+      .detail({ projectId: entry.id, repository: "team/project", number: 1, host: "github.com" })
+      .pipe(Effect.flip);
+    assert.instanceOf(error, PullRequestOperationError);
+    assert.include(error.message, "Git integration is disabled");
+  }),
 );

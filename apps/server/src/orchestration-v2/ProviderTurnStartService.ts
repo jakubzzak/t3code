@@ -1236,6 +1236,7 @@ export const layer: Layer.Layer<
         run: runningRun,
         rootNode: runningRootNode,
         checkpointScope,
+        hasCheckpointBaseline: projection.hasCheckpointBaseline,
         providerThread: runningProviderThread,
         attempt: runningAttempt,
         attemptId: attempt.id,

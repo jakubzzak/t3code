@@ -1,3 +1,4 @@
+import * as GitIntegration from "../project/GitIntegration.ts";
 import * as Cache from "effect/Cache";
 import * as Data from "effect/Data";
 import * as Crypto from "effect/Crypto";
@@ -946,6 +947,7 @@ export const windowsLongPathConfigEnv = (
 };
 
 export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* () {
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -964,6 +966,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const appendTruncationMarker = input.appendTruncationMarker ?? false;
 
       const runGitCommand = Effect.fn("runGitCommand")(function* () {
+        if (!(yield* gitIntegration.isEnabled(input.cwd))) {
+          return yield* new GitCommandError({
+            ...gitCommandContext(commandInput),
+            detail:
+              "Git integration is disabled for this project. Enable it in project settings to use Git features.",
+          });
+        }
         const trace2Monitor = yield* createTrace2Monitor(commandInput, input.progress).pipe(
           Effect.provideService(Path.Path, path),
           Effect.provideService(FileSystem.FileSystem, fileSystem),

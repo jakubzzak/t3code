@@ -1,5 +1,8 @@
 "use client";
 
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -662,18 +665,27 @@ function OpenCommandPaletteDialog(props: {
         ? scopeThreadRef(activeThread.environmentId, activeThread.id)
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
-  const activeThreadServerConfig = useServerConfigs().get(
+  const serverConfigs = useServerConfigs();
+  const activeThreadServerConfig = serverConfigs.get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
+  const activeProjectGitEnabled =
+    activeThreadServerConfig === undefined ||
+    resolveProjectSettings(activeThreadServerConfig.settings, activeThread?.projectId ?? null)
+      .settings.gitEnabled;
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
       : resolveThreadReferenceCopyTarget({
           threadId: referenceThreadRef.threadId,
-          openPanelPullRequestUrl,
-          pullRequests: activeThread?.pullRequests,
-          linkedPullRequestUrl:
-            activeThread?.linkedPullRequest?.url ?? activeThread?.branchPullRequest?.url ?? null,
+          openPanelPullRequestUrl:
+            activeProjectGitEnabled || pathname === "/pull-requests"
+              ? openPanelPullRequestUrl
+              : null,
+          pullRequests: activeProjectGitEnabled ? activeThread?.pullRequests : [],
+          linkedPullRequestUrl: activeProjectGitEnabled
+            ? (activeThread?.linkedPullRequest?.url ?? activeThread?.branchPullRequest?.url ?? null)
+            : null,
         });
   const copyActiveThreadReference = useCallback(async () => {
     const target = activeThreadReferenceCopyTarget;
@@ -1356,6 +1368,10 @@ function OpenCommandPaletteDialog(props: {
             providerEntryByEnvironmentAndInstanceId.get(
               `${thread.environmentId}:${modelInstanceId}`,
             ) ?? null;
+          const gitEnabled = resolveProjectSettings(
+            serverConfigs.get(thread.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS,
+            thread.projectId,
+          ).settings.gitEnabled;
           return (
             <ThreadCommandSubtitle
               project={projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null}
@@ -1363,8 +1379,8 @@ function OpenCommandPaletteDialog(props: {
               environmentLabel={
                 projectEnvironmentLocationById.get(thread.environmentId)?.label ?? "Remote"
               }
-              branch={thread.branch}
-              worktreePath={thread.worktreePath}
+              branch={gitEnabled ? thread.branch : null}
+              worktreePath={gitEnabled ? thread.worktreePath : null}
               isCurrent={thread.id === activeThreadId}
               driverKind={providerEntry?.driverKind ?? null}
               providerDisplayName={
@@ -1410,6 +1426,7 @@ function OpenCommandPaletteDialog(props: {
       threadSearch.query,
       threadSearchQuery,
       threads,
+      serverConfigs,
     ],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
@@ -1936,6 +1953,7 @@ function OpenCommandPaletteDialog(props: {
 
   if (
     activeThread !== null &&
+    activeProjectGitEnabled &&
     threadPullRequestLinkMode(activeThreadServerConfig?.environment.capabilities) !== "unsupported"
   ) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);

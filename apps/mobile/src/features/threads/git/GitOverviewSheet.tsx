@@ -1,3 +1,4 @@
+import { useProjectGitEnabled } from "../../../state/use-project-git-enabled";
 import { useOpenPullRequest } from "../../../native/useOpenPullRequest";
 import {
   type GitActionRequestInput,
@@ -60,10 +61,15 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
   const { environmentId, threadId } = props.route.params;
   // A hand-typed deep link can carry a blank ID, which the branded IDs reject.
   const isBlankLink = environmentId.trim().length === 0 || threadId.trim().length === 0;
+  const { selectedThread } = useThreadSelection();
+  const gitEnabled = useProjectGitEnabled(
+    selectedThread?.environmentId ?? null,
+    selectedThread?.projectId ?? null,
+  );
   useEffect(() => {
     if (isBlankLink) navigation.goBack();
   }, [isBlankLink, navigation]);
-  if (isBlankLink) return null;
+  if (isBlankLink || !gitEnabled) return null;
   return <GitOverviewSheetContent {...props} />;
 }
 

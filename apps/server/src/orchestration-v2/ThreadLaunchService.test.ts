@@ -2931,3 +2931,38 @@ it.effect.each(
       }).pipe(Effect.provide(Layer.merge(harness.layer, layerService)));
     }),
 );
+
+it.effect("rejects new worktrees while allowing ordinary threads when project Git is off", () => {
+  const harness = makeHarness({
+    serverSettings: {
+      defaultThreadEnvMode: "worktree",
+      projectSettingsOverrides: { [projectId]: { gitEnabled: false } },
+    },
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const failure = yield* launches
+      .launch(
+        launchInput({
+          command: "command:disabled-worktree",
+          thread: "thread:disabled-worktree",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+      )
+      .pipe(Effect.flip);
+    assert.include(String(failure.cause), "Git integration is disabled");
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:disabled-local",
+        thread: "thread:disabled-local",
+        message: "Work with the files in this directory",
+      }),
+    );
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.isNull(projection.thread.worktreePath);
+    assert.equal(projection.messages[0]?.text, "Work with the files in this directory");
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});

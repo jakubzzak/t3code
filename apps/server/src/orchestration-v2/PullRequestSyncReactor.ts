@@ -1,3 +1,4 @@
+import * as GitIntegration from "../project/GitIntegration.ts";
 import { siblingPullRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import {
   CommandId,
@@ -155,6 +156,7 @@ export class PullRequestSyncReactor extends Context.Service<
 export const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const git = yield* GitManager.GitManager;
   const crypto = yield* Crypto.Crypto;
@@ -191,7 +193,10 @@ export const make = Effect.gen(function* () {
 
   /** `requested` reads only keys asked for through `requestSync`; `all` is the periodic pass. */
   const sweep = Effect.fn("PullRequestSyncReactor.sweep")(function* (scope: "all" | "requested") {
-    const threads = yield* projections.getThreadsWithPullRequests();
+    const threads = yield* Effect.filter(
+      yield* projections.getThreadsWithPullRequests(),
+      (thread) => gitIntegration.isProjectEnabled(thread.projectId),
+    );
     const now = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(now);
     const nowIso = DateTime.formatIso(now);
@@ -408,6 +413,9 @@ export const make = Effect.gen(function* () {
   const closeCommandThreads = new Set<ThreadId>();
   const refreshOpenLinks = (threadId: ThreadId) =>
     projections.getThreadsWithPullRequests(threadId).pipe(
+      Effect.flatMap((threads) =>
+        Effect.filter(threads, (thread) => gitIntegration.isProjectEnabled(thread.projectId)),
+      ),
       Effect.flatMap((threads) =>
         Effect.forEach(
           threads.flatMap((thread) =>

@@ -66,6 +66,7 @@ describe("ThreadDetailsPanel", () => {
       showOpenInPicker: false,
       gitCwd,
       isGitRepo: false,
+      gitEnabled: true,
       envLocked: false,
       availableEnvironments: [],
       onEnvironmentChange: vi.fn(),

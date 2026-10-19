@@ -1,3 +1,4 @@
+import * as GitIntegration from "../project/GitIntegration.ts";
 import {
   CommandId,
   MessageId,
@@ -234,6 +235,7 @@ export class PullRequestWatchReactor extends Context.Service<
 export const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
   const bootedAt = yield* Clock.currentTimeMillis;
@@ -570,7 +572,10 @@ export const make = Effect.gen(function* () {
   });
 
   const sweep = Effect.gen(function* () {
-    const threads = yield* projections.getThreadsWithPullRequests();
+    const threads = yield* Effect.filter(
+      yield* projections.getThreadsWithPullRequests(),
+      (thread) => gitIntegration.isProjectEnabled(thread.projectId),
+    );
     const targets = threads.flatMap((thread) =>
       visibleThreadPullRequests(thread.pullRequests ?? []).flatMap((link) =>
         link.watch === undefined ? [] : [{ thread, link, watch: link.watch }],

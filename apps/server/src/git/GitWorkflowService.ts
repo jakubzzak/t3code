@@ -179,7 +179,10 @@ export const make = Effect.gen(function* () {
           new GitManagerError({
             operation,
             cwd,
-            detail: "Failed to resolve the VCS driver for this Git workflow.",
+            detail:
+              cause._tag === "VcsUnsupportedOperationError"
+                ? cause.detail
+                : "Failed to resolve the VCS driver for this Git workflow.",
             cause,
           }),
       ),
@@ -204,7 +207,10 @@ export const make = Effect.gen(function* () {
             operation,
             command: "vcs-route",
             cwd,
-            detail: "Failed to resolve the VCS driver for this Git command.",
+            detail:
+              cause._tag === "VcsUnsupportedOperationError"
+                ? cause.detail
+                : "Failed to resolve the VCS driver for this Git command.",
             cause,
           }),
       ),

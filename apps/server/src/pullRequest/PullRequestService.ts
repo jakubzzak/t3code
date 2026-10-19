@@ -1,3 +1,4 @@
+import * as GitIntegration from "../project/GitIntegration.ts";
 import {
   canonicalRepositoryKey,
   isSshRemoteUrl,
@@ -712,6 +713,7 @@ export const make = Effect.gen(function* () {
   const pullRequestRefreshes = yield* SubscriptionRef.make(0);
   const registry = yield* PullRequestProviderRegistry.PullRequestProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
@@ -816,6 +818,9 @@ export const make = Effect.gen(function* () {
             cause: error,
           }),
       ),
+      Effect.flatMap((entries) =>
+        Effect.filter(entries, (project) => gitIntegration.isProjectEnabled(project.id)),
+      ),
       Effect.flatMap((projects) =>
         Effect.forEach(
           projects,
@@ -910,7 +915,18 @@ export const make = Effect.gen(function* () {
    * Azure derives its organization from the checkout, so it requires a matching repository.
    */
   const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
-    listWorkspaceProjects({ projectId: ref.projectId }).pipe(
+    gitIntegration.isProjectEnabled(ref.projectId).pipe(
+      Effect.flatMap((enabled) =>
+        enabled
+          ? listWorkspaceProjects({ projectId: ref.projectId })
+          : Effect.fail(
+              new PullRequestOperationError({
+                operation: "resolveRepository",
+                detail:
+                  "Git integration is disabled for this project. Enable it in project settings to use pull requests.",
+              }),
+            ),
+      ),
       Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
         const own = supported[0];
         const repository = ref.repository.trim();

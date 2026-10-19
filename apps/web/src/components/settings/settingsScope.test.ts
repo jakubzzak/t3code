@@ -59,6 +59,14 @@ function group(
 
 const groups = [group("t3code", [first, second, third]), group("other", [other])];
 
+it("keeps a physical project settings link valid when repository grouping disappears", () => {
+  const search = { project: first.physicalProjectKey };
+  expect(resolveSettingsScope(search, groups, environments).kind).toBe("project");
+  expect(
+    resolveSettingsScope(search, [group(first.physicalProjectKey, [first])], environments).kind,
+  ).toBe("project");
+});
+
 describe("settings scope search", () => {
   it("ignores the retired scope key from older links", () => {
     expect(validateSettingsScopeSearch({ scope: "device", project: "t3code" })).toEqual({

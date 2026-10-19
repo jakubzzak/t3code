@@ -186,6 +186,7 @@ export function useThreadHeaderOptions(props: {
       usesDuoHeader,
       environmentId,
       threadId,
+      props.gitControls.gitEnabled,
       gitStatus?.isDefaultRef,
       gitStatus?.refName,
       gitStatus?.pr?.url,
