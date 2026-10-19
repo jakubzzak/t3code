@@ -1,3 +1,5 @@
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentServerConfigsAtom } from "../state/server";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
@@ -9,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -38,6 +40,17 @@ const state = vi.hoisted(() => ({
   sessionLookupFails: false,
 }));
 
+vi.mock("@t3tools/client-runtime/state/thread-cleanup", () => ({
+  requestThreadCleanup: async (target: ScopedThreadRef) => {
+    if (!state.scopes.get(target.environmentId)?.has(AuthOrchestrationOperateScope)) return false;
+    state.requests.push({
+      action: "cleanup",
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId },
+    });
+    return true;
+  },
+}));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),
@@ -71,6 +84,7 @@ vi.mock("../state/use-atom-query-runner", () => ({
       ? AsyncResult.failure(Cause.fail(new Error("Session lookup failed")))
       : AsyncResult.success({
           authenticated: true,
+          tasks: [],
           scopes: [...(state.scopes.get(environmentId) ?? [])],
           auth: { serverUpdateScope: "environment:maintain" },
         }),
@@ -208,7 +222,23 @@ const operations = [
   },
 ] as const;
 
+afterEach(() => vi.restoreAllMocks());
 beforeEach(() => {
+  const get = appAtomRegistry.get.bind(appAtomRegistry);
+  vi.spyOn(appAtomRegistry, "get").mockImplementation((atom) =>
+    atom === environmentServerConfigsAtom
+      ? (new Map(
+          [...state.scopes.keys()].map((id) => [
+            id,
+            {
+              environment: {
+                capabilities: { threadCleanup: true, scheduledTaskChatBinding: true },
+              },
+            },
+          ]),
+        ) as ReturnType<typeof get>)
+      : get(atom),
+  );
   state.scopes = new Map([
     [primary, new Set([AuthOrchestrationOperateScope])],
     [secondary, new Set<string>()],
@@ -256,7 +286,10 @@ describe("thread action permissions", () => {
       state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
       expect((await run(actions, target))._tag).toBe("Success");
       expect(state.requests).toEqual([
-        expect.objectContaining({ action: name, environmentId: secondary }),
+        expect.objectContaining({
+          action: name === "settle" ? "cleanup" : name,
+          environmentId: secondary,
+        }),
       ]);
     },
   );

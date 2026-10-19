@@ -40,6 +40,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -391,6 +392,7 @@ export const layer = Layer.effect(
   ScheduledTaskService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const eventSink = yield* EventSink.EventSinkV2;
     const crypto = yield* Crypto.Crypto;
     const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -576,8 +578,21 @@ export const layer = Layer.effect(
           ${task.runCount},
           ${webhook.token},
           ${webhook.secret}
-        WHERE ${requireExisting ? 0 : 1} = 1
-           OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id})
+        WHERE (${requireExisting ? 0 : 1} = 1
+           OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id}))
+          AND (${task.threadId} IS NULL OR EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_threads AS thread
+            WHERE thread.thread_id = ${task.threadId}
+              AND thread.project_id = ${task.projectId}
+              AND thread.deleted_at IS NULL
+              AND (thread.archived_at IS NULL OR (
+                ${task.enabled ? 1 : 0} = 0 AND EXISTS (
+                  SELECT 1 FROM scheduled_tasks AS existing
+                  WHERE existing.task_id = ${task.id} AND existing.thread_id = ${task.threadId}
+                    AND existing.project_id = ${task.projectId} AND existing.enabled = 0
+                )
+              ))
+          ))
         ON CONFLICT (task_id)
         DO UPDATE SET
           title = excluded.title,
@@ -609,9 +624,13 @@ export const layer = Layer.effect(
           taskError("Could not save schedule task.", { taskId: task.id, cause }),
         ),
         Effect.flatMap((rows) =>
-          rows.length > 0
-            ? Effect.void
-            : taskError("Schedule task not found.", { taskId: task.id }),
+          Effect.gen(function* () {
+            if (rows.length > 0) return;
+            if (requireExisting) yield* loadTask(task.id);
+            return yield* taskError("Choose an existing, non-archived chat in this project.", {
+              taskId: task.id,
+            });
+          }),
         ),
       );
 
@@ -991,9 +1010,24 @@ export const layer = Layer.effect(
           // Subscribe before taking the snapshot so a change landing between
           // the two is buffered by the subscription rather than dropped.
           const subscription = yield* PubSub.subscribe(changesPubSub);
+          const afterSequence = yield* eventSink
+            .latestSequence()
+            .pipe(
+              Effect.mapError((cause) =>
+                taskError("Could not subscribe to automation changes.", { cause }),
+              ),
+            );
+          const archives = eventSink.stream({ eventType: "thread.archived", afterSequence }).pipe(
+            Stream.map(() => undefined),
+            Stream.mapError((cause) =>
+              taskError("Could not subscribe to automation changes.", { cause }),
+            ),
+          );
           return Stream.concat(
             Stream.fromEffect(list()),
-            Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => list())),
+            Stream.merge(Stream.fromSubscription(subscription), archives).pipe(
+              Stream.mapEffect(() => list()),
+            ),
           );
         }),
       );
@@ -1112,9 +1146,13 @@ export const layer = Layer.effect(
     const setEnabled: ScheduledTaskService["Service"]["setEnabled"] = (input) =>
       Effect.gen(function* () {
         const existing = yield* loadTask(input.id);
-        if (existing.enabled === input.enabled) return { task: existing };
+        if (existing.enabled === input.enabled && (!input.enabled || existing.threadId === null))
+          return { task: existing };
         const now = yield* localNow;
-        const next = nextRunAt({ enabled: input.enabled, schedule: existing.schedule }, now);
+        const next =
+          existing.enabled === input.enabled
+            ? existing.nextRunAt
+            : nextRunAt({ enabled: input.enabled, schedule: existing.schedule }, now);
         // RETURNING so a task deleted between the load and this UPDATE is a
         // visible not-found error, not a false success.
         const updated = yield* sql<{ task_id: string }>`
@@ -1123,6 +1161,12 @@ export const layer = Layer.effect(
               next_run_at = ${next},
               updated_at = ${iso(now)}
           WHERE task_id = ${input.id}
+            AND (${input.enabled ? 1 : 0} = 0 OR thread_id IS NULL OR EXISTS (
+              SELECT 1 FROM orchestration_v2_projection_threads AS thread
+              WHERE thread.thread_id = scheduled_tasks.thread_id
+                AND thread.project_id = scheduled_tasks.project_id
+                AND thread.archived_at IS NULL AND thread.deleted_at IS NULL
+            ))
           RETURNING task_id
         `.pipe(
           Effect.mapError((cause) =>
@@ -1130,7 +1174,11 @@ export const layer = Layer.effect(
           ),
         );
         if (updated.length === 0) {
-          return yield* taskError("Schedule task not found.", { taskId: input.id });
+          yield* loadTask(input.id);
+          return yield* taskError(
+            "Choose an existing, non-archived chat before resuming this automation.",
+            { taskId: input.id },
+          );
         }
         yield* notifyChanged;
         return {

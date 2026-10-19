@@ -24,6 +24,16 @@ import type {
   ScheduledTaskWebhookDeliverySummary,
   ThreadId,
 } from "@t3tools/contracts";
+import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
+import { scheduledTaskChats } from "@t3tools/client-runtime/scheduled-task-chats";
+import {
+  Combobox,
+  ComboboxInput,
+  ComboboxPopup,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+} from "../ui/combobox";
 import { DEFAULT_WEBHOOK_PROMPT } from "@t3tools/client-runtime/scheduled-task-webhook";
 import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
@@ -54,7 +64,7 @@ import {
   useEnvironmentHttpBaseUrl,
   type EnvironmentPresentation,
 } from "../../state/environments";
-import { useProjects } from "../../state/entities";
+import { useProjects, useThreadShells } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -112,6 +122,7 @@ const WORKSPACE_MODE_LABELS: Record<WorkspaceMode, string> = {
   worktree: "Create a new worktree",
   root: "Use the project checkout",
   existing_worktree: "Use a specific checkout",
+  thread: "Use an existing chat",
 };
 
 const EMPTY_DRAFT: DraftState = {
@@ -822,6 +833,36 @@ function ScheduledTaskEditorDialog({
   const selectedProjectId = draft.projectId || projects[0]?.id || "";
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const gitEnabled = useProjectGitEnabled(environmentId, selectedProject?.id ?? null);
+  const workspaceMode =
+    !gitEnabled && draft.workspaceMode !== "thread" ? "root" : draft.workspaceMode;
+  const supportsChatBinding =
+    environment?.serverConfig?.environment.capabilities.scheduledTaskChatBinding === true;
+  const threadShells = useThreadShells(draft.workspaceMode === "thread");
+  const [chatSearch, setChatSearch] = useState("");
+  const chatChoices = useMemo(
+    () => scheduledTaskChats(threadShells, environmentId, selectedProjectId),
+    [threadShells, environmentId, selectedProjectId],
+  );
+  const chatById = useMemo(
+    () => new Map(chatChoices.map((chat) => [chat.id as string, chat])),
+    [chatChoices],
+  );
+  const archivedDestinations = useArchivedThreadSnapshots(
+    draft.workspaceMode === "thread" && draft.threadId && !chatById.has(draft.threadId)
+      ? [environmentId]
+      : [],
+  );
+  const archivedDestination = archivedDestinations.snapshots
+    .flatMap((entry) => entry.snapshot.threads)
+    .find((thread) => thread.id === draft.threadId);
+  const chatIds = useMemo(() => chatChoices.map((chat) => chat.id as string), [chatChoices]);
+  const filteredChatIds = useMemo(
+    () =>
+      scheduledTaskChats(threadShells, environmentId, selectedProjectId, chatSearch).map(
+        (chat) => chat.id as string,
+      ),
+    [threadShells, environmentId, selectedProjectId, chatSearch],
+  );
   // The task runs in selectedProject, so its model picker should reflect that
   // project's effective enablement, not just the machine's.
   const instanceEntries = useMemo(
@@ -908,6 +949,15 @@ function ScheduledTaskEditorDialog({
       reportFailure("Invalid interval", "Enter an interval of at least one minute.");
       return;
     }
+    if (draft.workspaceMode === "thread" && (!draft.threadId || !supportsChatBinding)) {
+      reportFailure(
+        "Chat is required",
+        supportsChatBinding
+          ? "Choose a chat in this project."
+          : "Update this environment's server to configure chat automations.",
+      );
+      return;
+    }
     if (
       gitEnabled &&
       draft.workspaceMode === "existing_worktree" &&
@@ -925,7 +975,7 @@ function ScheduledTaskEditorDialog({
         ? draft.baseModelSelection
         : selection;
     const workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy =
-      !gitEnabled || draft.workspaceMode === "root"
+      !gitEnabled || draft.workspaceMode === "root" || draft.workspaceMode === "thread"
         ? { type: "root" }
         : draft.workspaceMode === "existing_worktree"
           ? { type: "existing_worktree", worktreePath: draft.existingWorktreePath.trim() }
@@ -941,7 +991,8 @@ function ScheduledTaskEditorDialog({
       enabled: draft.enabled,
       schedule,
       projectId: selectedProjectId as ProjectId,
-      threadId: draft.threadId ? (draft.threadId as ThreadId) : null,
+      threadId:
+        draft.workspaceMode === "thread" && draft.threadId ? (draft.threadId as ThreadId) : null,
       workspaceStrategy,
       modelSelection,
       runtimeMode: draft.runtimeMode,
@@ -995,6 +1046,7 @@ function ScheduledTaskEditorDialog({
                   setDraft((current) => ({
                     ...current,
                     projectId: "",
+                    threadId: "",
                     modelKey: "",
                     baseModelSelection: null,
                     baseRef: "main",
@@ -1053,7 +1105,11 @@ function ScheduledTaskEditorDialog({
                 <Select
                   value={selectedProjectId}
                   onValueChange={(projectId) =>
-                    setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
+                    setDraft((current) => ({
+                      ...current,
+                      projectId: projectId ?? "",
+                      threadId: "",
+                    }))
                   }
                 >
                   <SelectTrigger size="sm" id="scheduled-task-project">
@@ -1071,27 +1127,90 @@ function ScheduledTaskEditorDialog({
                 </Select>
               </Field>
 
-              {gitEnabled && (
-                <Field label="Workspace" htmlFor="scheduled-task-workspace">
-                  <Select
-                    value={draft.workspaceMode}
-                    onValueChange={(value) =>
-                      setDraft((current) => ({ ...current, workspaceMode: value as WorkspaceMode }))
-                    }
-                  >
-                    <SelectTrigger size="sm" id="scheduled-task-workspace">
-                      <SelectValue>{WORKSPACE_MODE_LABELS[draft.workspaceMode]}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
+              <Field label="Workspace" htmlFor="scheduled-task-workspace">
+                <Select
+                  value={workspaceMode}
+                  onValueChange={(value) =>
+                    setDraft((current) => ({ ...current, workspaceMode: value as WorkspaceMode }))
+                  }
+                >
+                  <SelectTrigger size="sm" id="scheduled-task-workspace">
+                    <SelectValue>{WORKSPACE_MODE_LABELS[workspaceMode]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {gitEnabled ? (
                       <SelectItem value="worktree">Create a new worktree</SelectItem>
-                      <SelectItem value="root">Use the project checkout</SelectItem>
+                    ) : null}
+                    <SelectItem value="root">Use the project checkout</SelectItem>
+                    {gitEnabled ? (
                       <SelectItem value="existing_worktree">Use a specific checkout</SelectItem>
-                    </SelectPopup>
-                  </Select>
-                </Field>
-              )}
+                    ) : null}
+                    <SelectItem value="thread" disabled={!supportsChatBinding}>
+                      Use an existing chat
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              </Field>
             </div>
 
+            {draft.workspaceMode === "thread" ? (
+              <Field
+                label="Chat"
+                htmlFor="scheduled-task-chat"
+                hint="Each run continues this chat, using its conversation history and checkout."
+              >
+                <Combobox
+                  items={chatIds}
+                  filteredItems={filteredChatIds}
+                  filter={null}
+                  onInputValueChange={(value, details) => {
+                    if (details.reason === "input-change" || details.reason === "input-clear")
+                      setChatSearch(value);
+                  }}
+                  onOpenChange={() => setChatSearch("")}
+                  value={draft.threadId || null}
+                  itemToStringLabel={(id: string) =>
+                    chatById.get(id)?.title ??
+                    (archivedDestination?.id === id
+                      ? `${archivedDestination.title} (archived)`
+                      : `Unavailable chat (${id})`)
+                  }
+                  onValueChange={(id) =>
+                    setDraft((current) => ({ ...current, threadId: id ?? "" }))
+                  }
+                >
+                  <ComboboxInput
+                    id="scheduled-task-chat"
+                    placeholder="Search chats…"
+                    disabled={!connected || !supportsChatBinding}
+                  />
+                  <ComboboxPopup>
+                    <ComboboxEmpty>No matching chats in this project.</ComboboxEmpty>
+                    <ComboboxList>
+                      {(id: string) => {
+                        const chat = chatById.get(id);
+                        return (
+                          <ComboboxItem key={id} value={id}>
+                            <div className="min-w-0">
+                              <div className="truncate">{chat?.title}</div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {chat?.branch ?? chat?.worktreePath ?? "Project checkout"}
+                              </div>
+                            </div>
+                          </ComboboxItem>
+                        );
+                      }}
+                    </ComboboxList>
+                  </ComboboxPopup>
+                </Combobox>
+                {draft.threadId && !chatById.has(draft.threadId) ? (
+                  <p className="text-xs text-muted-foreground">
+                    This chat is unavailable or archived. Choose another chat to resume the
+                    automation.
+                  </p>
+                ) : null}
+              </Field>
+            ) : null}
             {gitEnabled && draft.workspaceMode === "worktree" ? (
               <Field label="Base branch" htmlFor="scheduled-task-base-ref">
                 <WorktreeBaseBranchPicker

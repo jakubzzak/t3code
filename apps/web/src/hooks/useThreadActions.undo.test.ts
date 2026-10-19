@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "../state/server";
 import { requestThreadCleanup } from "@t3tools/client-runtime/state/thread-cleanup";
+import { requestConfirmDialog } from "../confirmDialog";
+import * as Cause from "effect/Cause";
 import { useThreadActions } from "./useThreadActions";
 import { threadEnvironment } from "../state/threads";
 import { toastManager } from "../components/ui/toast";
@@ -28,7 +30,12 @@ const router = vi.hoisted(() => ({
   navigate: vi.fn(async () => {}),
   state: { matches: [{ params: {} as Record<string, string> }] },
 }));
-vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));
+const taskList = vi.hoisted(() => vi.fn());
+vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => taskList }));
+vi.mock("../confirmDialog", async (original) => ({
+  ...(await original<typeof import("../confirmDialog")>()),
+  requestConfirmDialog: vi.fn(),
+}));
 vi.mock("../state/session", async (original) => ({
   ...(await original<typeof import("../state/session")>()),
   readEnvironmentScope: () => true,
@@ -100,6 +107,8 @@ function currentUndo() {
 
 beforeEach(() => {
   cleanupSupported = true;
+  taskList.mockReset().mockResolvedValue({ _tag: "Success", value: { tasks: [] } });
+  vi.mocked(requestConfirmDialog).mockReset().mockResolvedValue(true);
   vi.mocked(requestThreadCleanup).mockClear();
   const get = appAtomRegistry.get.bind(appAtomRegistry);
   vi.spyOn(appAtomRegistry, "get").mockImplementation((atom) =>
@@ -107,7 +116,11 @@ beforeEach(() => {
       ? (new Map([
           [
             target.environmentId,
-            { environment: { capabilities: { threadCleanup: cleanupSupported } } },
+            {
+              environment: {
+                capabilities: { threadCleanup: cleanupSupported, scheduledTaskChatBinding: true },
+              },
+            },
           ],
         ]) as ReturnType<typeof get>)
       : get(atom),
@@ -235,5 +248,38 @@ describe("settle and snooze Undo", () => {
       environmentId: target.environmentId,
       input: { threadId: target.threadId, reason: "user" },
     });
+  });
+});
+
+describe("automation archive confirmation", () => {
+  it.each([false, true])("archives only after the user confirms (%s)", async (confirmed) => {
+    taskList.mockResolvedValue({
+      _tag: "Success",
+      value: {
+        tasks: [
+          { threadId: target.threadId, title: "Daily brief" },
+          { threadId: target.threadId, title: "Weekly review" },
+        ],
+      },
+    });
+    vi.mocked(requestConfirmDialog).mockResolvedValue(confirmed);
+    const result = await useThreadActions().archiveThread(target);
+    expect(result._tag).toBe(confirmed ? "Success" : "Failure");
+    expect(commands.archive).toHaveBeenCalledTimes(confirmed ? 1 : 0);
+    expect(requestConfirmDialog).toHaveBeenCalledWith(
+      expect.stringContaining("“Daily brief”, “Weekly review”"),
+      { variant: "destructive", confirmLabel: "Archive and pause" },
+    );
+  });
+  it("leaves the chat unchanged when its automation lookup fails", async () => {
+    taskList.mockResolvedValue({ _tag: "Failure", cause: Cause.fail(new Error("Disconnected")) });
+    expect((await useThreadActions().archiveThread(target))._tag).toBe("Failure");
+    expect(commands.archive).not.toHaveBeenCalled();
+    expect(requestConfirmDialog).not.toHaveBeenCalled();
+  });
+  it("does not ask about automations when resolving", async () => {
+    await useThreadActions().settleThread(target);
+    expect(taskList).not.toHaveBeenCalled();
+    expect(requestConfirmDialog).not.toHaveBeenCalled();
   });
 });

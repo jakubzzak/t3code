@@ -6,8 +6,10 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -23,6 +25,7 @@ it.effect("rejects a stale form save after deletion while preserving explicit-id
       Scheduler.layer,
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
       Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+      Layer.mock(EventSink.EventSinkV2)({}),
       Layer.mock(SecretRequests.SecretRequests)({}),
     );
     yield* Effect.gen(function* () {
@@ -66,6 +69,7 @@ it.effect("preserves a due run when a save only pads the scheduled hour", () =>
       Scheduler.layer,
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
       Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+      Layer.mock(EventSink.EventSinkV2)({}),
       Layer.mock(SecretRequests.SecretRequests)({}),
     );
     yield* Effect.gen(function* () {
@@ -106,5 +110,75 @@ it.effect("preserves a due run when a save only pads the scheduled hour", () =>
         DateTime.formatIso(DateTime.toUtc(DateTime.add(dueAt, { minutes: 30 }))),
       );
     }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("validates chat bindings and prevents resuming an archived destination", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO orchestration_v2_projection_threads (
+      thread_id, project_id, title, default_provider, provider_instance_id,
+      runtime_mode, interaction_mode, created_at, updated_at, archived_at, payload_json
+    ) VALUES ('chat', 'project', 'Daily brief', 'codex', 'codex', 'full-access', 'default',
+      '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', NULL, '{"settledAt":"2026-10-01T00:00:00Z"}')`;
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const input = yield* decodeUpsertInput({
+        id: "binding",
+        title: "Daily brief",
+        prompt: "Summarize the day",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: "project",
+        threadId: "chat",
+        workspaceStrategy: { type: "root" },
+        modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      });
+      const wrongProject = yield* decodeUpsertInput({ ...input, projectId: "other" });
+      expect((yield* service.upsert(wrongProject).pipe(Effect.result))._tag).toBe("Failure");
+      const missing = yield* decodeUpsertInput({ ...input, threadId: "missing" });
+      expect((yield* service.upsert(missing).pipe(Effect.result))._tag).toBe("Failure");
+      const created = yield* service.upsert(input);
+      expect(created.task.threadId).toBe("chat");
+      yield* service.setEnabled({ id: created.task.id, enabled: false });
+      yield* sql`UPDATE orchestration_v2_projection_threads SET archived_at = '2026-10-02T00:00:00Z' WHERE thread_id = 'chat'`;
+      expect((yield* service.upsert(input).pipe(Effect.result))._tag).toBe("Failure");
+      expect(
+        (yield* service.setEnabled({ id: created.task.id, enabled: true }).pipe(Effect.result))
+          ._tag,
+      ).toBe("Failure");
+      // A paused binding stays manageable without allowing new archived destinations.
+      expect(
+        (yield* service.upsert({ ...input, enabled: false, title: "Paused brief" })).task.title,
+      ).toBe("Paused brief");
+      const another = yield* decodeUpsertInput({ ...input, id: "another", enabled: false });
+      expect((yield* service.upsert(another).pipe(Effect.result))._tag).toBe("Failure");
+      yield* sql`UPDATE scheduled_tasks SET enabled = 1 WHERE task_id = 'binding'`;
+      expect(
+        (yield* service.setEnabled({ id: created.task.id, enabled: true }).pipe(Effect.result))
+          ._tag,
+      ).toBe("Failure");
+      const unbound = yield* service.upsert({ ...input, threadId: null });
+      expect(unbound.task.threadId).toBeNull();
+      expect(unbound.task.prompt).toBe(input.prompt);
+      expect(unbound.task.schedule).toEqual(input.schedule);
+    }).pipe(
+      Effect.provide(
+        ScheduledTaskService.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              NodeCrypto.layer,
+              Scheduler.layer,
+              Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+              Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+              Layer.mock(EventSink.EventSinkV2)({}),
+              Layer.mock(SecretRequests.SecretRequests)({}),
+            ),
+          ),
+        ),
+      ),
+    );
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

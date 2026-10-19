@@ -351,6 +351,17 @@ const layerBase: Layer.Layer<
         yield* Effect.forEach(storedEvents, (stored) => projectionStore.apply(stored.event), {
           concurrency: 1,
         });
+        // Pause in the archive transaction: a committed archive must never leave
+        // recurring work enabled, including when initiated by another client or agent.
+        for (const { event } of storedEvents) {
+          if (event.type !== "thread.archived") continue;
+          yield* sql`
+            UPDATE scheduled_tasks
+            SET enabled = 0, next_run_at = NULL,
+                updated_at = ${DateTime.formatIso(event.occurredAt)}
+            WHERE thread_id = ${event.threadId} AND enabled = 1
+          `;
+        }
         const sequence = storedEvents.at(-1)?.sequence;
         if (sequence !== undefined) {
           const now = DateTime.formatIso(yield* DateTime.now);

@@ -129,6 +129,7 @@ it.effect.each(["root", "worktree"] as const)(
           cwd,
           fromCheckpointRef: checkpointRef,
           toCheckpointRef: checkpointRef,
+          ignoreWhitespace: false,
         }),
       ]) {
         const error = yield* operation.pipe(Effect.flip);

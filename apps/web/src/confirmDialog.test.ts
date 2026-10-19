@@ -55,6 +55,32 @@ describe("confirm dialog coordinator", () => {
     unregister();
   });
 
+  it("retains the action label while a queued confirmation opens and closes", async () => {
+    const unregister = registerConfirmDialogHost();
+    const first = requireConfirmation(requestConfirmDialog("First?"));
+    const archive = requireConfirmation(
+      requestConfirmDialog("Archive chat?", {
+        variant: "destructive",
+        confirmLabel: "Archive and pause",
+      }),
+    );
+    respondToConfirmDialog(false);
+    await expect(first).resolves.toBe(false);
+    completeConfirmDialogClose();
+    expect(readConfirmDialogState()).toMatchObject({
+      status: "confirming",
+      confirmLabel: "Archive and pause",
+    });
+    respondToConfirmDialog(true);
+    await expect(archive).resolves.toBe(true);
+    expect(readConfirmDialogState()).toMatchObject({
+      status: "closing",
+      confirmLabel: "Archive and pause",
+    });
+    completeConfirmDialogClose();
+    unregister();
+  });
+
   it("serializes concurrent confirmations", async () => {
     const unregister = registerConfirmDialogHost();
     const first = requireConfirmation(requestConfirmDialog("Delete the project?"));

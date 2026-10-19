@@ -1,3 +1,5 @@
+import { automationArchiveConfirmation } from "@t3tools/client-runtime/scheduled-task-chats";
+import { requestConfirmDialog } from "../confirmDialog";
 import { requestThreadCleanup } from "@t3tools/client-runtime/state/thread-cleanup";
 import {
   parseScopedThreadKey,
@@ -29,7 +31,7 @@ import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../component
 import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentSession, readEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { environmentServerConfigsAtom } from "../state/server";
+import { environmentServerConfigsAtom, serverEnvironment } from "../state/server";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
@@ -270,6 +272,10 @@ function threadOperationFailure(target: ScopedThreadRef) {
 }
 
 export function useThreadActions() {
+  const loadScheduledTasks = useAtomQueryRunner(serverEnvironment.scheduledTasks, {
+    refresh: true,
+    label: "Load chat automations",
+  });
   const archiveThreadMutation = useOrchestrationCommand(threadEnvironment.archive, {
     reportFailure: false,
   });
@@ -387,6 +393,29 @@ export function useThreadActions() {
         );
       }
 
+      const permissionFailure = threadOperationFailure(threadRef);
+      if (permissionFailure) return permissionFailure;
+      const tasks = await loadScheduledTasks({ environmentId: threadRef.environmentId, input: {} });
+      if (tasks._tag === "Failure") return tasks;
+      const confirmation = automationArchiveConfirmation(tasks.value.tasks, threadRef.threadId);
+      if (confirmation) {
+        const supported =
+          appAtomRegistry.get(environmentServerConfigsAtom).get(threadRef.environmentId)
+            ?.environment.capabilities.scheduledTaskChatBinding === true;
+        if (!supported) {
+          toastManager.add({
+            type: "error",
+            title: "Update this environment's server",
+            description: "Archiving this chat requires support for pausing its automations.",
+          });
+          return AsyncResult.failure(Cause.interrupt());
+        }
+        const confirmed = await requestConfirmDialog(
+          `${confirmation.title}\n\n${confirmation.message}`,
+          { variant: "destructive", confirmLabel: "Archive and pause" },
+        );
+        if (!confirmed) return AsyncResult.failure(Cause.interrupt());
+      }
       const currentRouteThreadRef = getCurrentRouteThreadRef();
       const shouldNavigateToDraft =
         currentRouteThreadRef?.threadId === threadRef.threadId &&
@@ -428,6 +457,7 @@ export function useThreadActions() {
     },
     [
       archiveThreadMutation,
+      loadScheduledTasks,
       getCurrentRouteThreadRef,
       markThreadVisited,
       resolveThreadTarget,

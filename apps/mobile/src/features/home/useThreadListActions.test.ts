@@ -1,6 +1,7 @@
 import { makeThreadShellFixture } from "../../test-fixtures";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
+  type ScopedThreadRef,
   AuthOrchestrationOperateScope,
   EnvironmentId,
   ProjectId,
@@ -12,6 +13,8 @@ import { AsyncResult } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
+  taskList: vi.fn(),
+  onDialog: undefined as (() => void) | undefined,
   pendingOrder: null as object | null,
   dropBusy: false,
   scopes: new Map<string, Set<string>>(),
@@ -21,7 +24,7 @@ const state = vi.hoisted(() => ({
     environmentId: string;
     input: { threadId: string; orderKey?: string };
   }[],
-  dialogs: [] as { onConfirm: () => void }[],
+  dialogs: [] as { onConfirm: () => void; onCancel: () => void }[],
   alerts: [] as {
     title: string;
     buttons?: { text: string; onPress?: () => void }[];
@@ -29,14 +32,36 @@ const state = vi.hoisted(() => ({
   afterRequest: undefined as (() => void) | undefined,
 }));
 
+vi.mock("@t3tools/client-runtime/state/thread-cleanup", () => ({
+  requestThreadCleanup: async (target: ScopedThreadRef) => {
+    if (!state.scopes.get(target.environmentId)?.has(AuthOrchestrationOperateScope)) return false;
+    state.requests.push({
+      action: "cleanup",
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId },
+    });
+    return true;
+  },
+}));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useRef: (current: unknown) => ({ current }),
 }));
 vi.mock("react-native", () => ({
+  Platform: {
+    get OS() {
+      return process.env.EXPO_OS;
+    },
+  },
   Alert: {
-    alert: (title: string, _message: string, buttons?: { text: string; onPress?: () => void }[]) =>
-      state.alerts.push({ title, buttons }),
+    alert: (
+      title: string,
+      _message: string,
+      buttons?: { text: string; onPress?: () => void }[],
+    ) => {
+      state.alerts.push({ title, buttons });
+      state.onDialog?.();
+    },
   },
 }));
 vi.mock("expo-haptics", () => ({
@@ -44,7 +69,10 @@ vi.mock("expo-haptics", () => ({
   ImpactFeedbackStyle: { Light: "light" },
 }));
 vi.mock("../../components/ConfirmDialogHost", () => ({
-  showConfirmDialog: (dialog: { onConfirm: () => void }) => state.dialogs.push(dialog),
+  showConfirmDialog: (dialog: { onConfirm: () => void; onCancel: () => void }) => {
+    state.dialogs.push(dialog);
+    state.onDialog?.();
+  },
 }));
 vi.mock("../archive/useArchivedThreadSnapshots", () => ({
   refreshArchivedThreadsForEnvironment: () => {},
@@ -55,6 +83,7 @@ vi.mock("../../state/session", () => ({
 }));
 vi.mock("../../state/server", () => ({
   environmentServerConfigsAtom: "server-configs",
+  serverEnvironment: { scheduledTasks: "scheduled-tasks" },
 }));
 vi.mock("../../state/atom-registry", () => ({
   appAtomRegistry: {
@@ -75,6 +104,8 @@ vi.mock("../../state/atom-registry", () => ({
                     environment: {
                       capabilities: {
                         threadSettlement: true,
+                        threadCleanup: true,
+                        scheduledTaskChatBinding: true,
                         threadSnooze: true,
                         threadPinning: true,
                         threadPinReorder: true,
@@ -85,6 +116,9 @@ vi.mock("../../state/atom-registry", () => ({
                 ]),
               ),
   },
+}));
+vi.mock("../../state/use-atom-query-runner", () => ({
+  useAtomQueryRunner: () => state.taskList,
 }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: (command: unknown) => command,
@@ -169,6 +203,8 @@ const mutationCases = [
 ] as const;
 
 beforeEach(() => {
+  state.taskList.mockReset().mockResolvedValue(AsyncResult.success({ tasks: [] }));
+  state.onDialog = undefined;
   state.pendingOrder = null;
   state.dropBusy = false;
   state.scopes = new Map([
@@ -219,7 +255,10 @@ describe("thread list operation permissions", () => {
       );
 
       expect(state.requests).toEqual([
-        expect.objectContaining({ action, environmentId: otherEnvironmentId }),
+        expect.objectContaining({
+          action: action === "settle" ? "cleanup" : action,
+          environmentId: otherEnvironmentId,
+        }),
       ]);
     },
   );
@@ -322,5 +361,46 @@ describe("pinned thread operation permissions", () => {
 
     expect(await useThreadListActions().moveThread(moved, "up")).toBe(false);
     expect(state.requests).toHaveLength(1);
+  });
+});
+
+describe("automation archive confirmation", () => {
+  it.each(["ios", "android"])(
+    "requires confirmation on %s and preserves cancellation",
+    async (os) => {
+      vi.stubEnv("EXPO_OS", os);
+      state.taskList.mockResolvedValue(
+        AsyncResult.success({ tasks: [{ threadId: "thread", title: "Daily brief" }] }),
+      );
+      const actions = useThreadListActions();
+      for (const confirmed of [false, true]) {
+        let shown!: () => void;
+        const dialogShown = new Promise<void>((resolve) => {
+          shown = resolve;
+        });
+        state.onDialog = shown;
+        const archived = actions.archiveThread(makeThread());
+        await dialogShown;
+        expect(state.requests).toEqual([]);
+        if (os === "ios") {
+          state.alerts
+            .at(-1)!
+            .buttons!.find(
+              (button) => button.text === (confirmed ? "Archive and pause" : "Cancel"),
+            )!.onPress!();
+        } else {
+          const dialog = state.dialogs.at(-1)!;
+          (confirmed ? dialog.onConfirm : dialog.onCancel)();
+        }
+        expect(await archived).toBe(confirmed);
+        expect(state.requests).toHaveLength(confirmed ? 1 : 0);
+      }
+    },
+  );
+  it("does not archive if loading automations fails", async () => {
+    state.taskList.mockResolvedValue(AsyncResult.failure(Cause.fail(new Error("Disconnected"))));
+    expect(await useThreadListActions().archiveThread(makeThread())).toBe(false);
+    expect(state.requests).toEqual([]);
+    expect(state.alerts.at(-1)?.title).toBe("Could not archive thread");
   });
 });

@@ -5,6 +5,7 @@ import {
   type ServerConfig,
   ProviderInstanceId,
   ScheduledTaskId,
+  ThreadId,
   type ScheduledTask,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -315,4 +316,11 @@ describe("scheduled task model defaults", () => {
       ),
     ).toBeNull();
   });
+});
+
+it("opens a bound automation in existing-chat mode without changing its destination", () => {
+  const draft = taskToDraft({ ...legacyTask, threadId: ThreadId.make("daily-brief") });
+  expect(draft.workspaceMode).toBe("thread");
+  expect(draft.threadId).toBe("daily-brief");
+  expect(draft.prompt).toBe(legacyTask.prompt);
 });

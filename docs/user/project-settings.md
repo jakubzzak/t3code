@@ -60,7 +60,7 @@ to override its environment defaults. Worktree directories keep their original n
 If generation fails, or a custom name is invalid or already taken, the temporary
 branch name remains.
 
-## Scheduled tasks on mobile
+## Scheduled tasks
 
 Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
 ones across your connected environments. Use the settings filter to narrow the
@@ -71,7 +71,14 @@ environment's time zone, which may differ from your phone's.
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run
 immediately.
-Leaving an edited form asks before discarding unsaved changes.
+On mobile, leaving an edited form asks before discarding unsaved changes.
+
+Choose **Use an existing chat** under Workspace to continue the same conversation
+and checkout on every run. The chat picker includes resolved chats in the selected
+project; archived chats cannot be selected. Resolving a chat keeps its automation
+running. Archiving asks for confirmation and pauses attached automations. Unarchiving
+does not resume them: return here to resume, choose another chat, or switch to a
+checkout option to create a new chat on each run.
 
 ## Webhook automations
 
