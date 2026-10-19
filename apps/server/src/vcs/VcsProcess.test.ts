@@ -255,61 +255,74 @@ describe("VcsProcess.run", () => {
       }),
   );
 
-  it.effect("bounds a synthetic burst of GitHub API processes", () =>
-    Effect.gen(function* () {
-      const gate = yield* Deferred.make<void>();
-      const starts = yield* Queue.unbounded<number>();
-      const active = yield* Ref.make(0);
-      const peak = yield* Ref.make(0);
-      const total = yield* Ref.make(0);
-      const service = yield* VcsProcess.make.pipe(
-        Effect.provideService(
-          ProcessRunner.ProcessRunner,
-          ProcessRunner.ProcessRunner.of({
-            run: () =>
-              Effect.gen(function* () {
-                const count = yield* Ref.updateAndGet(active, (held) => held + 1);
-                yield* Ref.update(peak, (held) => Math.max(held, count));
-                yield* Ref.update(total, (held) => held + 1);
-                yield* Queue.offer(starts, count);
-                yield* Deferred.await(gate);
-                return {
-                  stdout: "",
-                  stderr: "",
-                  code: ChildProcessSpawner.ExitCode(0),
-                  timedOut: false,
-                  stdoutTruncated: false,
-                  stderrTruncated: false,
-                  stdoutInvalidUtf8: false,
-                  stderrInvalidUtf8: false,
-                };
-              }).pipe(Effect.ensuring(Ref.update(active, (count) => count - 1))),
+  it.effect.each([false, true])(
+    "bounds queued GitHub work, disabled before dispatch=%s",
+    (disableQueued) => {
+      let enabled = true;
+      return Effect.gen(function* () {
+        const gate = yield* Deferred.make<void>();
+        const starts = yield* Queue.unbounded<number>();
+        const active = yield* Ref.make(0);
+        const peak = yield* Ref.make(0);
+        const total = yield* Ref.make(0);
+        const service = yield* VcsProcess.make.pipe(
+          Effect.provideService(
+            ProcessRunner.ProcessRunner,
+            ProcessRunner.ProcessRunner.of({
+              run: () =>
+                Effect.gen(function* () {
+                  const count = yield* Ref.updateAndGet(active, (held) => held + 1);
+                  yield* Ref.update(peak, (held) => Math.max(held, count));
+                  yield* Ref.update(total, (held) => held + 1);
+                  yield* Queue.offer(starts, count);
+                  yield* Deferred.await(gate);
+                  return {
+                    stdout: "",
+                    stderr: "",
+                    code: ChildProcessSpawner.ExitCode(0),
+                    timedOut: false,
+                    stdoutTruncated: false,
+                    stderrTruncated: false,
+                    stdoutInvalidUtf8: false,
+                    stderrInvalidUtf8: false,
+                  };
+                }).pipe(Effect.ensuring(Ref.update(active, (count) => count - 1))),
+            }),
+          ),
+          Effect.provideService(GitIntegration.GitIntegration, {
+            isEnabled: () => Effect.sync(() => enabled),
+            isProjectEnabled: () => Effect.sync(() => enabled),
           }),
-        ),
-      );
+        );
 
-      const burst = yield* Effect.all(
-        Array.from({ length: 32 }, (_, index) =>
-          service.run({
-            operation: `synthetic.github.${index}`,
-            command: "gh",
-            args: ["api", "user"],
-            cwd: "/workspace",
-          }),
-        ),
-        { concurrency: "unbounded" },
-      ).pipe(Effect.forkChild);
+        const burst = yield* Effect.all(
+          Array.from({ length: 32 }, (_, index) =>
+            service.run({
+              operation: `synthetic.github.${index}`,
+              command: "gh",
+              args: ["api", "user"],
+              cwd: "/workspace",
+            }),
+          ),
+          { concurrency: "unbounded" },
+        ).pipe(Effect.forkChild);
 
-      yield* Effect.all(Array.from({ length: 4 }, () => Queue.take(starts)));
-      yield* Effect.yieldNow;
-      expect(yield* Queue.size(starts)).toBe(0);
-      expect(yield* Ref.get(peak)).toBe(4);
+        yield* Effect.all(Array.from({ length: 4 }, () => Queue.take(starts)));
+        yield* Effect.yieldNow;
+        expect(yield* Queue.size(starts)).toBe(0);
+        expect(yield* Ref.get(peak)).toBe(4);
 
-      yield* Deferred.succeed(gate, undefined);
-      yield* Fiber.join(burst);
-      expect(yield* Ref.get(total)).toBe(32);
-      expect(yield* Ref.get(peak)).toBe(4);
-    }),
+        if (disableQueued) enabled = false;
+        yield* Deferred.succeed(gate, undefined);
+        const result = yield* Fiber.join(burst).pipe(Effect.exit);
+        expect(Exit.isSuccess(result)).toBe(!disableQueued);
+        if (Exit.isFailure(result)) {
+          expect(Cause.pretty(result.cause)).toContain("Git integration is disabled");
+        }
+        expect(yield* Ref.get(total)).toBe(disableQueued ? 4 : 32);
+        expect(yield* Ref.get(peak)).toBe(4);
+      });
+    },
   );
 
   it.effect("collects stdout", () =>

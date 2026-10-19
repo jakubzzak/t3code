@@ -42,6 +42,7 @@ import { formatShortcutLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
 import { useSettingsScope } from "./SettingsScopeContext";
+import { useScopedSettings } from "./useScopedSettings";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -1280,6 +1281,7 @@ function BrowserKeybindingNotice() {
 }
 
 export function KeybindingsSettingsPanel() {
+  const gitEnabled = useScopedSettings().gitEnabled;
   // The representative environment supplies the displayed bindings; edits
   // fan out to every connected environment in the selection, so one
   // shortcut change reaches each machine the user runs T3 Code on.
@@ -1313,7 +1315,10 @@ export function KeybindingsSettingsPanel() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [savingCommand, setSavingCommand] = useState<KeybindingCommand | null>(null);
   const [isAddingBinding, setIsAddingBinding] = useState(false);
-  const rows = useMemo(() => buildKeybindingRows(keybindings, query), [keybindings, query]);
+  const rows = useMemo(
+    () => buildKeybindingRows(keybindings, query, gitEnabled),
+    [keybindings, query, gitEnabled],
+  );
   const groups = useMemo(() => groupKeybindingRows(rows), [rows]);
   // Settings search jumps to a command, so only its first row anchors.
   const anchorIds = useMemo(() => {
@@ -1336,7 +1341,10 @@ export function KeybindingsSettingsPanel() {
     setHandledSearchTargetId(searchTargetId);
     if (searchTargetId.startsWith("keybinding-")) setQuery("");
   }
-  const commandOptions = useMemo(() => buildKeybindingCommandOptions(keybindings), [keybindings]);
+  const commandOptions = useMemo(
+    () => buildKeybindingCommandOptions(keybindings, gitEnabled),
+    [keybindings, gitEnabled],
+  );
   const whenVariables = useMemo(() => buildWhenVariableOptions(), []);
 
   const openKeybindingsFile = useCallback(() => {

@@ -6,7 +6,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { DEFAULT_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { commandLabel } from "./KeybindingsSettings.logic";
+import { commandLabel, isGitKeybindingCommand } from "./KeybindingsSettings.logic";
 import {
   validateSettingsScopeSearch,
   type ResolvedSettingsScope,
@@ -75,9 +75,11 @@ export interface SettingsSearchItem {
    */
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
+  readonly requiresGit?: boolean;
 }
 
 export interface SettingsSearchAvailability {
+  readonly gitEnabled?: boolean;
   readonly localEnvironmentDisabled?: boolean;
   readonly hasCloudPublicConfig: boolean;
   readonly hasEnvironment: boolean;
@@ -133,6 +135,7 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
     to: "/settings/keybindings" as const,
     searchTerms: [command, ...defaultKeys],
     secondary: true,
+    requiresGit: isGitKeybindingCommand(command),
     ...(defaultKeys.length === 0 ? { targetId: "keybindings" } : {}),
   };
 });
@@ -196,6 +199,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "storage-worktree-keep-when",
+    requiresGit: true,
     targetId: "storage-worktrees",
     title: "Keep worktrees with local changes",
     to: "/settings/storage",
@@ -220,6 +224,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "storage-worktrees",
+    requiresGit: true,
     title: "Worktree cleanup",
     to: "/settings/storage",
     scope: "project-defaults",
@@ -229,6 +234,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "storage-worktrees-location",
+    requiresGit: true,
     title: "Worktree location",
     to: "/settings/storage",
     scope: "environment-defaults",
@@ -303,6 +309,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "diff-color-scheme",
+    requiresGit: true,
     title: "Diff colors",
     to: "/settings/appearance",
     searchTerms: ["red green blue orange additions deletions changes counts palette colorblind"],
@@ -408,6 +415,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-merged-threads",
+    requiresGit: true,
     title: "Auto-settle merged threads",
     to: "/settings/general",
     searchTerms: ["pull request merge closed automatically sidebar"],
@@ -450,24 +458,28 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "hide-whitespace-changes",
+    requiresGit: true,
     title: "Hide whitespace changes",
     to: "/settings/general",
     searchTerms: ["diff ignore spaces edits default"],
   },
   {
     id: "default-diff-file-state",
+    requiresGit: true,
     title: "Default diff file state",
     to: "/settings/general",
     searchTerms: ["collapsed expanded collapse expand files pull request pr code tab"],
   },
   {
     id: "diff-layout",
+    requiresGit: true,
     title: "Diff layout",
     to: "/settings/general",
     searchTerms: ["stacked split side by side unified inline view"],
   },
   {
     id: "proactive-panels",
+    requiresGit: true,
     title: "Proactive panels",
     to: "/settings/general",
     searchTerms: ["automatically open diff pull request pr right panel agent completion"],
@@ -529,6 +541,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "new-threads",
+    requiresGit: true,
     title: "New threads",
     to: "/settings/general",
     scope: "project-defaults",
@@ -536,6 +549,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "worktree-submodules",
+    requiresGit: true,
     title: "Submodules",
     to: "/settings/general",
     scope: "project-defaults",
@@ -543,6 +557,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "start-from-origin",
+    requiresGit: true,
     title: "Start from origin",
     to: "/settings/general",
     scope: "project-defaults",
@@ -817,6 +832,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "pull-request-links-open-in-app",
+    requiresGit: true,
     title: "Open pull requests in Blackbird",
     to: "/settings/integrations",
     searchTerms: ["pr links github browser external click default pull request view panel"],
@@ -1185,6 +1201,9 @@ export function filterAvailableSettingsSearchItems(
   const items: ReadonlyArray<SettingsSearchItem> = SETTINGS_SEARCH_ITEMS;
   return items.filter(
     (item) =>
+      (availability.gitEnabled !== false ||
+        (!item.requiresGit &&
+          (item.to !== "/settings/source-control" || item.id === "git-integration"))) &&
       (!item.cloudOnly || availability.hasCloudPublicConfig) &&
       (!item.environmentOnly || availability.hasEnvironment) &&
       (!item.providerSettingsOnly || availability.hasProviderSettingsEnvironment) &&

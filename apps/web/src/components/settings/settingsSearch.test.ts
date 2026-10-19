@@ -45,6 +45,34 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 ];
 
 describe("searchSettings", () => {
+  it("hides Git-dependent search results while keeping the integration toggle reachable", () => {
+    const availability = {
+      hasCloudPublicConfig: false,
+      hasEnvironment: true,
+      hasProviderSettingsEnvironment: true,
+      hasMacProviderSettingsEnvironment: false,
+      canManageLocalBackend: true,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: true,
+      gitEnabled: false,
+    };
+    const disabled = filterAvailableSettingsSearchItems(availability);
+    for (const query of ["branch", "worktree", "pull", "diff", "origin"]) {
+      const ids = searchSettings(query, disabled).map((item) => item.id);
+      expect(ids).not.toContain("worktree-branch-naming");
+      expect(ids).not.toContain("git-fetch-interval");
+      expect(ids).not.toContain("automatic-pull");
+      expect(ids).not.toContain("default-diff-file-state");
+      expect(ids).not.toContain("start-from-origin");
+      expect(ids).not.toContain("keybinding-composer.branch");
+    }
+    expect(searchSettings("git", disabled).map((item) => item.id)).toContain("git-integration");
+    expect(searchSettings("word wrap", disabled).map((item) => item.id)).toContain("word-wrap");
+    const enabled = filterAvailableSettingsSearchItems({ ...availability, gitEnabled: true });
+    expect(searchSettings("branch", enabled).map((item) => item.id)).toContain(
+      "worktree-branch-naming",
+    );
+  });
   it.each(["OTel", "OTLP", "telemetry export", "Grafana"])(
     "finds environment telemetry settings for %s",
     (query) => {
@@ -77,7 +105,7 @@ describe("searchSettings", () => {
     expect(searchSettings("thè\u{1ab0}mes")[0]?.id).toBe("theme");
     const localeLowerCase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockReturnValue("gıt");
     try {
-      expect(searchSettings("GIT")[0]?.id).toBe("git-fetch-interval");
+      expect(searchSettings("GIT")[0]?.id).toBe("git-integration");
       expect(localeLowerCase).not.toHaveBeenCalled();
     } finally {
       localeLowerCase.mockRestore();

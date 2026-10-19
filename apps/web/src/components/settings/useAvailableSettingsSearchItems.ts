@@ -17,7 +17,10 @@ import {
   getThreadAutoSettlementSearchAvailability,
 } from "./settingsSearch";
 
-export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch = {}) {
+export function useAvailableSettingsSearchItems(
+  scopeSearch: SettingsScopeSearch = {},
+  gitEnabled = true,
+) {
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const localEnvironmentDisabled = isLocalEnvironmentDisabled();
@@ -35,6 +38,7 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
   return useMemo(
     () =>
       filterAvailableSettingsSearchItems({
+        gitEnabled,
         localEnvironmentDisabled,
         hasCloudPublicConfig: hasCloudPublicConfig(),
         hasEnvironment: environments.some((environment) => environment.serverConfig !== null),
@@ -64,6 +68,7 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
         managedTunnelActive,
       }),
     [
+      gitEnabled,
       managedTunnelActive,
       canManageLocalBackend,
       desktopWsl.data,

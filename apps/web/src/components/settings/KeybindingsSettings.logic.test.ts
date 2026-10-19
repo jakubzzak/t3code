@@ -18,6 +18,17 @@ import {
 } from "./KeybindingsSettings.logic";
 
 describe("KeybindingsSettings.logic", () => {
+  it("omits Git shortcuts and creation options for a disabled project without removing saved bindings", () => {
+    const rows = buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, "", false);
+    const options = buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS, false);
+    for (const command of ["composer.branch", "diff.toggle", "pullRequest.copyNumber"] as const) {
+      expect(rows.map((row) => row.command)).not.toContain(command);
+      expect(options).not.toContain(command);
+      expect(buildKeybindingCommandOptions(DEFAULT_RESOLVED_KEYBINDINGS)).toContain(command);
+    }
+    expect(rows.map((row) => row.command)).toContain("filePicker.toggle");
+    expect(options).toContain("terminal.toggle");
+  });
   it("lists composer, provider, and pull request commands with editable defaults", () => {
     const rows = buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, "");
     for (const command of [

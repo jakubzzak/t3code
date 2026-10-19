@@ -646,7 +646,6 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const paletteRouteTarget = useParams({
@@ -666,13 +665,16 @@ function OpenCommandPaletteDialog(props: {
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
   const serverConfigs = useServerConfigs();
+  const gitProjectContext = activeThread ?? activeDraftThread;
   const activeThreadServerConfig = serverConfigs.get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
-  const activeProjectGitEnabled =
-    activeThreadServerConfig === undefined ||
-    resolveProjectSettings(activeThreadServerConfig.settings, activeThread?.projectId ?? null)
-      .settings.gitEnabled;
+  const activeProjectGitEnabled = resolveProjectSettings(
+    serverConfigs.get(gitProjectContext?.environmentId ?? ("" as EnvironmentId))?.settings ??
+      DEFAULT_SERVER_SETTINGS,
+    gitProjectContext?.projectId ?? null,
+  ).settings.gitEnabled;
+  const availableSettingsSearchItems = useAvailableSettingsSearchItems({}, activeProjectGitEnabled);
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
