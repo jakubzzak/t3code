@@ -18,6 +18,7 @@ import * as CheckpointStore from "./CheckpointStore.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as ServerConfig from "../config.ts";
+import * as GitIntegration from "../project/GitIntegration.ts";
 
 const layerServerConfig = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-checkpoint-store-test-",
@@ -100,6 +101,69 @@ function buildLargeText(lineCount = 5_000): string {
     .join("\n")
     .concat("\n");
 }
+
+it.effect.each(["root", "worktree"] as const)(
+  "Git opt-out preserves dirty files and existing checkpoints in a %s",
+  (workspace) => {
+    let enabled = true;
+    return Effect.gen(function* () {
+      const root = yield* makeTmpDir();
+      yield* initRepoWithCommit(root);
+      const cwd = workspace === "root" ? root : NodePath.join(root, "linked-worktree");
+      if (workspace === "worktree") {
+        yield* git(root, ["worktree", "add", "-b", "existing-thread", cwd]);
+      }
+      const fs = yield* FileSystem.FileSystem;
+      const checkpoints = yield* CheckpointStore.CheckpointStore;
+      const checkpointRef = checkpointRefForThreadTurn(ThreadId.make("git-opt-out"), 0);
+      yield* checkpoints.captureCheckpoint({ cwd, checkpointRef });
+      const gitEntry = yield* fs.stat(NodePath.join(cwd, ".git"));
+      yield* writeTextFile(NodePath.join(cwd, "README.md"), "dirty work stays here\n");
+
+      enabled = false;
+      expect(yield* checkpoints.isGitRepository(cwd)).toBe(false);
+      for (const operation of [
+        checkpoints.restoreCheckpoint({ cwd, checkpointRef }),
+        checkpoints.captureCheckpoint({ cwd, checkpointRef }),
+        checkpoints.diffCheckpoints({
+          cwd,
+          fromCheckpointRef: checkpointRef,
+          toCheckpointRef: checkpointRef,
+        }),
+      ]) {
+        const error = yield* operation.pipe(Effect.flip);
+        expect(error._tag).toBe("VcsUnsupportedOperationError");
+        expect(error.message).toContain("Git integration is disabled");
+      }
+      // Filesystem access remains independent of T3's Git integration policy.
+      yield* fs.writeFileString(NodePath.join(cwd, "new.txt"), "created\n");
+      yield* fs.writeFileString(NodePath.join(cwd, "new.txt"), "edited\n");
+      yield* fs.rename(NodePath.join(cwd, "new.txt"), NodePath.join(cwd, "renamed.txt"));
+      expect(yield* fs.readFileString(NodePath.join(cwd, "renamed.txt"))).toBe("edited\n");
+      yield* fs.remove(NodePath.join(cwd, "renamed.txt"));
+      expect(yield* fs.readFileString(NodePath.join(cwd, "README.md"))).toBe(
+        "dirty work stays here\n",
+      );
+      expect((yield* fs.stat(NodePath.join(cwd, ".git"))).type).toBe(gitEntry.type);
+
+      enabled = true;
+      expect(yield* checkpoints.hasCheckpointRef({ cwd, checkpointRef })).toBe(true);
+      yield* checkpoints.restoreCheckpoint({ cwd, checkpointRef });
+      expect(yield* fs.readFileString(NodePath.join(cwd, "README.md"))).toBe("# test\n");
+    }).pipe(
+      Effect.provide(
+        layerTest.pipe(
+          Layer.provide(
+            Layer.succeed(GitIntegration.GitIntegration, {
+              isEnabled: () => Effect.sync(() => enabled),
+              isProjectEnabled: () => Effect.sync(() => enabled),
+            }),
+          ),
+        ),
+      ),
+    );
+  },
+);
 
 it.layer(layerTest)("CheckpointStore.layer", (it) => {
   describe("isGitRepository", () => {

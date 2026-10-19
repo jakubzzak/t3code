@@ -41,6 +41,7 @@ export interface ThreadDetailsPanelProps extends Pick<
   showOpenInPicker: boolean;
   gitCwd: string | null;
   isGitRepo: boolean;
+  gitEnabled: boolean;
   envLocked: boolean;
   availableEnvironments: readonly EnvironmentOption[];
   autoEnvironmentLabel?: string | undefined;
@@ -150,7 +151,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             </div>
           </ThreadDetailsSection>
 
-          {props.gitCwd ? (
+          {props.gitEnabled && props.gitCwd ? (
             <ThreadDetailsSection
               headingId="thread-details-version-control-heading"
               title="Version Control"

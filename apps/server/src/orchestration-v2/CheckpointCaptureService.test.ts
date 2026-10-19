@@ -52,9 +52,13 @@ const modelSelection = {
 } as const;
 
 it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
-  it.effect.each([false, true])(
-    "captures without decoding history or losing newer delegated completion, ref lookup fails=%s",
-    (refLookupFails) =>
+  it.effect.each([
+    { refLookupFails: false, baselineStatus: "ready" as const },
+    { refLookupFails: true, baselineStatus: "ready" as const },
+    { refLookupFails: false, baselineStatus: "missing" as const },
+  ])(
+    "captures without replacing recorded $baselineStatus baselines, ref lookup fails=$refLookupFails",
+    ({ refLookupFails, baselineStatus }) =>
       Effect.gen(function* () {
         const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
         const now = yield* DateTime.now;
@@ -150,7 +154,7 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
           ordinalWithinScope: 0,
           appRunOrdinal: null,
           ref: CheckpointRef.make("checkpoint-ref:baseline-0"),
-          status: "ready" as const,
+          status: baselineStatus,
           files: [],
           capturedAt: now,
         };
@@ -326,6 +330,13 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
           yield* service.execute({ threadId, runId, scopeId });
 
           const events = yield* Ref.get(committed);
+          assert.isFalse(
+            events.some(
+              (event) =>
+                event.type === "checkpoint.captured" && event.payload.ordinalWithinScope === 0,
+            ),
+            "An existing missing checkpoint must remain missing",
+          );
           const runUpdated = events.find((event) => event.type === "run.updated");
           assert.isDefined(runUpdated);
           if (runUpdated?.type !== "run.updated") {
@@ -734,7 +745,7 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
         DateTime.formatIso(cancelledAt),
       );
       assert.equal(projected.rootNode?.status, "cancelled");
-      assert.deepEqual([...projected.readyCheckpointOrdinals].toSorted(), [0, 1]);
+      assert.deepEqual([...projected.recordedCheckpointOrdinals].toSorted(), [0, 1]);
     }),
   );
 });

@@ -1,3 +1,4 @@
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { buildProjectThreadStartTurnInput } from "../../lib/projectThreadStartTurn";
@@ -447,9 +448,13 @@ function ThreadRouteContent(
   ]
     .filter(Boolean)
     .join(" · ");
+  const gitEnabled = resolveProjectSettings(
+    routeEnvironmentRuntime?.serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
+    selectedThread?.projectId ?? null,
+  ).settings.gitEnabled;
   /* ─── Git status for native header trigger ───────────────────────── */
   const gitStatus = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null
+    gitEnabled && selectedThread !== null && selectedThreadCwd !== null
       ? vcsEnvironment.status({
           environmentId: selectedThread.environmentId,
           input: { cwd: selectedThreadCwd },
@@ -787,6 +792,7 @@ function ThreadRouteContent(
     ],
   );
   const threadGitControlProps = {
+    gitEnabled,
     environmentId: environmentIdRaw ?? "",
     threadId: threadId ?? "",
     auxiliaryPaneControl:
@@ -803,7 +809,7 @@ function ThreadRouteContent(
       mergeBackTargetThreadId !== null && mergeBackRun !== null
         ? () => void handleMergeBack()
         : undefined,
-    currentBranch: selectedThread?.branch ?? null,
+    currentBranch: gitEnabled ? (selectedThread?.branch ?? null) : null,
     gitStatus: gitStatus.data,
     gitOperationLabel: gitState.gitOperationLabel,
     canOpenTerminal:

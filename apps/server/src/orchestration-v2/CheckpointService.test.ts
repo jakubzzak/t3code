@@ -103,3 +103,55 @@ it.effect.each([false, true, "interrupt"] as const)(
     }).pipe(Effect.provide(layerTest));
   },
 );
+
+it.effect("settles checkpoints as missing without capture when Git is unavailable", () => {
+  const scope: OrchestrationV2CheckpointScope = {
+    id: CheckpointScopeId.make("disabled-git-scope"),
+    threadId: ThreadId.make("disabled-git-thread"),
+    runId: RunId.make("disabled-git-run"),
+    nodeId: NodeId.make("disabled-git-node"),
+    parentScopeId: null,
+    providerThreadId: ProviderThreadId.make("disabled-git-provider"),
+    kind: "root_run",
+    ordinalWithinParent: 0,
+    advancesAppRunCount: true,
+    cwd: "/plain-workspace",
+    createdAt: DateTime.makeUnsafe("2026-10-19T12:00:00Z"),
+  };
+  const capture = vi.fn(() => Effect.die("Unexpected checkpoint capture"));
+  const lookup = vi.fn(() => Effect.die("Unexpected Git ref lookup"));
+  const layer = CheckpointService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        IdAllocator.layer,
+        Layer.mock(CheckpointStore.CheckpointStore)({
+          isGitRepository: () => Effect.succeed(false),
+          captureCheckpoint: capture,
+          hasCheckpointRef: lookup,
+        }),
+      ),
+    ),
+    Layer.provide(NodeCrypto.layer),
+  );
+  return Effect.gen(function* () {
+    const checkpoints = yield* CheckpointService.CheckpointServiceV2;
+    yield* checkpoints.captureBaseline({ scope, ordinalWithinScope: 0 });
+    const baseline = yield* checkpoints.materializeBaselineCheckpoint({
+      scope,
+      ordinalWithinScope: 0,
+    });
+    const result = yield* checkpoints.capture({
+      scope,
+      ordinalWithinScope: 1,
+      runId: scope.runId!,
+      nodeId: scope.nodeId!,
+      appRunOrdinal: 1,
+      capturedAt: scope.createdAt,
+    });
+    assert.equal(baseline.status, "missing");
+    assert.equal(result.status, "missing");
+    assert.deepEqual(result.files, []);
+    assert.equal(capture.mock.calls.length, 0);
+    assert.equal(lookup.mock.calls.length, 0);
+  }).pipe(Effect.provide(layer));
+});

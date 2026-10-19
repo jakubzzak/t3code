@@ -12,6 +12,7 @@ import { VcsUnsupportedOperationError } from "@t3tools/contracts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import * as VcsProjectConfig from "./VcsProjectConfig.ts";
 import * as VcsDriver from "./VcsDriver.ts";
+import * as GitIntegration from "../project/GitIntegration.ts";
 
 const DETECTION_CACHE_CAPACITY = 2_048;
 // Status polls detect every open cwd each tick, and detection costs three git
@@ -66,6 +67,7 @@ function parseDetectionCacheKey(key: string): {
 }
 
 export const make = Effect.gen(function* () {
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const projectConfig = yield* VcsProjectConfig.VcsProjectConfig;
@@ -169,6 +171,7 @@ export const make = Effect.gen(function* () {
   // `git init` created a nested repository between the cwd and its root.
   const detect: VcsDriverRegistry["Service"]["detect"] = Effect.fn("VcsDriverRegistry.detect")(
     function* (input) {
+      if (!(yield* gitIntegration.isEnabled(input.cwd))) return null;
       const requestedKind = yield* projectConfig.resolveKind(input);
       const key = detectionCacheKey({ cwd: input.cwd, requestedKind });
       const cached = yield* Cache.get(detectionCache, key);
@@ -188,6 +191,9 @@ export const make = Effect.gen(function* () {
 
   const resolve: VcsDriverRegistry["Service"]["resolve"] = Effect.fn("VcsDriverRegistry.resolve")(
     function* (input) {
+      yield* GitIntegration.assertEnabled(input.cwd).pipe(
+        Effect.provideService(GitIntegration.GitIntegration, gitIntegration),
+      );
       const detected = yield* detect(input);
       if (detected) {
         return detected;

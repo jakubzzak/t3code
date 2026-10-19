@@ -248,27 +248,38 @@ export function groupKeybindingRows(
   });
 }
 
+export function isGitKeybindingCommand(command: KeybindingCommand): boolean {
+  return (
+    command === "composer.branch" ||
+    command === "diff.toggle" ||
+    command === "pullRequest.copyNumber"
+  );
+}
+
 export function buildKeybindingRows(
   keybindings: ResolvedKeybindingsConfig,
   query: string,
+  gitEnabled = true,
 ): ReadonlyArray<KeybindingRow> {
   const normalizedQuery = query.trim().toLowerCase();
-  const rows = keybindings.map((binding, index) => {
-    const defaultBinding = defaultBindingForBinding(binding);
-    const key = shortcutToKeybindingInput(binding.shortcut);
-    const when = whenAstToExpression(binding.whenAst);
-    return {
-      id: `${keybindingRowId(binding.command, key, when)}\u0000${index}`,
-      command: binding.command,
-      key,
-      when,
-      source: sourceForBinding(binding),
-      defaultKey: defaultBinding ? shortcutToKeybindingInput(defaultBinding.shortcut) : null,
-      defaultWhen: whenAstToExpression(defaultBinding?.whenAst),
-      binding,
-      conflicts: [],
-    } satisfies KeybindingRow;
-  });
+  const rows = keybindings
+    .filter((binding) => gitEnabled || !isGitKeybindingCommand(binding.command))
+    .map((binding, index) => {
+      const defaultBinding = defaultBindingForBinding(binding);
+      const key = shortcutToKeybindingInput(binding.shortcut);
+      const when = whenAstToExpression(binding.whenAst);
+      return {
+        id: `${keybindingRowId(binding.command, key, when)}\u0000${index}`,
+        command: binding.command,
+        key,
+        when,
+        source: sourceForBinding(binding),
+        defaultKey: defaultBinding ? shortcutToKeybindingInput(defaultBinding.shortcut) : null,
+        defaultWhen: whenAstToExpression(defaultBinding?.whenAst),
+        binding,
+        conflicts: [],
+      } satisfies KeybindingRow;
+    });
 
   const rowsWithConflicts = rows.map((row) => {
     const conflicts = keybindingConflictLabels(rows, {
@@ -350,12 +361,15 @@ export function buildWhenVariableOptions(): ReadonlyArray<WhenVariableOption> {
 
 export function buildKeybindingCommandOptions(
   keybindings: ResolvedKeybindingsConfig,
+  gitEnabled = true,
 ): ReadonlyArray<KeybindingCommandOption> {
   const commands = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
-  return [...commands].toSorted((left, right) => compareCommands(left, right, commandLabel));
+  return [...commands]
+    .filter((command) => gitEnabled || !isGitKeybindingCommand(command))
+    .toSorted((left, right) => compareCommands(left, right, commandLabel));
 }
 
 export function commandLabel(command: KeybindingCommand): string {

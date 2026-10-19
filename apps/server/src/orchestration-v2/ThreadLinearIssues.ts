@@ -54,6 +54,11 @@ export const make = Effect.gen(function* () {
       project.id,
       project,
     ).settings;
+    if (!configured.gitEnabled)
+      return yield* new LinearIssueSetupError({
+        detail:
+          "Git integration is disabled for this project. Enable it in project settings to create a worktree.",
+      });
     if (!configured.linearWorkspace || configured.linearWorkspace !== input.issue.workspace)
       return yield* new LinearIssueSetupError({
         detail: "The issue does not belong to this project's configured Linear workspace.",

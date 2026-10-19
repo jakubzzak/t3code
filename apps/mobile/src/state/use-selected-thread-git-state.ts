@@ -1,3 +1,4 @@
+import { useProjectGitEnabled } from "./use-project-git-enabled";
 import { useMemo } from "react";
 
 import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
@@ -11,18 +12,22 @@ import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
 
 export function useSelectedThreadGitState() {
   const { selectedThread, selectedThreadProject } = useThreadSelection();
+  const gitEnabled = useProjectGitEnabled(
+    selectedThread?.environmentId ?? null,
+    selectedThread?.projectId ?? null,
+  );
   const { selectedThreadCwd } = useSelectedThreadWorktree();
 
   const selectedThreadGitTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
-      cwd: selectedThreadCwd,
+      cwd: gitEnabled ? selectedThreadCwd : null,
     }),
-    [selectedThread?.environmentId, selectedThreadCwd],
+    [gitEnabled, selectedThread?.environmentId, selectedThreadCwd],
   );
   const gitActionState = useVcsActionState(selectedThreadGitTarget);
   const sourceControlDiscovery = useEnvironmentQuery(
-    selectedThread === null
+    !gitEnabled || selectedThread === null
       ? null
       : sourceControlEnvironment.discovery({
           environmentId: selectedThread.environmentId,
@@ -33,10 +38,10 @@ export function useSelectedThreadGitState() {
   const selectedThreadBranchTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
-      cwd: selectedThreadProject?.workspaceRoot ?? null,
+      cwd: gitEnabled ? (selectedThreadProject?.workspaceRoot ?? null) : null,
       query: null,
     }),
-    [selectedThread?.environmentId, selectedThreadProject?.workspaceRoot],
+    [gitEnabled, selectedThread?.environmentId, selectedThreadProject?.workspaceRoot],
   );
   const selectedThreadBranchState = useBranches(selectedThreadBranchTarget);
   const selectedThreadBranches = useMemo(

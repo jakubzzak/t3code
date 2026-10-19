@@ -983,6 +983,7 @@ const LinearWorkspace = TrimmedString.check(
 );
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+  "gitEnabled",
   "linearWorkspace",
   "worktreeCleanup",
   "defaultModelSelection",
@@ -1032,6 +1033,7 @@ export type ProjectProviderInstanceOverride = typeof ProjectProviderInstanceOver
  * `resolveProjectProviderInstanceEnabled` for the combined resolution.
  */
 export const ProjectSettingsOverrides = Schema.Struct({
+  gitEnabled: Schema.optionalKey(Schema.Boolean),
   linearWorkspace: Schema.optionalKey(LinearWorkspace),
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
@@ -1173,6 +1175,7 @@ export const ServerSettings = Schema.Struct({
   projectAgentBrowserAccessOverrides: Schema.Record(ProjectId, Schema.Boolean).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  gitEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   defaultAutoPull: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   defaultProjectScripts: Schema.Array(ProjectScript).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -1569,6 +1572,7 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   worktreesDirectory: Schema.optionalKey(TrimmedString),
+  gitEnabled: Schema.optionalKey(Schema.Boolean),
   // Server settings
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),

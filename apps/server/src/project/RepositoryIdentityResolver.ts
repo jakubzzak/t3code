@@ -1,3 +1,4 @@
+import * as GitIntegration from "./GitIntegration.ts";
 import type { RepositoryIdentity, SourceControlProviderError } from "@t3tools/contracts";
 import {
   detectSourceControlProviderFromGitRemoteUrl,
@@ -165,6 +166,7 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
   options: RepositoryIdentityResolverOptions = {},
 ) {
   const processRunner = yield* ProcessRunner.ProcessRunner;
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const cacheCapacity = options.cacheCapacity ?? DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY;
   const refine = options.refine ?? Effect.succeed;
   // Git errors and timeouts resolve to null, so they use the negative TTL like
@@ -202,6 +204,7 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
   // git keep their own spans.
   const resolve: RepositoryIdentityResolver["Service"]["resolve"] = Effect.fnUntraced(
     function* (cwd, options) {
+      if (!(yield* gitIntegration.isEnabled(cwd))) return null;
       if (options?.refresh) yield* Cache.invalidate(repositoryRootCache, cwd);
       const cacheKey = yield* Cache.get(repositoryRootCache, cwd);
       if (cacheKey === null) return null;

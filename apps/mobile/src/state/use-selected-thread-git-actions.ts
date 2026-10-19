@@ -1,3 +1,4 @@
+import { useProjectGitEnabled } from "./use-project-git-enabled";
 import { useCallback, useEffect, useEffectEvent, useMemo } from "react";
 
 import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -43,6 +44,10 @@ export function useSelectedThreadGitActions() {
   const pull = useAtomCommand(vcsEnvironment.pull, { reportFailure: false });
   const { selectedThread, selectedThreadProject, selectedEnvironmentRuntime } =
     useThreadSelection();
+  const gitEnabled = useProjectGitEnabled(
+    selectedThread?.environmentId ?? null,
+    selectedThread?.projectId ?? null,
+  );
   const canWriteSourceControl = useEnvironmentScope(
     selectedThread?.environmentId ?? null,
     AuthSourceControlWriteScope,
@@ -51,7 +56,7 @@ export function useSelectedThreadGitActions() {
     selectedThread?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
-  const canChangeThreadBranch = canWriteSourceControl && canOperateThread;
+  const canChangeThreadBranch = gitEnabled && canWriteSourceControl && canOperateThread;
   const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
   const runStackedAction = useAtomCommand(
     vcsActionManager.runStackedAction({
@@ -61,7 +66,9 @@ export function useSelectedThreadGitActions() {
     { reportFailure: false },
   );
 
-  const selectedThreadGitRootCwd = selectedThreadProject?.workspaceRoot ?? null;
+  const selectedThreadGitRootCwd = gitEnabled
+    ? (selectedThreadProject?.workspaceRoot ?? null)
+    : null;
   const branchTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
@@ -103,7 +110,7 @@ export function useSelectedThreadGitActions() {
 
   const refreshSelectedThreadGitStatus = useCallback(
     async (options?: { readonly quiet?: boolean; readonly cwd?: string | null }) => {
-      if (!selectedThread || !selectedThreadProject) {
+      if (!gitEnabled || !selectedThread || !selectedThreadProject) {
         return null;
       }
 
@@ -138,7 +145,7 @@ export function useSelectedThreadGitActions() {
       setPendingConnectionError(null);
       return result.value;
     },
-    [refreshStatus, selectedThread, selectedThreadCwd, selectedThreadProject],
+    [gitEnabled, refreshStatus, selectedThread, selectedThreadCwd, selectedThreadProject],
   );
 
   // Shell updates replace the selected thread object many times per second while a

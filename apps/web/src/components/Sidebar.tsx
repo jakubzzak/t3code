@@ -1,3 +1,6 @@
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { useProjectGitEnabled } from "../hooks/useProjectGitEnabled";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
@@ -467,6 +470,7 @@ function SidebarThreadTooltip({
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
 }) {
+  const gitEnabled = useProjectGitEnabled(thread.environmentId, thread.projectId);
   const driverKind = providerEntry?.driverKind ?? null;
   const previousProviderNames = thread.providerInstanceHistory
     .filter((instanceId) => instanceId !== modelInstanceId)
@@ -477,7 +481,7 @@ function SidebarThreadTooltip({
       <ThreadHoverCard
         title={thread.title}
         footer={
-          supportsMultiplePullRequests && thread.pullRequests.length > 0 ? (
+          gitEnabled && supportsMultiplePullRequests && thread.pullRequests.length > 0 ? (
             <div className="border-t border-border/60 pt-2 pl-0.5 text-xs text-muted-foreground">
               <ThreadPullRequestsMiniList pullRequests={thread.pullRequests} />
             </div>
@@ -499,7 +503,7 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate text-foreground/75">{environmentLabel}</div>
           </div>
         ) : null}
-        {thread.branch ? (
+        {gitEnabled && thread.branch ? (
           <div className="flex min-w-0 items-center gap-2">
             <GitBranchIcon className="size-3 shrink-0 stroke-muted-foreground" />
             <MiddleTruncate value={thread.branch} className="flex" />
@@ -1243,11 +1247,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     [threadRef],
   );
 
-  const gitCwd = thread.worktreePath ?? props.project?.workspaceRoot ?? null;
+  const gitEnabled = useProjectGitEnabled(thread.environmentId, thread.projectId);
+  const gitCwd = gitEnabled ? (thread.worktreePath ?? props.project?.workspaceRoot ?? null) : null;
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
     thread.environmentId,
     thread.linkedPullRequest,
-    leaseLiveStatus,
+    leaseLiveStatus && gitEnabled,
     thread.pullRequests,
     thread.branchPullRequest,
   );
@@ -1263,11 +1268,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     JSON.stringify([thread.environmentId, gitCwd]),
     gitStatus.data,
   );
-  const pr = linkedPullRequestStatus?.pr ?? null;
+  const pr = gitEnabled ? (linkedPullRequestStatus?.pr ?? null) : null;
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
-  const currentLinkedPr = supportsMultiplePullRequests
-    ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
-    : null;
+  const currentLinkedPr =
+    gitEnabled && supportsMultiplePullRequests
+      ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
+      : null;
 
   // Same semantics as the legacy sidebar (never-visited counts as read):
   // switching sidebars must not light up every historical thread as unread.
@@ -1397,7 +1403,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       showInstanceBadge={showInstanceBadge}
       modelInstanceId={modelInstanceId}
       modelLabel={modelLabel}
-      branchMismatch={branchMismatch}
+      branchMismatch={gitEnabled ? branchMismatch : null}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
     />
@@ -1710,9 +1716,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Stacks show their layer count; multiple unrelated links show their total count.
   // Either opens the thread's pull requests tab; a single PR link opens that PR and still
   // supports opening the host in a new tab.
-  const prBadgeShape = supportsMultiplePullRequests
-    ? resolveThreadPullRequestBadge(thread.pullRequests)
-    : null;
+  const prBadgeShape =
+    gitEnabled && supportsMultiplePullRequests
+      ? resolveThreadPullRequestBadge(thread.pullRequests)
+      : null;
   const handlePrListClick = useCallback(() => {
     useRightPanelStore.getState().open(threadRef, "pull-requests");
     if (!props.isActive) onThreadActivate(threadRef);
@@ -2175,7 +2182,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
                   branch, so the row lost its most stable identifier. */}
-              {thread.branch ? (
+              {gitEnabled && thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
                   <span className="flex min-w-0 flex-1 text-muted-foreground/40">
@@ -2278,7 +2285,8 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
   // Same details tooltip as the regular rows: a search hit is still a thread,
   // and the hover card is how you disambiguate identically-titled results.
-  const gitCwd = thread.worktreePath ?? props.project?.workspaceRoot ?? null;
+  const gitEnabled = useProjectGitEnabled(thread.environmentId, thread.projectId);
+  const gitCwd = gitEnabled ? (thread.worktreePath ?? props.project?.workspaceRoot ?? null) : null;
   const gitStatus = useEnvironmentQuery(
     leaseLiveStatus && (thread.branch != null || thread.worktreePath !== null) && gitCwd !== null
       ? vcsEnvironment.status({
@@ -2421,7 +2429,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
           showInstanceBadge={showInstanceBadge}
           modelInstanceId={modelInstanceId}
           modelLabel={modelLabel}
-          branchMismatch={branchMismatch}
+          branchMismatch={gitEnabled ? branchMismatch : null}
           terminalStatus={terminalStatus}
           terminalProcessCount={runningTerminalIds.length}
         />
@@ -4561,7 +4569,12 @@ export default function Sidebar() {
           api.contextMenu.show(
             buildDraftActionMenuItems({
               hasPath: Boolean(workspacePath),
-              hasBranch: Boolean(session.branch),
+              hasBranch:
+                Boolean(session.branch) &&
+                resolveProjectSettings(
+                  serverConfigs.get(session.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS,
+                  session.projectId,
+                ).settings.gitEnabled,
               hasProject: projectGroup != null,
             }),
             position,
@@ -4648,7 +4661,12 @@ export default function Sidebar() {
                 threadRef.environmentId,
                 AuthOrchestrationOperateScope,
               ),
-              branch: thread.branch ?? null,
+              branch: resolveProjectSettings(
+                serverConfigs.get(thread.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS,
+                thread.projectId,
+              ).settings.gitEnabled
+                ? (thread.branch ?? null)
+                : null,
               projectFilter: threadProjectGroup
                 ? {
                     label: threadProjectGroup.displayName,

@@ -15,7 +15,7 @@ import type {
   StorageCleanupReport,
   StorageCleanupReportEntry,
 } from "@t3tools/contracts";
-import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
+import { resolveProjectSettings, resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -578,6 +578,11 @@ const make = Effect.gen(function* () {
         // the removal. Read only this path and this thread: a full snapshot per
         // worktree takes seconds on large databases.
         const blockedSinceCheck = Effect.fnUntraced(function* () {
+          if (
+            !resolveProjectSettings(yield* settingsService.getSettings, thread.projectId).settings
+              .gitEnabled
+          )
+            return "Git integration disabled";
           const latestProjects = yield* projectStore.listShells();
           if (yield* containsProjectRoot(worktreePath, [project, ...latestProjects]))
             return "contains a project checkout";

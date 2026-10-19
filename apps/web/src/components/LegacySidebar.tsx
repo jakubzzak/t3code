@@ -1,3 +1,6 @@
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { useProjectGitEnabled } from "../hooks/useProjectGitEnabled";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -209,7 +212,7 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
-import { primaryServerKeybindingsAtom } from "../state/server";
+import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -491,18 +494,20 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       lastVisitedAt,
     },
   });
+  const gitEnabled = useProjectGitEnabled(thread.environmentId, thread.projectId);
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
     thread.environmentId,
     thread.linkedPullRequest,
-    leaseLiveStatus,
+    leaseLiveStatus && gitEnabled,
     thread.pullRequests,
     thread.branchPullRequest,
   );
-  const pr = linkedPullRequestStatus?.pr ?? null;
+  const pr = gitEnabled ? (linkedPullRequestStatus?.pr ?? null) : null;
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
-  const currentLinkedPr = supportsMultiplePullRequests
-    ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
-    : null;
+  const currentLinkedPr =
+    gitEnabled && supportsMultiplePullRequests
+      ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
+      : null;
   const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider);
   const isConfirmingArchive =
     canOperateThread && confirmingArchiveThreadKey === threadKey && !isThreadRunning;
@@ -846,7 +851,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               </TooltipPopup>
             </Tooltip>
           )}
-          <ThreadWorktreeIndicator thread={thread} />
+          {gitEnabled ? <ThreadWorktreeIndicator thread={thread} /> : null}
           <ThreadTerminalStatusButton
             threadRef={threadRef}
             terminalIds={runningTerminalIds}
@@ -1314,6 +1319,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const memberProjectByScopedKey = useMemo(
     () =>
       new Map(
@@ -2311,7 +2317,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
       const clicked = await api.contextMenu.show(
         [
-          ...(thread.branch
+          ...(thread.branch &&
+          resolveProjectSettings(
+            serverConfigs.get(thread.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS,
+            thread.projectId,
+          ).settings.gitEnabled
             ? [{ id: "new-thread-on-branch", label: `New thread on ${thread.branch}` }]
             : []),
           { id: "rename", label: "Rename thread", disabled: !canOperateThread },
@@ -2426,6 +2436,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       isMobile,
       markThreadUnread,
       memberProjectByScopedKey,
+      serverConfigs,
       project.projectKey,
       project.workspaceRoot,
       router,

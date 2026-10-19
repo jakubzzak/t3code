@@ -536,7 +536,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
   // A thread without a project runs in a plain folder, so worktree mode
   // would leave it unsendable: it is always local and offers no choice.
-  const canChooseWorkspace = !isScratchDraft;
+  const canChooseWorkspace = !isScratchDraft && projectSettings.settings.gitEnabled;
   const selectedProjectHasThreads =
     selectedProject !== null &&
     threads.some(
@@ -563,8 +563,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const workspaceMode = canChooseWorkspace
     ? (selectedProjectDraft.workspaceSelection?.mode ?? defaultWorkspaceMode)
     : "local";
-  const selectedBranchName = selectedProjectDraft.workspaceSelection?.branch ?? null;
-  const selectedWorktreePath = selectedProjectDraft.workspaceSelection?.worktreePath ?? null;
+  const selectedBranchName = canChooseWorkspace
+    ? (selectedProjectDraft.workspaceSelection?.branch ?? null)
+    : null;
+  const selectedWorktreePath = canChooseWorkspace
+    ? (selectedProjectDraft.workspaceSelection?.worktreePath ?? null)
+    : null;
   // Keep the user's explicit choice separate from the resolved display value:
   // only the explicit flag is ever written back to the draft, so the resolved
   // value keeps tracking the server setting when the config loads late.
@@ -747,10 +751,15 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     () => ({
       environmentId: selectedProject?.environmentId ?? null,
       // `|| null` also skips the stand-in project's empty workspaceRoot.
-      cwd: selectedProject?.workspaceRoot || null,
+      cwd: canChooseWorkspace ? selectedProject?.workspaceRoot || null : null,
       query: debouncedBranchQuery,
     }),
-    [debouncedBranchQuery, selectedProject?.environmentId, selectedProject?.workspaceRoot],
+    [
+      canChooseWorkspace,
+      debouncedBranchQuery,
+      selectedProject?.environmentId,
+      selectedProject?.workspaceRoot,
+    ],
   );
   const branchState = usePaginatedBranches(branchTarget);
   const branchSearchIsDebouncing = branchSearchQuery !== debouncedBranchQuery;
@@ -1325,7 +1334,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedWorktreePath,
       startFromOrigin,
       draftKey: selectedProjectDraftKey,
-      pullRequestReference: selectedProjectDraft.workspaceSelection?.pullRequestReference,
+      pullRequestReference: canChooseWorkspace
+        ? selectedProjectDraft.workspaceSelection?.pullRequestReference
+        : undefined,
       editingPendingTask,
       prompt,
       attachments,

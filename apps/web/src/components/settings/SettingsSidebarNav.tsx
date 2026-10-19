@@ -49,6 +49,11 @@ import {
   type SettingsSearchItem,
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
+import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
+import { resolveSettingsScope } from "./settingsScope";
+import { useEnvironments } from "../../state/environments";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { validateSettingsScopeSearch } from "./settingsScope";
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
@@ -122,7 +127,21 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeResultIndex, setActiveResultIndex] = useState(0);
-  const searchableItems = useAvailableSettingsSearchItems(scopeSearch);
+  // The navigation sits outside the content's SettingsScopeProvider.
+  const groups = useSettingsProjectGroups();
+  const { environments } = useEnvironments();
+  const scope = resolveSettingsScope(scopeSearch, groups, environments);
+  const gitEnabled =
+    (scope.kind !== "project" && scope.kind !== "checkout") ||
+    scope.members.some(
+      (member) =>
+        resolveProjectSettings(
+          environments.find((environment) => environment.environmentId === member.environmentId)
+            ?.serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
+          member.id,
+        ).settings.gitEnabled,
+    );
+  const searchableItems = useAvailableSettingsSearchItems(scopeSearch, gitEnabled);
   const results = useMemo(() => searchSettings(query, searchableItems), [query, searchableItems]);
   const isSearching = query.trim().length > 0;
   const hasResults = results.length > 0;

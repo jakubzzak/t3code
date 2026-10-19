@@ -1,3 +1,4 @@
+import { useProjectGitEnabled } from "../../state/use-project-git-enabled";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
 import { environmentSession } from "../../state/session";
 import { useCallback, useEffect, useMemo } from "react";
@@ -37,7 +38,7 @@ export function useReviewSections(input: {
   readonly reviewCache: ReviewCacheForThread;
 }) {
   const { environmentId, reviewCache, threadId } = input;
-  const enabled = input.enabled ?? true;
+
   const fileAccessSession = useEnvironmentQuery(
     environmentId === undefined ? null : environmentSession.sessionStateAtom(environmentId),
   );
@@ -50,6 +51,11 @@ export function useReviewSections(input: {
   });
   const { canReadFiles } = fileAccess;
   const selectedThread = useSelectedThreadProjection();
+  const gitEnabled = useProjectGitEnabled(
+    environmentId ?? null,
+    selectedThread?.projection.thread.projectId ?? null,
+  );
+  const enabled = (input.enabled ?? true) && gitEnabled;
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const diffPreview = useEnvironmentQuery(
     canReadFiles && enabled && environmentId !== undefined && selectedThreadCwd !== null
@@ -70,9 +76,11 @@ export function useReviewSections(input: {
   const readyCheckpoints = useMemo(
     () =>
       getReadyReviewCheckpoints(
-        selectedThread === null ? [] : deriveThreadCheckpointSummaries(selectedThread.projection),
+        !gitEnabled || selectedThread === null
+          ? []
+          : deriveThreadCheckpointSummaries(selectedThread.projection),
       ),
-    [selectedThread],
+    [gitEnabled, selectedThread],
   );
   const checkpointBySectionId = useMemo(
     () =>
@@ -85,6 +93,7 @@ export function useReviewSections(input: {
     [readyCheckpoints],
   );
   const reviewSections = useMemo(() => {
+    if (!gitEnabled) return [];
     const sections = buildReviewSectionItems({
       checkpoints: readyCheckpoints,
       gitSections:
@@ -102,6 +111,7 @@ export function useReviewSections(input: {
         )
       : sections;
   }, [
+    gitEnabled,
     canReadFiles,
     diffPreview.data?.sources,
     diffPreview.isPending,

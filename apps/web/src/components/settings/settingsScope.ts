@@ -88,7 +88,11 @@ export function resolveSettingsScope(
   }
 
   if (search.project) {
-    const group = groups.find((candidate) => candidate.projectKey === search.project);
+    const group =
+      groups.find((candidate) => candidate.projectKey === search.project) ??
+      groups.find((candidate) =>
+        candidate.memberProjects.some((member) => member.physicalProjectKey === search.project),
+      );
     if (!group) return unavailable("project-missing", "This project is no longer available.");
     const members = group.memberProjects.filter(
       (member) =>

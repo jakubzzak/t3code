@@ -51,6 +51,7 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
 const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
   "new-threads": ["defaultThreadEnvMode", "worktreeSubmodules", "defaultRuntimeMode"],
   "source-control": [
+    "gitEnabled",
     "defaultAutoPull",
     "removeAgentCreditsOnMerge",
     "newWorktreesStartFromOrigin",
@@ -273,56 +274,60 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
               ) : null}
               {props.page === "new-threads" ? (
                 <>
-                  <SettingsSection
-                    title="Default workspace"
-                    trailing={
-                      pendingWrites === 0 && isMixed("defaultThreadEnvMode") ? (
-                        <MixedValuesLabel projectSelected={projectSelected} />
-                      ) : null
-                    }
-                  >
-                    {WORKSPACE_CHOICES.filter(
-                      (choice) => choice.mode !== null || !projectSelected,
-                    ).map((choice, index) => (
-                      <SettingsChoiceRow
-                        key={choice.mode ?? "inherit"}
-                        label={choice.label}
-                        description={choice.description}
-                        selected={
-                          !isMixed("defaultThreadEnvMode") &&
-                          uniform("defaultThreadEnvMode") === choice.mode
+                  {uniform("gitEnabled") !== false ? (
+                    <>
+                      <SettingsSection
+                        title="Default workspace"
+                        trailing={
+                          pendingWrites === 0 && isMixed("defaultThreadEnvMode") ? (
+                            <MixedValuesLabel projectSelected={projectSelected} />
+                          ) : null
                         }
-                        separated={index > 0}
-                        disabled={disabledFor("defaultThreadEnvMode")}
-                        onPress={() => write({ defaultThreadEnvMode: choice.mode })}
-                      />
-                    ))}
-                  </SettingsSection>
-                  <SettingsSection
-                    title="Worktree submodules"
-                    trailing={
-                      pendingWrites === 0 && isMixed("worktreeSubmodules") ? (
-                        <MixedValuesLabel projectSelected={projectSelected} />
-                      ) : null
-                    }
-                  >
-                    {SUBMODULE_CHOICES.filter(
-                      (choice) => choice.mode !== null || !projectSelected,
-                    ).map((choice, index) => (
-                      <SettingsChoiceRow
-                        key={choice.mode ?? "inherit"}
-                        label={choice.label}
-                        description={choice.description}
-                        selected={
-                          !isMixed("worktreeSubmodules") &&
-                          uniform("worktreeSubmodules") === choice.mode
+                      >
+                        {WORKSPACE_CHOICES.filter(
+                          (choice) => choice.mode !== null || !projectSelected,
+                        ).map((choice, index) => (
+                          <SettingsChoiceRow
+                            key={choice.mode ?? "inherit"}
+                            label={choice.label}
+                            description={choice.description}
+                            selected={
+                              !isMixed("defaultThreadEnvMode") &&
+                              uniform("defaultThreadEnvMode") === choice.mode
+                            }
+                            separated={index > 0}
+                            disabled={disabledFor("defaultThreadEnvMode")}
+                            onPress={() => write({ defaultThreadEnvMode: choice.mode })}
+                          />
+                        ))}
+                      </SettingsSection>
+                      <SettingsSection
+                        title="Worktree submodules"
+                        trailing={
+                          pendingWrites === 0 && isMixed("worktreeSubmodules") ? (
+                            <MixedValuesLabel projectSelected={projectSelected} />
+                          ) : null
                         }
-                        separated={index > 0}
-                        disabled={disabledFor("worktreeSubmodules")}
-                        onPress={() => write({ worktreeSubmodules: choice.mode })}
-                      />
-                    ))}
-                  </SettingsSection>
+                      >
+                        {SUBMODULE_CHOICES.filter(
+                          (choice) => choice.mode !== null || !projectSelected,
+                        ).map((choice, index) => (
+                          <SettingsChoiceRow
+                            key={choice.mode ?? "inherit"}
+                            label={choice.label}
+                            description={choice.description}
+                            selected={
+                              !isMixed("worktreeSubmodules") &&
+                              uniform("worktreeSubmodules") === choice.mode
+                            }
+                            separated={index > 0}
+                            disabled={disabledFor("worktreeSubmodules")}
+                            onPress={() => write({ worktreeSubmodules: choice.mode })}
+                          />
+                        ))}
+                      </SettingsSection>
+                    </>
+                  ) : null}
                   <SettingsSection
                     title="Default permissions"
                     trailing={
@@ -348,46 +353,64 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
 
               {props.page === "source-control" ? (
                 <>
-                  <BranchNamingSettings
-                    key={targets
-                      .map((target) => `${target.environment.environmentId}:${target.projectId}`)
-                      .join(",")}
-                    mode={uniform("branchNamingMode")}
-                    prefix={uniform("branchNamePrefix")}
-                    instructions={uniform("branchNameInstructions")}
-                    disabled={disabledFor("branchNamingMode")}
-                    onChange={write}
-                  />
-                  <SettingsSection title="Pull requests">
-                    <SettingsSwitchRow
-                      icon="arrow.triangle.merge"
-                      label="Remove agent credits when merging"
-                      subtitle="Remove recognized agent credits from GitHub merge and squash messages, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits."
-                      value={uniform("removeAgentCreditsOnMerge")}
-                      disabled={disabledFor("removeAgentCreditsOnMerge")}
-                      onValueChange={(value) => write({ removeAgentCreditsOnMerge: value })}
-                    />
-                  </SettingsSection>
-                  <SettingsSection title="Default branch">
-                    <SettingsSwitchRow
-                      icon="arrow.down.circle"
-                      label="Automatically pull"
-                      subtitle="Keep the default branch current when there are no local changes."
-                      value={uniform("defaultAutoPull")}
-                      disabled={disabledFor("defaultAutoPull")}
-                      onValueChange={(value) => write({ defaultAutoPull: value })}
-                    />
-                  </SettingsSection>
-                  <SettingsSection title="Worktrees">
-                    <SettingsSwitchRow
-                      icon="arrow.triangle.branch"
-                      label="Start from origin"
-                      subtitle="Base new worktrees on the remote branch."
-                      value={uniform("newWorktreesStartFromOrigin")}
-                      disabled={disabledFor("newWorktreesStartFromOrigin")}
-                      onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
-                    />
-                  </SettingsSection>
+                  {projectSelected ? (
+                    <SettingsSection title="Git integration">
+                      <SettingsSwitchRow
+                        icon="arrow.triangle.branch"
+                        label="Git integration"
+                        subtitle="Turning this off hides Git features and disables Git-backed file checkpoints and restore. Files, worktrees, and Git preferences are kept."
+                        value={uniform("gitEnabled")}
+                        disabled={disabledFor("gitEnabled")}
+                        onValueChange={(value) => write({ gitEnabled: value })}
+                      />
+                    </SettingsSection>
+                  ) : null}
+                  {uniform("gitEnabled") !== false ? (
+                    <>
+                      <BranchNamingSettings
+                        key={targets
+                          .map(
+                            (target) => `${target.environment.environmentId}:${target.projectId}`,
+                          )
+                          .join(",")}
+                        mode={uniform("branchNamingMode")}
+                        prefix={uniform("branchNamePrefix")}
+                        instructions={uniform("branchNameInstructions")}
+                        disabled={disabledFor("branchNamingMode")}
+                        onChange={write}
+                      />
+                      <SettingsSection title="Pull requests">
+                        <SettingsSwitchRow
+                          icon="arrow.triangle.merge"
+                          label="Remove agent credits when merging"
+                          subtitle="Remove recognized agent credits from GitHub merge and squash messages, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits."
+                          value={uniform("removeAgentCreditsOnMerge")}
+                          disabled={disabledFor("removeAgentCreditsOnMerge")}
+                          onValueChange={(value) => write({ removeAgentCreditsOnMerge: value })}
+                        />
+                      </SettingsSection>
+                      <SettingsSection title="Default branch">
+                        <SettingsSwitchRow
+                          icon="arrow.down.circle"
+                          label="Automatically pull"
+                          subtitle="Keep the default branch current when there are no local changes."
+                          value={uniform("defaultAutoPull")}
+                          disabled={disabledFor("defaultAutoPull")}
+                          onValueChange={(value) => write({ defaultAutoPull: value })}
+                        />
+                      </SettingsSection>
+                      <SettingsSection title="Worktrees">
+                        <SettingsSwitchRow
+                          icon="arrow.triangle.branch"
+                          label="Start from origin"
+                          subtitle="Base new worktrees on the remote branch."
+                          value={uniform("newWorktreesStartFromOrigin")}
+                          disabled={disabledFor("newWorktreesStartFromOrigin")}
+                          onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
+                        />
+                      </SettingsSection>
+                    </>
+                  ) : null}
                 </>
               ) : null}
 

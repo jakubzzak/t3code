@@ -1,3 +1,4 @@
+import * as GitIntegration from "../project/GitIntegration.ts";
 import { assert, it, describe } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -191,6 +192,42 @@ describe("VcsDriverRegistry", () => {
         assert.equal((yield* registry.detect({ cwd: repoDir }))?.repository.rootPath, repoDir);
         assert.equal(calls.filter((call) => call === "rev-parse --is-inside-work-tree").length, 2);
       }).pipe(Effect.provide(makeDiskBackedLayer(repoDir, calls)));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect("disabling bypasses positive detection caches and re-enabling restores detection", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-vcs-policy-" });
+      yield* fs.makeDirectory(path.join(root, ".git"));
+      const calls: string[] = [];
+      let enabled = true;
+      yield* Effect.gen(function* () {
+        const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+        assert.isNotNull(yield* registry.detect({ cwd: root }));
+        const readsBefore = calls.length;
+        enabled = false;
+        assert.isNull(yield* registry.detect({ cwd: root }));
+        assert.strictEqual(
+          (yield* registry.resolve({ cwd: root }).pipe(Effect.exit))._tag,
+          "Failure",
+        );
+        assert.strictEqual(calls.length, readsBefore);
+        assert.isTrue(yield* fs.exists(path.join(root, ".git")));
+        enabled = true;
+        assert.isNotNull(yield* registry.detect({ cwd: root }));
+      }).pipe(
+        Effect.provide(
+          makeDiskBackedLayer(root, calls).pipe(
+            Layer.provide(
+              Layer.succeed(GitIntegration.GitIntegration, {
+                isEnabled: () => Effect.sync(() => enabled),
+                isProjectEnabled: () => Effect.sync(() => enabled),
+              }),
+            ),
+          ),
+        ),
+      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

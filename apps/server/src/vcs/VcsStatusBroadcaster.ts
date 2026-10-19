@@ -1,3 +1,4 @@
+import * as GitIntegration from "../project/GitIntegration.ts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -222,6 +223,7 @@ const normalizeCwd = (cwd: string) =>
 export const make = Effect.gen(function* () {
   const autoPullPolicy = yield* VcsAutoPullPolicy;
   const workflow = yield* GitWorkflowService.GitWorkflowService;
+  const gitIntegration = yield* GitIntegration.GitIntegration;
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const fs = yield* FileSystem.FileSystem;
   const changesPubSub = yield* Effect.acquireRelease(
@@ -358,6 +360,7 @@ export const make = Effect.gen(function* () {
   const getOrLoadLocalStatus = Effect.fn("VcsStatusBroadcaster.getOrLoadLocalStatus")(function* (
     cwd: string,
   ) {
+    if (!(yield* gitIntegration.isEnabled(cwd))) return yield* workflow.localStatus({ cwd });
     const cached = yield* getCachedStatus(cwd);
     if (cached?.local) {
       return cached.local.value;
@@ -371,6 +374,7 @@ export const make = Effect.gen(function* () {
     "VcsStatusBroadcaster.getStatus",
   )(function* (input) {
     const cwd = yield* withFileSystem(normalizeCwd(input.cwd));
+    if (!(yield* gitIntegration.isEnabled(cwd))) return yield* workflow.status({ cwd });
     const cached = yield* getCachedStatus(cwd);
     if (cached?.local && cached.remote) {
       return mergeGitStatusParts(cached.local.value, cached.remote.value);
@@ -540,6 +544,7 @@ export const make = Effect.gen(function* () {
         const activeInterval = Duration.isZero(configuredInterval)
           ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
           : configuredInterval;
+        if (!(yield* gitIntegration.isEnabled(cwd))) return activeInterval;
         const needsInitialRefresh = yield* Ref.get(needsInitialRefreshRef);
         if (Duration.isZero(configuredInterval) && !needsInitialRefresh) {
           return activeInterval;
@@ -705,10 +710,13 @@ export const make = Effect.gen(function* () {
     Stream.unwrap(
       Effect.gen(function* () {
         const cwd = yield* withFileSystem(normalizeCwd(input.cwd));
+
         const subscription = yield* PubSub.subscribe(changesPubSub);
         const initialLocal = yield* getOrLoadLocalStatus(cwd);
         const cachedStatus = yield* getCachedStatus(cwd);
-        const initialRemote = cachedStatus?.remote?.value ?? null;
+        const initialRemote = (yield* gitIntegration.isEnabled(cwd))
+          ? (cachedStatus?.remote?.value ?? null)
+          : null;
         if (input.includeRemote !== false) {
           yield* retainRemotePoller(
             cwd,

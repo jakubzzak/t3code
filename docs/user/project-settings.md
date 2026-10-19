@@ -232,3 +232,16 @@ On mobile, use **Settings → Source control** to change selected environment de
 T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.
+
+## Projects without Git
+
+In **Settings → Source Control**, select a project and turn off **Git integration**.
+This hides its Git and pull request controls and stops automatic Git activity,
+including file checkpoints and restore. Chat, file access, and explicit Git commands
+in a terminal remain available. New threads start in the project directory; existing
+threads keep their working directories.
+
+The choice applies to clients connected to that environment. Turn it back on in the
+same place to resume Git features with your saved preferences. Files, repositories,
+worktrees, and existing checkpoints are kept, but turns made while Git was off have
+no file checkpoints.

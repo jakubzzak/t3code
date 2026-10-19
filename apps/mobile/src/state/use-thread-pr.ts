@@ -1,3 +1,4 @@
+import { useProjectGitEnabled } from "./use-project-git-enabled";
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -44,6 +45,7 @@ export {
  * a live summary request across visible rows in the same environment.
  */
 export function useThreadPr(thread: EnvironmentThreadShell): ThreadPrPresentation | null {
+  const gitEnabled = useProjectGitEnabled(thread.environmentId, thread.projectId);
   const supportsLinks = useAtomValue(
     serverEnvironment.configValueAtom(thread.environmentId),
     (config) => config?.environment.capabilities.threadPullRequests === true,
@@ -72,7 +74,7 @@ export function useThreadPr(thread: EnvironmentThreadShell): ThreadPrPresentatio
   );
   const snapshot = snapshotEntry?.identity === snapshotIdentity ? snapshotEntry.presentation : null;
   const pullRequestSummary = useEnvironmentQuery(
-    pullRequestRef === null
+    !gitEnabled || pullRequestRef === null
       ? null
       : pullRequestSummaryAtom({
           environmentId: thread.environmentId,
@@ -121,5 +123,5 @@ export function useThreadPr(thread: EnvironmentThreadShell): ThreadPrPresentatio
     });
   }, [live, snapshotIdentity, threadKey]);
 
-  return linkedPresentation ?? (live === undefined ? snapshot : live);
+  return gitEnabled ? (linkedPresentation ?? (live === undefined ? snapshot : live)) : null;
 }

@@ -224,6 +224,7 @@ export function resolveNewThreadEnvMode(input: {
   readonly newProjectsRoot: string | null | undefined;
   readonly projectHasThreads: boolean;
 }): ThreadEnvMode {
+  if (input.projectSettings.settings.gitEnabled === false) return "local";
   const configured = input.projectSettings.settings.defaultThreadEnvMode;
   if (
     configured === "local" ||
@@ -273,7 +274,9 @@ export function resolveWorktreeCleanup(
   settings: ServerSettings,
   projectId: ProjectId | null,
 ): WorktreeCleanupRules {
-  const policy = resolveProjectSettings(settings, projectId).settings.worktreeCleanup;
+  const effective = resolveProjectSettings(settings, projectId).settings;
+  const policy =
+    effective.gitEnabled === false ? { mode: "off" as const } : effective.worktreeCleanup;
   if (policy?.mode === "custom") return policy.rules;
   if (policy?.mode === "off")
     return {

@@ -503,6 +503,7 @@ function EmptySourceControlDiscovery({
 }
 
 export function SourceControlSettingsPanel() {
+  const gitEnabled = useScopedSettings().gitEnabled !== false;
   const { scope, environment, connectedEnvironments } = useSettingsScope();
   // Discovery scans one machine's tools, so it shows the representative
   // environment (named in the section title when several are selected);
@@ -564,84 +565,89 @@ export function SourceControlSettingsPanel() {
   return (
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="source-control" />
-      {environmentId === null ? (
-        <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
-          <p className="px-4 py-3 text-sm text-muted-foreground">
-            Connect an environment to inspect its version control tools and hosting integrations.
-          </p>
-        </SettingsSection>
-      ) : isInitialScanPending ? (
+      {gitEnabled ? (
         <>
-          <SourceControlSectionSkeleton
-            title={`Version Control${environmentSuffix}`}
-            headerAction={scanButton}
-          />
-          <SourceControlSectionSkeleton title="Source Control Providers" />
-        </>
-      ) : hasDiscoveryItems ? (
-        <>
-          {hasVersionControlSystems ? (
-            <SettingsSection
-              id={searchableSetting("source-control").id}
-              title={`Version Control${environmentSuffix}`}
-              headerAction={scanButton}
-            >
-              {result.versionControlSystems.map((item) => (
-                <DiscoveryItemRow key={`vcs:${item.kind}`} item={item}>
-                  {item.kind === "git" ? <GitFetchIntervalSettings /> : undefined}
-                </DiscoveryItemRow>
-              ))}
+          {environmentId === null ? (
+            <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
+              <p className="px-4 py-3 text-sm text-muted-foreground">
+                Connect an environment to inspect its version control tools and hosting
+                integrations.
+              </p>
             </SettingsSection>
-          ) : null}
+          ) : isInitialScanPending ? (
+            <>
+              <SourceControlSectionSkeleton
+                title={`Version Control${environmentSuffix}`}
+                headerAction={scanButton}
+              />
+              <SourceControlSectionSkeleton title="Source Control Providers" />
+            </>
+          ) : hasDiscoveryItems ? (
+            <>
+              {hasVersionControlSystems ? (
+                <SettingsSection
+                  id={searchableSetting("source-control").id}
+                  title={`Version Control${environmentSuffix}`}
+                  headerAction={scanButton}
+                >
+                  {result.versionControlSystems.map((item) => (
+                    <DiscoveryItemRow key={`vcs:${item.kind}`} item={item}>
+                      {item.kind === "git" ? <GitFetchIntervalSettings /> : undefined}
+                    </DiscoveryItemRow>
+                  ))}
+                </SettingsSection>
+              ) : null}
 
-          {result.sourceControlProviders.length > 0 ? (
-            <SettingsSection
-              id={hasVersionControlSystems ? undefined : searchableSetting("source-control").id}
-              title={
-                hasVersionControlSystems
-                  ? "Source Control Providers"
-                  : `Source Control Providers${environmentSuffix}`
-              }
-              headerAction={hasVersionControlSystems ? null : scanButton}
-            >
-              {result.sourceControlProviders.map((item) => (
-                <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
-                  {item.kind === "github" ? (
-                    <SettingsSearchTarget id={searchableSetting("github-accounts").id}>
-                      <div className="grid gap-6">
-                        {/* Shown even without gh: a saved token is how GitHub works without the CLI. */}
-                        <GitHubTokenSettings
-                          key={`token-${environmentId}`}
-                          environmentId={environmentId}
-                          onSaved={handleScan}
-                        />
-                        {item.status === "available" ? (
-                          <GitHubAccountSettings
-                            key={environmentId}
-                            environmentId={environmentId}
-                            auth={item.auth}
-                            onSaved={handleScan}
-                          />
-                        ) : null}
-                      </div>
-                    </SettingsSearchTarget>
-                  ) : (
-                    hostSettingsPanel(item.kind)
-                  )}
-                </DiscoveryItemRow>
-              ))}
-            </SettingsSection>
-          ) : null}
+              {result.sourceControlProviders.length > 0 ? (
+                <SettingsSection
+                  id={hasVersionControlSystems ? undefined : searchableSetting("source-control").id}
+                  title={
+                    hasVersionControlSystems
+                      ? "Source Control Providers"
+                      : `Source Control Providers${environmentSuffix}`
+                  }
+                  headerAction={hasVersionControlSystems ? null : scanButton}
+                >
+                  {result.sourceControlProviders.map((item) => (
+                    <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
+                      {item.kind === "github" ? (
+                        <SettingsSearchTarget id={searchableSetting("github-accounts").id}>
+                          <div className="grid gap-6">
+                            {/* Shown even without gh: a saved token is how GitHub works without the CLI. */}
+                            <GitHubTokenSettings
+                              key={`token-${environmentId}`}
+                              environmentId={environmentId}
+                              onSaved={handleScan}
+                            />
+                            {item.status === "available" ? (
+                              <GitHubAccountSettings
+                                key={environmentId}
+                                environmentId={environmentId}
+                                auth={item.auth}
+                                onSaved={handleScan}
+                              />
+                            ) : null}
+                          </div>
+                        </SettingsSearchTarget>
+                      ) : (
+                        hostSettingsPanel(item.kind)
+                      )}
+                    </DiscoveryItemRow>
+                  ))}
+                </SettingsSection>
+              ) : null}
+            </>
+          ) : (
+            <EmptySourceControlDiscovery
+              error={discovery.error}
+              isPending={discovery.isPending}
+              onScan={handleScan}
+            />
+          )}
+
+          <SourceControlWritingSettingsSection />
         </>
-      ) : (
-        <EmptySourceControlDiscovery
-          error={discovery.error}
-          isPending={discovery.isPending}
-          onScan={handleScan}
-        />
-      )}
-
-      <SourceControlWritingSettingsSection />
+      ) : null}
     </SettingsPageContainer>
   );
 }

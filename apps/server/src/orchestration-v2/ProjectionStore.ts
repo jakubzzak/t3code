@@ -246,7 +246,7 @@ export interface ProjectionCheckpointCaptureContext {
   readonly rootNode: OrchestrationV2ExecutionNode | undefined;
   readonly scope: OrchestrationV2CheckpointScope | undefined;
   readonly providerThread: OrchestrationV2ProviderThread | undefined;
-  readonly readyCheckpointOrdinals: ReadonlyArray<number>;
+  readonly recordedCheckpointOrdinals: ReadonlyArray<number>;
 }
 
 /** Exact durable targets used by interrupt, restart, and steering effects. */
@@ -477,7 +477,7 @@ export interface ProjectionStoreV2Shape {
       | "contextHandoffs"
       | "contextTransfers"
       | "turnItems"
-    > & { readonly hasConversation: boolean },
+    > & { readonly hasConversation: boolean; readonly hasCheckpointBaseline: boolean },
     ProjectionStoreV2Error
   >;
   readonly getTurnStartHistory: (
@@ -4067,15 +4067,25 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 OR (role = 'user' AND lower(trim(json_extract(payload_json, '$.text'), ${javascriptTrimWhitespace})) = '/compact')
               ) ORDER BY created_at ASC, message_id ASC
             `.pipe(Effect.flatMap(decodeRows(decodeMessagePayload, threadId)));
-            const conversation = yield* sql<{ present: number }>`
+            const baselineOrdinal = Math.max(
+              0,
+              (runs.find((run) => run.id === runId)?.ordinal ?? 1) - 1,
+            );
+            const baselineScope = nodes[0]?.checkpointScopeId ?? null;
+            const conversation = yield* sql<{ present: number; baseline: number }>`
               SELECT EXISTS(
                 SELECT 1 FROM orchestration_v2_projection_messages
                 WHERE thread_id = ${threadId} AND role = 'user'
                     AND (lower(trim(json_extract(payload_json, '$.text'), ${javascriptTrimWhitespace})) <> '/compact'
                       OR json_array_length(payload_json, '$.attachments') > 0)
-              ) AS present
+              ) AS present, EXISTS(
+                SELECT 1 FROM orchestration_v2_projection_checkpoints
+                WHERE thread_id = ${threadId} AND scope_id = ${baselineScope}
+                  AND ordinal_within_scope = ${baselineOrdinal}
+              ) AS baseline
             `;
             return {
+              hasCheckpointBaseline: conversation[0]?.baseline === 1,
               hasConversation: conversation[0]?.present === 1,
               thread,
               runs,
@@ -4779,7 +4789,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               runRows[0] === undefined
                 ? undefined
                 : yield* decodeRunPayload(runRows[0].payload_json);
-            const [nodeRows, scopeRows, providerRows, readyRows] = yield* Effect.all([
+            const [nodeRows, scopeRows, providerRows, checkpointRows] = yield* Effect.all([
               sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_nodes
             WHERE thread_id = ${threadId} AND node_id = ${run?.rootNodeId ?? null}`,
               sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_checkpoint_scopes
@@ -4791,7 +4801,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 OR provider_thread_id IN (SELECT provider_thread_id FROM orchestration_v2_projection_subagents WHERE thread_id = ${threadId}))`,
               sql<{ readonly ordinal: number }>`SELECT ordinal_within_scope AS ordinal
             FROM orchestration_v2_projection_checkpoints
-            WHERE thread_id = ${threadId} AND scope_id = ${target.scopeId} AND status = 'ready'`,
+            WHERE thread_id = ${threadId} AND scope_id = ${target.scopeId}`,
             ]);
             return {
               run,
@@ -4807,7 +4817,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 providerRows[0] === undefined
                   ? undefined
                   : yield* decodeProviderThreadPayload(providerRows[0].payload_json),
-              readyCheckpointOrdinals: readyRows.map(({ ordinal }) => ordinal),
+              recordedCheckpointOrdinals: checkpointRows.map(({ ordinal }) => ordinal),
             };
           }),
         )
@@ -6630,10 +6640,8 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
             providerThread: projection.providerThreads.find(
               (candidate) => candidate.id === run?.providerThreadId,
             ),
-            readyCheckpointOrdinals: projection.checkpoints
-              .filter(
-                (candidate) => candidate.scopeId === target.scopeId && candidate.status === "ready",
-              )
+            recordedCheckpointOrdinals: projection.checkpoints
+              .filter((candidate) => candidate.scopeId === target.scopeId)
               .map((candidate) => candidate.ordinalWithinScope),
           };
         }),
@@ -6701,6 +6709,19 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
         service.getThreadProjection(threadId).pipe(
           Effect.map((projection) => ({
             ...projection,
+            hasCheckpointBaseline: projection.checkpoints.some(
+              (checkpoint) =>
+                checkpoint.ordinalWithinScope ===
+                  Math.max(
+                    0,
+                    (projection.runs.find((run) => run.id === runId)?.ordinal ?? 1) - 1,
+                  ) &&
+                checkpoint.scopeId ===
+                  projection.nodes.find(
+                    (node) =>
+                      node.id === projection.runs.find((run) => run.id === runId)?.rootNodeId,
+                  )?.checkpointScopeId,
+            ),
             hasConversation: projection.messages.some(
               (message) =>
                 message.role === "user" &&

@@ -1,3 +1,4 @@
+import { useProjectGitEnabled } from "../../state/use-project-git-enabled";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
@@ -335,7 +336,8 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   const sidebarPane = props.pane === "sidebar";
   const isDraft = pendingTask.kind === "draft";
   const projectTitle = props.projectTitle ?? props.project?.title ?? pendingTask.projectTitle ?? "";
-  const branch = pendingTask.branch;
+  const gitEnabled = useProjectGitEnabled(pendingTask.environmentId, pendingTask.projectId);
+  const branch = gitEnabled ? pendingTask.branch : null;
 
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
@@ -619,6 +621,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   }, [thread, props.providers]);
 
   const providerInstance = props.providerInstance;
+  const gitEnabled = useProjectGitEnabled(thread.environmentId, thread.projectId);
+  const branch = gitEnabled ? thread.branch : null;
   const pr = useThreadPr(thread);
 
   const theme = useUniwindTheme();
@@ -1073,7 +1077,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {thread.runtime.lastError}
           </Text>
-        ) : thread.branch || props.environmentLabel ? (
+        ) : branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits
              last so a tight fit cuts the repetitive label, not the branch —
              and machine-only fills the row for non-git projects. The glyph
@@ -1090,7 +1094,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               )}
               numberOfLines={1}
             >
-              {thread.branch ? (
+              {branch ? (
                 <Text
                   className={cn(
                     "text-xs",
@@ -1100,10 +1104,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   )}
                   style={{ fontFamily: MONO_FONT }}
                 >
-                  {thread.branch}
+                  {branch}
                 </Text>
               ) : null}
-              {thread.branch && props.environmentLabel ? "  ·  " : null}
+              {branch && props.environmentLabel ? "  ·  " : null}
               {props.environmentLabel ? (
                 <Text
                   className={cn(
@@ -1331,11 +1335,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         {(close) => (
           <ControlPillMenu
             actions={[
-              ...(thread.branch
+              ...(branch
                 ? [
                     {
                       id: "new-thread-on-branch",
-                      title: getThreadListV2NewBranchMenuTitle(thread.branch),
+                      title: getThreadListV2NewBranchMenuTitle(branch),
                       image: "square.and.pencil",
                     },
                   ]
