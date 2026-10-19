@@ -1,3 +1,4 @@
+import { useArchivedThreadSnapshots } from "../archive/useArchivedThreadSnapshots";
 import { useAtomValue } from "@effect/atom-react";
 import {
   AuthOrchestrationOperateScope,
@@ -55,7 +56,7 @@ import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { usePreparedConnection } from "../../state/session";
 import { buildModelOptions } from "../../lib/modelOptions";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
-import { useProjects, useEnvironmentServerConfig } from "../../state/entities";
+import { useProjects, useEnvironmentServerConfig, useThreadShells } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -90,6 +91,7 @@ type ScheduledTaskRoutes = {
   SettingsScheduledTaskEdit: undefined;
   SettingsScheduledTaskModel: undefined;
   SettingsScheduledTaskBranch: undefined;
+  SettingsScheduledTaskChat: undefined;
 };
 
 const DAYS = [
@@ -585,6 +587,16 @@ function TaskForm({
   );
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const config = useEnvironmentServerConfig(environmentId);
+  const supportsChatBinding = config?.environment.capabilities.scheduledTaskChatBinding === true;
+  const selectedChat = useThreadShells().find(
+    (thread) => thread.environmentId === environmentId && thread.id === draft.threadId,
+  );
+  const archivedDestinations = useArchivedThreadSnapshots(
+    draft.workspace === "thread" && draft.threadId && !selectedChat ? [environmentId] : [],
+  );
+  const archivedDestination = archivedDestinations.snapshots
+    .flatMap((entry) => entry.snapshot.threads)
+    .find((thread) => thread.id === draft.threadId);
   const modelOptions = useMemo(
     () => buildModelOptions(config, null, undefined, draft.projectId),
     [config, draft.projectId],
@@ -646,11 +658,12 @@ function TaskForm({
       !draft.projectId ||
       !draft.modelSelection ||
       !schedule ||
-      (draft.workspace === "existing_worktree" && !draft.checkoutPath.trim())
+      (draft.workspace === "existing_worktree" && !draft.checkoutPath.trim()) ||
+      (draft.workspace === "thread" && (!draft.threadId || !supportsChatBinding))
     ) {
       Alert.alert(
         "Incomplete task",
-        "Add a name, prompt, project, model, valid schedule, and checkout path if needed.",
+        "Add a name, prompt, project, model, valid schedule, and chat or checkout path if needed.",
       );
       return;
     }
@@ -666,9 +679,9 @@ function TaskForm({
       modelSelection: draft.modelSelection,
       schedule,
       enabled: draft.enabled,
-      threadId: draft.task?.threadId ?? null,
+      threadId: draft.workspace === "thread" ? draft.threadId : null,
       workspaceStrategy:
-        draft.workspace === "root"
+        draft.workspace === "root" || draft.workspace === "thread"
           ? { type: "root" }
           : draft.workspace === "existing_worktree"
             ? { type: "existing_worktree", worktreePath: draft.checkoutPath.trim() }
@@ -776,6 +789,7 @@ function TaskForm({
             setDraft({
               ...draft,
               projectId: project.id,
+              threadId: null,
               modelSelection: keepsExplicitModel
                 ? draft.modelSelection
                 : scheduledTaskDefaultModel(config, project),
@@ -808,7 +822,9 @@ function TaskForm({
               ? "New worktree"
               : draft.workspace === "root"
                 ? "Project checkout"
-                : "Specific checkout"
+                : draft.workspace === "thread"
+                  ? "Use an existing chat"
+                  : "Specific checkout"
           }
           actions={[
             {
@@ -826,12 +842,53 @@ function TaskForm({
               title: "Specific checkout",
               state: draft.workspace === "existing_worktree" ? "on" : undefined,
             },
+            {
+              id: "thread",
+              title: "Use an existing chat",
+              state: draft.workspace === "thread" ? "on" : undefined,
+              attributes: { disabled: !supportsChatBinding },
+            },
           ]}
           onSelect={(id) => {
-            if (id === "worktree" || id === "root" || id === "existing_worktree")
+            if (
+              id === "worktree" ||
+              id === "root" ||
+              id === "existing_worktree" ||
+              (id === "thread" && supportsChatBinding)
+            )
               setDraft({ ...draft, workspace: id });
           }}
         />
+        {draft.workspace === "thread" ? (
+          <>
+            <PickerRow
+              label="Chat"
+              value={
+                selectedChat?.title ??
+                (archivedDestination ? `${archivedDestination.title} (archived)` : null) ??
+                (draft.threadId ? `Unavailable chat (${draft.threadId})` : "Choose chat")
+              }
+              borderTop
+              disabled={
+                !draft.projectId ||
+                saving ||
+                dictationPending ||
+                environmentUnavailable ||
+                !supportsChatBinding
+              }
+              onPress={() => navigation.navigate("SettingsScheduledTaskChat")}
+            />
+            <Text className="px-4 pb-3 text-sm text-foreground-muted">
+              Each run continues this chat, using its conversation history and checkout.
+              {draft.threadId && (!selectedChat || selectedChat.archivedAt)
+                ? " This destination is unavailable. Choose another chat, or keep this automation paused."
+                : ""}
+              {!supportsChatBinding
+                ? " Update this environment's server to configure chat bindings."
+                : ""}
+            </Text>
+          </>
+        ) : null}
         {draft.workspace === "worktree" ? (
           <PickerRow
             label="Base branch"

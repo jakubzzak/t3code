@@ -48,6 +48,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as EventSink from "./EventSink.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
@@ -305,7 +306,7 @@ function waitUntil<E, R>(predicate: () => Effect.Effect<boolean, E, R>): Effect.
 }
 
 it.effect.each(
-  (["new", "existing"] as const).flatMap((target) =>
+  (["new", "existing", "resolved"] as const).flatMap((target) =>
     (["user", "agent"] as const).map((createdBy) => ({ target, createdBy })),
   ),
 )(
@@ -319,6 +320,7 @@ it.effect.each(
           NodeCrypto.layer,
           Scheduler.layer,
           Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(EventSink.EventSinkV2)({}),
         ),
       ),
     );
@@ -327,11 +329,18 @@ it.effect.each(
       const launches = yield* ThreadLaunch.ThreadLaunchService;
       const threads = yield* ThreadManagement.ThreadManagementService;
       const existing =
-        target === "existing"
+        target !== "new"
           ? yield* launches.launch(
               launchInput({ command: "command:existing", thread: "thread:existing" }),
             )
           : null;
+      if (target === "resolved" && existing) {
+        yield* threads.dispatch({
+          type: "thread.settle",
+          threadId: existing.threadId,
+          commandId: CommandId.make("command:settle:automation"),
+        });
+      }
       const { task } = yield* tasks.upsert({
         id: ScheduledTaskId.make("scheduled-task:attribution"),
         title: "Daily audit",
@@ -353,6 +362,7 @@ it.effect.each(
         projectId,
         includeSubagents: false,
       });
+      assert.equal(projectThreads.length, 1);
       const thread =
         projectThreads.find((candidate) => candidate.id === existing?.threadId) ??
         projectThreads[0];

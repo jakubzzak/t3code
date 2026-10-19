@@ -1,3 +1,7 @@
+import { scheduledTaskChats } from "@t3tools/client-runtime/scheduled-task-chats";
+import { LegendList } from "@legendapp/list/react-native";
+import { TextInput, View } from "react-native";
+import { ListRow } from "../../components/ListRow";
 import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
@@ -5,7 +9,7 @@ import { useMemo, useState } from "react";
 import { AppText as Text } from "../../components/AppText";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
-import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
+import { useEnvironmentServerConfig, useProjects, useThreadShells } from "../../state/entities";
 import { useDebouncedValue, usePaginatedBranches } from "../../state/queries";
 import { BranchPickerScreen } from "../threads/NewTaskContextPickerScreens";
 import { ThreadSettingsPickerScreen } from "../threads/ThreadSettingsSheet";
@@ -156,5 +160,59 @@ export function ScheduledTaskBranchPickerRouteScreen() {
           ),
       }}
     />
+  );
+}
+
+export function ScheduledTaskChatPickerRouteScreen() {
+  const navigation = useNavigation();
+  const { editor, setEditor } = useScheduledTaskEditor();
+  const threads = useThreadShells();
+  const [query, setQuery] = useState("");
+  const environmentId = editor?.environmentId;
+  const projectId = editor?.draft.projectId ?? null;
+  const chats = useMemo(
+    () => (environmentId ? scheduledTaskChats(threads, environmentId, projectId, query) : []),
+    [threads, environmentId, projectId, query],
+  );
+  if (!editor) return <MissingTaskDraft />;
+  return (
+    <SettingsScreen title="Choose chat">
+      <View className="px-4 py-3">
+        <TextInput
+          accessibilityLabel="Search chats"
+          placeholder="Search chats"
+          placeholderTextColorClassName="accent-placeholder"
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={query}
+          onChangeText={setQuery}
+          className="rounded-xl border border-input-border bg-input px-4 py-3 text-base text-foreground"
+        />
+      </View>
+      <LegendList
+        className="flex-1"
+        data={chats}
+        keyExtractor={(chat) => chat.id}
+        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={
+          <Text className="p-5 text-base text-foreground-muted">
+            No matching chats in this project.
+          </Text>
+        }
+        renderItem={({ item }) => (
+          <ListRow
+            label={item.title}
+            description={item.branch ?? item.worktreePath ?? undefined}
+            detail={item.id === editor.draft.threadId ? "Selected" : undefined}
+            onPress={() => {
+              setEditor((current) =>
+                current ? { ...current, draft: { ...current.draft, threadId: item.id } } : current,
+              );
+              navigation.goBack();
+            }}
+          />
+        )}
+      />
+    </SettingsScreen>
   );
 }

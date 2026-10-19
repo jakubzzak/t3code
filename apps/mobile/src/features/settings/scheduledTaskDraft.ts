@@ -1,5 +1,6 @@
 import type {
   ModelSelection,
+  ThreadId,
   ServerConfig,
   ProjectId,
   RuntimeMode,
@@ -131,7 +132,7 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
   };
 }
 
-type Workspace = "worktree" | "root" | "existing_worktree";
+type Workspace = "worktree" | "root" | "existing_worktree" | "thread";
 export type ScheduledTaskDraft = {
   readonly task: ScheduledTask | null;
   readonly title: string;
@@ -141,6 +142,7 @@ export type ScheduledTaskDraft = {
   readonly modelSelectionIsExplicit: boolean;
   readonly schedule: ScheduleDraft;
   readonly workspace: Workspace;
+  readonly threadId: ThreadId | null;
   readonly baseRef: string;
   readonly checkoutPath: string;
   readonly enabled: boolean;
@@ -164,6 +166,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.schedule.intervalMinutes,
     draft.schedule.maxDeliveryAgeMinutes,
     draft.workspace,
+    draft.threadId,
     draft.baseRef,
     draft.checkoutPath,
     draft.enabled,
@@ -192,6 +195,7 @@ export function createDraft(
     modelSelectionIsExplicit: false,
     schedule: DEFAULT_SCHEDULE,
     workspace: "worktree",
+    threadId: null,
     baseRef: "main",
     checkoutPath: "",
     enabled: true,
@@ -209,7 +213,8 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     modelSelection: task.modelSelection,
     modelSelectionIsExplicit: true,
     schedule: scheduleDraftForTask(task),
-    workspace: task.workspaceStrategy.type,
+    workspace: task.threadId ? "thread" : task.workspaceStrategy.type,
+    threadId: task.threadId,
     baseRef: task.workspaceStrategy.type === "worktree" ? task.workspaceStrategy.baseRef : "main",
     checkoutPath:
       task.workspaceStrategy.type === "existing_worktree"

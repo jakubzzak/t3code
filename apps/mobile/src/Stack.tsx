@@ -111,6 +111,7 @@ import {
 import {
   ScheduledTaskModelPickerRouteScreen,
   ScheduledTaskBranchPickerRouteScreen,
+  ScheduledTaskChatPickerRouteScreen,
 } from "./features/settings/ScheduledTaskPickerScreens";
 import { ScheduledTaskEditorProvider } from "./features/settings/scheduled-task-editor";
 import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboardRouteScreen";
@@ -366,6 +367,10 @@ const SettingsContentStack = createV5SheetStackNavigator({
     SettingsScheduledTaskEdit: createNativeStackScreen({
       screen: SettingsScheduledTaskEditRouteScreen,
       options: { title: "Edit scheduled task" },
+    }),
+    SettingsScheduledTaskChat: createNativeStackScreen({
+      screen: ScheduledTaskChatPickerRouteScreen,
+      options: { title: "Choose chat" },
     }),
     SettingsScheduledTaskBranch: createNativeStackScreen({
       screen: ScheduledTaskBranchPickerRouteScreen,

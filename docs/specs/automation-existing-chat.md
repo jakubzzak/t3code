@@ -9,6 +9,8 @@ user archives that conversation, explain that its automations will be paused.
 
 ## Scope
 
+Tracking exception: the maintainer explicitly chose to proceed without a Linear issue.
+
 Support automation creation and editing on web, desktop, and mobile, including
 editors reached from chat details or Settings. Keep the existing scheduler,
 chat-binding model, and checkout choices. Apply archive behavior consistently
@@ -52,7 +54,7 @@ Before archiving a chat used by an automation, show this confirmation:
 **Archive chat and pause automation?**
 
 > This chat is used by “Jurata: Daily brief”. Archiving this chat will pause the
-> automation. You can reconfigure it in **Settings → Automated tasks**.
+> automation. You can reconfigure it in **Settings → Scheduled tasks**.
 
 Actions: **Cancel** and **Archive and pause**. Substitute the actual automation
 name. For multiple attached automations, list their names and use plural wording
@@ -100,13 +102,22 @@ summary data for the picker rather than fetching conversation histories. Verify
 resolved-chat delivery against existing settlement and checkout recovery rules;
 selectability must not promise a destination the scheduler cannot use.
 
+## Compatibility and recovery
+
+No database migration or backfill is required. Deploy the server first; it advertises
+chat-binding support and pauses bound automations for archive commands from any
+client or agent. Updated clients disable binding configuration on older servers and
+block archiving a bound chat there, where pausing cannot be guaranteed. Older clients
+keep their existing editor and archive UI, so upgrade clients for the confirmation.
+Rollback preserves bindings and paused records, but removes the archive/pause
+guarantee; keep affected tasks paused until the server is upgraded again.
+
 ## Assumptions and open questions
 
 - Nonblocking assumption: unarchiving does not automatically resume automations;
   the user resumes or reconfigures them explicitly in Settings. This recovery
   default was proposed but not explicitly accepted in the discussion.
-- The current settings page is labeled **Scheduled tasks**, while the requested
-  modal copy says **Automated tasks**. Align the settings reference with the actual
-  destination during implementation review so the guidance is discoverable.
+- Implementation review uses the existing **Scheduled tasks** settings label in
+  the modal so its guidance matches the actual destination.
 
 No blocking product questions remain for implementation review.

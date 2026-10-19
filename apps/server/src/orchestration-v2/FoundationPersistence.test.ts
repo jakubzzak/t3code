@@ -3573,3 +3573,106 @@ it.effect("publishes live events in commit order across concurrent writers", () 
     }).pipe(Effect.provide(layerEventSink));
   }).pipe(Effect.provide(layerDatabase)),
 );
+
+it.effect("archiving durably pauses bound automations without changing their configuration", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const thread = makeThread(ThreadId.make("automation-chat"), now);
+    yield* sink.write({ events: [threadCreatedEvent({ id: "automation-created", thread, now })] });
+    for (const id of ["bound", "second-bound", "already-paused", "elsewhere"]) {
+      yield* sql`INSERT INTO scheduled_tasks (
+      task_id, title, prompt, enabled, schedule_json, project_id, thread_id, workspace_strategy_json,
+      model_selection_json, runtime_mode, interaction_mode, created_by, creation_source,
+      created_at, updated_at, next_run_at, last_run_status, run_count
+    ) VALUES (${id}, 'Daily brief', 'Summarize the day', ${id === "already-paused" ? 0 : 1},
+      '{"type":"interval","everyMs":60000}', ${thread.projectId}, ${id === "elsewhere" ? "elsewhere" : thread.id}, '{"type":"root"}',
+      '{"instanceId":"codex","model":"gpt-5.4"}', 'full-access', 'default', 'user', 'web',
+      '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', '2026-10-01T00:01:00Z', 'never', 0)`;
+    }
+    const before = (yield* sql`SELECT * FROM scheduled_tasks WHERE task_id = 'bound'`)[0]!;
+    yield* sink.write({
+      events: [
+        {
+          ...threadCreatedEvent({ id: "automation-settled", thread, now }),
+          type: "thread.settled",
+          payload: { ...thread, settledAt: now, settledOverride: "settled" },
+        },
+      ],
+    });
+    assert.equal(
+      (yield* sql<{
+        enabled: number;
+      }>`SELECT enabled FROM scheduled_tasks WHERE task_id = 'bound'`)[0]?.enabled,
+      1,
+    );
+    // A pause failure must roll back both the archive event and its projection.
+    yield* sql`CREATE TRIGGER reject_automation_pause BEFORE UPDATE OF enabled ON scheduled_tasks
+      BEGIN SELECT RAISE(ABORT, 'fixture pause failure'); END`;
+    const failed = yield* sink
+      .write({
+        events: [
+          {
+            ...threadCreatedEvent({ id: "automation-archive-failed", thread, now }),
+            type: "thread.archived",
+            payload: { ...thread, archivedAt: now },
+          },
+        ],
+      })
+      .pipe(Effect.result);
+    assert.equal(failed._tag, "Failure");
+    assert.equal(
+      (yield* sql`SELECT archived_at FROM orchestration_v2_projection_threads WHERE thread_id = ${thread.id}`)[0]
+        ?.archived_at,
+      null,
+    );
+    assert.equal(
+      (yield* sql`SELECT enabled FROM scheduled_tasks WHERE task_id = 'bound'`)[0]?.enabled,
+      1,
+    );
+    yield* sql`DROP TRIGGER reject_automation_pause`;
+    yield* sink.write({
+      events: [
+        {
+          ...threadCreatedEvent({ id: "automation-archived", thread, now }),
+          type: "thread.archived",
+          payload: { ...thread, archivedAt: now },
+        },
+      ],
+    });
+    const after = (yield* sql`SELECT * FROM scheduled_tasks WHERE task_id = 'bound'`)[0]!;
+    assert.equal(after.enabled, 0);
+    assert.equal(after.next_run_at, null);
+    assert.deepEqual(yield* sql`SELECT task_id, enabled FROM scheduled_tasks ORDER BY task_id`, [
+      { task_id: "already-paused", enabled: 0 },
+      { task_id: "bound", enabled: 0 },
+      { task_id: "elsewhere", enabled: 1 },
+      { task_id: "second-bound", enabled: 0 },
+    ]);
+    assert.deepEqual(
+      {
+        ...after,
+        enabled: before.enabled,
+        next_run_at: before.next_run_at,
+        updated_at: before.updated_at,
+      },
+      before,
+    );
+    yield* sink.write({
+      events: [
+        {
+          ...threadCreatedEvent({ id: "automation-unarchived", thread, now }),
+          type: "thread.unarchived",
+          payload: thread,
+        },
+      ],
+    });
+    assert.equal(
+      (yield* sql<{
+        enabled: number;
+      }>`SELECT enabled FROM scheduled_tasks WHERE task_id = 'bound'`)[0]?.enabled,
+      0,
+    );
+  }).pipe(Effect.provide(layerTest)),
+);

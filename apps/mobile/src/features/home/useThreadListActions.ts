@@ -1,3 +1,5 @@
+import { automationArchiveConfirmation } from "@t3tools/client-runtime/scheduled-task-chats";
+import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { requestThreadCleanup } from "@t3tools/client-runtime/state/thread-cleanup";
 import { confirmCleanupAgent } from "../threads/ThreadCleanupModal";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -16,7 +18,7 @@ import { scopedThreadKey } from "../../lib/scopedEntities";
 import { refreshArchivedThreadsForEnvironment } from "../archive/useArchivedThreadSnapshots";
 import { pinOrderKeyBetween } from "@t3tools/client-runtime/state/thread-sort";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { environmentServerConfigsAtom } from "../../state/server";
+import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
 import { environmentThreadShells, threadEnvironment } from "../../state/threads";
 import { queuedThreadKeysAtom } from "../../state/use-thread-outbox";
@@ -127,6 +129,10 @@ function useThreadActionExecutor(
   const unarchiveMutation = useAtomCommand(threadEnvironment.unarchive, { reportFailure: false });
   const deleteMutation = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
   const unsettleMutation = useAtomCommand(threadEnvironment.unsettle, { reportFailure: false });
+  const loadScheduledTasks = useAtomQueryRunner(serverEnvironment.scheduledTasks, {
+    refresh: true,
+    reportFailure: false,
+  });
   const inFlightThreadKeys = useRef(new Set<string>());
 
   const executeAction = useCallback(
@@ -158,6 +164,55 @@ function useThreadActionExecutor(
             "This thread is working. Interrupt it first, then try again.",
           );
           return false;
+        }
+        if (action === "archive") {
+          const tasks = await loadScheduledTasks({
+            environmentId: thread.environmentId,
+            input: {},
+          });
+          if (tasks._tag === "Failure") {
+            Alert.alert(actionFailureTitle(action), actionFailureMessage(action, tasks.cause));
+            return false;
+          }
+          const confirmation = automationArchiveConfirmation(tasks.value.tasks, thread.id);
+          if (confirmation) {
+            if (
+              appAtomRegistry.get(environmentServerConfigsAtom).get(thread.environmentId)
+                ?.environment.capabilities.scheduledTaskChatBinding !== true
+            ) {
+              Alert.alert(
+                "Update server",
+                "Update this environment's server before archiving a chat used by an automation.",
+              );
+              return false;
+            }
+            const confirmed = await new Promise<boolean>((resolve) => {
+              if (Platform.OS === "ios") {
+                Alert.alert(
+                  confirmation.title,
+                  confirmation.message,
+                  [
+                    { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+                    {
+                      text: "Archive and pause",
+                      style: "destructive",
+                      onPress: () => resolve(true),
+                    },
+                  ],
+                  { cancelable: true, onDismiss: () => resolve(false) },
+                );
+              } else {
+                showConfirmDialog({
+                  ...confirmation,
+                  confirmText: "Archive and pause",
+                  destructive: true,
+                  onConfirm: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              }
+            });
+            if (!confirmed) return false;
+          }
         }
         if (action === "settle") {
           if (
@@ -217,7 +272,14 @@ function useThreadActionExecutor(
         inFlightThreadKeys.current.delete(key);
       }
     },
-    [archiveMutation, deleteMutation, onCompleted, unarchiveMutation, unsettleMutation],
+    [
+      archiveMutation,
+      deleteMutation,
+      loadScheduledTasks,
+      onCompleted,
+      unarchiveMutation,
+      unsettleMutation,
+    ],
   );
 
   return executeAction;
@@ -259,7 +321,7 @@ function useConfirmDeleteThread(
 }
 
 export function useThreadListActions(): {
-  readonly archiveThread: (thread: EnvironmentThreadShell) => void;
+  readonly archiveThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly confirmDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly settleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly snoozeThread: (thread: EnvironmentThreadShell, snoozedUntil: string) => Promise<boolean>;
@@ -294,9 +356,7 @@ export function useThreadListActions(): {
   const titleRegenerationInFlightThreadKeys = useRef(new Set<string>());
 
   const archiveThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      void executeAction("archive", thread);
-    },
+    (thread: EnvironmentThreadShell) => executeAction("archive", thread),
     [executeAction],
   );
   const settleThread = useCallback(

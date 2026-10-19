@@ -71,6 +71,7 @@ vi.mock("../state/use-atom-query-runner", () => ({
       ? AsyncResult.failure(Cause.fail(new Error("Session lookup failed")))
       : AsyncResult.success({
           authenticated: true,
+          tasks: [],
           scopes: [...(state.scopes.get(environmentId) ?? [])],
           auth: { serverUpdateScope: "environment:maintain" },
         }),

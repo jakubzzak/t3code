@@ -1106,6 +1106,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:webhook-delivery",
       tag: WS_METHODS.scheduledTasksGetWebhookDelivery,
     }),
+    scheduledTasks: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:scheduled-tasks",
+      tag: WS_METHODS.scheduledTasksList,
+    }),
     /** Live scheduled-task list: snapshot on subscribe, fresh list after every server-side change. */
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
