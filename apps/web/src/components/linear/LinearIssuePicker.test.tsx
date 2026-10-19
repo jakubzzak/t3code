@@ -100,6 +100,7 @@ const select = vi.fn(async (_issue: typeof issue, takeover: readonly ThreadId[])
 );
 const opened = vi.fn();
 const openIssue = vi.fn(async () => {});
+const unlink = vi.fn(async () => {});
 const request = vi.fn<(input: LinearDesktopRequest) => Promise<LinearDesktopResult>>(async () => ({
   configured: true,
   connection: { workspace: "acme", userId: "me", name: "Me", email: "me@example.com" },
@@ -153,11 +154,13 @@ const render = (
   linkedIssue: typeof issue | null = null,
   backgroundEnabled = false,
   creationEnabled = true,
+  displayMode: "toolbar" | "panel" = "panel",
 ) =>
   act(async () => {
     Object.assign(window, { desktopBridge: { linearRequest: bridgeRequest } });
     root.render(
       <LinearIssuePicker
+        displayMode={displayMode}
         threadId={ThreadId.make("origin")}
         {...(creationEnabled ? { onCreate: async () => "runtime-origin" } : {})}
         {...(backgroundEnabled ? { onBackgroundCreated: background } : {})}
@@ -167,7 +170,7 @@ const render = (
         linkedIssue={linkedIssue}
         running={running}
         onSelect={select}
-        onUnlink={async () => {}}
+        onUnlink={unlink}
         onOpenThread={opened}
         onOpenIssue={openIssue}
       />,
@@ -223,6 +226,22 @@ it("allows opening an existing chat while its agent runs, without taking over", 
   expect(opened).toHaveBeenCalledExactlyOnceWith("previous");
   expect(select).toHaveBeenCalledTimes(1);
 });
+it.each(["toolbar", "panel"] as const)(
+  "opens and unlinks an issue from the %s",
+  async (displayMode) => {
+    await render(false, issue, false, true, displayMode);
+    await click("ENG-123");
+    expect(document.querySelector('input[aria-label="Search Linear issues"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("Fix login");
+    await click("Unlink issue");
+    expect(unlink).toHaveBeenCalledOnce();
+    await render(false, null, false, true, displayMode);
+    expect(button("Linear issue").getAttribute("aria-expanded")).toBe("false");
+    await click("Linear issue");
+    expect(button("Unlink issue")).toBeUndefined();
+    expect(document.body.textContent).toContain("Fix login");
+  },
+);
 it("disables issue selection while the current agent runs and does not queue a switch", async () => {
   await render(true);
   await click("Linear issue");

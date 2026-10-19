@@ -15,7 +15,7 @@ import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
-import { memo, type ComponentProps } from "react";
+import { memo, type ComponentProps, type ReactNode } from "react";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -28,6 +28,7 @@ export interface ThreadDetailsPanelProps extends Pick<
   ComponentProps<typeof ThreadDetailsCard>,
   "anchor" | "handle" | "onPresentationChange"
 > {
+  linearIssueControl?: ReactNode;
   forceNewWorktree?: boolean;
   environmentId: EnvironmentId;
   threadId: ThreadId;
@@ -130,6 +131,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   displayMode="panel"
                 />
               ) : null}
+
+              {props.linearIssueControl}
 
               {props.activeProjectScripts ? (
                 <ProjectScriptsControl

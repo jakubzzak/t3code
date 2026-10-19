@@ -37,7 +37,10 @@ import {
   useState,
 } from "react";
 import { useThreadShellsForProjectRefs } from "~/state/entities";
+import { ComposerContextLabel } from "../ComposerContextLabel";
 import { ComposerControl } from "../chat/ComposerControl";
+import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
+import { THREAD_DETAILS_PANEL_ICON_CLASS } from "../chat/threadDetailsPanelStyles";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -52,6 +55,7 @@ import {
 } from "../ui/dialog";
 
 interface Props {
+  displayMode?: "toolbar" | "panel";
   threadId?: ThreadId;
   onCreate?: () => Promise<string>;
   onBackgroundCreated?: (issue: LinearIssue) => Promise<LinearIssueSetupResult | null>;
@@ -70,6 +74,8 @@ interface Props {
 }
 
 export function LinearIssuePicker(props: Props) {
+  const displayMode = props.displayMode ?? "panel";
+  const isPanel = displayMode === "panel";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [debouncedQuery] = useDebouncedValue(query, { wait: 350 });
@@ -346,24 +352,37 @@ export function LinearIssuePicker(props: Props) {
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
-            <ComposerControl
-              size="xs"
-              className={
-                error
-                  ? "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive"
-                  : undefined
-              }
-            />
+            isPanel ? (
+              <ThreadDetailsControl part="select" tone={error ? "destructive" : "default"} />
+            ) : (
+              <ComposerControl
+                size="xs"
+                className={
+                  error
+                    ? "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive"
+                    : undefined
+                }
+              />
+            )
           }
           disabled={busy || creation?.status === "setting-up"}
           aria-label={`${props.linkedIssue ? `Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"}${error ? " — error, open for details" : ""}`}
         >
-          <LinearIcon aria-hidden="true" />
-          <span>
+          <LinearIcon
+            aria-hidden="true"
+            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : undefined}
+          />
+          <ComposerContextLabel displayMode={displayMode}>
             {busy ? "Setting up issue…" : (props.linkedIssue?.identifier ?? "Linear issue")}
-          </span>
+          </ComposerContextLabel>
         </PopoverTrigger>
-        <PopoverPopup width="lg" padding="compact" side="top" align="end" initialFocus={searchRef}>
+        <PopoverPopup
+          width="lg"
+          padding="compact"
+          side={isPanel ? "bottom" : "top"}
+          align="end"
+          initialFocus={searchRef}
+        >
           <div className="flex h-96 max-h-[calc(var(--available-height)-1rem)] flex-col">
             <Tabs.Root
               value={view}

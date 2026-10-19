@@ -11138,7 +11138,119 @@ export default function ChatView(props: ChatViewProps) {
       </Suspense>
     ) : null
   ) : null;
+  const showLinearInComposer = isDraftHeroState && mountComposerContextStrip;
+  const linearIssueControl =
+    isElectron &&
+    linearViewEnabled &&
+    serverConfig?.linearIssueChats &&
+    window.desktopBridge?.linearRequest &&
+    activeProject &&
+    activeProjectSettings.settings.linearWorkspace ? (
+      <LinearIssuePicker
+        displayMode={showLinearInComposer ? "toolbar" : "panel"}
+        key={activeThread.id}
+        environmentId={activeThread.environmentId}
+        threadId={activeThread.id}
+        onBackgroundCreated={async (issue) => {
+          const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
+          const current = readThreadShell(ref);
+          const config = appAtomRegistry.get(environmentServerConfigsAtom).get(ref.environmentId);
+          if (
+            !current ||
+            !config ||
+            !getClientSettings().linearViewEnabled ||
+            resolveProjectSettings(config.settings, current.projectId).settings.linearWorkspace !==
+              issue.workspace ||
+            current.linkedLinearIssue ||
+            current.runtime?.status === "starting" ||
+            current.runtime?.status === "running"
+          )
+            return null;
+          const result = await selectLinearIssue({
+            environmentId: ref.environmentId,
+            input: {
+              commandId: CommandId.make(randomUUID()),
+              threadId: ref.threadId,
+              issue,
+              baseRef: current.branch ?? activeThreadBranch ?? "HEAD",
+              expectedWorktreePath: current.worktreePath,
+              expectedIssueId: null,
+              takeoverThreadIds: [],
+            },
+          });
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+          if (result.value.status === "linked" && draftId)
+            await promoteLinearDraftThread(router, ref);
+          return result.value;
+        }}
+        onCreate={async () => {
+          const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
+          if (!isServerThread) {
+            const created = await createThread({
+              environmentId: ref.environmentId,
+              input: {
+                threadId: activeThread.id,
+                projectId: activeProject.id,
+                title: activeThread.title,
+                modelSelection: activeThread.modelSelection,
+                runtimeMode,
+                interactionMode: activeThread.interactionMode,
+                branch: activeThread.branch,
+                worktreePath: activeThread.worktreePath,
+                createdAt: activeThread.createdAt,
+              },
+            });
+            if (created._tag === "Failure") throw squashAtomCommandFailure(created);
+          }
+          const tabId = await openLinearSurface({
+            threadRef: ref,
+            workspace: activeProjectSettings.settings.linearWorkspace,
+            branch: activeThread.branch,
+            openPreview,
+            navigatePreview,
+            closePreview,
+          });
+          return previewRuntimeTabId(ref, readThreadPreviewState(ref).serverEpoch, tabId);
+        }}
+        projectId={activeProject.id}
+        workspace={activeProjectSettings.settings.linearWorkspace}
+        linkedIssue={activeThread?.linkedLinearIssue ?? null}
+        running={
+          activeThread?.runtime?.status === "starting" ||
+          activeThread?.runtime?.status === "running"
+        }
+        onSelect={handleSelectLinearIssue}
+        onOpenIssue={async (issue) => {
+          await openLinearSurface({
+            threadRef: scopeThreadRef(activeThread.environmentId, activeThread.id),
+            workspace: issue.workspace,
+            branch: issue.branchName,
+            url: issue.url,
+            openPreview,
+            navigatePreview,
+            closePreview,
+          });
+        }}
+        onUnlink={async () => {
+          const result = await updateThreadMetadata({
+            environmentId: activeThread.environmentId,
+            input: {
+              threadId: activeThread.id,
+              linkedLinearIssue: null,
+            },
+          });
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        }}
+        onOpenThread={(id) => {
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, id)),
+          });
+        }}
+      />
+    ) : null;
   const threadDetailsPanelProps: ThreadDetailsPanelProps = {
+    linearIssueControl: showLinearInComposer ? null : linearIssueControl,
     anchor: threadPanelPopoverAnchorRef,
     handle: threadPanelPopoverHandle,
     onPresentationChange: setThreadPanelPresentation,
@@ -11825,134 +11937,7 @@ export default function ChatView(props: ChatViewProps) {
                             <div className="pointer-events-auto">
                               <BranchToolbar
                                 linearIssueControl={
-                                  isElectron &&
-                                  linearViewEnabled &&
-                                  serverConfig?.linearIssueChats &&
-                                  window.desktopBridge?.linearRequest &&
-                                  activeProject &&
-                                  activeProjectSettings.settings.linearWorkspace ? (
-                                    <LinearIssuePicker
-                                      key={activeThread.id}
-                                      environmentId={activeThread.environmentId}
-                                      threadId={activeThread.id}
-                                      onBackgroundCreated={async (issue) => {
-                                        const ref = scopeThreadRef(
-                                          activeThread.environmentId,
-                                          activeThread.id,
-                                        );
-                                        const current = readThreadShell(ref);
-                                        const config = appAtomRegistry
-                                          .get(environmentServerConfigsAtom)
-                                          .get(ref.environmentId);
-                                        if (
-                                          !current ||
-                                          !config ||
-                                          !getClientSettings().linearViewEnabled ||
-                                          resolveProjectSettings(config.settings, current.projectId)
-                                            .settings.linearWorkspace !== issue.workspace ||
-                                          current.linkedLinearIssue ||
-                                          current.runtime?.status === "starting" ||
-                                          current.runtime?.status === "running"
-                                        )
-                                          return null;
-                                        const result = await selectLinearIssue({
-                                          environmentId: ref.environmentId,
-                                          input: {
-                                            commandId: CommandId.make(randomUUID()),
-                                            threadId: ref.threadId,
-                                            issue,
-                                            baseRef: current.branch ?? activeThreadBranch ?? "HEAD",
-                                            expectedWorktreePath: current.worktreePath,
-                                            expectedIssueId: null,
-                                            takeoverThreadIds: [],
-                                          },
-                                        });
-                                        if (result._tag === "Failure")
-                                          throw squashAtomCommandFailure(result);
-                                        if (result.value.status === "linked" && draftId)
-                                          await promoteLinearDraftThread(router, ref);
-                                        return result.value;
-                                      }}
-                                      onCreate={async () => {
-                                        const ref = scopeThreadRef(
-                                          activeThread.environmentId,
-                                          activeThread.id,
-                                        );
-                                        if (!isServerThread) {
-                                          const created = await createThread({
-                                            environmentId: ref.environmentId,
-                                            input: {
-                                              threadId: activeThread.id,
-                                              projectId: activeProject.id,
-                                              title: activeThread.title,
-                                              modelSelection: activeThread.modelSelection,
-                                              runtimeMode,
-                                              interactionMode: activeThread.interactionMode,
-                                              branch: activeThread.branch,
-                                              worktreePath: activeThread.worktreePath,
-                                              createdAt: activeThread.createdAt,
-                                            },
-                                          });
-                                          if (created._tag === "Failure")
-                                            throw squashAtomCommandFailure(created);
-                                        }
-                                        const tabId = await openLinearSurface({
-                                          threadRef: ref,
-                                          workspace: activeProjectSettings.settings.linearWorkspace,
-                                          branch: activeThread.branch,
-                                          openPreview,
-                                          navigatePreview,
-                                          closePreview,
-                                        });
-                                        return previewRuntimeTabId(
-                                          ref,
-                                          readThreadPreviewState(ref).serverEpoch,
-                                          tabId,
-                                        );
-                                      }}
-                                      projectId={activeProject.id}
-                                      workspace={activeProjectSettings.settings.linearWorkspace}
-                                      linkedIssue={activeThread?.linkedLinearIssue ?? null}
-                                      running={
-                                        activeThread?.runtime?.status === "starting" ||
-                                        activeThread?.runtime?.status === "running"
-                                      }
-                                      onSelect={handleSelectLinearIssue}
-                                      onOpenIssue={async (issue) => {
-                                        await openLinearSurface({
-                                          threadRef: scopeThreadRef(
-                                            activeThread.environmentId,
-                                            activeThread.id,
-                                          ),
-                                          workspace: issue.workspace,
-                                          branch: issue.branchName,
-                                          url: issue.url,
-                                          openPreview,
-                                          navigatePreview,
-                                          closePreview,
-                                        });
-                                      }}
-                                      onUnlink={async () => {
-                                        const result = await updateThreadMetadata({
-                                          environmentId: activeThread.environmentId,
-                                          input: {
-                                            threadId: activeThread.id,
-                                            linkedLinearIssue: null,
-                                          },
-                                        });
-                                        if (result._tag === "Failure")
-                                          throw squashAtomCommandFailure(result);
-                                      }}
-                                      onOpenThread={(id) => {
-                                        void navigate({
-                                          to: "/$environmentId/$threadId",
-                                          params: buildThreadRouteParams(
-                                            scopeThreadRef(activeThread.environmentId, id),
-                                          ),
-                                        });
-                                      }}
-                                    />
-                                  ) : null
+                                  showLinearInComposer ? linearIssueControl : null
                                 }
                                 forceNewWorktree={multipleModelSelections !== null}
                                 ref={branchToolbarRef}
