@@ -107,6 +107,7 @@ export type LoadEarlierThreadHistoryInput = {
 
 export type {
   SetMessageCodeLanguageInput,
+  RetryWorkspacePreparationInput,
   ArchiveThreadInput,
   CancelQueuedRunInput,
   CreateThreadInput,

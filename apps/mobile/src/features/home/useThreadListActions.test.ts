@@ -1,6 +1,7 @@
 import { makeThreadShellFixture } from "../../test-fixtures";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
+  type ScopedThreadRef,
   AuthOrchestrationOperateScope,
   EnvironmentId,
   ProjectId,
@@ -31,6 +32,17 @@ const state = vi.hoisted(() => ({
   afterRequest: undefined as (() => void) | undefined,
 }));
 
+vi.mock("@t3tools/client-runtime/state/thread-cleanup", () => ({
+  requestThreadCleanup: async (target: ScopedThreadRef) => {
+    if (!state.scopes.get(target.environmentId)?.has(AuthOrchestrationOperateScope)) return false;
+    state.requests.push({
+      action: "cleanup",
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId },
+    });
+    return true;
+  },
+}));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useRef: (current: unknown) => ({ current }),
@@ -92,6 +104,7 @@ vi.mock("../../state/atom-registry", () => ({
                     environment: {
                       capabilities: {
                         threadSettlement: true,
+                        threadCleanup: true,
                         scheduledTaskChatBinding: true,
                         threadSnooze: true,
                         threadPinning: true,
@@ -242,7 +255,10 @@ describe("thread list operation permissions", () => {
       );
 
       expect(state.requests).toEqual([
-        expect.objectContaining({ action, environmentId: otherEnvironmentId }),
+        expect.objectContaining({
+          action: action === "settle" ? "cleanup" : action,
+          environmentId: otherEnvironmentId,
+        }),
       ]);
     },
   );

@@ -779,7 +779,7 @@ it.effect("keeps native maintenance commands out of steering and restart message
           })
           .pipe(Effect.flip);
         assert.include(
-          String(failure.cause).toLowerCase(),
+          Cause.pretty(Cause.fail(failure)).toLowerCase(),
           scenario.name.includes("logout") ? "sign" : "context compaction",
         );
         const after = yield* threads.getThreadProjection(launched.threadId);
