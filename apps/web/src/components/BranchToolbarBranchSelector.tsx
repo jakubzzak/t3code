@@ -198,8 +198,8 @@ export function BranchToolbarBranchSelector({
             threadId: activeThreadId,
             branch,
             worktreePath,
-            // A launched thread records its own worktree; a late default must not reset it.
-            ...(automatic ? { expectedEmpty: true } : {}),
+            // Issue selection can attach a worktree before the first message arrives.
+            ...(automatic ? { expectedEmpty: true, expectedWorktreePath: activeWorktreePath } : {}),
           },
         });
       }

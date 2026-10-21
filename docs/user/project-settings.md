@@ -162,7 +162,8 @@ or **All issues** to find issues assigned to anyone. Choose a team before the se
 project and workspace on this device. **All teams** clears the filter. Search filters the selected
 view and team. Issues appear by latest update, and scrolling loads more automatically. Linking is optional before or after a conversation
 starts. It keeps your current chat and history, opens the issue in the right panel, and uses the
-issue’s existing worktree or creates one with Linear’s suggested branch name on the connected computer.
+issue’s existing worktree or checks out its local or remote branch on the connected computer.
+If the branch does not exist, it creates Linear’s suggested branch from `main` in a new worktree.
 
 Choose **Create new issue** at the bottom of the picker to use Linear's editor in the right panel.
 After creation, an unlinked chat uses the new issue automatically. A linked chat asks before

@@ -181,6 +181,35 @@ const seed = Effect.gen(function* () {
   };
   return { fs, git, cwd, linear, engine, snapshots, previousId, currentId, issue, input };
 });
+it.effect("rejects a late branch default after linking an empty chat to its issue worktree", () =>
+  Effect.gen(function* () {
+    const { linear, engine, snapshots, currentId, issue, input } = yield* seed;
+    const linked = yield* linear.select({
+      ...input,
+      commandId: CommandId.make("link-before-default"),
+      threadId: currentId,
+    });
+    const failure = yield* engine
+      .dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("late-default"),
+        threadId: currentId,
+        branch: "main",
+        worktreePath: null,
+        expectedWorktreePath: null,
+        expectedEmpty: true,
+      })
+      .pipe(Effect.flip);
+    expect(failure._tag).toBe("OrchestratorDispatchError");
+    const thread = (yield* snapshots.getShellSnapshot()).threads.find(
+      (entry) => entry.id === currentId,
+    );
+    expect(thread?.branch).toBe(issue.branchName);
+    expect(thread?.worktreePath).toBe(linked.worktreePath);
+    expect(thread?.linkedLinearIssue).toEqual(issue);
+  }).pipe(Effect.provide(makeTestLayer())),
+);
+
 it.layer(makeTestLayer())("Linear chat setup", (it) => {
   it.effect(
     "links, resolves an active chat conflict, settles only on takeover, and unlinks without removing files",

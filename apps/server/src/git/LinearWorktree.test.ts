@@ -40,6 +40,18 @@ it.layer(TestLayer)("Linear worktrees", (it) => {
           branchName: "eng-123-fix-login",
           baseRef: "main",
         };
+        const mainHead = (yield* run(["rev-parse", "main"])).stdout.trim();
+        yield* run(["checkout", "-b", "old-issue"]);
+        yield* run([
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Unrelated issue work",
+        ]);
         const first = yield* prepareLinearWorktree(input);
         expect(first.created).toBe(true);
         expect(first.path.startsWith((yield* fs.realPath(config.worktreesDir)) + path.sep)).toBe(
@@ -51,6 +63,14 @@ it.layer(TestLayer)("Linear worktrees", (it) => {
           operation: "test",
         });
         expect(branch.stdout.trim()).toBe(input.branchName);
+        expect(
+          (yield* git.execute({
+            cwd: first.path,
+            args: ["rev-parse", "HEAD"],
+            operation: "test",
+          })).stdout.trim(),
+        ).toBe(mainHead);
+        expect((yield* run(["branch", "--show-current"])).stdout.trim()).toBe("old-issue");
         yield* fs.writeFileString(path.join(first.path, "unfinished.txt"), "keep me");
         const again = yield* prepareLinearWorktree(input);
         expect(again).toEqual({ path: first.path, created: false });
