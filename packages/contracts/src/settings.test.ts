@@ -1375,3 +1375,31 @@ describe("Inbox visibility settings", () => {
     expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
   });
 });
+
+describe("ClientSettings Keep awake", () => {
+  it("defaults existing settings to off with battery and heat safeguards", () => {
+    expect(decodeClientSettings({})).toMatchObject({
+      awakeEnabled: false,
+      awakeLowPowerBelowPercent: 40,
+      awakeSleepBelowPercent: 10,
+      awakeHeatRules: true,
+    });
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("awakeEnabled");
+  });
+  it.each([-1, 101, 0.5, "40", null])("rejects invalid battery threshold %s", (value) => {
+    for (const key of ["awakeLowPowerBelowPercent", "awakeSleepBelowPercent"]) {
+      expect(() => decodeClientSettings({ [key]: value })).toThrow();
+      expect(() => decodeClientSettingsPatch({ [key]: value })).toThrow();
+    }
+  });
+  it("round-trips explicit opt-in and zero battery floor", () => {
+    const preference = {
+      awakeEnabled: true,
+      awakeSleepBelowPercent: 0,
+      awakeLowPowerBelowPercent: 100,
+      awakeHeatRules: false,
+    };
+    expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
+    expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+  });
+});
