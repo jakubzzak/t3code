@@ -118,6 +118,15 @@ export const DesktopAppBrandingSchema = Schema.Struct({
   displayName: Schema.String,
 });
 
+export const DesktopAwakeState = Schema.Struct({
+  supported: Schema.Boolean,
+  installed: Schema.Boolean,
+  status: Schema.Literals(["off", "starting", "active", "paused", "error"]),
+  lowPower: Schema.Boolean,
+  message: Schema.NullOr(Schema.String),
+});
+export type DesktopAwakeState = typeof DesktopAwakeState.Type;
+
 export const DesktopSnapShotMode = Schema.Literals(["direct", "portal", "unavailable"]);
 export type DesktopSnapShotMode = typeof DesktopSnapShotMode.Type;
 
@@ -1164,6 +1173,11 @@ export interface DesktopBridge {
   /** Resolves a suggested SSH alias before populating the connection form. */
   resolveSshHost: (alias: string) => Promise<DesktopSshEnvironmentTarget>;
   requestSnapShotPermissions?: (includeAccessibility: boolean) => Promise<void>;
+  getAwakeState?: () => Promise<DesktopAwakeState>;
+  setupAwake?: () => Promise<DesktopAwakeState>;
+  removeAwake?: () => Promise<DesktopAwakeState>;
+  retryAwake?: () => Promise<DesktopAwakeState>;
+  onAwakeState?: (listener: (state: DesktopAwakeState) => void) => () => void;
   getSnapShotState?: () => Promise<DesktopSnapShotState>;
   setupSnapShot?: (action: DesktopSnapShotSetupAction) => Promise<void>;
   previewSnapShotConfig?: (

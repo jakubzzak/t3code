@@ -1,5 +1,6 @@
 import type {
   DesktopBridge,
+  DesktopAwakeState,
   DesktopPreviewOpenLinkEvent,
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingInputEvent,
@@ -122,6 +123,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   requestSnapShotPermissions: (includeAccessibility) =>
     ipcRenderer.invoke(IpcChannels.REQUEST_SNAP_SHOT_PERMISSIONS_CHANNEL, includeAccessibility),
   getSnapShotState: () => ipcRenderer.invoke(IpcChannels.GET_SNAP_SHOT_STATE_CHANNEL),
+  getAwakeState: () => ipcRenderer.invoke(IpcChannels.AWAKE_GET_STATE_CHANNEL),
+  setupAwake: () => ipcRenderer.invoke(IpcChannels.AWAKE_SETUP_CHANNEL),
+  removeAwake: () => ipcRenderer.invoke(IpcChannels.AWAKE_REMOVE_CHANNEL),
+  retryAwake: () => ipcRenderer.invoke(IpcChannels.AWAKE_RETRY_CHANNEL),
+  onAwakeState: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: DesktopAwakeState) =>
+      listener(state);
+    ipcRenderer.on(IpcChannels.AWAKE_STATE_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(IpcChannels.AWAKE_STATE_CHANNEL, handler);
+  },
   setupSnapShot: (action) => ipcRenderer.invoke(IpcChannels.SETUP_SNAP_SHOT_CHANNEL, action),
   previewSnapShotConfig: (request) =>
     ipcRenderer.invoke(IpcChannels.PREVIEW_SNAP_SHOT_CONFIG_CHANNEL, request),

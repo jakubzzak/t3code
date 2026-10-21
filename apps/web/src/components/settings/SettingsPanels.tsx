@@ -662,6 +662,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
       ...getChangedBrowserSettingLabels(settings),
+      ...(settings.awakeEnabled !== DEFAULT_UNIFIED_SETTINGS.awakeEnabled ||
+      settings.awakeLowPowerBelowPercent !== DEFAULT_UNIFIED_SETTINGS.awakeLowPowerBelowPercent ||
+      settings.awakeSleepBelowPercent !== DEFAULT_UNIFIED_SETTINGS.awakeSleepBelowPercent ||
+      settings.awakeHeatRules !== DEFAULT_UNIFIED_SETTINGS.awakeHeatRules
+        ? ["Keep awake"]
+        : []),
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
         ? ["Agent browser access"]
         : []),
@@ -669,6 +675,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     [
       isTextGenerationModelDirty,
       isBackgroundActivityDirty,
+      settings.awakeEnabled,
+      settings.awakeLowPowerBelowPercent,
+      settings.awakeSleepBelowPercent,
+      settings.awakeHeatRules,
       settings.browserDefaultViewport,
       settings.browserDefaultZoomFactor,
       settings.browserDefaultAppearance,
@@ -796,6 +806,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       return;
     }
     updateSettings({
+      awakeEnabled: DEFAULT_UNIFIED_SETTINGS.awakeEnabled,
+      awakeLowPowerBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeLowPowerBelowPercent,
+      awakeSleepBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeSleepBelowPercent,
+      awakeHeatRules: DEFAULT_UNIFIED_SETTINGS.awakeHeatRules,
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
@@ -1229,6 +1243,10 @@ export function AppearanceSettingsPanel() {
                 label="contrast"
                 onClick={() =>
                   updateSettings({
+                    awakeEnabled: DEFAULT_UNIFIED_SETTINGS.awakeEnabled,
+                    awakeLowPowerBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeLowPowerBelowPercent,
+                    awakeSleepBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeSleepBelowPercent,
+                    awakeHeatRules: DEFAULT_UNIFIED_SETTINGS.awakeHeatRules,
                     appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
                   })
                 }

@@ -136,3 +136,8 @@ export const TAKE_LEGACY_LOCAL_STORAGE_CHANNEL = "desktop:take-legacy-local-stor
 export const COMPLETE_LEGACY_LOCAL_STORAGE_CHANNEL = "desktop:complete-legacy-local-storage";
 
 export const LINEAR_BROWSER_CHANNEL = "desktop:linear-browser";
+export const AWAKE_STATE_CHANNEL = "desktop:awake-state";
+export const AWAKE_GET_STATE_CHANNEL = "desktop:awake-get-state";
+export const AWAKE_SETUP_CHANNEL = "desktop:awake-setup";
+export const AWAKE_REMOVE_CHANNEL = "desktop:awake-remove";
+export const AWAKE_RETRY_CHANNEL = "desktop:awake-retry";

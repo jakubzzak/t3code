@@ -21,6 +21,7 @@ export type SettingsPath =
   | "/settings/appearance"
   | "/settings/keybindings"
   | "/settings/snap-shot"
+  | "/settings/awake"
   | "/settings/providers"
   | "/settings/integrations"
   | "/settings/scheduled-tasks"
@@ -102,6 +103,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
+  "/settings/awake": "Keep awake",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
   "/settings/scheduled-tasks": "Scheduled Tasks",
@@ -673,6 +675,38 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   ...KEYBINDING_SEARCH_ITEMS,
   {
+    id: "awake-enabled",
+    title: "Keep this Mac awake",
+    to: "/settings/awake",
+    searchTerms: ["sleep lid closed power prevent running caffeine"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
+    id: "awake-low-power",
+    title: "Low Power Mode below",
+    to: "/settings/awake",
+    searchTerms: ["battery threshold energy"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
+    id: "awake-sleep-below",
+    title: "Allow sleep below",
+    to: "/settings/awake",
+    searchTerms: ["battery threshold percent"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
+    id: "awake-heat",
+    title: "Heat safeguards",
+    to: "/settings/awake",
+    searchTerms: ["temperature thermal hot"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
     id: "snap-shot-enabled",
     title: "SnapShots",
     searchTerms: ["window capture screenshot"],
@@ -1080,6 +1114,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/general": null,
   "/settings/appearance": null,
   "/settings/snap-shot": null,
+  "/settings/awake": null,
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,

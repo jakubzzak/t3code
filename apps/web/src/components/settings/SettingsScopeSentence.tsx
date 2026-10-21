@@ -34,6 +34,7 @@ export const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/settings/features",
   "/settings/appearance",
   "/settings/snap-shot",
+  "/settings/awake",
   "/settings/connections",
 ]);
 

@@ -56,6 +56,28 @@ Windows background services are not supported.
 T3 Connect can offer service installation during setup, but the two are managed
 separately. Signing out of T3 Connect does not stop or uninstall the service.
 
+## Keep a Mac awake with the desktop app
+
+In the macOS desktop app, open **Settings → Keep awake**, complete the one-time
+administrator setup, then enable **Keep this Mac awake**. The Mac stays awake
+while Blackbird runs, including with its lid closed or its window closed. The
+display can still turn off and lock. This applies to the Mac running the desktop
+app, regardless of which environment you are viewing; it does not keep a remote
+computer awake or enable the feature for a standalone CLI service.
+
+By default, Low Power Mode starts below 40% battery and normal sleep is allowed
+below 10%. Heat safeguards also reduce power at serious thermal pressure and
+allow sleep at critical pressure. These limits are configurable. Keep awake
+resumes when conditions improve. Keeping a laptop awake uses more battery; keep
+it ventilated while running with the lid closed.
+
+Turn the setting off or quit Blackbird to restore normal power behavior. A
+separate recovery service restores settings after an unexpected exit. Use
+**Remove setup** in the same settings page to remove that service and its power
+permissions. If restoration fails, the page reports the error and retains
+recovery so it can try again. Only one Blackbird instance can own Keep awake on
+a Mac at a time.
+
 ## Troubleshooting
 
 Start with `t3 service status` on the host. It prints the log path and, on Linux,

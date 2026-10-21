@@ -1,4 +1,5 @@
 import { linearRequest } from "./methods/linear.ts";
+import { getAwakeState, setupAwake, removeAwake, retryAwake } from "./methods/awake.ts";
 import * as Effect from "effect/Effect";
 
 import { receiveProviderAuthCallback, cancelProviderAuthCallback } from "./methods/providerAuth.ts";
@@ -86,6 +87,10 @@ import {
 
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
+  yield* ipc.handle(getAwakeState);
+  yield* ipc.handle(setupAwake);
+  yield* ipc.handle(removeAwake);
+  yield* ipc.handle(retryAwake);
   yield* installNotificationBadge();
   yield* PreviewIpc.installPreviewEventForwarding();
 
