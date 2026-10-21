@@ -76,7 +76,7 @@ These shortcuts apply when the inbox list owns focus, not while typing in search
 
 Holding Command shows mild shortcut hints over the focused row's action icons without changing layout. Command-number chat jumps do not navigate notifications or unexpectedly switch chats while the inbox list owns focus. Existing shortcuts retain their behavior outside that focus scope, including composer bindings that overlap these keys. Merely opening an existing chat is navigation, not a new delegation to undo.
 
-Undo restores Blackbird notification state; it must not promise to reverse already completed agent side effects or delete work. The precise behavior after an agent has started is a blocking question below. Marking an item unread through Undo must also survive the current focus.
+Undo restores Blackbird notification state. After direct delegation has started the agent, Cmd+Z restores the notification to active intake and requests the agent to stop. Retain the linked chat and all completed work; cancellation does not roll back completed effects. The restored active notification keeps its chat link, so either delegation action subsequently opens that chat without creating another chat or starting another turn. A stop request must not be presented as a confirmed stop until acknowledged; expose a failed stop request with a recovery path. Marking an item unread through Undo must also survive the current focus.
 
 ### AI summaries, suggested resolutions, and memory
 
@@ -92,7 +92,7 @@ Undo restores Blackbird notification state; it must not promise to reverse alrea
 3. Move through Slack, Linear, and email notifications with arrows. Each has the required logo, source location, description, and content. Only the focused item expands and becomes read. Mark it unread without moving focus; it remains unread until a later visit. Grouped comments retain their exact triggering context.
 4. Direct delegation starts one agent with the project prompt; Agent chat starts no turn until the user submits. Repeated activation of either action opens the existing linked chat. Both sides expose the link, and the chat preview lives in its top-right Details bubble. Failed startup is visible and recoverable.
 5. Snooze/unsnooze and resolve/reopen preserve read state and chat links. Settle and reopen the linked chat and observe the corresponding notification placement. Restart or reconnect a second client without losing these states or creating duplicate tasks.
-6. Exercise every shortcut through keyboard focus and Command hints. No numbered chat jump fires from the inbox list, and overlapping composer/editor shortcuts still work elsewhere. Undo restores state, including an explicitly unread focused item; delegation rollback follows the confirmed policy below.
+6. Exercise every shortcut through keyboard focus and Command hints. No numbered chat jump fires from the inbox list, and overlapping composer/editor shortcuts still work elsewhere. Undo restores state, including an explicitly unread focused item. Undo direct delegation after the agent starts: the notification returns to active intake, a stop is requested, and the linked chat and completed work remain. Pending or failed cancellation is visible; later delegation opens the retained chat without starting another turn.
 7. Select a summary model and enable pre-resolution. A matching historical case with a known outcome informs the suggestion; absent or unconfirmed history is not fabricated as evidence. Raw content remains usable when AI or one connector fails, and no summary, suggestion, snooze, or resolution writes to the source.
 
 ## Constraints and decisions
@@ -103,7 +103,6 @@ Keep state and source access in environment services with typed contracts and pe
 
 ## Assumptions and open questions
 
-- **Blocking before implementing delegation undo:** after direct delegation has started, should Cmd+Z restore the notification to active intake and request the agent to stop, retaining the linked chat and completed work, or restore intake while allowing the agent to continue? Cancellation cannot guarantee rollback of completed effects. A restored active item may retain its chat link so a later delegation opens it rather than duplicating work.
 - **Connector feasibility prerequisite:** verify access to Slack saves/todos, Linear notifications, and actual Superhuman Important/bucket metadata. The discussion did not establish supported APIs or permissions. Report unavailable selections explicitly and resolve any required scope reduction before claiming the complete source behavior.
 - **Proposed defaults, not separately approved:** later activity updates a delegated item's context without automatically starting another turn; overlapping source items in separately configured projects have independent state and memory; memory lookup does not cross project boundaries.
 - **Migration decision:** existing device-level Linear view opt-ins need an explicit migration policy. Do not silently enable the feature or configure source integrations for every project. Preserve stored connection data.
