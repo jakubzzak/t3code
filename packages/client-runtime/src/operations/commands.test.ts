@@ -721,6 +721,28 @@ describe("V2 environment commands", () => {
       }).pipe(Effect.provide(layerTestCrypto)),
   );
 
+  it.effect("preserves workspace preconditions on automatic branch defaults", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      for (const expectedWorktreePath of [undefined, null, "/tmp/issue-worktree"]) {
+        const input = {
+          threadId: v2ThreadId,
+          branch: "main",
+          worktreePath: null,
+          expectedEmpty: true,
+          ...(expectedWorktreePath === undefined ? {} : { expectedWorktreePath }),
+        };
+        yield* updateThreadMetadata(input).pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        );
+      }
+      expect(commands[0]).not.toHaveProperty("expectedWorktreePath");
+      expect(commands[1]).toMatchObject({ expectedEmpty: true, expectedWorktreePath: null });
+      expect(commands[2]).toMatchObject({ expectedWorktreePath: "/tmp/issue-worktree" });
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
   it.effect("delegates model selection to the server without fetching the full projection", () =>
     Effect.gen(function* () {
       const commands: OrchestrationV2Command[] = [];

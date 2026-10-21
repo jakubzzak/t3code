@@ -6965,7 +6965,7 @@ export default function ChatView(props: ChatViewProps) {
             commandId: CommandId.make(randomUUID()),
             threadId: activeThread.id,
             issue,
-            baseRef: activeThreadBranch ?? "HEAD",
+            baseRef: "main",
             expectedWorktreePath: activeThread.worktreePath,
             expectedIssueId: activeThread?.linkedLinearIssue?.id ?? null,
             takeoverThreadIds,
@@ -6973,7 +6973,6 @@ export default function ChatView(props: ChatViewProps) {
         });
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
         if (result.value.status === "linked") {
-          setPendingServerThreadBranch(null);
           const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
           if (draftId) await promoteLinearDraftThread(router, ref);
         }
@@ -6991,8 +6990,6 @@ export default function ChatView(props: ChatViewProps) {
       createThread,
       runtimeMode,
       selectLinearIssue,
-      activeThreadBranch,
-      activeThread?.linkedLinearIssue?.id,
       draftId,
       router,
       sendInFlightRef,
@@ -11202,7 +11199,7 @@ export default function ChatView(props: ChatViewProps) {
               commandId: CommandId.make(randomUUID()),
               threadId: ref.threadId,
               issue,
-              baseRef: current.branch ?? activeThreadBranch ?? "HEAD",
+              baseRef: "main",
               expectedWorktreePath: current.worktreePath,
               expectedIssueId: null,
               takeoverThreadIds: [],
