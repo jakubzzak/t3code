@@ -1,3 +1,4 @@
+import { BotIcon, SparklesIcon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import {
@@ -26,7 +27,8 @@ function InboxProcessingGroup({ kind }: { kind: "summary" | "agent" }) {
   const enabledKey = summary ? "inboxSummaryEnabled" : "inboxAgentEnabled";
   const modelKey = summary ? "inboxSummaryModelSelection" : "inboxAgentModelSelection";
   const promptKey = summary ? "inboxSummaryPrompt" : "inboxAgentPrompt";
-  const title = summary ? "Summary" : "Agent Delegation";
+  const title = summary ? "AI summary" : "Agent Delegation";
+  const Icon = summary ? SparklesIcon : BotIcon;
   const modelLabel = summary ? "Summary model" : "Delegation model";
   const promptLabel = summary ? "Summary prompt" : "Delegation prompt";
   const enabledMixed = useScopedSettingsMixed([enabledKey]);
@@ -50,7 +52,12 @@ function InboxProcessingGroup({ kind }: { kind: "summary" | "agent" }) {
     : DEFAULT_SERVER_SETTINGS[promptKey];
   return (
     <SettingsRow
-      title={title}
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          <Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+          {title}
+        </span>
+      }
       description={
         summary
           ? "Add a concise AI summary to incoming notifications."
@@ -149,7 +156,7 @@ export function InboxFeatureSettings() {
         mixed={resolutionMixed}
         serverScoped
         settingKeys={["inboxPreResolution"]}
-        description="Add suggested steps or a draft response when Summary is enabled. Suggestions do not send messages or settle notifications."
+        description="Add suggested steps or a draft response when AI summary is enabled. Suggestions do not send messages or settle notifications."
         control={
           <Switch
             aria-label="Suggested resolutions"
@@ -164,7 +171,7 @@ export function InboxFeatureSettings() {
         mixed={memoryMixed}
         serverScoped
         settingKeys={["inboxMemoryEnabled"]}
-        description="Use confirmed outcomes from similar notifications in this project. Other projects stay separate."
+        description="Build a database of recurring tasks and confirmed resolutions to recognize patterns and improve future suggestions. Notification and chat context remains available when this is off. Memory stays within this project."
         control={
           <Switch
             aria-label="Inbox memory"
