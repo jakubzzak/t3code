@@ -2,7 +2,13 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ThreadId, ProjectId, type InboxNotification } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  ProjectId,
+  ProviderInstanceId,
+  type InboxNotification,
+} from "@t3tools/contracts";
 import {
   InboxOpenOriginalAction,
   InboxSourceContent,
@@ -188,4 +194,103 @@ it("preserves modifier-click escape to the system browser with in-app links enab
   );
   expect(state.open).toHaveBeenCalledExactlyOnceWith("https://example.test/report");
   expect(state.preview).not.toHaveBeenCalled();
+});
+
+it.each(["slack", "linear", "superhuman"] as const)(
+  "links raw %s notification URLs with short host labels and full destinations",
+  async (source) => {
+    const text =
+      "Review https://github.com/example/project/pull/608.\nThen https://backstage.example.com/requests/42?view=all#notes and www.example.com/help.\nKeep *literal* text.";
+    await act(async () =>
+      root.render(
+        <InboxSourceContent
+          threadRef={threadRef}
+          notification={{
+            ...notification,
+            source,
+            items: [{ ...notification.items[0]!, source, content: text }],
+          }}
+        />,
+      ),
+    );
+    const links = [...container.querySelectorAll<HTMLAnchorElement>("a")];
+    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["github.com", "https://github.com/example/project/pull/608"],
+      ["backstage.example.com", "https://backstage.example.com/requests/42?view=all#notes"],
+      ["example.com", "https://www.example.com/help"],
+    ]);
+    expect(container.textContent).toContain(
+      "github.com.\nThen backstage.example.com and example.com.\nKeep *literal* text.",
+    );
+    await act(async () => links[1]!.click());
+    expect(state.open).toHaveBeenCalledExactlyOnceWith(
+      "https://backstage.example.com/requests/42?view=all#notes",
+    );
+  },
+);
+it("shortens bare Markdown URLs but leaves already labeled links and code unchanged", async () => {
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        threadRef={threadRef}
+        notification={{
+          ...notification,
+          items: [
+            {
+              ...notification.items[0]!,
+              formattedContent:
+                "https://github.com/example/project/pull/608 and [This client](https://backstage.example.com/requests/42). `https://example.com/code`",
+            },
+          ],
+        }}
+      />,
+    ),
+  );
+  const links = [...container.querySelectorAll("a")];
+  expect(links.map((link) => link.textContent)).toEqual(["github.com", "This client"]);
+  expect(container.querySelector("code")?.textContent).toBe("https://example.com/code");
+  expect(
+    links.every(
+      (link) => link.classList.contains("underline") && link.classList.contains("text-primary"),
+    ),
+  ).toBe(true);
+});
+it("links URLs in AI summaries, suggested next steps, and raw notification titles", async () => {
+  await act(async () =>
+    root.render(
+      <InboxSummary
+        threadRef={threadRef}
+        enabled
+        expanded
+        notification={{
+          ...notification,
+          analysis: {
+            summary: "Review https://github.com/example/project/pull/608",
+            suggestions: ["Check https://docs.example.com/guide"],
+            description: "Review",
+            precedentIds: [],
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+            generatedAt: "2026-10-22T10:00:00Z",
+          },
+        }}
+      />,
+    ),
+  );
+  expect([...container.querySelectorAll("a")].map((link) => link.textContent)).toEqual([
+    "github.com",
+    "docs.example.com",
+  ]);
+  await act(async () =>
+    root.render(
+      <InboxSummary
+        threadRef={threadRef}
+        enabled={false}
+        notification={{
+          ...notification,
+          items: [{ ...notification.items[0]!, title: "Review https://example.com/report" }],
+        }}
+      />,
+    ),
+  );
+  expect(container.querySelector("a")?.textContent).toBe("example.com");
 });

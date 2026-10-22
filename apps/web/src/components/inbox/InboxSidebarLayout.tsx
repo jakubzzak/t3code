@@ -218,6 +218,7 @@ export function InboxRow({
           className={`mt-1.5 size-1.5 shrink-0 rounded-full ${n.state.read ? "bg-transparent" : "bg-primary"}`}
         />
         <InboxSummary
+          threadRef={threadRef}
           notification={content}
           expanded={focused}
           enabled={settings?.inboxSummaryEnabled ?? false}

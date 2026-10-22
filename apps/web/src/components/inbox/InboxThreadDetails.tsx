@@ -72,6 +72,7 @@ export function InboxThreadDetails({
         <InboxNotificationMetadata notification={n} />
         <div className="mt-2">
           <InboxSummary
+            threadRef={threadRef}
             notification={n}
             expanded
             enabled={
