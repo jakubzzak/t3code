@@ -23,6 +23,7 @@ export const InboxSourceItem = Schema.Struct({
   title: Schema.String,
   author: Schema.String,
   content: Schema.String.check(Schema.isMaxLength(32000)),
+  contentFormat: Schema.optionalKey(Schema.Literals(["text"])),
   url: Schema.String,
   occurredAt: IsoDateTime,
 });

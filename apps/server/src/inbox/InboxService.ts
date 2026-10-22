@@ -21,6 +21,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as InboxRepository from "./InboxRepository.ts";
 import * as InboxAnalysis from "./InboxAnalysis.ts";
 import * as InboxAgent from "./InboxAgent.ts";
+import { readableInboxItem, readableNotification } from "./notificationContent.ts";
 import { inboxIdentity, ingestInboxItem, restoreInboxState } from "./inboxState.ts";
 
 export class InboxService extends Context.Service<
@@ -78,7 +79,7 @@ const make = Effect.gen(function* () {
     repository.put({ ...notification, revision: notification.revision + 1 });
   const reconcile = (item: InboxNotification) =>
     Effect.gen(function* () {
-      let next = item;
+      let next = readableNotification(item);
       if (
         item.state.placement === "snoozed" &&
         item.state.snoozedUntil !== null &&
@@ -455,19 +456,28 @@ const make = Effect.gen(function* () {
         }),
       ),
     get: (input) =>
-      requireEnabled(input.projectId).pipe(
-        Effect.andThen(repository.get(input.projectId, input.id)),
+      mutex.withPermits(1)(
+        requireEnabled(input.projectId).pipe(
+          Effect.andThen(repository.get(input.projectId, input.id)),
+          Effect.flatMap((item) => (item ? reconcile(item) : Effect.succeed(null))),
+        ),
       ),
     ingest: (projectId, items) =>
       mutex
         .withPermits(1)(
           Effect.gen(function* () {
             yield* requireEnabled(projectId);
-            for (const item of items) {
-              const previous = yield* repository.get(projectId, inboxIdentity(projectId, item));
-              const next = ingestInboxItem(projectId, item, previous ?? undefined);
-              if (previous !== next) {
-                yield* repository.put(next);
+            for (const raw of items) {
+              const item = readableInboxItem(raw);
+              const stored = yield* repository.get(projectId, inboxIdentity(projectId, item));
+              const previous = stored ? readableNotification(stored) : undefined;
+              const next = ingestInboxItem(projectId, item, previous);
+              if (stored !== next) {
+                yield* repository.put(
+                  stored && next.revision === stored.revision
+                    ? { ...next, revision: next.revision + 1 }
+                    : next,
+                );
               }
             }
           }),

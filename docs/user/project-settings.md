@@ -179,6 +179,10 @@ choose its model and edit its prefilled default prompt. There are no separate pr
 Turning a subgroup off hides its controls and keeps your model and prompt choices. AI summary off
 stops AI processing; Agent Delegation off prevents direct runs while Agent chat remains available.
 Raw notification content stays usable without AI. An empty prompt uses the default instructions.
+Summaries lead with the message's request or key update, including any explicit deadline.
+Use **Regenerate summary** on a focused notification to apply your current model and prompt to it;
+failed processing offers **Retry summary**. Email originals appear as readable text with paragraphs
+and links. Use **Open original** for the source's rich email view.
 
 **Inbox memory** is also off by default. It builds a database of recurring tasks and confirmed
 resolutions so patterns can inform suggestions for similar work in the same project. Notification

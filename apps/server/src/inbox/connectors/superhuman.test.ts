@@ -48,7 +48,7 @@ it("uses actual split membership, explicit accounts, and full thread context wit
               message_id: "m2",
               from: "Sam",
               sent_at: "2026-10-22T10:00:00Z",
-              body: "Does Friday work?",
+              body: '<html><body><div>Does Friday work?</div><div style="display:none">tracking-only</div><img src="https://tracking.example/pixel"></body></html>',
               snippet: "",
               is_draft: false,
             },
@@ -75,6 +75,8 @@ it("uses actual split membership, explicit accounts, and full thread context wit
   });
   expect(items[0]?.content).toContain("Launch metrics are ready");
   expect(items[0]?.content).toContain("Does Friday work?");
+  expect(items[0]?.contentFormat).toBe("text");
+  expect(items[0]?.content).not.toMatch(/<html|<div|tracking-only|tracking.example/);
   expect(items[0]?.content).toContain("Maya");
   expect(calls.filter((call) => call.name === "list_threads").map((call) => call.args)).toEqual(
     expect.arrayContaining([

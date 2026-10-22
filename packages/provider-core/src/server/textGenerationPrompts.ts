@@ -506,7 +506,9 @@ export function buildInboxAnalysisPrompt(input: InboxAnalysisInput) {
     outputSchema: InboxAnalysisContent,
     prompt: [
       input.instructions?.trim() || DEFAULT_INBOX_SUMMARY_PROMPT,
-      "description must be one concise sentence.",
+      "Both summary and description must explain the substantive message: what it is about and what the recipient is asked to do, including any explicit deadline. If no action is requested, summarize the actual update without inventing work. Do not substitute sender identity, app, labels, importance or read status for message content.",
+      'For example, "Hey there, can I have the security report about PHP from you by EOD?" becomes "Send the PHP security report by EOD."',
+      "description must be one concise sentence. Prefer one short sentence for summary too; add sentences only for essential details.",
       input.suggest
         ? "Suggest useful next steps or a drafted response only when supported by the context."
         : "Return an empty suggestions array.",

@@ -1160,7 +1160,7 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const DEFAULT_INBOX_SUMMARY_PROMPT =
-  "Summarize this notification in one to five sentences, as briefly as possible. Preserve the triggering request and relevant details.";
+  "Summarize the message itself in one to five sentences, preferably one. Lead with what the recipient needs to do, preserving the subject, requested deliverable and any deadline. If no action is requested, state the key update. Omit sender, app, read status, importance labels, greetings and signatures unless essential to meaning. Do not invent tasks or deadlines.";
 
 export const ServerSettings = Schema.Struct({
   inboxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),

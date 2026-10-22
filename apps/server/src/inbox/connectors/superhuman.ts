@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import type { InboxSourceItem } from "@t3tools/contracts";
+import { emailText } from "@t3tools/shared/emailText";
 export type SuperhumanRead = (
   name: string,
   arguments_: Record<string, unknown>,
@@ -124,18 +125,19 @@ export async function readSuperhumanInbox(
       const content =
         [
           ...messages.map(
-            (message) => `${message.from} · ${message.sent_at}\n${message.body ?? message.snippet}`,
+            (message) =>
+              `${message.from} · ${message.sent_at}\n${emailText(message.body ?? "").trim() || emailText(message.snippet)}`,
           ),
           ...(full.comments ?? []).map(
             (comment) =>
-              `${comment.author_name ?? comment.author ?? "Comment"} · ${comment.created_at ?? ""}\n${comment.body}${comment.reactions?.length ? `\nReactions: ${comment.reactions.map((reaction) => `${reaction.emoji} ${reaction.reaction_count}${reaction.by_me ? " (including you)" : ""}`).join(", ")}` : ""}`,
+              `${comment.author_name ?? comment.author ?? "Comment"} · ${comment.created_at ?? ""}\n${emailText(comment.body)}${comment.reactions?.length ? `\nReactions: ${comment.reactions.map((reaction) => `${reaction.emoji} ${reaction.reaction_count}${reaction.by_me ? " (including you)" : ""}`).join(", ")}` : ""}`,
           ),
           ...(full.truncated
             ? [
                 "Some middle messages are omitted by Superhuman. Open the source for the complete thread.",
               ]
             : []),
-        ].join("\n\n") || full.snippet;
+        ].join("\n\n") || emailText(full.snippet);
       const key = `${email}:${full.thread_id}`;
       items.set(key, {
         id: full.thread_id,
@@ -145,6 +147,7 @@ export async function readSuperhumanInbox(
         location: [...(full.splits ?? []), ...(full.labels ?? [])].join(" · "),
         title: full.subject,
         author: messages.at(-1)?.from ?? email,
+        contentFormat: "text",
         content:
           content.length > 32000
             ? `${content.slice(0, 31900)}\n\nPreview shortened. Open the source for more.`

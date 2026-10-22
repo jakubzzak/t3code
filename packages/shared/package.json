@@ -506,6 +506,10 @@
     "./linearConnectionTransfer": {
       "types": "./src/linearConnectionTransfer.ts",
       "import": "./src/linearConnectionTransfer.ts"
+    },
+    "./emailText": {
+      "types": "./src/emailText.ts",
+      "import": "./src/emailText.ts"
     }
   },
   "scripts": {

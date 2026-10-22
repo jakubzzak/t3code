@@ -188,14 +188,14 @@ function InboxRow({
           )}
         </div>
       </div>
-      {focused && n.processingError && (
+      {focused && settings?.inboxSummaryEnabled && (n.processingError || content.analysis) && (
         <button
           type="button"
           disabled={!canWrite || pending}
           className="text-2xs text-primary underline"
           onClick={() => onAction({ type: "reprocess" })}
         >
-          Retry summary
+          {n.processingError ? "Retry summary" : "Regenerate summary"}
         </button>
       )}
       {n.agentStatus === "starting" ||

@@ -78,7 +78,7 @@ const scenario = Effect.gen(function* () {
     providerError,
     layer: Inbox.layer.pipe(
       Layer.provide(Layer.succeed(Agent.InboxAgent, agent)),
-      Layer.provide(dependencies),
+      Layer.provideMerge(dependencies),
       Layer.provide(
         Layer.succeed(Analysis.InboxAnalysis, {
           analyze: (_, history) =>
@@ -482,4 +482,48 @@ it.effect(
         assert.equal(yield* Ref.get(fixture.analysisCalls), 1);
       }).pipe(Effect.provide(Layer.merge(fixture.layer, dependencies)));
     }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "repairs previously stored HTML on detail/list reads without reopening or marking it unread",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const raw = ingestInboxItem(projectId, {
+          ...item,
+          source: "superhuman",
+          content: "<p>Send the PHP security report by EOD.</p>",
+        });
+        const state = { ...raw.state, read: true, placement: "resolved" as const };
+        yield* repository.put({ ...raw, state });
+        const clean = yield* service.get({ projectId, id: raw.id });
+        assert.ok(clean);
+        assert.equal(clean.items[0]?.content, "Send the PHP security report by EOD.");
+        assert.equal(clean.items[0]?.contentFormat, "text");
+        assert.deepEqual(clean.state, state);
+        assert.equal(clean.revision, raw.revision + 1);
+        const persisted = yield* repository.get(projectId, raw.id);
+        assert.equal(persisted?.items[0]?.content, clean.items[0]?.content);
+        const again = yield* service.get({ projectId, id: raw.id });
+        assert.equal(again?.analysisVersion, clean.analysisVersion);
+        assert.equal(again?.revision, clean.revision);
+        const listed = yield* service.list({ projectId });
+        assert.equal(listed[0]?.items[0]?.content, clean.items[0]?.content);
+        assert.deepEqual(listed[0]?.state, state);
+        yield* service.ingest(projectId, [
+          {
+            contentFormat: "text",
+            ...raw.items[0]!,
+            content: "Send the PHP security report by EOD.",
+          },
+        ]);
+        const refreshed = yield* service.get({ projectId, id: raw.id });
+        assert.deepEqual(refreshed?.state, state);
+        assert.equal(refreshed?.analysisVersion, clean.analysisVersion);
+        assert.equal(refreshed?.revision, clean.revision);
+      }).pipe(Effect.provide(fixture.layer));
+    }),
 );

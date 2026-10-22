@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Pure stable source identity shared by ingestion and persistence.
 import * as NodeCrypto from "node:crypto";
+import * as NodeUtil from "node:util";
 import type { InboxNotification, InboxSourceItem, InboxState, ProjectId } from "@t3tools/contracts";
 
 /** Native group identity is scoped to a connection and project, never inferred across sources. */
@@ -14,7 +15,7 @@ export function ingestInboxItem(
   previous?: InboxNotification,
 ): InboxNotification {
   const existing = previous?.items.find((candidate) => candidate.id === item.id);
-  if (existing && JSON.stringify(existing) === JSON.stringify(item)) return previous!;
+  if (existing && NodeUtil.isDeepStrictEqual(existing, item)) return previous!;
   const items = [...(previous?.items ?? []).filter((candidate) => candidate.id !== item.id), item]
     .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
     .slice(-50);
