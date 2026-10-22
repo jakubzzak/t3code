@@ -1,5 +1,4 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useServerConfigs } from "~/state/entities";
 import { waitForThreadShell } from "~/state/entities";
@@ -31,7 +30,19 @@ import {
   SettingsIcon,
   Undo2Icon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
+import {
+  Children,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type KeyboardEvent,
+} from "react";
+import { createSidebarListMotion } from "../Sidebar.motion";
 import { useRouter } from "@tanstack/react-router";
 import { useInboxNavigation } from "./inboxNavigation";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -64,9 +75,34 @@ const keyOf = (entry: Entry) => `${entry.environmentId}:${entry.notification.id}
 const sources: InboxSource[] = ["slack", "linear", "superhuman"];
 const shelfLabels = { delegated: "Delegated", snoozed: "Snoozed", resolved: "Settled" } as const;
 
-function InboxAnimatedList({ children }: { children: ReactNode }) {
-  const [ref] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
-  return <div ref={ref}>{children}</div>;
+export function InboxAnimatedList({ children }: { children: ReactNode }) {
+  const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const attach = useCallback((node: HTMLDivElement | null) => {
+    motion.current?.dispose();
+    motion.current = node ? createSidebarListMotion(node) : null;
+    motion.current?.update(false);
+  }, []);
+  // Polling and read-state updates must not restart list motion or measure layout.
+  const orderKey = Children.toArray(children)
+    .map((child) => (isValidElement(child) ? child.key : ""))
+    .join("\0");
+  useLayoutEffect(() => {
+    void orderKey;
+    motion.current?.update(true);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Animate membership/order changes only.
+  }, [orderKey]);
+  return (
+    <div
+      ref={attach}
+      className="relative flow-root"
+      // Expansion has its own transition; retain its final geometry for the next settle.
+      onTransitionEnd={(event) => {
+        if (event.propertyName === "grid-template-rows") motion.current?.update(false);
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function InboxRow({

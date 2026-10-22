@@ -8,7 +8,7 @@ import {
   ProjectId,
   type InboxNotification,
 } from "@t3tools/contracts";
-import { InboxRow } from "./InboxSidebarLayout";
+import { InboxAnimatedList, InboxRow } from "./InboxSidebarLayout";
 
 const state = vi.hoisted(() => ({
   focus: vi.fn(),
@@ -162,4 +162,73 @@ it("keeps an already expanded row open when one of its actions is activated", as
   expect(row("other").getAttribute("aria-expanded")).toBe("true");
   expect(state.focus).not.toHaveBeenCalled();
   expect(state.action).toHaveBeenCalledExactlyOnceWith("other", { type: "read", read: true });
+});
+
+it("fades the settled notification out while remaining notifications slide up with chat timing", async () => {
+  vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.parentElement ? [...this.parentElement.children].indexOf(this) * 100 : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(80);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(200);
+  vi.stubGlobal("matchMedia", () => ({ matches: false }));
+  const animations: { node: HTMLElement; frames: Keyframe[]; options: KeyframeAnimationOptions }[] =
+    [];
+  const animate = vi.fn(function (
+    this: HTMLElement,
+    frames: Keyframe[],
+    options: KeyframeAnimationOptions,
+  ) {
+    animations.push({ node: this, frames, options });
+    return {
+      cancel: vi.fn(),
+      addEventListener: vi.fn(),
+      effect: { getComputedTiming: () => ({ progress: 0 }) },
+      playState: "running",
+    };
+  });
+  Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+  const render = (ids: string[]) =>
+    act(async () =>
+      root.render(
+        <InboxAnimatedList>
+          {ids.map((id) => (
+            <article key={id} data-inbox-row={id}>
+              {id}
+            </article>
+          ))}
+        </InboxAnimatedList>,
+      ),
+    );
+  try {
+    await render(["settling", "next", "last"]);
+    expect(animations).toHaveLength(0);
+    await render(["settling", "next", "last"]);
+    expect(animations).toHaveLength(0);
+    await render(["next", "last"]);
+    const next = animations.find((item) => item.node.dataset.inboxRow === "next");
+    expect(next?.frames).toEqual([
+      { transform: "translateY(100px)" },
+      { transform: "translateY(0px)" },
+    ]);
+    expect(next?.options).toEqual({ duration: 150, easing: "ease-out" });
+    expect(animations.find((item) => item.node.dataset.inboxRow === "last")?.frames).toEqual(
+      next?.frames,
+    );
+    const animationCount = animations.length;
+    await render(["next", "last"]);
+    expect(animations).toHaveLength(animationCount);
+    const ghost = container.querySelector<HTMLElement>('[aria-hidden="true"]');
+    expect(ghost?.textContent).toBe("settling");
+    expect(ghost?.inert).toBe(true);
+    expect(ghost?.hasAttribute("data-inbox-row")).toBe(false);
+    expect(container.querySelectorAll("[data-inbox-row]")).toHaveLength(2);
+  } finally {
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+  }
 });
