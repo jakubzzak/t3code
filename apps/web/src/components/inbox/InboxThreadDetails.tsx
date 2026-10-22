@@ -9,7 +9,11 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomValue } from "@effect/atom-react";
 import { useInboxNavigation } from "./inboxNavigation";
-import { InboxSourceContent, InboxSummary } from "./InboxNotificationContent";
+import {
+  InboxOpenOriginalAction,
+  InboxSourceContent,
+  InboxSummary,
+} from "./InboxNotificationContent";
 import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { Button } from "../ui/button";
@@ -97,19 +101,22 @@ export function InboxThreadDetails({
             </button>
           </p>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            useInboxNavigation.setState({
-              tab: "inbox",
-              revealId: n.id,
-              revealed: { environmentId, notification: n },
-            })
-          }
-        >
-          Show in Inbox
-        </Button>
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              useInboxNavigation.setState({
+                tab: "inbox",
+                revealId: n.id,
+                revealed: { environmentId, notification: n },
+              })
+            }
+          >
+            Show in Inbox
+          </Button>
+          <InboxOpenOriginalAction notification={n} />
+        </div>
         {memoryEnabled && (
           <details className="mt-2 text-xs">
             <summary className="cursor-pointer text-muted-foreground">

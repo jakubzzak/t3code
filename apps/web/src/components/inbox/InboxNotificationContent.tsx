@@ -1,5 +1,43 @@
 import type { InboxNotification } from "@t3tools/contracts";
-import { SparklesIcon } from "lucide-react";
+import { isMacPlatform } from "@t3tools/shared/keybindings";
+import { ExternalLinkIcon, SparklesIcon } from "lucide-react";
+import { Button } from "../ui/button";
+import { inboxSourceUrl, openInboxOriginal } from "./inboxSourceLink";
+
+export function InboxOpenOriginalAction({
+  notification,
+  shortcut = false,
+  hints = false,
+}: {
+  notification: InboxNotification;
+  shortcut?: boolean;
+  hints?: boolean;
+}) {
+  const mac = isMacPlatform(typeof navigator === "undefined" ? "" : navigator.platform);
+  return (
+    <span className="relative">
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        disabled={!inboxSourceUrl(notification)}
+        aria-label="Open original"
+        aria-keyshortcuts={shortcut ? `${mac ? "Meta" : "Control"}+Shift+O` : undefined}
+        title={shortcut ? `Open original (${mac ? "⌘⇧O" : "Ctrl+Shift+O"})` : "Open original"}
+        onClick={() => openInboxOriginal(notification)}
+      >
+        <ExternalLinkIcon className="size-3.5" />
+      </Button>
+      {shortcut && hints && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -top-2 right-0 rounded bg-popover px-1 text-3xs text-popover-foreground shadow-sm"
+        >
+          ⇧O
+        </span>
+      )}
+    </span>
+  );
+}
 
 export function InboxSummary({
   notification,
@@ -59,16 +97,6 @@ export function InboxSourceContent({ notification }: { notification: InboxNotifi
               </div>
             )}
             <p className="whitespace-pre-wrap break-words">{item.content}</p>
-            {/^https?:\/\//i.test(item.url) && (
-              <a
-                href={item.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-2xs text-primary underline"
-              >
-                Open original
-              </a>
-            )}
           </div>
         ))}
       </div>

@@ -50,7 +50,12 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
 import { InboxSourceLogo } from "./InboxSourceLogo";
-import { InboxSourceContent, InboxSummary } from "./InboxNotificationContent";
+import {
+  InboxOpenOriginalAction,
+  InboxSourceContent,
+  InboxSummary,
+} from "./InboxNotificationContent";
+import { openInboxOriginal } from "./inboxSourceLink";
 import { isInboxInitialLoad, isInboxDetailCurrent } from "./inboxPresentation";
 import styles from "./inboxSidebar.module.css";
 
@@ -188,14 +193,14 @@ function InboxRow({
           )}
         </div>
       </div>
-      {focused && settings?.inboxSummaryEnabled && (n.processingError || content.analysis) && (
+      {focused && settings?.inboxSummaryEnabled && n.processingError && (
         <button
           type="button"
           disabled={!canWrite || pending}
           className="text-2xs text-primary underline"
           onClick={() => onAction({ type: "reprocess" })}
         >
-          {n.processingError ? "Retry summary" : "Regenerate summary"}
+          Retry summary
         </button>
       )}
       {n.agentStatus === "starting" ||
@@ -255,6 +260,7 @@ function InboxRow({
               )}
             </span>
           ))}
+        <InboxOpenOriginalAction notification={n} shortcut hints={hints && focused} />
       </div>
     </article>
   );
@@ -618,6 +624,12 @@ export function InboxSidebarLayout({
     }
     if (!entry) return;
     let value: InboxMutation | "snooze-menu" | undefined;
+    if (event.shiftKey && !event.altKey && event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) openInboxOriginal(entry.notification);
+      return;
+    }
     if (event.key === "Enter") value = { type: "delegate", startAgent: !event.shiftKey };
     if (event.shiftKey && event.key.toLowerCase() === "h") value = "snooze-menu";
     if (event.shiftKey && event.key.toLowerCase() === "u")
