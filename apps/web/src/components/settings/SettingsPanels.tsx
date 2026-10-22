@@ -1243,10 +1243,6 @@ export function AppearanceSettingsPanel() {
                 label="contrast"
                 onClick={() =>
                   updateSettings({
-                    awakeEnabled: DEFAULT_UNIFIED_SETTINGS.awakeEnabled,
-                    awakeLowPowerBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeLowPowerBelowPercent,
-                    awakeSleepBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeSleepBelowPercent,
-                    awakeHeatRules: DEFAULT_UNIFIED_SETTINGS.awakeHeatRules,
                     appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
                   })
                 }
