@@ -16,12 +16,14 @@ export function CollapsibleSectionHeader({
   tone = "muted",
   variant = "default",
   accessory,
+  count,
   ...buttonProps
 }: Omit<ComponentProps<"button">, "className" | "style" | "aria-expanded"> & {
   expanded: boolean;
   tone?: keyof typeof tones;
   variant?: "default" | "panel";
   accessory?: ReactNode;
+  count?: number;
 }) {
   return (
     <button
@@ -34,7 +36,10 @@ export function CollapsibleSectionHeader({
         tones[tone].label,
       )}
     >
-      <span className="shrink-0">{children}</span>
+      <span className="shrink-0">
+        {children}
+        {!expanded && count !== undefined ? ` (${count})` : null}
+      </span>
       <span aria-hidden className={cn("h-px min-w-2 flex-1", tones[tone].line)} />
       {accessory}
       <ChevronDownIcon

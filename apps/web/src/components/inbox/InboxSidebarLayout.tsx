@@ -25,7 +25,6 @@ import {
   MailIcon,
   MailOpenIcon,
   MessageSquareIcon,
-  RotateCcwIcon,
   SettingsIcon,
   Undo2Icon,
 } from "lucide-react";
@@ -53,6 +52,7 @@ import styles from "./inboxSidebar.module.css";
 type Entry = { environmentId: EnvironmentId; notification: InboxNotification };
 const keyOf = (entry: Entry) => `${entry.environmentId}:${entry.notification.id}`;
 const sources: InboxSource[] = ["slack", "linear", "superhuman"];
+const shelfLabels = { delegated: "Delegated", snoozed: "Snoozed", resolved: "Settled" } as const;
 
 function InboxRow({
   entry,
@@ -109,9 +109,9 @@ function InboxRow({
       action: { type: "read", read: !n.state.read } as const,
     },
     {
-      label: n.state.placement === "resolved" ? "Reopen" : "Resolve",
+      label: n.state.placement === "resolved" ? "Un-settle" : "Settle",
       hint: "E",
-      Icon: n.state.placement === "resolved" ? RotateCcwIcon : CheckIcon,
+      Icon: n.state.placement === "resolved" ? Undo2Icon : CheckIcon,
       action: { type: "resolve", resolved: n.state.placement !== "resolved" } as const,
     },
   ];
@@ -541,6 +541,11 @@ export function InboxSidebarLayout({
   const visible = filtered.filter(
     ({ notification: n }) => n.state.placement === "active" || sections.has(n.state.placement),
   );
+  const firstShelf = (["delegated", "snoozed", "resolved"] as const).find(
+    (placement) =>
+      placement === "resolved" ||
+      filtered.some((entry) => entry.notification.state.placement === placement),
+  );
   function keyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (
       event.target instanceof Element &&
@@ -779,32 +784,32 @@ export function InboxSidebarLayout({
                     const group = filtered.filter(
                       (entry) => entry.notification.state.placement === placement,
                     );
+                    if (placement !== "active" && placement !== "resolved" && group.length === 0)
+                      return null;
                     const expanded = placement === "active" || sections.has(placement);
                     return (
                       <section
                         key={placement}
-                        className={placement === "delegated" ? "mt-auto shrink-0" : "shrink-0"}
+                        className={placement === firstShelf ? "mt-auto shrink-0" : "shrink-0"}
                       >
                         {placement !== "active" && (
-                          <CollapsibleSectionHeader
-                            expanded={expanded}
-                            tone={placement === "snoozed" ? "info" : "muted"}
-                            accessory={<span>{group.length}</span>}
-                            onClick={() =>
-                              setSections((current) => {
-                                const next = new Set(current);
-                                if (next.has(placement)) next.delete(placement);
-                                else next.add(placement);
-                                return next;
-                              })
-                            }
-                          >
-                            {placement === "delegated"
-                              ? "Delegated"
-                              : placement === "snoozed"
-                                ? "Snoozed"
-                                : "Resolved"}
-                          </CollapsibleSectionHeader>
+                          <div className="mx-0.5 h-8">
+                            <CollapsibleSectionHeader
+                              expanded={expanded}
+                              count={group.length}
+                              tone={placement === "snoozed" ? "info" : "muted"}
+                              onClick={() =>
+                                setSections((current) => {
+                                  const next = new Set(current);
+                                  if (next.has(placement)) next.delete(placement);
+                                  else next.add(placement);
+                                  return next;
+                                })
+                              }
+                            >
+                              {shelfLabels[placement]}
+                            </CollapsibleSectionHeader>
+                          </div>
                         )}
                         {expanded &&
                           group.map((entry) => (

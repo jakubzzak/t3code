@@ -162,7 +162,7 @@ expand an item. **Agent** starts the project's configured agent; **Agent chat** 
 and waits for your message. Either action opens an existing linked chat. Its notification context
 is also available in the chat's Details.
 
-Read state, snoozing and resolution belong to Blackbird; they do not change the source. Undo restores
+Read state, snoozing and settlement belong to Blackbird; they do not change the source. Undo restores
 notification state. Undoing a running delegation requests a stop and keeps the chat and completed
 work. A stop can remain pending or fail, so check its status before assuming the agent has stopped.
 

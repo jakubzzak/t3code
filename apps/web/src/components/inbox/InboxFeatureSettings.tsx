@@ -103,7 +103,7 @@ export function InboxFeatureSettings() {
         mixed={resolutionMixed}
         serverScoped
         settingKeys={["inboxPreResolution"]}
-        description="Add suggested steps or a draft response to the summary. Suggestions do not send messages or resolve notifications."
+        description="Add suggested steps or a draft response to the summary. Suggestions do not send messages or settle notifications."
         control={
           <Switch
             aria-label="Suggested resolutions"
