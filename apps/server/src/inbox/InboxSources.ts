@@ -165,7 +165,14 @@ export const make = Effect.gen(function* () {
           yield* settings.getSettings.pipe(Effect.mapError(error)),
           input.projectId,
         ).settings;
-        if (!config.inboxEnabled || !connection.enabled || !connection.connected) return connection;
+        if (
+          !config.inboxEnabled ||
+          !connection.enabled ||
+          !connection.connected ||
+          !connection.categories.length ||
+          (connection.source === "superhuman" && !connection.accounts.length)
+        )
+          return connection;
         const now = yield* Clock.currentTimeMillis;
         if (!force && connection.retryAt && Date.parse(connection.retryAt) > now) return connection;
         const credential = yield* secrets
@@ -201,8 +208,7 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         if (
           input.source === "linear" &&
-          (!input.categories.length ||
-            input.token ||
+          (input.token ||
             input.categories.some(
               (category) =>
                 category !== "all" &&
@@ -214,14 +220,12 @@ export const make = Effect.gen(function* () {
           });
         if (
           input.source === "slack" &&
-          (!input.categories.length ||
-            input.categories.some(
-              (category) => !["dms", "mentions", "group-mentions"].includes(category),
-            ))
+          input.categories.some(
+            (category) => !["dms", "mentions", "group-mentions"].includes(category),
+          )
         )
           return yield* new InboxError({
-            detail:
-              "Choose at least one supported Slack category. Saved and To-dos are unavailable.",
+            detail: "Choose supported Slack categories. Saved and To-dos are unavailable.",
           });
         const previous = (yield* input.source === "linear"
           ? list(input.projectId)
@@ -233,9 +237,7 @@ export const make = Effect.gen(function* () {
             });
           const catalog = yield* superhuman.catalog(input.projectId);
           if (
-            !input.accounts?.length ||
-            input.accounts.some((account) => !catalog.accounts.includes(account)) ||
-            !input.categories.length ||
+            input.accounts?.some((account) => !catalog.accounts.includes(account)) ||
             input.categories.some(
               (category) =>
                 !catalog.splits.some(

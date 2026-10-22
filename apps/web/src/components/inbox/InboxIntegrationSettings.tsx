@@ -20,6 +20,8 @@ import { Switch } from "../ui/switch";
 import { OAuthClientIdSetting } from "./OAuthClientIdSetting";
 import { useScopedSettings } from "../settings/useScopedSettings";
 import { InboxSourceLogo } from "./InboxSourceLogo";
+import { useInboxSourceSettings } from "./useInboxSourceSettings";
+import { useCommitOnBlur } from "~/hooks/useCommitOnBlur";
 function IntegrationSelection({
   label,
   options,
@@ -67,7 +69,7 @@ function IntegrationSelection({
               >
                 <input
                   type="checkbox"
-                  disabled={option.disabled}
+                  disabled={disabled || option.disabled}
                   checked={selected.includes(option.value)}
                   onChange={(event) => onToggle(option.value, event.target.checked)}
                 />
@@ -95,36 +97,25 @@ function SlackConnection({
   const clientId = useScopedSettings((settings) => settings.slackClientId);
   const begin = useAtomCommand(inboxEnvironment.beginSlack, { reportFailure: true });
   const cancel = useAtomCommand(inboxEnvironment.cancelSlack, { reportFailure: true });
-  const [lookback, setLookback] = useState(connection.initialLookbackDays);
-  const [categories, setCategories] = useState<ReadonlyArray<string>>(connection.categories);
+  const { selection, saving, update } = useInboxSourceSettings(environmentId, connection, refresh);
+  const { categories } = selection;
+  const history = useCommitOnBlur(String(selection.initialLookbackDays), (value) => {
+    const days = Number(value);
+    if (Number.isInteger(days) && days >= 1 && days <= 90)
+      void update({ initialLookbackDays: days });
+  });
+  const tokenInput = useCommitOnBlur(token, (value) => {
+    setToken(value);
+    if (value.trim())
+      void update({}, Redacted.make(value.trim())).then((success) => {
+        if (success) setToken("");
+      });
+  });
   const [pending, setPending] = useState(false);
   const canWrite = useAtomValue(inboxEnvironment.configureSource.permissionAtom(environmentId));
-  const configure = useAtomCommand(inboxEnvironment.configureSource, { reportFailure: true });
   const disconnect = useAtomCommand(inboxEnvironment.disconnectSource, { reportFailure: true });
   const sync = useAtomCommand(inboxEnvironment.refreshSource, { reportFailure: true });
   const canSync = useAtomValue(inboxEnvironment.refreshSource.permissionAtom(environmentId));
-  async function save(enabled = true) {
-    setPending(true);
-    try {
-      const result = await configure({
-        environmentId,
-        input: {
-          projectId: connection.projectId,
-          source: "slack",
-          enabled,
-          initialLookbackDays: lookback,
-          categories,
-          ...(token ? { token: Redacted.make(token) } : {}),
-        },
-      });
-      if (result._tag === "Success") {
-        setToken("");
-        refresh();
-      }
-    } finally {
-      setPending(false);
-    }
-  }
   async function connect() {
     const popup = !window.desktopBridge ? window.open("", "_blank") : null;
     if (popup) popup.opener = null;
@@ -158,16 +149,31 @@ function SlackConnection({
             <Button
               size="sm"
               variant="outline"
-              disabled={!canWrite || pending || !clientId}
+              disabled={!canWrite || pending || saving || !clientId}
               onClick={() => void connect()}
             >
               {connection.connected ? "Reconnect Slack" : "Connect Slack"}
             </Button>
+            {connection.connected && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!canSync || pending || saving || !selection.enabled}
+                onClick={() =>
+                  void sync({
+                    environmentId,
+                    input: { projectId: connection.projectId, source: "slack" },
+                  }).then(refresh)
+                }
+              >
+                Refresh
+              </Button>
+            )}
             {authorizationUrl && (
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={!canWrite || pending}
+                disabled={!canWrite || pending || saving}
                 onClick={() =>
                   void cancel({ environmentId, input: { projectId: connection.projectId } }).then(
                     () => setAuthorizationUrl(null),
@@ -181,7 +187,7 @@ function SlackConnection({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={!canWrite || pending}
+                disabled={!canWrite || pending || saving}
                 onClick={() =>
                   void disconnect({
                     environmentId,
@@ -203,6 +209,11 @@ function SlackConnection({
             </a>
           </p>
         )}
+        {connection.lastSyncAt && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Last synced {new Date(connection.lastSyncAt).toLocaleString()}
+          </p>
+        )}
         {connection.error && (
           <p role="alert" className="mt-2 text-xs text-destructive">
             {connection.error}
@@ -215,9 +226,14 @@ function SlackConnection({
         control={
           <Switch
             aria-label="Enable Slack notifications"
-            checked={connection.enabled}
-            disabled={!canWrite || pending || !connection.connected}
-            onCheckedChange={(enabled) => void save(enabled)}
+            checked={selection.enabled}
+            disabled={
+              !canWrite ||
+              pending ||
+              !connection.connected ||
+              (!selection.enabled && !categories.length)
+            }
+            onCheckedChange={(enabled) => void update({ enabled })}
           />
         }
       />
@@ -237,9 +253,11 @@ function SlackConnection({
               { value: "todos", label: "To-dos · unavailable", disabled: true },
             ]}
             onToggle={(id, checked) =>
-              setCategories((current) =>
-                checked ? [...current, id] : current.filter((value) => value !== id),
-              )
+              void update((current) => ({
+                categories: checked
+                  ? [...current.categories, id]
+                  : current.categories.filter((value) => value !== id),
+              }))
             }
           />
         }
@@ -255,52 +273,9 @@ function SlackConnection({
               aria-label="Slack initial history days"
               min={1}
               max={90}
-              value={lookback}
+              {...history}
               disabled={!canWrite || pending}
-              onChange={(event) => setLookback(Number(event.target.value))}
             />
-          </div>
-        }
-      />
-      <SettingsRow
-        title="Apply selection"
-        description={
-          connection.lastSyncAt
-            ? `Last synced ${new Date(connection.lastSyncAt).toLocaleString()}`
-            : "Save categories and history for this project."
-        }
-        control={
-          <div className="flex items-center justify-end gap-2">
-            {connection.connected && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={!canSync || pending || !connection.enabled}
-                onClick={() =>
-                  void sync({
-                    environmentId,
-                    input: { projectId: connection.projectId, source: "slack" },
-                  }).then(refresh)
-                }
-              >
-                Refresh
-              </Button>
-            )}
-            <Button
-              size="sm"
-              disabled={
-                !canWrite ||
-                pending ||
-                lookback < 1 ||
-                lookback > 90 ||
-                !Number.isInteger(lookback) ||
-                !categories.length ||
-                (!connection.connected && !token)
-              }
-              onClick={() => void save()}
-            >
-              Save selection
-            </Button>
           </div>
         }
       />
@@ -311,7 +286,7 @@ function SlackConnection({
         <div className="space-y-3 pt-3">
           <p className="text-xs text-muted-foreground">
             Enable PKCE and register this environment's /oauth/inbox/slack/callback URL in your
-            Slack app. You can also enter an existing user token, then save the selection above.
+            Slack app. An existing user token is saved when you leave the field or press Enter.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <label htmlFor="slack-manual-token" className="text-xs">
@@ -325,8 +300,7 @@ function SlackConnection({
                 autoComplete="off"
                 aria-label="Slack user OAuth token"
                 placeholder={connection.connected ? "Replace token (optional)" : "xoxp-…"}
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
+                {...tokenInput}
                 disabled={!canWrite || pending}
               />
             </div>
@@ -350,13 +324,12 @@ function SuperhumanConnection({
   connection: InboxSourceConnection;
   refresh: () => void;
 }) {
-  const [accounts, setAccounts] = useState<ReadonlyArray<string>>(connection.accounts);
-  const [categories, setCategories] = useState<ReadonlyArray<string>>(connection.categories);
+  const { selection, saving, update } = useInboxSourceSettings(environmentId, connection, refresh);
+  const { accounts, categories } = selection;
   const [pending, setPending] = useState(false);
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
   const canWrite = useAtomValue(inboxEnvironment.configureSource.permissionAtom(environmentId));
   const begin = useAtomCommand(inboxEnvironment.beginSuperhuman, { reportFailure: true });
-  const configure = useAtomCommand(inboxEnvironment.configureSource, { reportFailure: true });
   const disconnect = useAtomCommand(inboxEnvironment.disconnectSource, { reportFailure: true });
   const catalog = useEnvironmentQuery(
     connection.connected
@@ -393,24 +366,6 @@ function SuperhumanConnection({
       setPending(false);
     }
   }
-  async function save(enabled: boolean) {
-    setPending(true);
-    try {
-      await configure({
-        environmentId,
-        input: {
-          projectId: connection.projectId,
-          source: "superhuman",
-          enabled,
-          accounts,
-          categories,
-        },
-      });
-      refresh();
-    } finally {
-      setPending(false);
-    }
-  }
   return (
     <>
       <SettingsRow
@@ -425,7 +380,7 @@ function SuperhumanConnection({
             <Button
               size="sm"
               variant="outline"
-              disabled={!canWrite || pending}
+              disabled={!canWrite || pending || saving}
               onClick={() => void connect()}
             >
               {connection.connected ? "Reconnect Superhuman" : "Connect Superhuman"}
@@ -434,7 +389,7 @@ function SuperhumanConnection({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={!canWrite || pending}
+                disabled={!canWrite || pending || saving}
                 onClick={() =>
                   void disconnect({
                     environmentId,
@@ -472,15 +427,14 @@ function SuperhumanConnection({
         control={
           <Switch
             aria-label="Enable Superhuman notifications"
-            checked={connection.enabled}
+            checked={selection.enabled}
             disabled={
               !canWrite ||
               pending ||
               !connection.connected ||
-              !accounts.length ||
-              !categories.length
+              (!selection.enabled && (!accounts.length || !categories.length))
             }
-            onCheckedChange={(enabled) => void save(enabled)}
+            onCheckedChange={(enabled) => void update({ enabled })}
           />
         }
       />
@@ -501,9 +455,23 @@ function SuperhumanConnection({
               label: account,
             }))}
             onToggle={(account, checked) =>
-              setAccounts((current) =>
-                checked ? [...current, account] : current.filter((value) => value !== account),
-              )
+              void update((current) => {
+                const accounts = checked
+                  ? [...current.accounts, account]
+                  : current.accounts.filter((value) => value !== account);
+                const available = new Set([
+                  ...(catalog.data?.splits ?? [])
+                    .filter((entry) => accounts.includes(entry.accountEmail))
+                    .map((entry) => `split:${entry.name}`),
+                  ...(catalog.data?.labels ?? [])
+                    .filter((entry) => accounts.includes(entry.accountEmail))
+                    .map((entry) => `label:${entry.name}`),
+                ]);
+                return {
+                  accounts,
+                  categories: current.categories.filter((category) => available.has(category)),
+                };
+              })
             }
           />
         }
@@ -525,9 +493,11 @@ function SuperhumanConnection({
               label: category.replace("split:", "Split · ").replace("label:", "Label · "),
             }))}
             onToggle={(category, checked) =>
-              setCategories((current) =>
-                checked ? [...current, category] : current.filter((value) => value !== category),
-              )
+              void update((current) => ({
+                categories: checked
+                  ? [...current.categories, category]
+                  : current.categories.filter((value) => value !== category),
+              }))
             }
           />
         }
@@ -541,25 +511,6 @@ function SuperhumanConnection({
           </p>
         )}
       </SettingsRow>
-      <SettingsRow
-        title="Apply selection"
-        description="Save accounts and filters for this project."
-        control={
-          <Button
-            size="sm"
-            disabled={
-              !canWrite ||
-              pending ||
-              !connection.connected ||
-              !accounts.length ||
-              !categories.length
-            }
-            onClick={() => void save(true)}
-          >
-            Save selection
-          </Button>
-        }
-      />
     </>
   );
 }
@@ -572,22 +523,9 @@ function LinearNotifications({
   connection: InboxSourceConnection;
   refresh: () => void;
 }) {
-  const [categories, setCategories] = useState<ReadonlyArray<string>>(connection.categories);
+  const { selection, update } = useInboxSourceSettings(environmentId, connection, refresh);
+  const { categories } = selection;
   const canWrite = useAtomValue(inboxEnvironment.configureSource.permissionAtom(environmentId));
-  const configure = useAtomCommand(inboxEnvironment.configureSource);
-  const [pending, setPending] = useState(false);
-  async function save(enabled: boolean) {
-    setPending(true);
-    try {
-      await configure({
-        environmentId,
-        input: { projectId: connection.projectId, source: "linear", enabled, categories },
-      });
-      refresh();
-    } finally {
-      setPending(false);
-    }
-  }
   return (
     <>
       <SettingsRow
@@ -596,9 +534,11 @@ function LinearNotifications({
         control={
           <Switch
             aria-label="Enable Linear notifications"
-            checked={connection.enabled}
-            disabled={!canWrite || pending || !connection.connected || !categories.length}
-            onCheckedChange={(enabled) => void save(enabled)}
+            checked={selection.enabled}
+            disabled={
+              !canWrite || !connection.connected || (!selection.enabled && !categories.length)
+            }
+            onCheckedChange={(enabled) => void update({ enabled })}
           />
         }
       />
@@ -613,7 +553,7 @@ function LinearNotifications({
           <IntegrationSelection
             label="Linear notification categories"
             selected={categories}
-            disabled={!canWrite || pending || !connection.connected}
+            disabled={!canWrite || !connection.connected}
             options={["all", ...LINEAR_INBOX_CATEGORIES].map((category) => ({
               value: category,
               label:
@@ -622,33 +562,20 @@ function LinearNotifications({
                   : category
                       .replace(/([A-Z])/g, " $1")
                       .replace(/^./, (letter) => letter.toUpperCase()),
-              disabled: category !== "all" && categories.includes("all"),
             }))}
             onToggle={(category, checked) =>
-              setCategories((current) =>
-                category === "all"
-                  ? checked
-                    ? ["all"]
-                    : []
-                  : checked
-                    ? [...current, category]
-                    : current.filter((value) => value !== category),
-              )
+              void update((current) => ({
+                categories:
+                  category === "all"
+                    ? checked
+                      ? ["all"]
+                      : []
+                    : checked
+                      ? [...current.categories.filter((value) => value !== "all"), category]
+                      : current.categories.filter((value) => value !== category),
+              }))
             }
           />
-        }
-      />
-      <SettingsRow
-        title="Apply selection"
-        description="Save notification categories for this project."
-        control={
-          <Button
-            size="sm"
-            disabled={!canWrite || pending || !connection.connected || !categories.length}
-            onClick={() => void save(true)}
-          >
-            Save selection
-          </Button>
         }
       />
       {connection.error && (
@@ -772,10 +699,25 @@ export function ProjectIntegrationSettings() {
       return <SettingsRow title="Connection" description={result.error ?? "Loading connection…"} />;
     const props = { environmentId: project.environmentId, connection, refresh: result.refresh };
     if (source === "slack")
-      return <SlackConnection key={`${project.id}:${connection.connected}`} {...props} />;
+      return (
+        <SlackConnection
+          key={`${project.environmentId}:${project.id}:${connection.connected}`}
+          {...props}
+        />
+      );
     if (source === "linear")
-      return <LinearNotifications key={`${project.id}:${connection.connected}`} {...props} />;
-    return <SuperhumanConnection key={`${project.id}:${connection.connected}`} {...props} />;
+      return (
+        <LinearNotifications
+          key={`${project.environmentId}:${project.id}:${connection.connected}`}
+          {...props}
+        />
+      );
+    return (
+      <SuperhumanConnection
+        key={`${project.environmentId}:${project.id}:${connection.connected}`}
+        {...props}
+      />
+    );
   };
   return (
     <>

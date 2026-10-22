@@ -86,7 +86,12 @@ it.effect(
             complete: () => Effect.die("Not used"),
             disconnect: () => Effect.void,
             read: () => Effect.succeed([]),
-            catalog: () => Effect.succeed({ accounts: [], splits: [], labels: [] }),
+            catalog: () =>
+              Effect.succeed({
+                accounts: ["one@example.test", "two@example.test"],
+                splits: [{ accountEmail: "one@example.test", id: "important", name: "Important" }],
+                labels: [{ accountEmail: "two@example.test", id: "work", name: "Work" }],
+              }),
           }),
         ),
         Layer.provide(Sqlite.layerMemory),
@@ -99,6 +104,48 @@ it.effect(
         const service = yield* Sources.InboxSources;
         const settings = yield* Settings.ServerSettingsService;
         const projectId = ProjectId.make("one");
+        for (const source of ["slack", "linear", "superhuman"] as const) {
+          const cleared = yield* service.configure({
+            projectId,
+            source,
+            enabled: false,
+            categories: [],
+            accounts: [],
+          });
+          assert.equal(cleared.enabled, false);
+          assert.deepEqual(cleared.categories, []);
+        }
+        const accountOnly = yield* service.configure({
+          projectId,
+          source: "superhuman",
+          enabled: false,
+          accounts: ["one@example.test"],
+          categories: [],
+        });
+        assert.deepEqual(accountOnly.accounts, ["one@example.test"]);
+        assert.equal(
+          (yield* Effect.result(
+            service.configure({
+              projectId,
+              source: "superhuman",
+              enabled: false,
+              accounts: ["one@example.test"],
+              categories: ["label:Work"],
+            }),
+          ))._tag,
+          "Failure",
+        );
+        assert.equal(
+          (yield* Effect.result(
+            service.configure({
+              projectId,
+              source: "linear",
+              enabled: false,
+              categories: ["unsupported"],
+            }),
+          ))._tag,
+          "Failure",
+        );
         const input = {
           projectId,
           source: "slack" as const,
@@ -114,6 +161,12 @@ it.effect(
         yield* settings.updateSettings({
           projectSettingsOverrides: { [projectId]: { inboxEnabled: true } },
         });
+        const { token: _unusedToken, ...connectedInput } = input;
+        const noCategories = { ...connectedInput, categories: [] };
+        yield* service.configure(noCategories);
+        yield* service.refresh(noCategories);
+        assert.equal(yield* Ref.get(calls), 0);
+        yield* service.configure(input);
         const synced = yield* service.refresh(input);
         assert.ok(synced.lastSyncAt);
         assert.equal(yield* Ref.get(ingested), 1);
