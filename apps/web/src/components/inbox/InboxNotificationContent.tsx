@@ -1,8 +1,32 @@
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { slackLinkUrl } from "@t3tools/shared/slackText";
 import type { InboxNotification } from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
 import { ArrowUpRightIcon, SparklesIcon } from "lucide-react";
 import { Button } from "../ui/button";
-import { inboxSourceUrl, openInboxOriginal } from "./inboxSourceLink";
+import { inboxSourceUrl, openInboxOriginal, openInboxLink } from "./inboxSourceLink";
+
+const inboxMarkdownPlugins = [remarkGfm];
+const inboxMarkdownComponents: Components = {
+  a: ({ href, children }) =>
+    href ? (
+      <a
+        href={href}
+        rel="noreferrer noopener"
+        target="_blank"
+        onClick={(event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          openInboxLink(href);
+        }}
+      >
+        {children}
+      </a>
+    ) : (
+      <>{children}</>
+    ),
+};
 
 export function InboxOpenOriginalAction({
   notification,
@@ -75,7 +99,7 @@ export function InboxSummary({
           <p>{notification.items.at(-1)?.title}</p>
           {enabled && (
             <p className="mt-1 text-2xs font-normal text-muted-foreground">
-              {notification.processingError ?? "AI summary pending"}
+              AI summary not available
             </p>
           )}
         </>
@@ -96,7 +120,35 @@ export function InboxSourceContent({ notification }: { notification: InboxNotifi
                 {item.author} · {item.location}
               </div>
             )}
-            <p className="whitespace-pre-wrap break-words">{item.content}</p>
+            {item.formattedContent !== undefined ? (
+              <div className="space-y-2 whitespace-pre-wrap break-words [&_a]:text-primary [&_a]:underline [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
+                <ReactMarkdown
+                  skipHtml
+                  remarkPlugins={inboxMarkdownPlugins}
+                  allowedElements={[
+                    "p",
+                    "a",
+                    "strong",
+                    "em",
+                    "del",
+                    "code",
+                    "pre",
+                    "blockquote",
+                    "ul",
+                    "ol",
+                    "li",
+                    "br",
+                  ]}
+                  unwrapDisallowed
+                  urlTransform={(url) => slackLinkUrl(url) ?? ""}
+                  components={inboxMarkdownComponents}
+                >
+                  {item.formattedContent}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <p className="whitespace-pre-wrap break-words">{item.content}</p>
+            )}
           </div>
         ))}
       </div>

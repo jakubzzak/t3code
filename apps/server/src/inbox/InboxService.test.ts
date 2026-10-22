@@ -37,7 +37,7 @@ const dependencies = Layer.mergeAll(
   Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)),
   Settings.layerTest({
     projectSettingsOverrides: {
-      [projectId]: { inboxEnabled: true, inboxSummaryEnabled: true, inboxAgentEnabled: true },
+      [projectId]: { inboxEnabled: true, inboxSummaryEnabled: false, inboxAgentEnabled: true },
     },
   }),
 );
@@ -218,6 +218,12 @@ it.effect(
       yield* Effect.gen(function* () {
         const repository = yield* Repository.InboxRepository;
         const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [projectId]: { inboxEnabled: true, inboxSummaryEnabled: true },
+          },
+        });
         const notification = {
           ...ingestInboxItem(projectId, item),
           processingError: "Model unavailable",
@@ -246,7 +252,11 @@ it.effect("lists bounded AI summaries and keeps full source context and next ste
       const service = yield* Inbox.InboxService;
       const summary = "Review the reconnect fix after sleep. ".repeat(40);
       const notification = {
-        ...ingestInboxItem(projectId, { ...item, content: "Original context. ".repeat(100) }),
+        ...ingestInboxItem(projectId, {
+          ...item,
+          content: "Original context. ".repeat(100),
+          formattedContent: "Formatted context. ".repeat(1000),
+        }),
         analysis: {
           description: "Old one-sentence description",
           summary,
@@ -265,6 +275,7 @@ it.effect("lists bounded AI summaries and keeps full source context and next ste
       assert.ok(preview.analysis.summary.endsWith("…"));
       assert.deepEqual(preview.analysis.suggestions, []);
       assert.ok(preview.items[0]!.content.length <= 320);
+      assert.equal(preview.items[0]?.formattedContent, undefined);
       const detail = yield* service.get({ projectId, id: notification.id });
       assert.deepEqual(detail?.analysis, notification.analysis);
       assert.deepEqual(detail?.items, notification.items);
@@ -347,6 +358,12 @@ it.effect("does not pass notification history to processing while project memory
     yield* Effect.gen(function* () {
       const repository = yield* Repository.InboxRepository;
       const service = yield* Inbox.InboxService;
+      const settings = yield* Settings.ServerSettingsService;
+      yield* settings.updateSettings({
+        projectSettingsOverrides: {
+          [projectId]: { inboxEnabled: true, inboxSummaryEnabled: true },
+        },
+      });
       yield* repository.put({
         ...ingestInboxItem(projectId, { ...item, id: "past", groupId: "past" }),
         confirmedOutcome: "The old issue was fixed by rotating the key.",

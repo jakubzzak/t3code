@@ -1,3 +1,5 @@
+import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -55,6 +57,7 @@ const make = Effect.gen(function* () {
   const agent = yield* InboxAgent.InboxAgent;
   const analyzer = yield* InboxAnalysis.InboxAnalysis;
   const analysisPermits = yield* Semaphore.make(2);
+  const analysisDrainPermit = yield* Semaphore.make(1);
   const settings = yield* ServerSettings.ServerSettingsService;
   const mutex = yield* Semaphore.make(1);
   const scope = yield* Effect.scope;
@@ -321,6 +324,8 @@ const make = Effect.gen(function* () {
                 ...current,
                 analysis: null,
                 processingError: null,
+                analysisAttempts: 0,
+                analysisRetryAt: null,
                 analysisVersion: current.analysisVersion + 1,
               };
               undoable = false;
@@ -357,61 +362,119 @@ const make = Effect.gen(function* () {
         Effect.tap(() => kick),
         Effect.tap(() => kickAnalysis),
       );
-  const analyze = (notification: InboxNotification) =>
+  const analyzing = new Map<string, Deferred.Deferred<void>>();
+  const analyze = (notification: InboxNotification): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      const inFlight = analyzing.get(notification.id);
+      if (inFlight) return Deferred.await(inFlight).pipe(Effect.andThen(analyze(notification)));
+      const done = Deferred.makeUnsafe<void>();
+      analyzing.set(notification.id, done);
+      return Effect.gen(function* () {
+        const projectSettings = yield* readProjectSettings(notification.projectId);
+        if (!projectSettings.inboxEnabled || !projectSettings.inboxSummaryEnabled) return;
+        const claimed = yield* mutex.withPermits(1)(
+          Effect.gen(function* () {
+            const stored = yield* repository.get(notification.projectId, notification.id);
+            if (!stored || stored.analysisVersion !== notification.analysisVersion) return null;
+            const current = readableNotification(stored);
+            const now = yield* Clock.currentTimeMillis;
+            if (
+              current.analysis ||
+              current.processingError ||
+              (current.analysisRetryAt && Date.parse(current.analysisRetryAt) > now)
+            )
+              return null;
+            if ((current.analysisAttempts ?? 0) >= 3) {
+              yield* save({
+                ...current,
+                processingError: "AI summary not available",
+                analysisRetryAt: null,
+              });
+              return null;
+            }
+            // Persist a bounded lease before starting a call, so a restart cannot reset the budget.
+            const next = {
+              ...current,
+              analysisAttempts: (current.analysisAttempts ?? 0) + 1,
+              analysisRetryAt: DateTime.formatIso(DateTime.makeUnsafe(now + 60_000)),
+            };
+            yield* save(next);
+            return next;
+          }),
+        );
+        if (!claimed) return;
+        const history = projectSettings.inboxMemoryEnabled
+          ? yield* repository.history(notification.projectId)
+          : [];
+        const analyzed = yield* analyzer.analyze(claimed, history).pipe(
+          Effect.timeout("1 minute"),
+          Effect.flatMap((result) =>
+            result.summary.trim()
+              ? Effect.succeed(result)
+              : Effect.fail(new InboxError({ detail: "Empty summary" })),
+          ),
+          Effect.result,
+        );
+        const delay = yield* mutex.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* repository.get(notification.projectId, notification.id);
+            if (
+              !current ||
+              current.analysisVersion !== claimed.analysisVersion ||
+              current.analysisAttempts !== claimed.analysisAttempts
+            )
+              return null;
+            const exhausted = claimed.analysisAttempts >= 3;
+            const retryDelay = claimed.analysisAttempts * 5_000;
+            yield* save({
+              ...current,
+              analysis: analyzed._tag === "Success" ? analyzed.success : null,
+              processingError:
+                analyzed._tag === "Failure" && exhausted ? "AI summary not available" : null,
+              analysisRetryAt:
+                analyzed._tag === "Failure" && !exhausted
+                  ? DateTime.formatIso(
+                      DateTime.makeUnsafe((yield* Clock.currentTimeMillis) + retryDelay),
+                    )
+                  : null,
+            });
+            return analyzed._tag === "Failure" && !exhausted ? retryDelay : null;
+          }),
+        );
+        if (delay !== null)
+          yield* Effect.sleep(delay).pipe(Effect.andThen(analyze(claimed)), Effect.forkIn(scope));
+      }).pipe(
+        analysisPermits.withPermits(1),
+        Effect.catch((error) =>
+          Effect.logWarning("Inbox analysis failed", { detail: error.detail }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            analyzing.delete(notification.id);
+          }).pipe(Effect.andThen(Deferred.succeed(done, undefined))),
+        ),
+      );
+    });
+  const drainAnalysis = analysisDrainPermit.withPermits(1)(
     Effect.gen(function* () {
       const config = yield* settings.getSettings.pipe(
         Effect.mapError(
           (cause) => new InboxError({ detail: "Could not read project settings.", cause }),
         ),
       );
-      const projectSettings = resolveProjectSettings(config, notification.projectId).settings;
-      if (!projectSettings.inboxEnabled || !projectSettings.inboxSummaryEnabled) return;
-      const history = projectSettings.inboxMemoryEnabled
-        ? yield* repository.history(notification.projectId)
-        : [];
-      const analyzed = yield* analyzer.analyze(notification, history).pipe(Effect.result);
-      yield* mutex.withPermits(1)(
-        Effect.gen(function* () {
-          const current = yield* repository.get(notification.projectId, notification.id);
-          if (
-            !current ||
-            current.analysisVersion !== notification.analysisVersion ||
-            current.updatedAt !== notification.updatedAt ||
-            current.items.length !== notification.items.length ||
-            current.items.some((item, index) => item.content !== notification.items[index]?.content)
-          )
-            return;
-          yield* save({
-            ...current,
-            analysis: analyzed._tag === "Success" ? analyzed.success : null,
-            processingError: analyzed._tag === "Failure" ? analyzed.failure.detail : null,
-          });
-        }),
-      );
-    }).pipe(
-      analysisPermits.withPermits(1),
-      Effect.catch((error) => Effect.logWarning("Inbox analysis failed", { detail: error.detail })),
-    );
-  const analyzing = new Set<string>();
-  const drainAnalysis = repository.pendingAnalysis.pipe(
-    Effect.flatMap((notifications) =>
-      Effect.forEach(
-        notifications,
-        (notification) =>
-          Effect.suspend(() => {
-            if (analyzing.has(notification.id)) return Effect.void;
-            analyzing.add(notification.id);
-            return analyze(notification).pipe(
-              Effect.ensuring(
-                Effect.sync(() => {
-                  analyzing.delete(notification.id);
-                }),
-              ),
-            );
-          }),
-        { concurrency: 2, discard: true },
-      ),
-    ),
+      const projects = Object.keys(config.projectSettingsOverrides)
+        .map((id) => ProjectId.make(id))
+        .filter((id) => {
+          const project = resolveProjectSettings(config, id).settings;
+          return project.inboxEnabled && project.inboxSummaryEnabled;
+        });
+      const notifications = yield* repository.pendingAnalysis(projects);
+      yield* Effect.forEach(notifications, analyze, { concurrency: 2, discard: true });
+      // An explicit drain also waits for already claimed work, without waiting on future retries.
+      yield* Effect.forEach([...analyzing.values()], (done) => Deferred.await(done), {
+        discard: true,
+      });
+    }),
   );
   const kickAnalysis = drainAnalysis.pipe(
     Effect.catch((error) =>
@@ -430,16 +493,24 @@ const make = Effect.gen(function* () {
       mutex.withPermits(1)(
         Effect.gen(function* () {
           yield* requireEnabled(input.projectId);
-          const items = yield* repository.list(input.projectId, input);
+          const config = yield* readProjectSettings(input.projectId);
+          const items = yield* repository.list(input.projectId, {
+            ...input,
+            summaryReady: config.inboxSummaryEnabled,
+          });
           const result: InboxNotification[] = [];
           for (const item of items) {
             const next = yield* reconcile(item);
+            if (config.inboxSummaryEnabled && !next.analysis && !next.processingError) continue;
             // List responses are bounded previews. Expanded rows fetch their full detail separately.
             result.push({
               ...next,
               items: next.items
                 .slice(-1)
-                .map((entry) => ({ ...entry, content: entry.content.slice(0, 320) })),
+                .map(({ formattedContent: _formattedContent, ...entry }) => ({
+                  ...entry,
+                  content: entry.content.slice(0, 320),
+                })),
               analysis: next.analysis
                 ? {
                     ...next.analysis,

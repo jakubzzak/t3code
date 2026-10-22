@@ -154,12 +154,20 @@ Set **Initial history** inside **Features → Inbox** for all connected sources.
 even if a source is connected later or the server restarts. Re-enabling Inbox starts a new window.
 Notifications already imported are retained.
 
+When **AI summary** is enabled, notifications appear after their summary is ready. Failed
+summaries retry twice, after 5 and 10 seconds; each attempt has a one-minute timeout. After
+three failed attempts, the notification appears with **AI summary not available** and its
+original content. Turning AI summary off shows raw notifications immediately.
+
 For Linear, enter your OAuth application's public client ID, then connect your account.
 Client IDs are masked; use the eye button to show or hide them. For Slack, enter the app's
 public client ID, enable PKCE in Slack's OAuth settings, register the environment's callback URL,
 then choose **Connect Slack**. Both use browser authorization without a client secret. Existing
 Slack user tokens can still be entered manually. Slack supports DMs and personal/group mentions.
-Saved and To-dos remain unavailable. Linear
+Saved and To-dos remain unavailable. Slack needs `users:read` to show people's names and
+`usergroups:read` for group names. After adding a scope to an existing app, reconnect Slack;
+older connections retain their links and show unresolved identities as IDs.
+Linear
 uses the same environment connection as the issue picker. On desktop, **Move existing connection
 to environment** preserves your account and workspace without enabling Inbox or Linear view.
 Superhuman uses its official Mail MCP and registers its OAuth client automatically; no client ID
@@ -185,7 +193,7 @@ Turning a subgroup off hides its controls and keeps your model and prompt choice
 stops AI processing; Agent Delegation off prevents direct runs while Agent chat remains available.
 Raw notification content stays usable without AI. An empty prompt uses the default instructions.
 Summaries lead with the message's request or key update, including any explicit deadline.
-Failed processing offers **Retry summary**. Email originals appear as readable text with paragraphs
+After automatic summary retries are exhausted, the original content stays available. Email originals appear as readable text with paragraphs
 and links. Use the **Open original** icon, or **⌘⇧O** while a notification is focused, to open its
 source. On other platforms, use **Ctrl⇧O**.
 

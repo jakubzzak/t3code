@@ -186,3 +186,135 @@ it("reports incomplete thread context instead of presenting a truncated thread a
   );
   expect(items[0]?.content).toContain("Additional thread messages omitted");
 });
+
+it("preserves Slack links, resolves people and groups, and retains the complete native message", async () => {
+  const calls: string[] = [];
+  const items = await readSlackInbox(
+    async (method) => {
+      calls.push(method);
+      if (method === "auth.test") return { ok: true, user_id: "U000ME", team_id: "T1" };
+      if (method === "users.info")
+        return { ok: true, user: { id: "U123", profile: { display_name: "Alex" } } };
+      if (method === "usergroups.list")
+        return { ok: true, usergroups: [{ id: "S123", handle: "support", users: ["U000ME"] }] };
+      if (method === "search.messages")
+        return {
+          ok: true,
+          messages: {
+            matches: [
+              {
+                ts: "1792620002",
+                user: "U123",
+                text: "Truncated search snippet",
+                channel: { id: "C1", name: "support" },
+                permalink: "https://slack.com/archives/C1/message",
+              },
+            ],
+            paging: { pages: 1 },
+          },
+        };
+      if (method === "conversations.history")
+        return {
+          ok: true,
+          messages: [
+            {
+              ts: "1792620002",
+              user: "U123",
+              text: "<@U123> and <!subteam^S123> please review <https://example.com/report?a=1&amp;b=2|the report> &amp; reply. *Urgent*",
+            },
+          ],
+        };
+      throw new Error(method);
+    },
+    ["mentions"],
+    "2026-10-01T00:00:00Z",
+  );
+  expect(items[0]?.author).toBe("Alex");
+  expect(items[0]?.content).toContain("@Alex");
+  expect(items[0]?.content).toContain("@support");
+  expect(items[0]?.formattedContent).toContain(
+    "[the report](<https://example.com/report?a=1&b=2>)",
+  );
+  expect(items[0]?.formattedContent).toContain("**Urgent**");
+  expect(items[0]?.contentFormat).toBe("text");
+  expect(calls.filter((method) => method === "users.info")).toHaveLength(1);
+});
+
+it("keeps block-only message content and attachment links without downloading media", async () => {
+  const items = await readSlackInbox(
+    async (method) => {
+      if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T1" };
+      if (method === "conversations.list")
+        return { ok: true, channels: [{ id: "D1", user: "Alex" }] };
+      if (method === "conversations.history")
+        return {
+          ok: true,
+          messages: [
+            {
+              ts: "1792620002",
+              text: null,
+              bot_profile: { name: "Signal" },
+              blocks: [
+                {
+                  type: "rich_text",
+                  elements: [
+                    {
+                      type: "rich_text_section",
+                      elements: [
+                        { type: "text", text: "Review " },
+                        { type: "link", url: "https://example.com/report", text: "the report" },
+                      ],
+                    },
+                  ],
+                },
+              ],
+              attachments: [
+                {
+                  title: "Supporting context",
+                  title_link: "https://example.com/context",
+                  text: "The deadline is today.",
+                  image_url: "https://tracker.example/pixel",
+                },
+              ],
+            },
+          ],
+        };
+      throw new Error(method);
+    },
+    ["dms"],
+    "2026-10-01T00:00:00Z",
+  );
+  expect(items[0]?.author).toBe("Signal");
+  expect(items[0]?.formattedContent).toContain("Review [the report](<https://example.com/report>)");
+  expect(items[0]?.formattedContent).toContain(
+    "[Supporting context](<https://example.com/context>)",
+  );
+  expect(items[0]?.content).toContain("The deadline is today.");
+  expect(items[0]?.content).not.toContain("tracker.example");
+});
+it("retains links and unresolved mentions when an older connection lacks profile permission", async () => {
+  let profiles = 0;
+  const items = await readSlackInbox(
+    async (method) => {
+      if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T1" };
+      if (method === "conversations.list") return { ok: true, channels: [{ id: "D1" }] };
+      if (method === "conversations.history")
+        return {
+          ok: true,
+          messages: [
+            { ts: "1792620002", user: "U123", text: "<@U456> review <https://example.com|report>" },
+          ],
+        };
+      if (method === "users.info") {
+        profiles++;
+        throw new Error("Slack users.info failed (missing_scope).");
+      }
+      throw new Error(method);
+    },
+    ["dms"],
+    "2026-10-01T00:00:00Z",
+  );
+  expect(items[0]?.content).toContain("@U456");
+  expect(items[0]?.formattedContent).toContain("[report](<https://example.com/>)");
+  expect(profiles).toBe(1);
+});

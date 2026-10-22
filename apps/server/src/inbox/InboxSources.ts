@@ -369,7 +369,14 @@ export const make = Effect.gen(function* () {
               const previous = (yield* listStored(projectId)).find(
                 (entry) => entry.source === "slack",
               )!;
-              yield* save({ ...previous, connected: true, account, error: null, retryAt: null });
+              yield* save({
+                ...previous,
+                connected: true,
+                account,
+                lastSyncAt: null,
+                error: null,
+                retryAt: null,
+              });
             }),
           ),
         ),

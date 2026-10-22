@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProjectId, ThreadId, type InboxSourceItem } from "@t3tools/contracts";
+import { readableSlackItem } from "./notificationContent.ts";
 import { inboxIdentity, ingestInboxItem, restoreInboxState } from "./inboxState.ts";
 const project = ProjectId.make("a");
 const message: InboxSourceItem = {
@@ -63,4 +64,30 @@ describe("notification lifecycle", () => {
     expect(restored.state).toMatchObject({ placement: "active", threadId: "chat", read: false });
     expect(restored.agentStatus).toBe("stop-requested");
   });
+});
+
+it("name enrichment repairs a Slack message without reopening it or marking it unread", () => {
+  const raw = { ...message, content: "<@U123> review <https://example.com|the report>" };
+  const fallback = readableSlackItem(raw);
+  const first = ingestInboxItem(project, fallback);
+  const settled = {
+    ...first,
+    state: {
+      ...first.state,
+      read: true,
+      placement: "resolved" as const,
+      threadId: ThreadId.make("chat"),
+    },
+    analysisAttempts: 3,
+    processingError: "AI summary not available",
+  };
+  const enriched = ingestInboxItem(
+    project,
+    readableSlackItem(raw, { users: { U123: "Alex" } }),
+    settled,
+  );
+  expect(enriched.state).toEqual(settled.state);
+  expect(enriched.items[0]?.content).toContain("@Alex");
+  expect(enriched.analysisAttempts).toBe(0);
+  expect(enriched.processingError).toBeNull();
 });

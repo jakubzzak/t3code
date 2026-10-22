@@ -1,3 +1,5 @@
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -38,13 +40,15 @@ export class InboxRepository extends Context.Service<
     ) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly list: (
       projectId: ProjectId,
-      page?: { offset?: number; search?: string; threadId?: ThreadId },
+      page?: { offset?: number; search?: string; threadId?: ThreadId; summaryReady?: boolean },
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly history: (
       projectId: ProjectId,
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly pending: Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
-    readonly pendingAnalysis: Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
+    readonly pendingAnalysis: (
+      projects: ReadonlyArray<ProjectId>,
+    ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly put: (notification: InboxNotification) => Effect.Effect<void, InboxError>;
     readonly receipt: (commandId: CommandId) => Effect.Effect<Receipt | null, InboxError>;
     readonly commit: (
@@ -92,6 +96,7 @@ const make = Effect.gen(function* () {
     list: (projectId, page) => {
       const search = page?.search?.toLowerCase() ?? "";
       return rows(sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId}
+        AND (${page?.summaryReady ?? false}=0 OR json_extract(payload_json, '$.analysis') IS NOT NULL OR json_extract(payload_json, '$.processingError') IS NOT NULL)
         AND (${page?.threadId ?? null} IS NULL OR thread_id=${page?.threadId ?? null})
         AND (${search}='' OR instr(lower(coalesce(json_extract(payload_json, '$.analysis.summary'), '')), ${search}) > 0 OR EXISTS (
           SELECT 1 FROM json_each(inbox_notifications.payload_json, '$.items') AS item
@@ -107,9 +112,16 @@ const make = Effect.gen(function* () {
     pending: rows(
       sql`SELECT payload_json FROM inbox_notifications WHERE json_extract(payload_json, '$.agentStatus') IN ('linking','starting','stop-requested') LIMIT 500`,
     ),
-    pendingAnalysis: rows(
-      sql`SELECT payload_json FROM inbox_notifications WHERE json_extract(payload_json, '$.analysis') IS NULL AND json_extract(payload_json, '$.processingError') IS NULL ORDER BY updated_at DESC LIMIT 500`,
-    ),
+    pendingAnalysis: (projects) =>
+      projects.length
+        ? Effect.gen(function* () {
+            const now = DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis));
+            return yield* rows(sql`SELECT payload_json FROM inbox_notifications WHERE ${sql.in("project_id", projects)}
+        AND json_extract(payload_json, '$.analysis') IS NULL AND json_extract(payload_json, '$.processingError') IS NULL
+        AND (json_extract(payload_json, '$.analysisRetryAt') IS NULL OR julianday(json_extract(payload_json, '$.analysisRetryAt')) <= julianday(${now}))
+        ORDER BY updated_at ASC, id LIMIT 500`);
+          })
+        : Effect.succeed([]),
     put,
     receipt: (commandId) =>
       sql<{

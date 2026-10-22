@@ -9,7 +9,7 @@ export function inboxContext(notification: InboxNotification) {
     items: notification.items
       .slice(-10)
       .map(readableInboxItem)
-      .map((item) => ({
+      .map(({ formattedContent: _formattedContent, ...item }) => ({
         ...item,
         content: item.content.slice(0, 4000),
         truncated: item.content.length > 4000,

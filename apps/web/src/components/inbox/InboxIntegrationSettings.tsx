@@ -267,8 +267,8 @@ function SlackConnection({
           </div>
           <p className="text-xs text-muted-foreground">
             Required read scopes: im:read, im:history, mpim:read, mpim:history, search:read,
-            usergroups:read, channels:history and groups:history for thread context. Credentials
-            stay on this environment.
+            usergroups:read, users:read, channels:history and groups:history for thread context.
+            Credentials stay on this environment.
           </p>
         </div>
       </details>

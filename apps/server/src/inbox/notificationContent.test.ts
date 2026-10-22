@@ -50,7 +50,7 @@ it("cleans email before bounding model/delegation context, preserving the reques
   expect(context.items[0].truncated).toBe(false);
   expect(inboxContext(notification)).not.toContain("tracking");
 });
-it("preserves literal HTML examples already marked as plain text and leaves other source bodies untouched", () => {
+it("preserves literal HTML examples already marked as plain text and leaves Linear source bodies untouched", () => {
   const text = {
     ...notification,
     items: [
@@ -62,10 +62,30 @@ it("preserves literal HTML examples already marked as plain text and leaves othe
     ],
   };
   expect(readableNotification(text)).toBe(text);
-  const slack = {
+  const linear = {
     ...notification,
-    source: "slack" as const,
-    items: [{ ...notification.items[0]!, source: "slack" as const }],
+    source: "linear" as const,
+    items: [{ ...notification.items[0]!, source: "linear" as const }],
   };
-  expect(readableNotification(slack)).toBe(slack);
+  expect(readableNotification(linear)).toBe(linear);
+});
+
+it("repairs cached Slack links and tags once without changing read, triage or linked chat state", () => {
+  const stored = {
+    ...notification,
+    items: [
+      {
+        ...notification.items[0]!,
+        source: "slack" as const,
+        content:
+          "<@U123|Alex> review <https://example.com|the report> with <!subteam^S123|@support>.",
+      },
+    ],
+  };
+  const clean = readableNotification(stored);
+  expect(clean.items[0]?.content).toContain("@Alex");
+  expect(clean.items[0]?.formattedContent).toContain("[the report](<https://example.com/>)");
+  expect(clean.items[0]?.content).toContain("@support");
+  expect(clean.state).toBe(stored.state);
+  expect(readableNotification(clean)).toBe(clean);
 });

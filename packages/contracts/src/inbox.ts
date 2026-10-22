@@ -24,6 +24,8 @@ export const InboxSourceItem = Schema.Struct({
   author: Schema.String,
   content: Schema.String.check(Schema.isMaxLength(32000)),
   contentFormat: Schema.optionalKey(Schema.Literals(["text"])),
+  formattedContent: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32000))),
+  sourceContentHash: Schema.optionalKey(Schema.String),
   url: Schema.String,
   occurredAt: IsoDateTime,
 });
@@ -63,6 +65,8 @@ export const InboxNotification = Schema.Struct({
   items: Schema.Array(InboxSourceItem),
   analysis: Schema.NullOr(InboxAnalysis),
   processingError: Schema.NullOr(Schema.String),
+  analysisAttempts: Schema.optionalKey(NonNegativeInt),
+  analysisRetryAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
   analysisVersion: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
   agentStatus: Schema.Literals([
     "idle",

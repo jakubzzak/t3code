@@ -19,6 +19,10 @@ export function ingestInboxItem(
   const items = [...(previous?.items ?? []).filter((candidate) => candidate.id !== item.id), item]
     .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
     .slice(-50);
+  const formattingOnly =
+    existing?.source === "slack" &&
+    existing.sourceContentHash &&
+    existing.sourceContentHash === item.sourceContentHash;
   return {
     id: inboxIdentity(projectId, item),
     projectId,
@@ -27,10 +31,14 @@ export function ingestInboxItem(
     groupId: item.groupId,
     revision: (previous?.revision ?? -1) + 1,
     state: previous
-      ? { ...previous.state, read: false }
+      ? formattingOnly
+        ? previous.state
+        : { ...previous.state, read: false }
       : { read: false, placement: "active", snoozedUntil: null, threadId: null },
     items,
     analysis: null,
+    analysisAttempts: 0,
+    analysisRetryAt: null,
     processingError: null,
     analysisVersion: (previous?.analysisVersion ?? -1) + 1,
     agentStatus: previous?.agentStatus ?? "idle",

@@ -193,16 +193,6 @@ function InboxRow({
           )}
         </div>
       </div>
-      {focused && settings?.inboxSummaryEnabled && n.processingError && (
-        <button
-          type="button"
-          disabled={!canWrite || pending}
-          className="text-2xs text-primary underline"
-          onClick={() => onAction({ type: "reprocess" })}
-        >
-          Retry summary
-        </button>
-      )}
       {n.agentStatus === "starting" ||
       n.agentStatus === "linking" ||
       n.agentStatus === "stop-requested" ? (

@@ -507,6 +507,10 @@
       "types": "./src/linearConnectionTransfer.ts",
       "import": "./src/linearConnectionTransfer.ts"
     },
+    "./slackText": {
+      "types": "./src/slackText.ts",
+      "import": "./src/slackText.ts"
+    },
     "./emailText": {
       "types": "./src/emailText.ts",
       "import": "./src/emailText.ts"

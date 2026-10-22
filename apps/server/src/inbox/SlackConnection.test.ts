@@ -204,6 +204,7 @@ it.effect(
         assert.isFalse(url.searchParams.has("scope"));
         assert.isFalse(url.searchParams.has("client_secret"));
         assert.notInclude(url.searchParams.get("user_scope")!, "write");
+        assert.include(url.searchParams.get("user_scope")!, "users:read");
         assert.equal(fixture.values.size, 0);
         const state = url.searchParams.get("state")!;
         assert.equal((yield* Effect.result(slack.complete("unknown", "code")))._tag, "Failure");
