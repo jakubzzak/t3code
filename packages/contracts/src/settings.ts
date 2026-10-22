@@ -995,6 +995,10 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "inboxAgentModelSelection",
   "inboxSummaryModelSelection",
   "inboxAgentPrompt",
+  "inboxAgentPromptEnabled",
+  "inboxSummaryPrompt",
+  "inboxSummaryPromptEnabled",
+  "inboxMemoryEnabled",
   "inboxPreResolution",
   "linearViewEnabled",
   "linearWorkspace",
@@ -1053,6 +1057,10 @@ export const ProjectSettingsOverrides = Schema.Struct({
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxAgentPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxSummaryPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxSummaryPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxMemoryEnabled: Schema.optionalKey(Schema.Boolean),
   inboxPreResolution: Schema.optionalKey(Schema.Boolean),
 
   linearViewEnabled: Schema.optionalKey(Schema.Boolean),
@@ -1159,6 +1167,12 @@ export const ServerSettings = Schema.Struct({
   inboxSummaryModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  inboxAgentPromptEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxSummaryPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  inboxSummaryPromptEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxMemoryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   inboxAgentPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
     Schema.withDecodingDefault(
       Effect.succeed(
@@ -1572,6 +1586,10 @@ export const ServerSettingsPatch = Schema.Struct({
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxAgentPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxSummaryPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxSummaryPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxMemoryEnabled: Schema.optionalKey(Schema.Boolean),
   inboxPreResolution: Schema.optionalKey(Schema.Boolean),
 
   linearViewEnabled: Schema.optionalKey(Schema.Boolean),

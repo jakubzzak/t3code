@@ -130,14 +130,16 @@ function FeaturesSettings() {
           control={
             <Switch
               aria-label="Inbox"
-              checked={settings.inboxEnabled}
+              checked={inboxMixed ? false : settings.inboxEnabled}
+              mixed={inboxMixed}
               disabled={!supported}
               onCheckedChange={(inboxEnabled) => update({ inboxEnabled })}
             />
           }
-        />
+        >
+          {projectSelected && !inboxMixed && settings.inboxEnabled && <InboxFeatureSettings />}
+        </SettingsRow>
       </SettingsSection>
-      {projectSelected && settings.inboxEnabled && <InboxFeatureSettings />}
     </SettingsPageContainer>
   );
 }

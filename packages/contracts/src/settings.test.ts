@@ -1058,6 +1058,29 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
 });
 
 describe("Linear settings", () => {
+  it("keeps Inbox memory and custom prompts off until explicitly enabled per project", () => {
+    expect(decodeServerSettings({ inboxAgentPrompt: "Saved custom delegation" })).toMatchObject({
+      inboxMemoryEnabled: false,
+      inboxSummaryPromptEnabled: false,
+      inboxAgentPromptEnabled: false,
+      inboxSummaryPrompt: "",
+      inboxAgentPrompt: "Saved custom delegation",
+    });
+    const patch = {
+      projectSettingsOverrides: {
+        one: {
+          inboxMemoryEnabled: true,
+          inboxSummaryPromptEnabled: true,
+          inboxSummaryPrompt: "Focus on the request and deadline.",
+          inboxAgentPromptEnabled: true,
+          inboxAgentPrompt: "Investigate and propose next steps.",
+        },
+      },
+    };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
+  });
+
   it("keeps project features independent and round-trips selected project opt-ins", () => {
     expect(decodeServerSettings({})).toMatchObject({
       inboxEnabled: false,

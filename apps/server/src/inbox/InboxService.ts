@@ -348,8 +348,11 @@ const make = Effect.gen(function* () {
           (cause) => new InboxError({ detail: "Could not read project settings.", cause }),
         ),
       );
-      if (!resolveProjectSettings(config, notification.projectId).settings.inboxEnabled) return;
-      const history = yield* repository.history(notification.projectId);
+      const projectSettings = resolveProjectSettings(config, notification.projectId).settings;
+      if (!projectSettings.inboxEnabled) return;
+      const history = projectSettings.inboxMemoryEnabled
+        ? yield* repository.history(notification.projectId)
+        : [];
       const analyzed = yield* analyzer.analyze(notification, history).pipe(Effect.result);
       yield* mutex.withPermits(1)(
         Effect.gen(function* () {

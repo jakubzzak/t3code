@@ -36,7 +36,9 @@ const make = Effect.gen(function* () {
           return yield* new InboxError({ detail: "The notification's project is unavailable." });
         const modelSelection =
           config.inboxSummaryModelSelection ?? config.textGenerationModelSelection;
-        const precedents = findInboxPrecedents(notification, history);
+        const precedents = config.inboxMemoryEnabled
+          ? findInboxPrecedents(notification, history)
+          : [];
         if (!generation.generateInboxAnalysis)
           return yield* new InboxError({
             detail: "The selected model cannot summarize notifications.",
@@ -44,9 +46,12 @@ const make = Effect.gen(function* () {
         const result = yield* generation.generateInboxAnalysis({
           cwd: project.value.workspaceRoot,
           modelSelection,
-          context: inboxContext(notification).slice(0, 64000),
+          context: inboxContext({ ...notification, analysis: null }).slice(0, 64000),
           precedents,
           suggest: config.inboxPreResolution,
+          ...(config.inboxSummaryPromptEnabled && config.inboxSummaryPrompt.trim()
+            ? { instructions: config.inboxSummaryPrompt }
+            : {}),
         });
         return {
           ...result,

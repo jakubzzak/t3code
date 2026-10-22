@@ -45,6 +45,16 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 ];
 
 describe("searchSettings", () => {
+  it("finds Inbox customization through prompt and processing searches", () => {
+    for (const query of [
+      "summary prompt",
+      "delegation prompt",
+      "project memory",
+      "inbox processing",
+    ])
+      expect(searchSettings(query).map((item) => item.id)).toContain("notification-inbox");
+  });
+
   it("hides Git-dependent search results while keeping the integration toggle reachable", () => {
     const availability = {
       hasCloudPublicConfig: false,

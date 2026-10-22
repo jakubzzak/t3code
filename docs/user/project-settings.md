@@ -166,10 +166,15 @@ Read state, snoozing and settlement belong to Blackbird; they do not change the 
 notification state. Undoing a running delegation requests a stop and keeps the chat and completed
 work. A stop can remain pending or fail, so check its status before assuming the agent has stopped.
 
-Choose summary and delegation models, the agent prompt, and optional suggested resolutions in
-project Features settings. Raw content remains available when processing fails. Suggestions are
-not sent or executed automatically. Record what actually resolved a case under **Confirmed outcome**
-in the linked chat's Details to make that outcome available to similar cases in the same project.
+Enable Inbox in project Features settings to expand its processing controls within the feature.
+Choose summary and delegation models there. **Summary prompt** and **Delegation prompt** are optional
+customizations, both off by default; turn one on to edit it. Turning it off keeps your saved text
+and uses the built-in instructions. Raw content remains available when processing fails.
+
+**Project memory** is also off by default. Enable it to use confirmed outcomes from similar cases
+in the same project. With memory enabled, record an outcome in the linked chat's Details to make
+it available to future processing. Turning memory off retains outcomes but stops history lookup.
+Suggested resolutions remain proposals; they are not sent or executed automatically.
 
 On macOS, some web browsers reserve ⌘⇧H before the page can receive it. Use Ctrl⇧H or the
 Snooze action there; the desktop shortcut remains ⌘⇧H.

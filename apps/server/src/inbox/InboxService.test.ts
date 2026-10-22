@@ -306,6 +306,10 @@ it.effect("retrieves confirmed outcomes even when more than 500 active notificat
     yield* Effect.gen(function* () {
       const repository = yield* Repository.InboxRepository;
       const service = yield* Inbox.InboxService;
+      const settings = yield* Settings.ServerSettingsService;
+      yield* settings.updateSettings({
+        projectSettingsOverrides: { [projectId]: { inboxEnabled: true, inboxMemoryEnabled: true } },
+      });
       const precedent = {
         ...ingestInboxItem(projectId, { ...item, id: "past", groupId: "past" }),
         confirmedOutcome: "Fixed by rotating the key",
@@ -324,6 +328,24 @@ it.effect("retrieves confirmed outcomes even when more than 500 active notificat
       assert.ok(
         (yield* Ref.get(fixture.analyzedHistory)).some((entry) => entry.id === precedent.id),
       );
+    }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+  }).pipe(Effect.scoped),
+);
+
+it.effect("does not pass notification history to processing while project memory is off", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    yield* Effect.gen(function* () {
+      const repository = yield* Repository.InboxRepository;
+      const service = yield* Inbox.InboxService;
+      yield* repository.put({
+        ...ingestInboxItem(projectId, { ...item, id: "past", groupId: "past" }),
+        confirmedOutcome: "The old issue was fixed by rotating the key.",
+        processingError: "Fixture: skip AI",
+      });
+      yield* repository.put(ingestInboxItem(projectId, item));
+      yield* service.drainAnalysis;
+      assert.deepEqual(yield* Ref.get(fixture.analyzedHistory), []);
     }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
   }).pipe(Effect.scoped),
 );

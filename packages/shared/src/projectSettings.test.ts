@@ -22,6 +22,25 @@ const projectId = ProjectId.make("project-a");
 const otherProjectId = ProjectId.make("project-b");
 
 describe("resolveProjectSettings", () => {
+  it("isolates Inbox memory and prompt opt-ins to the configured project", () => {
+    const overrides = {
+      inboxMemoryEnabled: true,
+      inboxSummaryPromptEnabled: true,
+      inboxSummaryPrompt: "Summarize the deadline.",
+      inboxAgentPromptEnabled: true,
+      inboxAgentPrompt: "Investigate the request.",
+    };
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      projectSettingsOverrides: { [projectId]: overrides },
+    });
+    expect(resolveProjectSettings(settings, projectId).settings).toMatchObject(overrides);
+    expect(resolveProjectSettings(settings, otherProjectId).settings).toMatchObject({
+      inboxMemoryEnabled: false,
+      inboxSummaryPromptEnabled: false,
+      inboxAgentPromptEnabled: false,
+    });
+  });
+
   it("enables Inbox and Linear only for the selected project without enrolling another", () => {
     const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       projectSettingsOverrides: {

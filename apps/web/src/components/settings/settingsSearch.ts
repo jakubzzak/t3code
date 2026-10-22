@@ -187,7 +187,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Inbox",
     to: "/settings/features",
     scope: "project",
-    searchTerms: ["notifications delegate Slack Superhuman summary memory"],
+    searchTerms: [
+      "notifications delegate delegation Slack Superhuman summary project memory custom prompt processing",
+    ],
   },
   {
     id: "linear-view",

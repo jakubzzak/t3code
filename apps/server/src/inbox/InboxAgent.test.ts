@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  DEFAULT_SERVER_SETTINGS,
   ProjectId,
   ThreadId,
   ProviderInstanceId,
@@ -78,6 +79,15 @@ it.effect(
       yield* agent.start(linked, true);
       const started = yield* orchestrator.getThreadShell(threadId);
       assert.ok(started?.latestRunId);
+      const timeline = yield* orchestrator.getTimelinePage(threadId, {
+        limit: 10,
+        view: "messages",
+      });
+      const message = timeline.items.find((entry) => entry.item.type === "user_message")?.item;
+      assert.equal(
+        message?.type === "user_message" ? message.text : null,
+        DEFAULT_SERVER_SETTINGS.inboxAgentPrompt,
+      );
       yield* agent.start(linked, true);
       assert.equal(
         (yield* orchestrator.getThreadShell(threadId))?.latestRunId,
@@ -86,4 +96,55 @@ it.effect(
       yield* agent.stop(threadId, CommandId.make("undo-delegate"));
       assert.ok(yield* orchestrator.getThreadShell(threadId));
     }).pipe(Effect.provide(layer), Effect.scoped),
+);
+
+it.effect("uses a saved delegation prompt only after its project opts in", () =>
+  Effect.gen(function* () {
+    const agent = yield* Agent.InboxAgent;
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const settings = yield* Settings.ServerSettingsService;
+    const projectId = ProjectId.make("inbox-project");
+    yield* settings.updateSettings({
+      projectSettingsOverrides: {
+        [projectId]: {
+          inboxAgentPromptEnabled: true,
+          inboxAgentPrompt: "Investigate without sending a reply.",
+        },
+      },
+    });
+    const notification = ingestInboxItem(projectId, {
+      source: "slack",
+      id: "custom",
+      connectionId: "team",
+      groupId: "custom",
+      location: "#launch",
+      title: "Review notes",
+      author: "Alex",
+      content: "Review please",
+      url: "https://slack.com",
+      occurredAt: "2026-10-22T10:00:00Z",
+    });
+    const threadId = ThreadId.make("custom-inbox-prompt");
+    yield* agent.start(
+      { ...notification, state: { ...notification.state, threadId }, agentAttempt: 1 },
+      true,
+    );
+    const timeline = yield* orchestrator.getTimelinePage(threadId, { limit: 10, view: "messages" });
+    const message = timeline.items.find((entry) => entry.item.type === "user_message")?.item;
+    assert.equal(
+      message?.type === "user_message" ? message.text : null,
+      "Investigate without sending a reply.",
+    );
+  }).pipe(
+    Effect.provide(
+      Agent.layer.pipe(
+        Layer.provide(
+          ThreadManagement.layer.pipe(Layer.provide(Receipts.layer.pipe(Layer.provide(database)))),
+        ),
+        Layer.provideMerge(runtime),
+        Layer.provideMerge(settings),
+      ),
+    ),
+    Effect.scoped,
+  ),
 );

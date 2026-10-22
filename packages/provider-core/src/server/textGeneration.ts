@@ -125,6 +125,7 @@ export interface InboxAnalysisInput {
   context: string;
   precedents: ReadonlyArray<{ id: string; context: string; outcome: string }>;
   suggest: boolean;
+  instructions?: string;
 }
 export interface ProviderTextGeneration {
   readonly generateInboxAnalysis?: (

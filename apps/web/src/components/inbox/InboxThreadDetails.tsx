@@ -28,6 +28,10 @@ export function InboxThreadDetails({
     thread &&
     config?.notificationInbox &&
     resolveProjectSettings(config.settings, thread.projectId).settings.inboxEnabled;
+  const memoryEnabled =
+    thread &&
+    config &&
+    resolveProjectSettings(config.settings, thread.projectId).settings.inboxMemoryEnabled;
   const list = useEnvironmentQuery(
     enabled
       ? inboxEnvironment.list({ environmentId, input: { projectId: thread.projectId, threadId } })
@@ -98,43 +102,45 @@ export function InboxThreadDetails({
         >
           Show in Inbox
         </Button>
-        <details className="mt-2 text-xs">
-          <summary className="cursor-pointer text-muted-foreground">
-            Record confirmed outcome
-          </summary>
-          <div className="mt-2 space-y-2">
-            <Textarea
-              aria-label="Confirmed outcome"
-              rows={3}
-              maxLength={8000}
-              value={outcome ?? n.confirmedOutcome ?? ""}
-              onChange={(event) => setOutcome(event.target.value)}
-              placeholder="What actually resolved this request?"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!canWrite}
-              onClick={() =>
-                void command({
-                  environmentId,
-                  input: {
-                    projectId: n.projectId,
-                    id: n.id,
-                    expectedRevision: n.revision,
-                    commandId: CommandId.make(randomUUID()),
-                    action: { type: "outcome", text: outcome ?? n.confirmedOutcome ?? "" },
-                  },
-                }).then(() => {
-                  detail.refresh();
-                  list.refresh();
-                })
-              }
-            >
-              Save outcome
-            </Button>
-          </div>
-        </details>
+        {memoryEnabled && (
+          <details className="mt-2 text-xs">
+            <summary className="cursor-pointer text-muted-foreground">
+              Record confirmed outcome
+            </summary>
+            <div className="mt-2 space-y-2">
+              <Textarea
+                aria-label="Confirmed outcome"
+                rows={3}
+                maxLength={8000}
+                value={outcome ?? n.confirmedOutcome ?? ""}
+                onChange={(event) => setOutcome(event.target.value)}
+                placeholder="What actually resolved this request?"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canWrite}
+                onClick={() =>
+                  void command({
+                    environmentId,
+                    input: {
+                      projectId: n.projectId,
+                      id: n.id,
+                      expectedRevision: n.revision,
+                      commandId: CommandId.make(randomUUID()),
+                      action: { type: "outcome", text: outcome ?? n.confirmedOutcome ?? "" },
+                    },
+                  }).then(() => {
+                    detail.refresh();
+                    list.refresh();
+                  })
+                }
+              >
+                Save outcome
+              </Button>
+            </div>
+          </details>
+        )}
       </div>
     </ThreadDetailsSection>
   );

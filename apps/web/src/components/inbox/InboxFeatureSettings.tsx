@@ -12,10 +12,63 @@ import {
   useScopedSettingsMixed,
 } from "../settings/useScopedSettings";
 import { useScopedModelDisabledReason } from "../settings/useScopedModelAvailability";
-import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { SettingsRow, SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
+
+function InboxPromptSetting({
+  title,
+  description,
+  enabledKey,
+  promptKey,
+  placeholder,
+}: {
+  title: string;
+  description: string;
+  enabledKey: "inboxSummaryPromptEnabled" | "inboxAgentPromptEnabled";
+  promptKey: "inboxSummaryPrompt" | "inboxAgentPrompt";
+  placeholder: string;
+}) {
+  const settings = useScopedSettings();
+  const update = useUpdateScopedSettings();
+  const enabledMixed = useScopedSettingsMixed([enabledKey]);
+  const promptMixed = useScopedSettingsMixed([promptKey]);
+  return (
+    <SettingsRow
+      title={title}
+      description={description}
+      mixed={enabledMixed || promptMixed}
+      serverScoped
+      settingKeys={[enabledKey, promptKey]}
+      control={
+        <Switch
+          aria-label={`Custom ${title.toLowerCase()}`}
+          mixed={enabledMixed}
+          checked={enabledMixed ? false : settings[enabledKey]}
+          onCheckedChange={(enabled) => update({ [enabledKey]: enabled })}
+        />
+      }
+    >
+      {!enabledMixed && settings[enabledKey] && (
+        <div className="mt-3 pb-3">
+          <Textarea
+            key={settings[promptKey]}
+            aria-label={title}
+            defaultValue={promptMixed ? "" : settings[promptKey]}
+            placeholder={promptMixed ? "Mixed — enter a prompt for selected projects" : placeholder}
+            rows={4}
+            maxLength={8000}
+            onBlur={(event) => {
+              if (event.currentTarget.value !== (promptMixed ? "" : settings[promptKey]))
+                update({ [promptKey]: event.currentTarget.value });
+            }}
+          />
+        </div>
+      )}
+    </SettingsRow>
+  );
+}
 
 export function InboxFeatureSettings() {
   const settings = useScopedSettings();
@@ -23,8 +76,8 @@ export function InboxFeatureSettings() {
   const { environment, target } = useSettingsScope();
   const summaryMixed = useScopedSettingsMixed(["inboxSummaryModelSelection"]);
   const agentMixed = useScopedSettingsMixed(["inboxAgentModelSelection"]);
-  const promptMixed = useScopedSettingsMixed(["inboxAgentPrompt"]);
   const resolutionMixed = useScopedSettingsMixed(["inboxPreResolution"]);
+  const memoryMixed = useScopedSettingsMixed(["inboxMemoryEnabled"]);
   const providers = environment?.serverConfig?.providers ?? [];
   const entries = sortProviderInstanceEntries(
     applyProviderInstanceSettings(
@@ -35,7 +88,7 @@ export function InboxFeatureSettings() {
   );
   const disabledReason = useScopedModelDisabledReason(settings, entries);
   return (
-    <SettingsSection title="Inbox processing">
+    <div className="mt-4 mb-3 divide-y divide-border/50 border-t border-border/50 pt-1 [&>[data-slot=settings-row]]:rounded-none">
       {(["inboxSummaryModelSelection", "inboxAgentModelSelection"] as const).map((key) => {
         const selection =
           settings[key] ??
@@ -63,6 +116,8 @@ export function InboxFeatureSettings() {
                   selection.model,
                 )}
                 triggerAriaLabel={label}
+                size="sm"
+                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                 {...((key === "inboxSummaryModelSelection" ? summaryMixed : agentMixed)
                   ? { triggerLabel: "Mixed" }
                   : {})}
@@ -76,28 +131,20 @@ export function InboxFeatureSettings() {
           />
         );
       })}
-      <SettingsRow
-        title="Agent prompt"
-        mixed={promptMixed}
-        serverScoped
-        settingKeys={["inboxAgentPrompt"]}
-        description="Used by the Agent action. Agent chat waits for your message."
-      >
-        <div className="mt-2">
-          <Textarea
-            key={settings.inboxAgentPrompt}
-            aria-label="Agent prompt"
-            defaultValue={promptMixed ? "" : settings.inboxAgentPrompt}
-            placeholder={promptMixed ? "Mixed — enter a prompt for selected projects" : undefined}
-            rows={4}
-            maxLength={8000}
-            onBlur={(event) => {
-              if (event.currentTarget.value !== (promptMixed ? "" : settings.inboxAgentPrompt))
-                update({ inboxAgentPrompt: event.currentTarget.value });
-            }}
-          />
-        </div>
-      </SettingsRow>
+      <InboxPromptSetting
+        title="Summary prompt"
+        description="Customize the summary instructions. Off uses the built-in prompt."
+        enabledKey="inboxSummaryPromptEnabled"
+        promptKey="inboxSummaryPrompt"
+        placeholder="Summarize the request and relevant details in one to five concise sentences."
+      />
+      <InboxPromptSetting
+        title="Delegation prompt"
+        description="Customize the Agent action. Agent chat still waits for your message."
+        enabledKey="inboxAgentPromptEnabled"
+        promptKey="inboxAgentPrompt"
+        placeholder="Address this notification using its context. Leave empty for the built-in prompt."
+      />
       <SettingsRow
         title="Suggested resolutions"
         mixed={resolutionMixed}
@@ -115,8 +162,19 @@ export function InboxFeatureSettings() {
       />
       <SettingsRow
         title="Project memory"
-        description="Processing checks similar cases in this project and distinguishes confirmed outcomes from unconfirmed suggestions. Other projects are excluded."
+        mixed={memoryMixed}
+        serverScoped
+        settingKeys={["inboxMemoryEnabled"]}
+        description="Use confirmed outcomes from similar notifications in this project. Other projects stay separate."
+        control={
+          <Switch
+            aria-label="Project memory"
+            mixed={memoryMixed}
+            checked={memoryMixed ? false : settings.inboxMemoryEnabled}
+            onCheckedChange={(inboxMemoryEnabled) => update({ inboxMemoryEnabled })}
+          />
+        }
       />
-    </SettingsSection>
+    </div>
   );
 }

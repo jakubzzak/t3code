@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
   CommandId,
+  DEFAULT_SERVER_SETTINGS,
   InboxError,
   MessageId,
   type InboxNotification,
@@ -71,7 +72,10 @@ const make = Effect.gen(function* () {
             messageId: MessageId.make(
               `inbox:${notification.id}:message:${notification.agentAttempt}`,
             ),
-            text: config.inboxAgentPrompt,
+            text:
+              config.inboxAgentPromptEnabled && config.inboxAgentPrompt.trim()
+                ? config.inboxAgentPrompt
+                : DEFAULT_SERVER_SETTINGS.inboxAgentPrompt,
             attachments: [],
             modelSelection,
             createdBy: "user",
