@@ -69,7 +69,7 @@ function InboxAnimatedList({ children }: { children: ReactNode }) {
   return <div ref={ref}>{children}</div>;
 }
 
-function InboxRow({
+export function InboxRow({
   entry,
   focused,
   hints,
@@ -139,7 +139,9 @@ function InboxRow({
       tabIndex={focused ? 0 : -1}
       aria-label={`${n.state.read ? "Read" : "Unread"}: ${item?.title}`}
       aria-expanded={focused}
-      onFocus={() => {
+      onFocus={(event) => {
+        // Action-button focus must not select, expand, or mark the notification read.
+        if (event.target !== event.currentTarget) return;
         setOpened(true);
         onFocus();
       }}
