@@ -767,8 +767,8 @@ export function InboxSidebarLayout({
             <SidebarContent className="min-h-full">{children}</SidebarContent>
           </div>
           <div className={styles.pane} inert={!inbox} aria-hidden={!inbox}>
-            <SidebarContent>
-              <SidebarGroup>
+            <SidebarContent className="min-h-full">
+              <SidebarGroup className="flex-1">
                 <div
                   ref={listRef}
                   data-inbox-list
@@ -783,7 +783,7 @@ export function InboxSidebarLayout({
                       focusedRef.current = null;
                     }
                   }}
-                  className="outline-none"
+                  className="flex flex-1 flex-col outline-none"
                 >
                   {sourceErrors.map((connection) => (
                     <p
@@ -832,7 +832,7 @@ export function InboxSidebarLayout({
                               ? "No active items on this page"
                               : sourceErrors.length
                                 ? "Sources need attention"
-                                : "Inbox clear"}
+                                : "Yay! 🎉 You’re all caught up with your messages."}
                     </p>
                   )}
                   {(["active", "delegated", "snoozed", "resolved"] as const).map((placement) => {
@@ -841,7 +841,10 @@ export function InboxSidebarLayout({
                     );
                     const expanded = placement === "active" || sections.has(placement);
                     return (
-                      <section key={placement}>
+                      <section
+                        key={placement}
+                        className={placement === "delegated" ? "mt-auto shrink-0" : "shrink-0"}
+                      >
                         {placement !== "active" && (
                           <CollapsibleSectionHeader
                             expanded={expanded}
