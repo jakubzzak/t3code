@@ -138,10 +138,43 @@ itself, or **Skip** to leave them for a setup script. It resolves in the same or
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
 
+## Notification inbox
+
+Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
+**Settings → Integrations**. Connections and relevance filters are configured explicitly for
+each project. Inbox and Linear view are independent. The inbox is available on web and desktop;
+mobile keeps the same project data but does not yet have a native inbox screen.
+
+Slack supports DMs and personal/group mentions through a user OAuth token with the listed read
+scopes. Choose how much recent history to import; Saved and To-dos remain unavailable. Linear
+uses the same environment connection as the issue picker. On desktop, **Move existing connection
+to environment** preserves your account and workspace without enabling Inbox or Linear view.
+Superhuman uses its official Mail MCP: sign in, select accounts, then select Important or other
+splits and labels. Sign-in requires access to Superhuman Mail MCP and its Chrome extension.
+
+Use the sidebar's **Inbox** tab to triage without leaving your current chat. Arrow keys focus and
+expand an item. **Agent** starts the project's configured agent; **Agent chat** opens a linked chat
+and waits for your message. Either action opens an existing linked chat. Its notification context
+is also available in the chat's Details.
+
+Read state, snoozing and resolution belong to Blackbird; they do not change the source. Undo restores
+notification state. Undoing a running delegation requests a stop and keeps the chat and completed
+work. A stop can remain pending or fail, so check its status before assuming the agent has stopped.
+
+Choose summary and delegation models, the agent prompt, and optional suggested resolutions in
+project Features settings. Raw content remains available when processing fails. Suggestions are
+not sent or executed automatically. Record what actually resolved a case under **Confirmed outcome**
+in the linked chat's Details to make that outcome available to similar cases in the same project.
+
+On macOS, some web browsers reserve ⌘⇧H before the page can receive it. Use Ctrl⇧H or the
+Snooze action there; the desktop shortcut remains ⌘⇧H.
+
 ## Linear view
 
-In the desktop app, enable **Settings → Features → Linear view**, then select a project in
-**Settings → Integrations → Linear** and enter its workspace slug from `linear.app/<workspace>`.
+In the desktop app, select a project in **Settings → Features** and enable **Linear view**.
+In **Settings → Integrations → Linear**, enter its workspace slug from `linear.app/<workspace>`.
+If Linear view was enabled on this device before project settings were introduced, choose the
+projects that should keep it enabled; other projects remain off.
 Open **Linear** from the thread's surface picker, or press **L** while that picker is active.
 The first open uses the issue identifier in the branch, or My Issues when there is none. An open
 view keeps its current page unless you explicitly select an issue for the chat. Close and reopen

@@ -1,3 +1,4 @@
+import * as InboxContext from "../inbox/InboxContextService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
@@ -96,6 +97,9 @@ it("does not commit running state when inherited background routing cannot be re
   const createWorktree = vi.fn(() => Effect.succeed({} as never));
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
+      Layer.succeed(InboxContext.InboxContext, { forThread: () => Effect.succeed("") }),
+    ),
+    Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
@@ -165,6 +169,7 @@ it("does not commit running state when inherited background routing cannot be re
 });
 
 function makeLocalCommandHarness(input: {
+  readonly notificationContext?: string;
   readonly text: string;
   readonly worktreePath?: string;
   readonly fileSystem?: FileSystem.FileSystem;
@@ -517,6 +522,11 @@ function makeLocalCommandHarness(input: {
     }),
   );
   const layer = ProviderTurnStart.layer.pipe(
+    Layer.provide(
+      Layer.succeed(InboxContext.InboxContext, {
+        forThread: () => Effect.succeed(input.notificationContext ?? ""),
+      }),
+    ),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
@@ -1055,3 +1065,19 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
       }),
   );
 }
+
+effectIt.effect(
+  "gives compose-only notification chats their source context on the first user turn",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Please handle this",
+        notificationContext: "Originating notification: ENG-42 needs a release note",
+        failReadsAfterRunning: true,
+      });
+      yield* harness.start;
+      const started = harness.startRootRun.mock.calls[0]?.[0];
+      expect(started?.message.text).toContain("ENG-42 needs a release note");
+      expect(started?.message.text).toContain("Please handle this");
+    }),
+);

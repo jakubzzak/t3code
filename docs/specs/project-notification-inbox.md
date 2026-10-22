@@ -10,16 +10,16 @@ Add an optional project notification inbox, source configuration, concise AI sum
 
 ### Project settings and sources
 
-- Make **Settings → Features** project-aware using the existing settings scope and inheritance patterns. **Inbox** and the existing **Linear view** are independent feature switches, disabled by default. Move Linear view away from its current device-wide scope. Enabling Inbox must not enable Linear view, and using Linear as an inbox source must not require Linear view.
+- Make **Settings → Features** project-aware using the existing settings scope and inheritance patterns. **Inbox** and the existing **Linear view** are independent feature switches, disabled by default. Move Linear view away from its current device-wide scope. For an existing enabled device preference, offer an explicit selection of projects to receive the enabled state. Never enable every project automatically; preserve existing connections and workspace settings. Enabling Inbox must not enable Linear view, and using Linear as an inbox source must not require Linear view.
 - Features contains feature-specific customization: summary model, delegation agent/model and default prompt, optional pre-resolution, and memory behavior. Every exposed feature setting must be configurable per project.
 - **Settings → Integrations** contains connection setup and source-selection configuration for Slack, Linear, and Superhuman, including existing Linear integration configuration. Do not move connection setup into Features.
 - All three integrations are optional and explicitly configured for each project. Reusing a stored connection in another project is allowed, but must be selected and configured there again; credentials need not be duplicated. Do not infer project ownership from account reuse or automatically enroll other projects.
 
-| Source     | Configurable relevance selection                                     | Visible location        |
-| ---------- | -------------------------------------------------------------------- | ----------------------- |
-| Slack      | Multiselect: DMs, personal mentions, group mentions, saves, todos    | Channel or DM context   |
-| Linear     | Full notification center, with configurable inclusion                | Issue ID                |
-| Superhuman | Important by default, with configurable bucket/group/label selection | Bucket, group, or label |
+| Source     | Configurable relevance selection                                                                      | Visible location        |
+| ---------- | ----------------------------------------------------------------------------------------------------- | ----------------------- |
+| Slack      | Multiselect: DMs, personal mentions, group mentions; Saved/To-dos visibly unavailable in this version | Channel or DM context   |
+| Linear     | Full notification center, with configurable inclusion                                                 | Issue ID                |
+| Superhuman | Important by default, with configurable bucket/group/label selection                                  | Bucket, group, or label |
 
 These describe the intended source semantics, not verified connector capabilities. Missing source access must be visible; do not silently substitute an email provider's importance flag for Superhuman's classification.
 
@@ -122,7 +122,8 @@ Keep state and source access in environment services with typed contracts and pe
 
 ## Assumptions and open questions
 
-- **Connector feasibility prerequisite:** verify access to Slack saves/todos, Linear notifications, and actual Superhuman Important/bucket metadata. The discussion did not establish supported APIs or permissions. Report unavailable selections explicitly and resolve any required scope reduction before claiming the complete source behavior.
+- **Accepted source scope (2026-10-22):** support Slack DMs and personal/group mentions; display Saved/To-dos as unavailable until supported access exists. Superhuman's official Mail MCP documents split inboxes, labels, and thread filters; use its actual metadata, with authenticated access still to verify. Verify Linear notification retrieval and preserve its full notification-center semantics.
 - **Proposed defaults, not separately approved:** later activity updates a delegated item's context without automatically starting another turn; overlapping source items in separately configured projects have independent state and memory; memory lookup does not cross project boundaries.
-- **Migration decision:** existing device-level Linear view opt-ins need an explicit migration policy. Do not silently enable the feature or configure source integrations for every project. Preserve stored connection data.
-- **Mobile presentation:** the discussion approved the left-sidebar web/desktop design but did not choose a native mobile inbox layout. Confirm native UI scope before claiming all-surface completion.
+- **Accepted migration (2026-10-22):** migrate an enabled legacy Linear view preference only into projects the user explicitly selects. Retain the legacy device preference for older clients; updated clients use project flags. Keep stored connections and workspace settings. Add settings and storage fields without deleting legacy data; upgrade the environment before clients enable Inbox. Older clients cannot use Inbox, and updated clients must report unavailable support on older environments. Reverting to an older client restores its legacy view behavior, not project isolation; rollback must retain new notification records for a later forward upgrade.
+- **Accepted Linear connection architecture:** use one environment-owned OAuth connection per explicitly configured project for the existing Linear issue view and Inbox. Offer migration of the existing desktop connection without changing workspace settings or enabling either feature. Preserve the legacy encrypted credential document for recovery; updated clients use the environment connection after migration.
+- **Accepted client scope (2026-10-22):** ship the approved web/desktop inbox first. Preserve shared state and scope compatibility with mobile; native mobile inbox UI is deferred.

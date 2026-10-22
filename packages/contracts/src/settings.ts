@@ -991,6 +991,12 @@ const LinearWorkspace = TrimmedString.check(
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "gitEnabled",
+  "inboxEnabled",
+  "inboxAgentModelSelection",
+  "inboxSummaryModelSelection",
+  "inboxAgentPrompt",
+  "inboxPreResolution",
+  "linearViewEnabled",
   "linearWorkspace",
   "worktreeCleanup",
   "defaultModelSelection",
@@ -1041,6 +1047,13 @@ export type ProjectProviderInstanceOverride = typeof ProjectProviderInstanceOver
  */
 export const ProjectSettingsOverrides = Schema.Struct({
   gitEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxPreResolution: Schema.optionalKey(Schema.Boolean),
+
+  linearViewEnabled: Schema.optionalKey(Schema.Boolean),
   linearWorkspace: Schema.optionalKey(LinearWorkspace),
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
@@ -1135,6 +1148,22 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  inboxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxAgentModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  inboxSummaryModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  inboxAgentPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(
+        "Address this notification using its context. Explain what you found and what remains to do. Ask before sending messages or changing the source system.",
+      ),
+    ),
+  ),
+  inboxPreResolution: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  linearViewEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   linearWorkspace: LinearWorkspace.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   // Null means no client has migrated this preference yet; an empty value is
   // authoritative so another device cannot resurrect cleared preferences.
@@ -1529,6 +1558,13 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  inboxEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxPreResolution: Schema.optionalKey(Schema.Boolean),
+
+  linearViewEnabled: Schema.optionalKey(Schema.Boolean),
   linearWorkspace: Schema.optionalKey(LinearWorkspace),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),

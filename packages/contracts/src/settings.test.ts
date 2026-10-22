@@ -1058,6 +1058,21 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
 });
 
 describe("Linear settings", () => {
+  it("keeps project features independent and round-trips selected project opt-ins", () => {
+    expect(decodeServerSettings({})).toMatchObject({
+      inboxEnabled: false,
+      linearViewEnabled: false,
+    });
+    const patch = {
+      projectSettingsOverrides: {
+        one: { inboxEnabled: true, linearViewEnabled: false, linearWorkspace: "one" },
+        two: { inboxEnabled: false, linearViewEnabled: true, linearWorkspace: "two" },
+      },
+    };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
+  });
+
   it("keeps the view off for existing clients and stores a local login override", () => {
     expect(decodeClientSettings({})).toMatchObject({
       linearViewEnabled: false,

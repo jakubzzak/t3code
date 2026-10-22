@@ -1,3 +1,4 @@
+import { InboxIntegrationSettings } from "../inbox/InboxIntegrationSettings";
 import { LinearSettings } from "./LinearSettings";
 import { DeviceHostUpdates } from "../device/DeviceHostUpdates";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
@@ -1579,6 +1580,7 @@ export function IntegrationsSettingsPanel() {
       </SettingsSection>
       <DeviceIntegrationSettings />
       <LinearSettings />
+      <InboxIntegrationSettings />
     </SettingsPageContainer>
   );
 }

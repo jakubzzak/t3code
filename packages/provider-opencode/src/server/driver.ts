@@ -12,7 +12,7 @@
  *
  * @module provider/Drivers/OpenCodeDriver
  */
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, TextGenerationError } from "@t3tools/contracts";
 import { OpenCodeSettings } from "../settings.ts";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
@@ -150,6 +150,25 @@ function selectOpenCodeRuntimeTextGeneration(
   v2: ProviderTextGeneration,
 ): ProviderTextGeneration {
   return {
+    generateInboxAnalysis: (input) =>
+      byOpenCodeRuntime(probe.get, {
+        v1:
+          v1.generateInboxAnalysis?.(input) ??
+          Effect.fail(
+            new TextGenerationError({
+              operation: "generateInboxAnalysis",
+              detail: "Inbox analysis unavailable.",
+            }),
+          ),
+        v2:
+          v2.generateInboxAnalysis?.(input) ??
+          Effect.fail(
+            new TextGenerationError({
+              operation: "generateInboxAnalysis",
+              detail: "Inbox analysis unavailable.",
+            }),
+          ),
+      }),
     generateFileFilter: (input) =>
       byOpenCodeRuntime(probe.get, {
         v1: v1.generateFileFilter(input),

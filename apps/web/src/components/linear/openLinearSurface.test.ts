@@ -13,6 +13,10 @@ import { useRightPanelStore } from "~/rightPanelStore";
 import { openLinearSurface } from "./openLinearSurface";
 
 vi.mock("~/env", () => ({ isElectron: true }));
+const projectGate = vi.hoisted(() => ({ enabled: true }));
+vi.mock("./linearViewEnabled", () => ({
+  readLinearViewEnabled: () => projectGate.enabled,
+}));
 const threadRef = { environmentId: "local", threadId: "thread" } as ScopedThreadRef;
 const snapshot = (input: PreviewOpenInput): PreviewSessionSnapshot => ({
   threadId: input.threadId,
@@ -27,6 +31,7 @@ const snapshot = (input: PreviewOpenInput): PreviewSessionSnapshot => ({
 });
 beforeEach(() => {
   __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, linearViewEnabled: true });
+  projectGate.enabled = true;
   resetPreviewStateForTests();
   useRightPanelStore.setState({ byThreadKey: {} });
 });
@@ -86,8 +91,14 @@ describe("opening Linear", () => {
     });
     expect(input.navigatePreview).not.toHaveBeenCalled();
   });
+  it("does not inherit the legacy device preference in an unselected project", async () => {
+    projectGate.enabled = false;
+    const input = fixture();
+    await expect(openLinearSurface(input)).rejects.toThrow("Enable Linear view");
+    expect(input.openPreview).not.toHaveBeenCalled();
+  });
   it("does not create a session when disabled", async () => {
-    __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+    projectGate.enabled = false;
     const input = fixture();
     await expect(openLinearSurface(input)).rejects.toThrow("Enable Linear view");
     expect(input.openPreview).not.toHaveBeenCalled();
@@ -95,7 +106,7 @@ describe("opening Linear", () => {
   it("cleans up if the flag changes while opening", async () => {
     const input = fixture();
     input.openPreview.mockImplementation(async ({ input }) => {
-      __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+      projectGate.enabled = false;
       return AsyncResult.success(snapshot(input));
     });
     await expect(openLinearSurface(input)).rejects.toThrow("disabled");

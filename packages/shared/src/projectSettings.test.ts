@@ -22,6 +22,31 @@ const projectId = ProjectId.make("project-a");
 const otherProjectId = ProjectId.make("project-b");
 
 describe("resolveProjectSettings", () => {
+  it("enables Inbox and Linear only for the selected project without enrolling another", () => {
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      projectSettingsOverrides: {
+        [projectId]: { inboxEnabled: true, linearViewEnabled: true },
+      },
+    });
+    expect(resolveProjectSettings(settings, projectId).settings).toMatchObject({
+      inboxEnabled: true,
+      linearViewEnabled: true,
+    });
+    expect(resolveProjectSettings(settings, otherProjectId).settings).toMatchObject({
+      inboxEnabled: false,
+      linearViewEnabled: false,
+    });
+    const disabled = applyServerSettingsPatch(settings, {
+      projectSettingsOverrides: {
+        [projectId]: { ...settings.projectSettingsOverrides[projectId], inboxEnabled: false },
+      },
+    });
+    expect(resolveProjectSettings(disabled, projectId).settings).toMatchObject({
+      inboxEnabled: false,
+      linearViewEnabled: true,
+    });
+  });
+
   it("inherits every scopable key when the project has no overrides", () => {
     const resolved = resolveProjectSettings(DEFAULT_SERVER_SETTINGS, projectId);
     expect(resolved.settings).toBe(DEFAULT_SERVER_SETTINGS);

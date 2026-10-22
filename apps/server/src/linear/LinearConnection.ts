@@ -1,0 +1,318 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Environment-owned PKCE and one-time encrypted credential migration.
+import * as NodeCrypto from "node:crypto";
+import * as Clock from "effect/Clock";
+import * as Config from "effect/Config";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import {
+  InboxError,
+  type ProjectId,
+  type LinearDesktopRequest,
+  type LinearDesktopResult,
+  type LinearConnectionEnvelope,
+} from "@t3tools/contracts";
+import { createLinearConnection } from "@t3tools/shared/linearConnection";
+import { openLinearConnection } from "@t3tools/shared/linearConnectionTransfer";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import * as Settings from "../serverSettings.ts";
+import * as Secrets from "../auth/ServerSecretStore.ts";
+import { readLinearInbox } from "../inbox/connectors/linear.ts";
+
+declare const __T3CODE_BUILD_LINEAR_CLIENT_ID__: string | undefined;
+export const LINEAR_CALLBACK_PATH = "/oauth/linear/callback";
+const secretKey = (id: ProjectId) => `inbox-linear-${encodeURIComponent(id)}`;
+export class LinearConnection extends Context.Service<
+  LinearConnection,
+  {
+    readonly request: (
+      projectId: ProjectId,
+      input: LinearDesktopRequest,
+    ) => Effect.Effect<LinearDesktopResult, InboxError>;
+    readonly begin: (projectId: ProjectId, origin: string) => Effect.Effect<string, InboxError>;
+    readonly complete: (state: string, code: string) => Effect.Effect<void, InboxError>;
+    readonly cancel: (projectId: ProjectId) => Effect.Effect<void, InboxError>;
+    readonly disconnect: (projectId: ProjectId) => Effect.Effect<void, InboxError>;
+    readonly prepareMigration: (
+      projectId: ProjectId,
+    ) => Effect.Effect<{ ticket: string; publicKey: string }, InboxError>;
+    readonly importMigration: (
+      projectId: ProjectId,
+      ticket: string,
+      envelope: LinearConnectionEnvelope,
+    ) => Effect.Effect<void, InboxError>;
+    readonly read: (
+      projectId: ProjectId,
+      categories: ReadonlyArray<string>,
+    ) => Effect.Effect<Awaited<ReturnType<typeof readLinearInbox>>, InboxError>;
+  }
+>()("t3/linear/LinearConnection") {}
+export const layer = Layer.effect(
+  LinearConnection,
+  Effect.gen(function* () {
+    const secrets = yield* Secrets.ServerSecretStore;
+    const settings = yield* Settings.ServerSettingsService;
+    const clock = yield* Clock.Clock;
+    const scope = yield* Effect.scope;
+    const context = yield* Effect.context<never>();
+    const run = Effect.runPromiseWith(context);
+    const clientId = yield* Config.String("T3CODE_LINEAR_CLIENT_ID").pipe(
+      Config.withDefault(
+        typeof __T3CODE_BUILD_LINEAR_CLIENT_ID__ === "undefined"
+          ? ""
+          : (__T3CODE_BUILD_LINEAR_CLIENT_ID__ ?? ""),
+      ),
+    );
+    const clients = new Map<ProjectId, ReturnType<typeof createLinearConnection>>();
+    const flows = new Map<
+      string,
+      { projectId: ProjectId; accept: (code: string) => void; finished: Promise<void> }
+    >();
+    const connecting = new Map<ProjectId, { url: Promise<string>; status: LinearDesktopResult }>();
+    const errors = new Map<ProjectId, string>();
+    const transfers = new Map<
+      string,
+      { projectId: ProjectId; privateKey: NodeCrypto.KeyObject; expiresAt: number }
+    >();
+    const wrap = (cause: unknown) =>
+      new InboxError({
+        detail: cause instanceof Error ? cause.message : "Linear connection failed. Try again.",
+      });
+    const workspace = (projectId: ProjectId) =>
+      settings.getSettings.pipe(
+        Effect.map((value) => resolveProjectSettings(value, projectId).settings.linearWorkspace),
+        Effect.mapError(
+          () => new InboxError({ detail: "Could not read the project's Linear workspace." }),
+        ),
+      );
+    const authorizations = new Map<
+      ProjectId,
+      { origin: string; ready: (url: string) => void; finished: Promise<void> }
+    >();
+    const getClient = (
+      projectId: ProjectId,
+      authorization?: { origin: string; ready: (url: string) => void; finished: Promise<void> },
+    ) => {
+      if (authorization) authorizations.set(projectId, authorization);
+      const cached = clients.get(projectId);
+      if (cached) return cached;
+      const client = createLinearConnection({
+        clientId,
+        get redirectUri() {
+          return new URL(
+            LINEAR_CALLBACK_PATH,
+            authorizations.get(projectId)?.origin ?? "http://127.0.0.1",
+          ).toString();
+        },
+        now: () => clock.currentTimeMillisUnsafe(),
+        fetch: globalThis.fetch,
+        read: () =>
+          run(secrets.get(secretKey(projectId))).then((value) =>
+            Option.isSome(value) ? new TextDecoder().decode(value.value) : null,
+          ),
+        write: (value) => run(secrets.set(secretKey(projectId), new TextEncoder().encode(value))),
+        authorize: (url, state, signal) =>
+          new Promise<string>((resolve, reject) => {
+            const authorization = authorizations.get(projectId);
+            if (!authorization) {
+              reject(new Error("Start Linear authorization from Integrations."));
+              return;
+            }
+            const abortSignal = AbortSignal.any([signal, AbortSignal.timeout(15 * 60_000)]);
+            const cleanup = () => {
+              flows.delete(state);
+              abortSignal.removeEventListener("abort", abort);
+            };
+            const abort = () => {
+              cleanup();
+              reject(new Error("Linear sign-in was cancelled or expired. Connect again."));
+            };
+            if (abortSignal.aborted) {
+              abort();
+              return;
+            }
+            abortSignal.addEventListener("abort", abort, { once: true });
+            flows.set(state, {
+              projectId,
+              finished: authorization.finished,
+              accept: (code) => {
+                cleanup();
+                resolve(code);
+              },
+            });
+            authorization.ready(url);
+          }),
+      });
+      clients.set(projectId, client);
+      return client;
+    };
+    const request = (projectId: ProjectId, input: LinearDesktopRequest) =>
+      Effect.gen(function* () {
+        const slug = yield* workspace(projectId);
+        if (!slug || slug !== input.workspace)
+          return yield* new InboxError({
+            detail: "Set this project's Linear workspace in Integrations.",
+          });
+        if (!["status", "issues", "issue", "teams", "states"].includes(input.operation))
+          return yield* new InboxError({
+            detail: "Use the project connection controls for authorization.",
+          });
+        if (input.operation === "status" && connecting.has(projectId))
+          return connecting.get(projectId)!.status;
+        if (input.operation === "status" && errors.has(projectId))
+          return yield* new InboxError({ detail: errors.get(projectId)! });
+        return yield* Effect.tryPromise({
+          try: () =>
+            getClient(projectId).request({ ...input, connectionKey: projectId, workspace: slug }),
+          catch: wrap,
+        });
+      });
+    return LinearConnection.of({
+      request,
+      begin: (projectId, origin) =>
+        Effect.gen(function* () {
+          if (connecting.has(projectId))
+            return yield* Effect.tryPromise({
+              try: () => connecting.get(projectId)!.url,
+              catch: wrap,
+            });
+          const slug = yield* workspace(projectId);
+          if (!slug)
+            return yield* new InboxError({ detail: "Set this project's Linear workspace first." });
+          errors.delete(projectId);
+          const status = yield* request(projectId, {
+            operation: "status",
+            workspace: slug,
+            connectionKey: projectId,
+          });
+          let ready!: (url: string) => void;
+          let failed!: (error: unknown) => void;
+          const url = new Promise<string>((resolve, reject) => {
+            ready = resolve;
+            failed = reject;
+          });
+          let finish!: () => void;
+          const finished = new Promise<void>((resolve) => {
+            finish = resolve;
+          });
+          const client = getClient(projectId, { origin, ready, finished });
+          connecting.set(projectId, { url, status });
+          yield* Effect.tryPromise({
+            try: () =>
+              client.request({ operation: "connect", workspace: slug, connectionKey: projectId }),
+            catch: wrap,
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                errors.set(projectId, error.detail);
+                failed(error);
+              }),
+            ),
+            Effect.ensuring(
+              Effect.sync(() => {
+                connecting.delete(projectId);
+                finish();
+              }),
+            ),
+            Effect.forkIn(scope),
+          );
+          return yield* Effect.tryPromise({ try: () => url, catch: wrap });
+        }),
+      complete: (state, code) =>
+        Effect.gen(function* () {
+          const flow = flows.get(state);
+          if (!flow)
+            return yield* new InboxError({
+              detail: "Linear sign-in expired or was already used. Connect again.",
+            });
+          flow.accept(code);
+          yield* Effect.promise(() => flow.finished);
+          if (errors.has(flow.projectId))
+            return yield* new InboxError({ detail: errors.get(flow.projectId)! });
+        }),
+      cancel: (projectId) =>
+        Effect.gen(function* () {
+          const slug = yield* workspace(projectId);
+          yield* Effect.tryPromise({
+            try: () =>
+              getClient(projectId).request({
+                operation: "cancel",
+                workspace: slug,
+                connectionKey: projectId,
+              }),
+            catch: wrap,
+          });
+        }).pipe(Effect.asVoid),
+      disconnect: (projectId) =>
+        Effect.gen(function* () {
+          const slug = yield* workspace(projectId);
+          const client = getClient(projectId);
+          yield* Effect.tryPromise({
+            try: () =>
+              client.request({ operation: "cancel", workspace: slug, connectionKey: projectId }),
+            catch: wrap,
+          });
+          errors.delete(projectId);
+          yield* Effect.tryPromise({
+            try: () =>
+              client.request({
+                operation: "disconnect",
+                workspace: slug,
+                connectionKey: projectId,
+              }),
+            catch: wrap,
+          });
+        }).pipe(Effect.asVoid),
+      prepareMigration: (projectId) =>
+        Effect.sync(() => {
+          const now = clock.currentTimeMillisUnsafe();
+          for (const [ticket, value] of transfers)
+            if (value.expiresAt <= now || value.projectId === projectId) transfers.delete(ticket);
+          const { publicKey, privateKey } = NodeCrypto.generateKeyPairSync("x25519");
+          const ticket = NodeCrypto.randomBytes(32).toString("base64url");
+          transfers.set(ticket, { projectId, privateKey, expiresAt: now + 10 * 60_000 });
+          return {
+            ticket,
+            publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+          };
+        }),
+      importMigration: (projectId, ticket, envelope) =>
+        Effect.gen(function* () {
+          const transfer = transfers.get(ticket);
+          if (
+            !transfer ||
+            transfer.projectId !== projectId ||
+            transfer.expiresAt <= (yield* Clock.currentTimeMillis)
+          )
+            return yield* new InboxError({
+              detail: "This migration expired or belongs to another project. Start it again.",
+            });
+          transfers.delete(ticket);
+          const slug = yield* workspace(projectId);
+          const credential = yield* Effect.try({
+            try: () => openLinearConnection(envelope, transfer.privateKey),
+            catch: () =>
+              new InboxError({ detail: "The encrypted Linear connection could not be migrated." }),
+          });
+          yield* Effect.tryPromise({
+            try: () => getClient(projectId).importConnection(projectId, slug, credential),
+            catch: wrap,
+          });
+          errors.delete(projectId);
+        }),
+      read: (projectId, categories) =>
+        Effect.gen(function* () {
+          const slug = yield* workspace(projectId);
+          return yield* Effect.tryPromise({
+            try: () =>
+              readLinearInbox(
+                (query, variables) => getClient(projectId).query(projectId, slug, query, variables),
+                categories,
+              ),
+            catch: wrap,
+          });
+        }),
+    });
+  }),
+);

@@ -1,3 +1,4 @@
+import { InboxSidebarLayout } from "./inbox/InboxSidebarLayout";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { useProjectGitEnabled } from "../hooks/useProjectGitEnabled";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -284,7 +285,7 @@ import {
   ComboboxTrigger,
   useComboboxFilter,
 } from "./ui/combobox";
-import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import { SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
@@ -4997,6 +4998,21 @@ export default function Sidebar() {
   // setups both commands create directly, so chat.newLocal is a valid
   // fallback. The second tooltip line (multi-project only) advertises
   // shift+click and its keyboard twin chat.newLocal for direct create.
+  const inboxProjects = useMemo(() => {
+    const members = scopedProjectGroup
+      ? scopedProjectGroup.memberProjectRefs
+      : projects.map((project) => ({
+          environmentId: project.environmentId,
+          projectId: project.id,
+        }));
+    return members.filter((ref) => {
+      const config = serverConfigs.get(ref.environmentId);
+      return (
+        config?.notificationInbox === true &&
+        resolveProjectSettings(config.settings, ref.projectId).settings.inboxEnabled
+      );
+    });
+  }, [projects, scopedProjectGroup, serverConfigs]);
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
@@ -5005,9 +5021,9 @@ export default function Sidebar() {
     <>
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
-      <SidebarContent
-        className="min-h-full"
-        fixedHeader={
+      <InboxSidebarLayout
+        projects={inboxProjects}
+        chatHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="z-[1]">
@@ -5602,7 +5618,7 @@ export default function Sidebar() {
             </div>
           ) : null}
         </SidebarGroup>
-      </SidebarContent>
+      </InboxSidebarLayout>
       <SidebarChromeFooter />
     </>
   );

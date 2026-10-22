@@ -1,3 +1,4 @@
+import { requestLinear } from "./requestLinear";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useThreadShell } from "~/state/entities";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -64,7 +65,7 @@ export function LinearLoginSteps({
     let current = true;
     void (async () => {
       let resolvedEmail = email;
-      const request = window.desktopBridge?.linearRequest;
+      const request = requestLinear;
       if (connection && request && url.startsWith("https://accounts.google.com/")) {
         try {
           const status = await request({ operation: "status", ...connection });

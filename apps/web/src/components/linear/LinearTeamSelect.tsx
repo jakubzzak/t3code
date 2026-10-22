@@ -1,3 +1,4 @@
+import { requestLinear } from "./requestLinear";
 import type { LinearTeam } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
@@ -37,7 +38,7 @@ export function LinearTeamSelect(props: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const request = window.desktopBridge?.linearRequest;
+  const request = requestLinear;
   useEffect(() => {
     let cancelled = false;
     setLoading(true);

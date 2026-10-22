@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { AGENTIC_SEARCH_LABELS, DEFAULT_AGENTIC_SEARCH_PROMPTS } from "~/agenticSearch";
 import { Textarea } from "~/components/ui/textarea";
+import { useServerConfigs } from "~/state/entities";
+import { InboxFeatureSettings } from "~/components/inbox/InboxFeatureSettings";
 import { createFileRoute } from "@tanstack/react-router";
-
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { isElectron } from "~/env";
 import {
@@ -11,18 +12,54 @@ import {
   SettingsRow,
   SettingResetButton,
 } from "~/components/settings/settingsLayout";
+import { useSettingsScope } from "~/components/settings/SettingsScopeContext";
+import {
+  useScopedSettings,
+  useScopedSettingsMixed,
+  useUpdateScopedSettings,
+} from "~/components/settings/useScopedSettings";
 import { Switch } from "~/components/ui/switch";
+import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 
 export const Route = createFileRoute("/settings/features")({ component: FeaturesSettings });
 
 function FeaturesSettings() {
-  const settings = useClientSettings();
-  const enabled = settings.linearViewEnabled;
-  const update = useUpdateClientSettings();
+  const clientSettings = useClientSettings();
+  const updateClient = useUpdateClientSettings();
+  const configs = useServerConfigs();
+  const { scope } = useSettingsScope();
+  const settings = useScopedSettings((settings) => settings);
+  const mixed = useScopedSettingsMixed(["linearViewEnabled"]);
+  const inboxMixed = useScopedSettingsMixed(["inboxEnabled"]);
+  const legacyEnabled = useClientSettings((settings) => settings.linearViewEnabled);
+  const update = useUpdateScopedSettings();
+  const projectSelected = scope.kind === "project" || scope.kind === "checkout";
+  const supported =
+    projectSelected &&
+    scope.members.every((member) => configs.get(member.environmentId)?.notificationInbox);
   return (
     <SettingsPageContainer>
       <SettingsSection title="Features">
+        {projectSelected && !supported && (
+          <p className="text-xs text-muted-foreground">
+            Update the selected environment to configure project features.
+          </p>
+        )}
+        {legacyEnabled && !settings.linearViewEnabled && (
+          <SettingsRow
+            title="Move your Linear preference to projects"
+            description="Linear view was enabled on this device. Select each project above, then enable it here. Your connections and workspace settings are preserved."
+          >
+            <Button
+              variant="outline"
+              disabled={!supported || !isElectron}
+              onClick={() => update({ linearViewEnabled: true })}
+            >
+              Enable for selected project
+            </Button>
+          </SettingsRow>
+        )}
         <SettingsRow
           id="agentic-search"
           title="Agentic search"
@@ -30,55 +67,77 @@ function FeaturesSettings() {
           control={
             <Switch
               aria-label="Agentic search"
-              checked={settings.agenticSearchEnabled}
+              checked={clientSettings.agenticSearchEnabled}
               onCheckedChange={(agenticSearchEnabled) => {
-                void update({ agenticSearchEnabled }).catch(() =>
+                void updateClient({ agenticSearchEnabled }).catch(() =>
                   toastManager.add({ type: "error", title: "Could not save search preference" }),
                 );
               }}
             />
           }
         />
-        {settings.agenticSearchEnabled ? (
+        {clientSettings.agenticSearchEnabled ? (
           <>
             <SearchPromptSetting
               label={AGENTIC_SEARCH_LABELS.chats}
               description="Find answers across projects and archived chats on the hosting environment, with source links."
-              value={settings.agenticSearchChatsPrompt}
+              value={clientSettings.agenticSearchChatsPrompt}
               defaultPrompt={DEFAULT_AGENTIC_SEARCH_PROMPTS.chats}
-              save={(agenticSearchChatsPrompt) => update({ agenticSearchChatsPrompt })}
+              save={(agenticSearchChatsPrompt) => updateClient({ agenticSearchChatsPrompt })}
             />
             <SearchPromptSetting
               label={AGENTIC_SEARCH_LABELS.everywhere}
               description="Search chats and connected tools in parallel for a concise answer with sources."
-              value={settings.agenticSearchEverywherePrompt}
+              value={clientSettings.agenticSearchEverywherePrompt}
               defaultPrompt={DEFAULT_AGENTIC_SEARCH_PROMPTS.everywhere}
-              save={(agenticSearchEverywherePrompt) => update({ agenticSearchEverywherePrompt })}
+              save={(agenticSearchEverywherePrompt) => updateClient({ agenticSearchEverywherePrompt })}
             />
           </>
         ) : null}
         <SettingsRow
           id="linear-view"
           title="Linear view"
+          serverScoped
+          settingKeys={["linearViewEnabled"]}
+          mixed={mixed}
           description={
-            isElectron
-              ? "View and edit Linear issues beside your threads. Disabled by default; applies to this device."
-              : "Available only in the desktop app"
+            !projectSelected
+              ? "Select a project above to enable Linear view."
+              : isElectron
+                ? "View and edit Linear issues beside this project's chats."
+                : "Available only in the desktop app."
           }
           control={
             <Switch
               aria-label="Linear view"
-              checked={enabled}
-              disabled={!isElectron}
-              onCheckedChange={(linearViewEnabled) => {
-                void update({ linearViewEnabled }).catch(() =>
-                  toastManager.add({ type: "error", title: "Could not save feature preference" }),
-                );
-              }}
+              checked={settings.linearViewEnabled}
+              disabled={!supported || !isElectron}
+              onCheckedChange={(linearViewEnabled) => update({ linearViewEnabled })}
+            />
+          }
+        />
+        <SettingsRow
+          id="notification-inbox"
+          title="Inbox"
+          serverScoped
+          settingKeys={["inboxEnabled"]}
+          mixed={inboxMixed}
+          description={
+            projectSelected
+              ? "Collect notifications in this project's sidebar. Configure sources in Integrations."
+              : "Select a project above to enable its inbox."
+          }
+          control={
+            <Switch
+              aria-label="Inbox"
+              checked={settings.inboxEnabled}
+              disabled={!supported}
+              onCheckedChange={(inboxEnabled) => update({ inboxEnabled })}
             />
           }
         />
       </SettingsSection>
+      {projectSelected && settings.inboxEnabled && <InboxFeatureSettings />}
     </SettingsPageContainer>
   );
 }

@@ -31,6 +31,7 @@ export class TextGeneration extends Context.Service<TextGeneration, ProviderText
 ) {}
 
 type TextGenerationOp =
+  | "generateInboxAnalysis"
   | "generateFileFilter"
   | "generateCommitMessage"
   | "generatePrContent"
@@ -61,6 +62,20 @@ export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   return TextGeneration.of({
+    generateInboxAnalysis: (input) =>
+      resolveInstance(registry, "generateInboxAnalysis", input.modelSelection.instanceId).pipe(
+        Effect.flatMap((generation) =>
+          generation.generateInboxAnalysis
+            ? generation.generateInboxAnalysis(input)
+            : Effect.fail(
+                new TextGenerationError({
+                  operation: "generateInboxAnalysis",
+                  detail:
+                    "This provider does not support inbox summaries. Choose another summary model.",
+                }),
+              ),
+        ),
+      ),
     generateFileFilter: (input) =>
       resolveInstance(registry, "generateFileFilter", input.modelSelection.instanceId).pipe(
         Effect.flatMap((generation) => generation.generateFileFilter(input)),

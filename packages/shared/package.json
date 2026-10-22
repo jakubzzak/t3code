@@ -498,6 +498,14 @@
     "./mermaid": {
       "types": "./src/mermaid.ts",
       "import": "./src/mermaid.ts"
+    },
+    "./linearConnection": {
+      "types": "./src/linearConnection.ts",
+      "import": "./src/linearConnection.ts"
+    },
+    "./linearConnectionTransfer": {
+      "types": "./src/linearConnectionTransfer.ts",
+      "import": "./src/linearConnectionTransfer.ts"
     }
   },
   "scripts": {

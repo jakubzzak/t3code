@@ -1,6 +1,8 @@
 import { LinearConnectionSettings } from "../linear/LinearConnectionSettings";
 import { useRef } from "react";
 import { isElectron } from "~/env";
+import { useServerConfigs } from "~/state/entities";
+import { EnvironmentLinearSettings } from "../linear/EnvironmentLinearSettings";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 import { SettingsSection, SettingsRow } from "./settingsLayout";
@@ -13,6 +15,7 @@ import {
 
 export function LinearSettings() {
   const { scope, search } = useSettingsScope();
+  const configs = useServerConfigs();
   const workspace = useScopedSettings((settings) => settings.linearWorkspace);
   const mixed = useScopedSettingsMixed(["linearWorkspace"]);
   const update = useUpdateScopedSettings();
@@ -62,16 +65,25 @@ export function LinearSettings() {
           </div>
         }
       />
-      {isElectron && (
-        <LinearConnectionSettings
+      {projects.length === 1 && configs.get(projects[0]!.environmentId)?.notificationInbox ? (
+        <EnvironmentLinearSettings
           key={JSON.stringify([projects, workspace])}
+          environmentId={projects[0]!.environmentId}
+          projectId={projects[0]!.projectId}
           workspace={mixed ? "" : workspace}
-          connectionKey={
-            projects.length === 1
-              ? JSON.stringify([projects[0]!.environmentId, projects[0]!.projectId])
-              : null
-          }
         />
+      ) : (
+        isElectron && (
+          <LinearConnectionSettings
+            key={JSON.stringify([projects, workspace])}
+            workspace={mixed ? "" : workspace}
+            connectionKey={
+              projects.length === 1
+                ? JSON.stringify([projects[0]!.environmentId, projects[0]!.projectId])
+                : null
+            }
+          />
+        )
       )}
     </SettingsSection>
   );

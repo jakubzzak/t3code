@@ -356,7 +356,6 @@ import {
   sortProviderInstanceEntries,
 } from "../providerInstances";
 import {
-  getClientSettings,
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
@@ -2530,7 +2529,8 @@ export default function ChatView(props: ChatViewProps) {
     ),
   );
 
-  const linearViewEnabled = useClientSettings((settings) => settings.linearViewEnabled);
+  const linearViewEnabled = resolveProjectSettings(settings, activeThread?.projectId ?? null)
+    .settings.linearViewEnabled;
   useEffect(() => {
     if (!activeThreadRef || !previewSessionsReady) return;
     const hiddenTabIds = new Set(
@@ -11214,7 +11214,7 @@ export default function ChatView(props: ChatViewProps) {
     isElectron &&
     linearViewEnabled &&
     serverConfig?.linearIssueChats &&
-    window.desktopBridge?.linearRequest &&
+    (serverConfig?.notificationInbox || window.desktopBridge?.linearRequest) &&
     activeProject &&
     activeProjectSettings.settings.linearWorkspace ? (
       <LinearIssuePicker
@@ -11229,7 +11229,8 @@ export default function ChatView(props: ChatViewProps) {
           if (
             !current ||
             !config ||
-            !getClientSettings().linearViewEnabled ||
+            !resolveProjectSettings(config.settings, current.projectId).settings
+              .linearViewEnabled ||
             resolveProjectSettings(config.settings, current.projectId).settings.linearWorkspace !==
               issue.workspace ||
             current.linkedLinearIssue ||

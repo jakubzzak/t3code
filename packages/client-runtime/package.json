@@ -426,6 +426,10 @@
     "./state/thread-cleanup": {
       "types": "./src/state/threadCleanup.ts",
       "default": "./src/state/threadCleanup.ts"
+    },
+    "./state/inbox": {
+      "types": "./src/state/inbox.ts",
+      "import": "./src/state/inbox.ts"
     }
   },
   "scripts": {

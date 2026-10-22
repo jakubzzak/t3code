@@ -1,3 +1,4 @@
+import { requestLinear } from "./requestLinear";
 import type {
   EnvironmentId,
   ProjectId,
@@ -130,7 +131,7 @@ export function LinearIssuePicker(props: Props) {
     [props.environmentId, props.projectId, conflict],
   );
   const threads = useThreadShellsForProjectRefs(refs);
-  const request = window.desktopBridge?.linearRequest;
+  const request = requestLinear;
   const connectionKey = JSON.stringify([props.environmentId, props.projectId]);
   const load = useCallback(
     async (after?: string, version = ++generation.current) => {

@@ -1,3 +1,5 @@
+import { InboxToolkit } from "./toolkits/inbox/tools.ts";
+import * as InboxHandlers from "./toolkits/inbox/handlers.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -867,6 +869,7 @@ export const layerMcpTransport = McpServer.layerHttp({
 }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
 export const layer = Layer.mergeAll(
+  toolkitRegistration(InboxToolkit, InboxHandlers.layer),
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,

@@ -1,4 +1,5 @@
 import type {
+  InboxAnalysisContent,
   FileFilterGenerationInput,
   FileFilterGenerationResult,
   BranchNamingOptions,
@@ -118,7 +119,18 @@ export type ReviewGuideGenerationResult = Omit<
 >;
 
 /** Commit, change request, branch, and title generation backed by one provider instance. */
+export interface InboxAnalysisInput {
+  cwd: string;
+  modelSelection: ModelSelection;
+  context: string;
+  precedents: ReadonlyArray<{ id: string; context: string; outcome: string }>;
+  suggest: boolean;
+}
 export interface ProviderTextGeneration {
+  readonly generateInboxAnalysis?: (
+    input: InboxAnalysisInput,
+  ) => Effect.Effect<InboxAnalysisContent, TextGenerationError>;
+
   readonly generateFileFilter: (
     input: FileFilterGenerationInput & { cwd: string; modelSelection: ModelSelection },
   ) => Effect.Effect<FileFilterGenerationResult, TextGenerationError>;

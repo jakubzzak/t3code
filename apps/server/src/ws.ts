@@ -1,3 +1,8 @@
+import * as LinearConnection from "./linear/LinearConnection.ts";
+import * as InboxRpc from "./inbox/inboxRpc.ts";
+import { WsCoreRpcGroup } from "@t3tools/contracts";
+import * as InboxSources from "./inbox/InboxSources.ts";
+import * as InboxService from "./inbox/InboxService.ts";
 import { ThreadLinearIssues } from "./orchestration-v2/ThreadLinearIssues.ts";
 import * as ThreadCleanup from "./orchestration-v2/ThreadCleanup.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
@@ -549,6 +554,7 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1204,7 +1210,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  ServerWsCoreRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1746,6 +1752,7 @@ const layerWsRpc = (
             },
             settings,
             shellResumeCompletionMarker: true,
+            notificationInbox: true,
             linearIssueChats: true,
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
@@ -1836,7 +1843,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerWsCoreRpcGroup.of({
         [WS_METHODS.threadCleanupStart]: (input) => threadCleanup.start(input),
         [WS_METHODS.threadCleanupSubscribe]: (input) => threadCleanup.subscribe(input.threadId),
         [WS_METHODS.linearIssueSelect]: (input) => linearIssues.select(input),
@@ -3176,6 +3183,9 @@ export const layer = Layer.unwrap(
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
+    const inbox = yield* InboxService.InboxService;
+    const inboxSources = yield* InboxSources.InboxSources;
+    const linearConnection = yield* LinearConnection.LinearConnection;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3231,6 +3241,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.merge(InboxRpc.layer),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.
@@ -3243,6 +3254,9 @@ export const layer = Layer.unwrap(
               // mutation invalidates the HTTP diff cache that every client reads from.
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
               Layer.provide(OtlpEndpointCheck.layer),
+              Layer.provide(Layer.succeed(InboxService.InboxService, inbox)),
+              Layer.provide(Layer.succeed(InboxSources.InboxSources, inboxSources)),
+              Layer.provide(Layer.succeed(LinearConnection.LinearConnection, linearConnection)),
               // Shared like the pull request service, so concurrent generations single-flight.
               Layer.provide(
                 Layer.succeed(

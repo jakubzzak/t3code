@@ -511,3 +511,52 @@ it.each(["", "login"])(
     ).rejects.toThrow("Invalid Linear sort cursor");
   },
 );
+
+it("migrates encrypted credentials without changing the original connection and preserves refresh ownership", async () => {
+  const crypto = await import("node:crypto");
+  const { openLinearConnection } = await import("@t3tools/shared/linearConnectionTransfer");
+  const source = fixture();
+  const destination = fixture();
+  const input = { workspace: "acme", connectionKey: "old-project" };
+  await source.client.request({ ...input, operation: "connect" });
+  const original = source.saved();
+  const pair = crypto.generateKeyPairSync("x25519");
+  const exported = await source.client.request({
+    ...input,
+    operation: "export",
+    migrationPublicKey: pair.publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+  });
+  expect(exported.migration).toBeDefined();
+  expect(JSON.stringify(exported)).not.toContain("private-access");
+  expect(JSON.stringify(exported)).not.toContain("private-refresh");
+  expect(source.saved()).toBe(original);
+  const credential = openLinearConnection(exported.migration!, pair.privateKey);
+  const client = destination.withoutClientId();
+  await expect(client.importConnection("new-project", "other", credential)).rejects.toThrow(
+    "does not match",
+  );
+  await client.importConnection("new-project", "acme", credential);
+  await expect(client.importConnection("new-project", "acme", credential)).rejects.toThrow(
+    "already has",
+  );
+  expect(
+    (await client.request({ operation: "status", workspace: "acme", connectionKey: "new-project" }))
+      .connection?.userId,
+  ).toBe("user-1");
+  destination.advance();
+  await client.query("new-project", "acme", "query { viewer { id } }", {});
+  expect(destination.refreshes()).toBe(1);
+  await client.request({ operation: "connect", workspace: "acme", connectionKey: "new-project" });
+  expect(JSON.parse(destination.saved()!)["new-project"].clientId).toBe("test-client");
+  const refresh = destination.calls.find((call) => call.url.endsWith("/oauth/token"));
+  expect(new URLSearchParams(refresh?.body).get("client_id")).toBe("test-client");
+  await expect(client.query("new-project", "acme", "mutation { issueUpdate }", {})).rejects.toThrow(
+    "Only Linear reads",
+  );
+  expect(() =>
+    openLinearConnection(
+      { ...exported.migration!, tag: Buffer.alloc(16).toString("base64") },
+      pair.privateKey,
+    ),
+  ).toThrow();
+});

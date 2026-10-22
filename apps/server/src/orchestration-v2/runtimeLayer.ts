@@ -1,3 +1,4 @@
+import * as InboxContext from "../inbox/InboxContextService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
@@ -153,6 +154,7 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
 );
 
 const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
+  Layer.provide(InboxContext.layer),
   Layer.provide(
     Layer.mergeAll(
       layerContextHandoffServiceProvided,
