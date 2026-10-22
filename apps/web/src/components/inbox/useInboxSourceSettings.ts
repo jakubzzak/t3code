@@ -7,16 +7,12 @@ import { useEffect, useRef, useState } from "react";
 import { inboxEnvironment } from "~/state/inbox";
 import { useAtomCommand } from "~/state/use-atom-command";
 
-type Selection = Pick<
-  InboxSourceConnection,
-  "enabled" | "categories" | "accounts" | "initialLookbackDays"
->;
+type Selection = Pick<InboxSourceConnection, "categories" | "accounts" | "initialLookbackDays">;
 const selectionOf = ({
-  enabled,
   categories,
   accounts,
   initialLookbackDays,
-}: InboxSourceConnection): Selection => ({ enabled, categories, accounts, initialLookbackDays });
+}: InboxSourceConnection): Selection => ({ categories, accounts, initialLookbackDays });
 
 /** Serialize full source selections so rapid edits cannot overwrite one another. */
 export function useInboxSourceSettings(
@@ -60,6 +56,7 @@ export function useInboxSourceSettings(
             projectId: connection.projectId,
             source: connection.source,
             ...next,
+            enabled: true,
             ...(token ? { token } : {}),
           },
         });

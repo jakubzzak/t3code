@@ -8,6 +8,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Deferred from "effect/Deferred";
+import * as TestClock from "effect/testing/TestClock";
 import { InboxError, ProjectId } from "@t3tools/contracts";
 import * as Sources from "./InboxSources.ts";
 import * as Transport from "./InboxSourceTransport.ts";
@@ -15,6 +17,7 @@ import * as Inbox from "./InboxService.ts";
 import * as Secrets from "../auth/ServerSecretStore.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as SqlClient from "effect/sql/SqlClient";
 it.effect(
   "isolates connections by project, pauses disabled inboxes, retains sync history on failures, and disconnects",
   () =>
@@ -23,6 +26,8 @@ it.effect(
       const calls = yield* Ref.make(0);
       const fail = yield* Ref.make(false);
       const ingested = yield* Ref.make(0);
+      const linearConnected = yield* Ref.make(false);
+      const linearRead = yield* Deferred.make<void>();
       const secrets = Secrets.ServerSecretStore.of({
         get: (key) => Effect.sync(() => Option.fromUndefinedOr(credentials.get(key))),
         set: (key, value) =>
@@ -40,8 +45,12 @@ it.effect(
         getOrCreateRandom: () => Effect.die("Not used in this test"),
       });
       const transport = Transport.InboxSourceTransport.of({
-        read: () =>
+        read: (connection) =>
           Effect.gen(function* () {
+            if (connection.source === "linear") {
+              yield* Deferred.succeed(linearRead, undefined);
+              return [];
+            }
             yield* Ref.update(calls, (count) => count + 1);
             if (yield* Ref.get(fail))
               return yield* new InboxError({ detail: "Slack permission missing" });
@@ -70,7 +79,20 @@ it.effect(
         ),
         Layer.provide(
           Layer.succeed(Linear.LinearConnection, {
-            request: () => Effect.succeed({ configured: false, connection: null }),
+            request: () =>
+              Ref.get(linearConnected).pipe(
+                Effect.map((connected) => ({
+                  configured: connected,
+                  connection: connected
+                    ? {
+                        workspace: "fixture",
+                        userId: "fixture",
+                        name: "Fixture",
+                        email: "fixture@example.test",
+                      }
+                    : null,
+                })),
+              ),
             begin: () => Effect.die("Not used"),
             complete: () => Effect.void,
             cancel: () => Effect.void,
@@ -94,7 +116,7 @@ it.effect(
               }),
           }),
         ),
-        Layer.provide(Sqlite.layerMemory),
+        Layer.provideMerge(Sqlite.layerMemory),
         Layer.provideMerge(settingsLayer),
         Layer.provide(Layer.succeed(Secrets.ServerSecretStore, secrets)),
         Layer.provide(Layer.succeed(Transport.InboxSourceTransport, transport)),
@@ -112,7 +134,7 @@ it.effect(
             categories: [],
             accounts: [],
           });
-          assert.equal(cleared.enabled, false);
+          assert.equal(cleared.enabled, true);
           assert.deepEqual(cleared.categories, []);
         }
         const accountOnly = yield* service.configure({
@@ -149,11 +171,15 @@ it.effect(
         const input = {
           projectId,
           source: "slack" as const,
-          enabled: true,
+          enabled: false, // Retained wire flag must not require a second opt-in.
           categories: ["dms"],
           token: Redacted.make("xoxp-fixture-not-a-real-credential"),
         };
-        yield* service.configure(input);
+        const configured = yield* service.configure(input);
+        const sql = yield* SqlClient.SqlClient;
+        const legacy = JSON.stringify({ ...configured, enabled: false });
+        yield* sql`UPDATE inbox_sources SET payload_json=${legacy} WHERE project_id=${projectId} AND source='slack'`;
+        assert.equal((yield* service.list(projectId))[0]?.enabled, true);
         yield* service.refresh(input);
         assert.equal(yield* Ref.get(calls), 0);
         const foreign = yield* service.list(ProjectId.make("two"));
@@ -171,6 +197,15 @@ it.effect(
         assert.ok(synced.lastSyncAt);
         assert.equal(yield* Ref.get(ingested), 1);
         assert.equal(yield* Ref.get(calls), 1);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: { [projectId]: { inboxEnabled: false } },
+        });
+        yield* service.refresh(input);
+        assert.equal(yield* Ref.get(calls), 1);
+        assert.equal((yield* service.list(projectId))[0]?.connected, true);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: { [projectId]: { inboxEnabled: true } },
+        });
         yield* Ref.set(fail, true);
         const { token: _token, ...withoutToken } = input;
         yield* service.configure(withoutToken);
@@ -185,6 +220,21 @@ it.effect(
           (yield* Effect.result(service.configure({ ...input, categories: ["saved"] })))._tag,
           "Failure",
         );
+        const linearProject = ProjectId.make("linear-only");
+        credentials.set(`inbox-linear-${linearProject}`, new TextEncoder().encode("fixture"));
+        yield* Ref.set(linearConnected, true);
+        yield* Ref.set(fail, false);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [linearProject]: { inboxEnabled: true, linearWorkspace: "fixture" },
+          },
+        });
+        // No Inbox source row or client configure call: the existing project connection is sufficient.
+        yield* TestClock.adjust("1 minute");
+        yield* Deferred.await(linearRead);
+        const linearSynced = yield* service.refresh({ projectId: linearProject, source: "linear" });
+        assert.equal(linearSynced.connected, true);
+        assert.ok(linearSynced.lastSyncAt);
       }).pipe(Effect.provide(layer));
     }).pipe(Effect.scoped),
 );

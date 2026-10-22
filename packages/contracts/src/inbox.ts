@@ -127,6 +127,7 @@ export class InboxError extends Schema.TaggedError<InboxError>()("InboxError", {
 export const InboxSourceConnection = Schema.Struct({
   projectId: ProjectId,
   source: InboxSource,
+  // Legacy wire compatibility; collection is controlled by the project Inbox feature.
   enabled: Schema.Boolean,
   connected: Schema.Boolean,
   categories: Schema.Array(Schema.String),
@@ -143,6 +144,7 @@ export type InboxSourceConnection = typeof InboxSourceConnection.Type;
 export const InboxSourceKey = Schema.Struct({ projectId: ProjectId, source: InboxSource });
 export const InboxSourceConfigureInput = Schema.Struct({
   ...InboxSourceKey.fields,
+  // Legacy wire compatibility; collection is controlled by the project Inbox feature.
   enabled: Schema.Boolean,
   initialLookbackDays: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 90 })),

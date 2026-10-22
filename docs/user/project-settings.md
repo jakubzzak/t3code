@@ -161,7 +161,8 @@ Superhuman uses its official Mail MCP and registers its OAuth client automatical
 or secret is required. Sign in, select accounts, then select Important or other
 splits and labels. Sign-in requires access to Superhuman Mail MCP and its Chrome extension.
 Selections save automatically; text and number fields save when you leave the field or press Enter.
-Changing filters does not turn collection on. An empty selection collects nothing.
+Connected sources feed Inbox automatically while the project’s Inbox feature is enabled.
+Clear a source’s selections or disconnect it to stop its intake, or disable Inbox for the project to pause all sources.
 
 Use the sidebar's **Inbox** tab to triage without leaving your current chat. Arrow keys focus and
 expand an item. **Agent** starts the project's configured agent; **Agent chat** opens a linked chat

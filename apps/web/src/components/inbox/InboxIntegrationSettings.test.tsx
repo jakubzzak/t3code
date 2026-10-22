@@ -144,9 +144,12 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-it("saves each source's selections automatically without turning collection on", async () => {
+it("automatically includes configured sources without a separate notification switch", async () => {
   await render();
   expect(container.textContent).not.toMatch(/Save selection|Apply selection/);
+  expect(
+    container.querySelector('[aria-label^="Enable "][aria-label$=" notifications"]'),
+  ).toBeNull();
   expect(state.configure).not.toHaveBeenCalled();
   await click(checkbox("slack", "Personal mentions"));
   await click(checkbox("linear", "Assignments"));
@@ -154,13 +157,13 @@ it("saves each source's selections automatically without turning collection on",
   expect(state.configure.mock.calls.map(([request]) => request.input)).toEqual([
     expect.objectContaining({
       source: "slack",
-      enabled: false,
+      enabled: true,
       categories: ["dms", "group-mentions"],
     }),
-    expect.objectContaining({ source: "linear", enabled: false, categories: ["assignments"] }),
+    expect.objectContaining({ source: "linear", enabled: true, categories: ["assignments"] }),
     expect.objectContaining({
       source: "superhuman",
-      enabled: false,
+      enabled: true,
       categories: ["split:Important"],
     }),
   ]);
@@ -189,7 +192,7 @@ it("serializes rapid edits and rolls a failed final edit back to the last saved 
   expect(checkbox("slack", "Group mentions").checked).toBe(true);
 });
 
-it("saves history on field commit, rejects invalid history, and connects a manual token without enabling collection", async () => {
+it("saves history on field commit, rejects invalid history, and connects a manual token without an extra collection opt-in", async () => {
   await render();
   await edit("Slack initial history days", "14");
   expect(state.configure.mock.lastCall![0].input.initialLookbackDays).toBe(14);
@@ -202,7 +205,7 @@ it("saves history on field commit, rejects invalid history, and connects a manua
   await edit("Slack user OAuth token", "xoxp-fixture-not-a-real-credential");
   expect(state.configure.mock.lastCall![0]).toMatchObject({
     environmentId: EnvironmentId.make("env"),
-    input: { source: "slack", enabled: false, initialLookbackDays: 14 },
+    input: { source: "slack", enabled: true, initialLookbackDays: 14 },
   });
   expect(state.configure.mock.lastCall![0].input.token).toBeDefined();
   expect(
@@ -216,31 +219,27 @@ it("removes filters belonging only to a deselected Superhuman account and permit
   expect(state.configure.mock.lastCall![0].input).toMatchObject({
     accounts: ["one@example.test"],
     categories: ["split:Important"],
-    enabled: false,
+    enabled: true,
   });
   expect(container.querySelector("#superhuman")!.textContent).not.toContain("Label · Work");
   await click(checkbox("superhuman", "one@example.test"));
   expect(state.configure.mock.lastCall![0].input).toMatchObject({
     accounts: [],
     categories: [],
-    enabled: false,
+    enabled: true,
   });
   await click(checkbox("linear", "Everything"));
-  expect(state.configure.mock.lastCall![0].input).toMatchObject({ categories: [], enabled: false });
+  expect(state.configure.mock.lastCall![0].input).toMatchObject({ categories: [], enabled: true });
 });
 
-it("lets collection be turned off after clearing all filters or accounts", async () => {
+it("pauses a source through empty filters and resumes by restoring a selection", async () => {
   await render();
-  for (const [source, name, clear] of [
-    ["slack", "Slack", "Direct messages"],
-    ["linear", "Linear", "Everything"],
-    ["superhuman", "Superhuman", "one@example.test"],
-  ]) {
-    const toggle = container.querySelector<HTMLButtonElement>(
-      `[aria-label="Enable ${name} notifications"]`,
-    )!;
-    await click(toggle);
-    await click(checkbox(source!, clear!));
+  for (const [source, clear] of [
+    ["slack", "Direct messages"],
+    ["linear", "Everything"],
+    ["superhuman", "one@example.test"],
+  ] as const) {
+    await click(checkbox(source, clear));
     if (source === "slack") {
       await click(checkbox(source, "Personal mentions"));
       await click(checkbox(source, "Group mentions"));
@@ -251,8 +250,8 @@ it("lets collection be turned off after clearing all filters or accounts", async
       enabled: true,
       categories: [],
     });
-    expect(toggle.matches(":disabled, [aria-disabled=true]")).toBe(false);
-    await click(toggle);
-    expect(state.configure.mock.lastCall![0].input.enabled).toBe(false);
+    await click(checkbox(source, clear));
+    if (source === "superhuman") await click(checkbox(source, "Split · Important"));
+    expect(state.configure.mock.lastCall![0].input.categories.length).toBeGreaterThan(0);
   }
 });

@@ -16,7 +16,6 @@ import { integrationDisabledReason } from "./integrationAvailability";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Switch } from "../ui/switch";
 import { OAuthClientIdSetting } from "./OAuthClientIdSetting";
 import { useScopedSettings } from "../settings/useScopedSettings";
 import { InboxSourceLogo } from "./InboxSourceLogo";
@@ -158,7 +157,7 @@ function SlackConnection({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={!canSync || pending || saving || !selection.enabled}
+                disabled={!canSync || pending || saving || !categories.length}
                 onClick={() =>
                   void sync({
                     environmentId,
@@ -221,25 +220,8 @@ function SlackConnection({
         )}
       </SettingsRow>
       <SettingsRow
-        title="Notifications"
-        description="Collect the selected Slack activity in this project's Inbox."
-        control={
-          <Switch
-            aria-label="Enable Slack notifications"
-            checked={selection.enabled}
-            disabled={
-              !canWrite ||
-              pending ||
-              !connection.connected ||
-              (!selection.enabled && !categories.length)
-            }
-            onCheckedChange={(enabled) => void update({ enabled })}
-          />
-        }
-      />
-      <SettingsRow
         title="Notification categories"
-        description="Choose relevant conversations. Saved and To-dos have no supported connector yet."
+        description="Selected activity appears automatically in Inbox. Saved and To-dos are unavailable."
         control={
           <IntegrationSelection
             label="Slack notification categories"
@@ -422,23 +404,6 @@ function SuperhumanConnection({
         )}
       </SettingsRow>
       <SettingsRow
-        title="Notifications"
-        description="Collect selected splits and labels in this project's Inbox."
-        control={
-          <Switch
-            aria-label="Enable Superhuman notifications"
-            checked={selection.enabled}
-            disabled={
-              !canWrite ||
-              pending ||
-              !connection.connected ||
-              (!selection.enabled && (!accounts.length || !categories.length))
-            }
-            onCheckedChange={(enabled) => void update({ enabled })}
-          />
-        }
-      />
-      <SettingsRow
         title="Accounts"
         description={
           !connection.connected
@@ -481,7 +446,7 @@ function SuperhumanConnection({
         description={
           !connection.connected
             ? "Connect to choose Important and other email groups."
-            : "Choose the email groups relevant to this project."
+            : "Selected email groups appear automatically in this project’s Inbox."
         }
         control={
           <IntegrationSelection
@@ -529,24 +494,10 @@ function LinearNotifications({
   return (
     <>
       <SettingsRow
-        title="Notifications"
-        description="Collect this account's Linear notification center in this project's Inbox."
-        control={
-          <Switch
-            aria-label="Enable Linear notifications"
-            checked={selection.enabled}
-            disabled={
-              !canWrite || !connection.connected || (!selection.enabled && !categories.length)
-            }
-            onCheckedChange={(enabled) => void update({ enabled })}
-          />
-        }
-      />
-      <SettingsRow
         title="Notification categories"
         description={
           connection.connected
-            ? "Include everything, or select activity categories."
+            ? "Selected activity appears automatically in Inbox. Include everything, or choose categories."
             : "Connect Linear above to choose categories."
         }
         control={
@@ -607,11 +558,6 @@ function InactiveSource({ source }: { source: InboxSource }) {
           }
         />
       )}
-      <SettingsRow
-        title="Notifications"
-        description="Enable Inbox in this project’s Features to collect notifications."
-        control={<Switch aria-label={`Enable ${name} notifications`} checked={false} disabled />}
-      />
       {source === "slack" && (
         <>
           <SettingsRow

@@ -18,7 +18,7 @@ import {
   InboxSourceConnection,
   type InboxSourceConfigureInput,
   type InboxSource,
-  type ProjectId,
+  ProjectId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as ServerSettings from "../serverSettings.ts";
@@ -29,7 +29,7 @@ const sources: ReadonlyArray<InboxSource> = ["slack", "linear", "superhuman"];
 const empty = (projectId: ProjectId, source: InboxSource): InboxSourceConnection => ({
   projectId,
   source,
-  enabled: false,
+  enabled: true,
   connected: false,
   categories:
     source === "slack"
@@ -99,7 +99,10 @@ export const make = Effect.gen(function* () {
     return semaphore.withPermits(1);
   };
   const scope = yield* Effect.scope;
-  const decode = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxSourceConnection));
+  const decodeStored = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxSourceConnection));
+  // Keep the legacy wire field readable, but Inbox is the only collection opt-in.
+  const decode = (json: string) =>
+    decodeStored(json).pipe(Effect.map((connection) => ({ ...connection, enabled: true })));
   const encode = Schema.encodeEffect(Schema.fromJsonString(InboxSourceConnection));
   const error = (cause: unknown) =>
     new InboxError({ detail: "Could not update this project's source connection.", cause });
@@ -158,16 +161,15 @@ export const make = Effect.gen(function* () {
   const refresh = (input: { projectId: ProjectId; source: InboxSource }, force = false) =>
     lock(input)(
       Effect.gen(function* () {
-        const connection = (yield* listStored(input.projectId)).find(
-          (entry) => entry.source === input.source,
-        )!;
         const config = resolveProjectSettings(
           yield* settings.getSettings.pipe(Effect.mapError(error)),
           input.projectId,
         ).settings;
+        const connection = (yield* input.source === "linear" && config.inboxEnabled
+          ? list(input.projectId)
+          : listStored(input.projectId)).find((entry) => entry.source === input.source)!;
         if (
           !config.inboxEnabled ||
-          !connection.enabled ||
           !connection.connected ||
           !connection.categories.length ||
           (connection.source === "superhuman" && !connection.accounts.length)
@@ -266,11 +268,9 @@ export const make = Effect.gen(function* () {
             .set(secretName(input.projectId, input.source), new TextEncoder().encode(token))
             .pipe(Effect.mapError(error));
         }
-        if (input.enabled && !previous.connected && !input.token)
-          return yield* new InboxError({ detail: "Connect this source before enabling it." });
         return yield* save({
           ...previous,
-          enabled: input.enabled,
+          enabled: true,
           connected: previous.connected || input.token !== undefined,
           categories: [...new Set(input.categories)],
           accounts: input.accounts ?? previous.accounts,
@@ -304,19 +304,21 @@ export const make = Effect.gen(function* () {
         yield* save(empty(input.projectId, input.source));
       }),
     );
-  const poll = sql<{ payload_json: string }>`SELECT payload_json FROM inbox_sources`.pipe(
-    Effect.flatMap((rows) =>
-      Effect.forEach(
-        rows,
-        (row) => decode(row.payload_json).pipe(Effect.flatMap((connection) => refresh(connection))),
-        {
-          concurrency: 3,
-          discard: true,
-        },
-      ),
-    ),
-    Effect.catch(() => Effect.logWarning("Inbox sources could not be refreshed.")),
-  );
+  const poll = Effect.gen(function* () {
+    const config = yield* settings.getSettings.pipe(Effect.mapError(error));
+    const stored = yield* sql<{
+      project_id: string;
+    }>`SELECT DISTINCT project_id FROM inbox_sources`;
+    const projects = new Set([
+      ...stored.map((row) => row.project_id),
+      ...Object.keys(config.projectSettingsOverrides),
+    ]);
+    const candidates = [...projects]
+      .map((id) => ProjectId.make(id))
+      .filter((id) => resolveProjectSettings(config, id).settings.inboxEnabled)
+      .flatMap((projectId) => sources.map((source) => ({ projectId, source })));
+    yield* Effect.forEach(candidates, (input) => refresh(input), { concurrency: 3, discard: true });
+  }).pipe(Effect.catch(() => Effect.logWarning("Inbox sources could not be refreshed.")));
   yield* poll.pipe(Effect.repeat(Schedule.spaced("1 minute")), Effect.forkIn(scope));
   return InboxSources.of({
     list,
