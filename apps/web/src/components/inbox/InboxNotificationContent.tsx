@@ -10,6 +10,8 @@ import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
 
+import styles from "./inboxNotificationContent.module.css";
+
 const inboxMarkdownPlugins = [remarkGfm];
 
 const InboxLinkContext = createContext<ReturnType<typeof useInboxLink> | null>(null);
@@ -75,6 +77,18 @@ function InboxLinkedText({ text }: { text: string }) {
 }
 
 const inboxMarkdownComponents: Components = { a: InboxMarkdownLink };
+
+function InboxMarkdownImage({ src, alt }: ComponentProps<"img">) {
+  return typeof src === "string" && src ? (
+    <InboxMarkdownLink href={src}>{alt || "View image"}</InboxMarkdownLink>
+  ) : (
+    <>{alt}</>
+  );
+}
+const linearMarkdownComponents: Components = {
+  ...inboxMarkdownComponents,
+  img: InboxMarkdownImage,
+};
 
 export function InboxOpenOriginalAction({
   notification,
@@ -191,8 +205,14 @@ export function InboxSourceContent({
                   {item.author} · {item.location}
                 </div>
               )}
-              {item.formattedContent !== undefined ? (
-                <div className="space-y-2 whitespace-pre-wrap break-words [&_a]:text-primary [&_a]:underline [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
+              {item.source === "linear" || item.formattedContent !== undefined ? (
+                <div
+                  className={
+                    item.source === "linear"
+                      ? styles.linearMarkdown
+                      : "space-y-2 whitespace-pre-wrap break-words [&_a]:text-primary [&_a]:underline [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
+                  }
+                >
                   <ReactMarkdown
                     skipHtml
                     remarkPlugins={inboxMarkdownPlugins}
@@ -209,12 +229,33 @@ export function InboxSourceContent({
                       "ol",
                       "li",
                       "br",
+                      ...(item.source === "linear"
+                        ? [
+                            "h1",
+                            "h2",
+                            "h3",
+                            "h4",
+                            "h5",
+                            "h6",
+                            "hr",
+                            "table",
+                            "thead",
+                            "tbody",
+                            "tr",
+                            "th",
+                            "td",
+                            "input",
+                            "img",
+                          ]
+                        : []),
                     ]}
                     unwrapDisallowed
                     urlTransform={(url) => slackLinkUrl(url) ?? ""}
-                    components={inboxMarkdownComponents}
+                    components={
+                      item.source === "linear" ? linearMarkdownComponents : inboxMarkdownComponents
+                    }
                   >
-                    {item.formattedContent}
+                    {item.formattedContent ?? item.content}
                   </ReactMarkdown>
                 </div>
               ) : (

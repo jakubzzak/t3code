@@ -196,7 +196,7 @@ it("preserves modifier-click escape to the system browser with in-app links enab
   expect(state.preview).not.toHaveBeenCalled();
 });
 
-it.each(["slack", "linear", "superhuman"] as const)(
+it.each(["slack", "superhuman"] as const)(
   "links raw %s notification URLs with short host labels and full destinations",
   async (source) => {
     const text =
@@ -293,4 +293,94 @@ it("links URLs in AI summaries, suggested next steps, and raw notification title
     ),
   );
   expect(container.querySelector("a")?.textContent).toBe("example.com");
+});
+
+it("renders cached Linear issue/comment Markdown with lists, code, tables, and labeled attachments", async () => {
+  const content = [
+    "## Review",
+    "",
+    "**Ready** and _verified_.",
+    "",
+    "[Review PR](https://github.com/example/project/pull/608)",
+    "",
+    "1. Verify staging",
+    "2. Publish",
+    "",
+    "- [x] Tests passed",
+    "- [ ] Ship",
+    "",
+    "> Keep the existing behavior.",
+    "",
+    "```ts",
+    "const url = 'https://example.com/code';",
+    "```",
+    "",
+    "| Check | Result |",
+    "| --- | --- |",
+    "| Tests | Pass |",
+    "",
+    "![Screenshot](https://uploads.linear.app/example/screenshot.png)",
+  ].join("\n");
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        threadRef={threadRef}
+        notification={{
+          ...notification,
+          source: "linear",
+          items: [{ ...notification.items[0]!, source: "linear", contentFormat: "text", content }],
+        }}
+      />,
+    ),
+  );
+  expect(container.querySelector("h2")?.textContent).toBe("Review");
+  expect(container.querySelector("strong")?.textContent).toBe("Ready");
+  expect(container.querySelector("em")?.textContent).toBe("verified");
+  expect(container.querySelectorAll("ol > li")).toHaveLength(2);
+  const tasks = [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+  expect(tasks.map((task) => [task.checked, task.disabled])).toEqual([
+    [true, true],
+    [false, true],
+  ]);
+  expect(container.querySelector("blockquote")?.textContent).toContain(
+    "Keep the existing behavior.",
+  );
+  expect(container.querySelector("pre code")?.textContent).toContain("https://example.com/code");
+  expect(container.querySelector("pre a")).toBeNull();
+  expect(container.querySelector("table td")?.textContent).toBe("Tests");
+  expect(
+    [...container.querySelectorAll("a")].map((link) => [
+      link.textContent,
+      link.getAttribute("href"),
+    ]),
+  ).toEqual([
+    ["Review PR", "https://github.com/example/project/pull/608"],
+    ["Screenshot", "https://uploads.linear.app/example/screenshot.png"],
+  ]);
+  expect(container.querySelector("img")).toBeNull();
+  await act(async () => container.querySelector("a")!.click());
+  expect(state.open).toHaveBeenCalledExactlyOnceWith("https://github.com/example/project/pull/608");
+});
+it("keeps Linear Markdown HTML and unsafe destinations inert", async () => {
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{
+          ...notification,
+          source: "linear",
+          items: [
+            {
+              ...notification.items[0]!,
+              source: "linear",
+              content:
+                '[Unsafe](javascript:alert) ![Unsafe image](javascript:alert) <script>alert(1)</script>\n\n<iframe src="https://example.com"></iframe>',
+            },
+          ],
+        }}
+      />,
+    ),
+  );
+  expect(container.querySelector("a, img, script, iframe")).toBeNull();
+  expect(container.textContent).toContain("Unsafe");
+  expect(state.open).not.toHaveBeenCalled();
 });
