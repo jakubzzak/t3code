@@ -469,6 +469,18 @@ describe("settings search targets", () => {
     expect(getSettingsSearchTargetScope("missing-setting")).toBeNull();
   });
 
+  it("finds the instance-wide Keep awake feature independently of project selection", () => {
+    expect(searchSettings("keep awake")[0]).toMatchObject({
+      id: "feature-keep-awake",
+      to: "/settings/features",
+    });
+    const feature = getSettingsSearchTargetScope("feature-keep-awake")!;
+    expect(feature.scope).toBeNull();
+    for (const scope of ["all", "environment", "project", "checkout"] as const) {
+      expect(isSettingsSearchScopeAvailable(feature.scope, scope)).toBe(true);
+    }
+  });
+
   it.each(["all", "environment", "project", "checkout"] as const)(
     "makes browser access editable at the %s scope",
     (kind) => {
