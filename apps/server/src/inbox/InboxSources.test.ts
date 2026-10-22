@@ -22,7 +22,7 @@ import * as Settings from "../serverSettings.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 it.effect(
-  "isolates connections by project, pauses disabled inboxes, retains sync history on failures, and disconnects",
+  "honors project cadence and source checkpoints, isolates slow or paused sources, and disconnects",
   () =>
     Effect.gen(function* () {
       const credentials = new Map<string, Uint8Array>();
@@ -32,11 +32,17 @@ it.effect(
       const imported: InboxSourceItem[] = [];
       let historyItems: InboxSourceItem[] = [];
       let pendingRead:
-        | { entered: Deferred.Deferred<void>; release: Deferred.Deferred<void> }
+        | {
+            projectId?: ProjectId;
+            entered: Deferred.Deferred<void>;
+            release: Deferred.Deferred<void>;
+          }
         | undefined;
+      let pendingStarts = 0;
       const ingested = yield* Ref.make(0);
       const linearConnected = yield* Ref.make(false);
-      const linearRead = yield* Deferred.make<void>();
+      let linearRead = yield* Deferred.make<void>();
+      let linearReads = 0;
       const secrets = Secrets.ServerSecretStore.of({
         get: (key) => Effect.sync(() => Option.fromUndefinedOr(credentials.get(key))),
         set: (key, value) =>
@@ -57,11 +63,14 @@ it.effect(
         read: (connection, _token, since) =>
           Effect.gen(function* () {
             boundaries.push(since);
-            if (pendingRead) {
-              yield* Deferred.succeed(pendingRead.entered, undefined);
-              yield* Deferred.await(pendingRead.release);
+            const waiting = pendingRead;
+            if (waiting && (!waiting.projectId || waiting.projectId === connection.projectId)) {
+              pendingStarts++;
+              yield* Deferred.succeed(waiting.entered, undefined);
+              yield* Deferred.await(waiting.release);
             }
             if (connection.source === "linear") {
+              linearReads++;
               yield* Deferred.succeed(linearRead, undefined);
               return historyItems;
             }
@@ -252,6 +261,81 @@ it.effect(
         const linearSynced = yield* service.refresh({ projectId: linearProject, source: "linear" });
         assert.equal(linearSynced.connected, true);
         assert.ok(linearSynced.lastSyncAt);
+        // The server owns cadence, defaults to two minutes, and reacts to project edits.
+        const initialReads = linearReads;
+        linearRead = yield* Deferred.make<void>();
+        yield* TestClock.adjust("1 minute");
+        assert.equal(linearReads, initialReads);
+        yield* TestClock.adjust("1 minute");
+        yield* Deferred.await(linearRead);
+        assert.equal(linearReads, initialReads + 1);
+        const scheduled = (yield* service.list(linearProject)).find(
+          (entry) => entry.source === "linear",
+        )!;
+        assert.equal(boundaries.at(-1), linearSynced.lastSyncAt);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [linearProject]: {
+              inboxEnabled: true,
+              linearWorkspace: "fixture",
+              inboxRefreshIntervalMinutes: 60,
+            },
+          },
+        });
+        yield* TestClock.adjust("59 minutes");
+        assert.equal(linearReads, initialReads + 1);
+        linearRead = yield* Deferred.make<void>();
+        yield* TestClock.adjust("1 minute");
+        yield* Deferred.await(linearRead);
+        assert.equal(linearReads, initialReads + 2);
+        assert.equal(boundaries.at(-1), scheduled.lastSyncAt);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [linearProject]: {
+              inboxEnabled: true,
+              linearWorkspace: "fixture",
+              inboxRefreshIntervalMinutes: 2,
+            },
+          },
+        });
+        linearRead = yield* Deferred.make<void>();
+        yield* TestClock.adjust("2 minutes");
+        yield* Deferred.await(linearRead);
+        assert.equal(linearReads, initialReads + 3);
+        // One slow source cannot block another project's scheduled reads or queue duplicates.
+        const slowProject = ProjectId.make("slow-superhuman");
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [slowProject]: { inboxEnabled: true, inboxInitialHistoryDays: 0 },
+          },
+        });
+        const slowConnection = {
+          ...(yield* service.list(slowProject)).find((entry) => entry.source === "superhuman")!,
+          connected: true,
+          accounts: ["one@example.test"],
+        };
+        yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES(${slowProject},'superhuman',${JSON.stringify(slowConnection)})`;
+        credentials.set(`inbox-superhuman-${slowProject}`, new TextEncoder().encode("fixture"));
+        pendingRead = {
+          projectId: slowProject,
+          entered: yield* Deferred.make<void>(),
+          release: yield* Deferred.make<void>(),
+        };
+        yield* TestClock.adjust("15 seconds");
+        yield* Deferred.await(pendingRead.entered);
+        const slowStarted = yield* Clock.currentTimeMillis;
+        linearRead = yield* Deferred.make<void>();
+        yield* TestClock.adjust("2 minutes");
+        yield* Deferred.await(linearRead);
+        assert.equal(pendingStarts, 1);
+        assert.equal(linearReads, initialReads + 4);
+        yield* Deferred.succeed(pendingRead.release, undefined);
+        pendingRead = undefined;
+        yield* service.refresh({ projectId: slowProject, source: "superhuman" });
+        assert.equal(boundaries.at(-1), DateTime.formatIso(DateTime.makeUnsafe(slowStarted)));
+        yield* settings.updateSettings({
+          projectSettingsOverrides: { [slowProject]: { inboxEnabled: false } },
+        });
         // Each source uses the same enable-time boundary, even when connected later.
         for (const source of ["slack", "linear", "superhuman"] as const) {
           const id = ProjectId.make(`zero-${source}`);
@@ -291,7 +375,7 @@ it.effect(
             `inbox-${source}-${id}`,
             new TextEncoder().encode("xoxp-fixture-not-a-real-credential"),
           );
-          yield* TestClock.adjust("10 seconds");
+          yield* TestClock.adjust(2);
           const before = imported.length;
           yield* service.refresh({ projectId: id, source });
           assert.equal(boundaries.at(-1), DateTime.formatIso(DateTime.makeUnsafe(enabled)));
@@ -299,8 +383,13 @@ it.effect(
             imported.slice(before).map((entry) => entry.id),
             ["0", "1"],
           );
+          const checkpoint = (yield* service.list(id)).find(
+            (entry) => entry.source === source,
+          )!.lastSyncAt;
+          const beforeIncremental = imported.length;
           yield* service.refresh({ projectId: id, source });
-          assert.equal(boundaries.at(-1), DateTime.formatIso(DateTime.makeUnsafe(enabled)));
+          assert.equal(boundaries.at(-1), checkpoint);
+          assert.equal(imported.length, beforeIncremental);
           // Changing the shared policy must backfill instead of reusing the zero-day cursor.
           yield* settings.updateSettings({
             projectSettingsOverrides: {
@@ -325,6 +414,21 @@ it.effect(
           });
           assert.equal(updated.initialLookbackDays, 90);
           assert.equal(updated.lastSyncAt, previous.lastSyncAt);
+          if (source === "superhuman") {
+            const withAccount = yield* service.configure({
+              projectId: id,
+              source,
+              enabled: true,
+              categories: connection.categories,
+              accounts: ["one@example.test", "two@example.test"],
+            });
+            assert.equal(withAccount.lastSyncAt, null);
+            yield* service.refresh({ projectId: id, source });
+            assert.equal(
+              boundaries.at(-1),
+              DateTime.formatIso(DateTime.makeUnsafe(now - 30 * 86_400_000)),
+            );
+          }
           yield* settings.updateSettings({
             projectSettingsOverrides: {
               [id]: { inboxEnabled: true, inboxInitialHistoryDays: 7, linearWorkspace: "fixture" },

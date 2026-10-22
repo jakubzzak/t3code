@@ -174,6 +174,12 @@ Superhuman uses its official Mail MCP and registers its OAuth client automatical
 or secret is required. Sign in, select accounts, then select Important or other
 splits and labels. Sign-in requires access to Superhuman Mail MCP and its Chrome extension.
 Selections save automatically; text and number fields save when you leave the field or press Enter.
+
+Set **Refresh interval** inside **Features → Inbox** to check connected sources every 2–60
+minutes (default 2). Each source resumes from its last successful fetch; failed fetches retain
+that checkpoint for the next attempt. Slack mention searches return date-based result pages,
+but older matches are skipped before downloading message or thread details.
+
 Connected sources feed Inbox automatically while the project’s Inbox feature is enabled.
 Clear a source’s selections or disconnect it to stop its intake, or disable Inbox for the project to pause all sources.
 

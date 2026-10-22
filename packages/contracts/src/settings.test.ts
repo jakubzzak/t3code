@@ -1326,3 +1326,24 @@ describe("Inbox initial history", () => {
     }
   });
 });
+
+describe("Inbox refresh interval", () => {
+  it("defaults to two minutes and validates global and project values", () => {
+    expect(decodeServerSettings({}).inboxRefreshIntervalMinutes).toBe(2);
+    for (const minutes of [2, 15, 60]) {
+      const patch = {
+        projectSettingsOverrides: { project: { inboxRefreshIntervalMinutes: minutes } },
+      };
+      expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+      expect(decodeServerSettings(patch)).toMatchObject(patch);
+    }
+    for (const minutes of [0, 1, 2.5, 61]) {
+      expect(() => decodeServerSettingsPatch({ inboxRefreshIntervalMinutes: minutes })).toThrow();
+      expect(() =>
+        decodeServerSettingsPatch({
+          projectSettingsOverrides: { project: { inboxRefreshIntervalMinutes: minutes } },
+        }),
+      ).toThrow();
+    }
+  });
+});

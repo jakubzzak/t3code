@@ -6,9 +6,15 @@ it("anchors zero to enable time across repeated syncs and enforces the 30 day ma
   const enabled = "2026-10-22T10:00:00.000Z";
   const now = Date.parse(enabled) + 60_000;
   expect(inboxHistorySince(enabled, 0, now, null)).toBe(enabled);
-  expect(inboxHistorySince(enabled, 0, now, "2026-10-22T10:00:30.000Z")).toBe(enabled);
+  expect(inboxHistorySince(enabled, 0, now, "2026-10-22T10:00:30.000Z")).toBe(
+    "2026-10-22T10:00:30.000Z",
+  );
   expect(inboxHistorySince(enabled, 30, now, null)).toBe("2026-09-22T10:01:00.000Z");
   expect(inboxHistorySince(enabled, 7, now, null)).toBe("2026-10-15T10:00:00.000Z");
+  // An offline server must resume from its checkpoint, not silently discard a long gap.
+  expect(inboxHistorySince(enabled, 7, now + 60 * 86_400_000, "2026-10-23T10:00:00.000Z")).toBe(
+    "2026-10-23T10:00:00.000Z",
+  );
 });
 
 it("stamps only activation, isolates projects, and restarts the boundary on re-enable", () => {

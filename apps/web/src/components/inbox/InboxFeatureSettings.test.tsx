@@ -13,7 +13,8 @@ vi.mock("../settings/useScopedSettings", () => ({
   useScopedSettings: () => DEFAULT_SERVER_SETTINGS,
   useUpdateScopedSettings: () => state.update,
   useScopedSettingsMixed: (keys: string[]) =>
-    state.mixed && keys.includes("inboxInitialHistoryDays"),
+    state.mixed &&
+    keys.some((key) => ["inboxInitialHistoryDays", "inboxRefreshIntervalMinutes"].includes(key)),
 }));
 vi.mock("../settings/useScopedModelAvailability", () => ({
   useScopedModelDisabledReason: () => () => null,
@@ -51,10 +52,8 @@ afterEach(async () => {
   state.mixed = false;
   vi.clearAllMocks();
 });
-const edit = async (value: string) => {
-  const field = container.querySelector<HTMLInputElement>(
-    '[aria-label="Inbox initial history days"]',
-  )!;
+const edit = async (value: string, label = "Inbox initial history days") => {
+  const field = container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
   await act(async () => field.focus());
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, value);
@@ -80,4 +79,24 @@ it("allows a shared zero-day selection when selected projects have mixed history
   await act(async () => root.render(<InboxFeatureSettings />));
   await edit("0");
   expect(state.update).toHaveBeenCalledExactlyOnceWith({ inboxInitialHistoryDays: 0 });
+});
+
+it("defaults refresh to two minutes and commits only whole minutes from two to sixty", async () => {
+  await act(async () => root.render(<InboxFeatureSettings />));
+  const label = "Inbox refresh interval minutes";
+  expect(container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)?.value).toBe("2");
+  await edit("60", label);
+  expect(state.update).toHaveBeenLastCalledWith({ inboxRefreshIntervalMinutes: 60 });
+  await edit("5", label);
+  expect(state.update).toHaveBeenLastCalledWith({ inboxRefreshIntervalMinutes: 5 });
+  for (const value of ["0", "1", "61", "2.5", ""])
+    expect((await edit(value, label)).value).toBe("2");
+  expect(state.update).toHaveBeenCalledTimes(2);
+});
+
+it("applies the minimum interval to projects with mixed refresh settings", async () => {
+  state.mixed = true;
+  await act(async () => root.render(<InboxFeatureSettings />));
+  await edit("2", "Inbox refresh interval minutes");
+  expect(state.update).toHaveBeenCalledExactlyOnceWith({ inboxRefreshIntervalMinutes: 2 });
 });

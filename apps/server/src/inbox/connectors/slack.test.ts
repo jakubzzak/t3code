@@ -318,3 +318,49 @@ it("retains links and unresolved mentions when an older connection lacks profile
   expect(items[0]?.formattedContent).toContain("[report](<https://example.com/>)");
   expect(profiles).toBe(1);
 });
+
+it("stops mention pagination at the checkpoint without hydrating older matches", async () => {
+  const calls: Array<[string, Record<string, string>]> = [];
+  const items = await readSlackInbox(
+    async (method, args) => {
+      calls.push([method, args]);
+      if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T1" };
+      if (method === "search.messages")
+        return {
+          ok: true,
+          messages: {
+            matches: [
+              {
+                ts: "1792674060.000000",
+                user: "Alex",
+                text: "New",
+                thread_ts: "1792600000.000000",
+                channel: { id: "C1", name: "launch" },
+                permalink: "https://slack.com/new",
+              },
+              {
+                ts: "1792673940.000000",
+                user: "Alex",
+                text: "Old",
+                channel: { id: "C1", name: "launch" },
+                permalink: "https://slack.com/old",
+              },
+            ],
+            paging: { pages: 80 },
+          },
+        };
+      if (method === "conversations.replies") return { ok: true, messages: [] };
+      throw new Error(`Unnecessary old-message request: ${method}`);
+    },
+    ["mentions"],
+    "2026-10-22T13:00:00.000Z",
+  );
+  expect(items.map((item) => item.content)).toEqual(["New"]);
+  expect(calls.filter(([method]) => method === "search.messages")).toEqual([
+    [
+      "search.messages",
+      expect.objectContaining({ sort: "timestamp", sort_dir: "desc", page: "1" }),
+    ],
+  ]);
+  expect(calls.filter(([method]) => method === "conversations.history")).toEqual([]);
+});

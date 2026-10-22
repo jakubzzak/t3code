@@ -994,6 +994,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "gitEnabled",
   "inboxEnabled",
   "inboxInitialHistoryDays",
+  "inboxRefreshIntervalMinutes",
   "inboxAgentModelSelection",
   "inboxSummaryModelSelection",
   "inboxAgentPrompt",
@@ -1058,6 +1059,9 @@ export const ProjectSettingsOverrides = Schema.Struct({
   inboxEnabled: Schema.optionalKey(Schema.Boolean),
   inboxInitialHistoryDays: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
+  ),
+  inboxRefreshIntervalMinutes: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })),
   ),
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
@@ -1171,6 +1175,9 @@ export const ServerSettings = Schema.Struct({
   inboxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   inboxInitialHistoryDays: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })).pipe(
     Schema.withDecodingDefault(Effect.succeed(7)),
+  ),
+  inboxRefreshIntervalMinutes: Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(2)),
   ),
   /** Server-owned activation times keep zero-history collection stable across restarts. */
   inboxEnabledAtByProject: Schema.Record(ProjectId, IsoDateTime).pipe(
@@ -1600,6 +1607,9 @@ export const ServerSettingsPatch = Schema.Struct({
   inboxEnabled: Schema.optionalKey(Schema.Boolean),
   inboxInitialHistoryDays: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
+  ),
+  inboxRefreshIntervalMinutes: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })),
   ),
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),

@@ -156,6 +156,15 @@ export function InboxFeatureSettings() {
         update({ inboxInitialHistoryDays: days });
     },
   );
+  const refreshMixed = useScopedSettingsMixed(["inboxRefreshIntervalMinutes"]);
+  const refresh = useCommitOnBlur(
+    refreshMixed ? "" : String(settings.inboxRefreshIntervalMinutes),
+    (value) => {
+      const minutes = Number(value);
+      if (value.trim() && Number.isInteger(minutes) && minutes >= 2 && minutes <= 60)
+        update({ inboxRefreshIntervalMinutes: minutes });
+    },
+  );
   const resolutionMixed = useScopedSettingsMixed(["inboxPreResolution"]);
   const memoryMixed = useScopedSettingsMixed(["inboxMemoryEnabled"]);
   return (
@@ -177,6 +186,27 @@ export function InboxFeatureSettings() {
               step={1}
               placeholder={historyMixed ? "Mixed" : undefined}
               {...history}
+            />
+          </div>
+        }
+      />
+      <SettingsRow
+        title="Refresh interval"
+        description="Check connected sources every 2–60 minutes. Only activity since the last successful fetch is collected."
+        mixed={refreshMixed}
+        serverScoped
+        settingKeys={["inboxRefreshIntervalMinutes"]}
+        control={
+          <div className="w-full sm:w-72">
+            <Input
+              size="sm"
+              type="number"
+              aria-label="Inbox refresh interval minutes"
+              min={2}
+              max={60}
+              step={1}
+              placeholder={refreshMixed ? "Mixed" : undefined}
+              {...refresh}
             />
           </div>
         }

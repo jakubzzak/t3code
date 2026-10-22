@@ -92,7 +92,7 @@ export const make = Effect.gen(function* () {
   const slack = yield* Slack.SlackConnection;
   const locks = new Map<string, Semaphore.Semaphore>();
   const lock = (input: { projectId: ProjectId; source: InboxSource }) => {
-    const key = JSON.stringify([input.projectId, input.source]);
+    const key = `${input.projectId}:${input.source}`;
     let semaphore = locks.get(key);
     if (!semaphore) {
       semaphore = Semaphore.makeUnsafe(1);
@@ -167,18 +167,38 @@ export const make = Effect.gen(function* () {
           yield* settings.getSettings.pipe(Effect.mapError(error)),
           input.projectId,
         ).settings;
-        const connection = (yield* input.source === "linear" && config.inboxEnabled
-          ? list(input.projectId)
-          : listStored(input.projectId)).find((entry) => entry.source === input.source)!;
+        let connection = (yield* listStored(input.projectId)).find(
+          (entry) => entry.source === input.source,
+        )!;
+        if (!config.inboxEnabled) return connection;
+        const now = yield* Clock.currentTimeMillis;
+        const enabledAt =
+          config.inboxEnabledAtByProject[input.projectId] ??
+          connection.collectionStartedAt ??
+          iso(now);
+        const policyMatches =
+          (!connection.collectionStartedAt || connection.collectionStartedAt === enabledAt) &&
+          (connection.collectionHistoryDays ?? DEFAULT_SERVER_SETTINGS.inboxInitialHistoryDays) ===
+            config.inboxInitialHistoryDays;
+        if (!force) {
+          if (connection.error && connection.retryAt && Date.parse(connection.retryAt) > now)
+            return connection;
+          if (
+            policyMatches &&
+            connection.lastSyncAt &&
+            Date.parse(connection.lastSyncAt) + config.inboxRefreshIntervalMinutes * 60_000 > now
+          )
+            return connection;
+        }
+        // Read connection status and secrets only when this source is actually due.
+        if (input.source === "linear")
+          connection = (yield* list(input.projectId)).find((entry) => entry.source === "linear")!;
         if (
-          !config.inboxEnabled ||
           !connection.connected ||
           !connection.categories.length ||
           (connection.source === "superhuman" && !connection.accounts.length)
         )
           return connection;
-        const now = yield* Clock.currentTimeMillis;
-        if (!force && connection.retryAt && Date.parse(connection.retryAt) > now) return connection;
         const credential = yield* secrets
           .get(secretName(input.projectId, input.source))
           .pipe(Effect.mapError(error));
@@ -188,19 +208,11 @@ export const make = Effect.gen(function* () {
             connected: false,
             error: "Reconnect this source to resume notifications.",
           });
-        const enabledAt =
-          config.inboxEnabledAtByProject[input.projectId] ??
-          connection.collectionStartedAt ??
-          iso(now);
         const since = inboxHistorySince(
           enabledAt,
           config.inboxInitialHistoryDays,
           now,
-          (!connection.collectionStartedAt || connection.collectionStartedAt === enabledAt) &&
-            (connection.collectionHistoryDays ??
-              DEFAULT_SERVER_SETTINGS.inboxInitialHistoryDays) === config.inboxInitialHistoryDays
-            ? connection.lastSyncAt
-            : null,
+          policyMatches ? connection.lastSyncAt : null,
         );
         const result = yield* (
           connection.source === "slack" ? slack.accessToken(input.projectId) : Effect.succeed("")
@@ -236,7 +248,7 @@ export const make = Effect.gen(function* () {
                 collectionHistoryDays: config.inboxInitialHistoryDays,
                 lastSyncAt: iso(now),
                 error: null,
-                retryAt: iso(now + 60_000),
+                retryAt: null,
               }
             : { ...connection, error: result.failure.detail, retryAt: iso(now + 300_000) },
         );
@@ -314,7 +326,10 @@ export const make = Effect.gen(function* () {
           lastSyncAt:
             input.token ||
             input.categories.length !== previous.categories.length ||
-            input.categories.some((category, index) => category !== previous.categories[index])
+            input.categories.some((category, index) => category !== previous.categories[index]) ||
+            (input.accounts !== undefined &&
+              (input.accounts.length !== previous.accounts.length ||
+                input.accounts.some((account) => !previous.accounts.includes(account))))
               ? null
               : previous.lastSyncAt,
           error: null,
@@ -338,6 +353,9 @@ export const make = Effect.gen(function* () {
         yield* save(empty(input.projectId, input.source));
       }),
     );
+  // Slow source reads must not delay the cadence of unrelated projects or accumulate queued polls.
+  const polling = new Set<string>();
+  const pollPermits = yield* Semaphore.make(3);
   const poll = Effect.gen(function* () {
     const config = yield* settings.getSettings.pipe(Effect.mapError(error));
     const stored = yield* sql<{
@@ -351,9 +369,20 @@ export const make = Effect.gen(function* () {
       .map((id) => ProjectId.make(id))
       .filter((id) => resolveProjectSettings(config, id).settings.inboxEnabled)
       .flatMap((projectId) => sources.map((source) => ({ projectId, source })));
-    yield* Effect.forEach(candidates, (input) => refresh(input), { concurrency: 3, discard: true });
+    for (const input of candidates) {
+      const key = `${input.projectId}:${input.source}`;
+      if (polling.has(key)) continue;
+      polling.add(key);
+      yield* pollPermits
+        .withPermits(1)(refresh(input))
+        .pipe(
+          Effect.catch(() => Effect.logWarning("Inbox source could not be refreshed.")),
+          Effect.ensuring(Effect.sync(() => polling.delete(key))),
+          Effect.forkIn(scope),
+        );
+    }
   }).pipe(Effect.catch(() => Effect.logWarning("Inbox sources could not be refreshed.")));
-  yield* poll.pipe(Effect.repeat(Schedule.spaced("1 minute")), Effect.forkIn(scope));
+  yield* poll.pipe(Effect.repeat(Schedule.spaced("15 seconds")), Effect.forkIn(scope));
   return InboxSources.of({
     list,
     configure,

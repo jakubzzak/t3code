@@ -60,6 +60,9 @@ describe("searchSettings", () => {
       "recurring tasks",
       "patterns",
       "initial history",
+      "refresh interval",
+      "refetch frequency",
+      "minutes",
     ])
       expect(searchSettings(query).map((item) => item.id)).toContain("notification-inbox");
   });

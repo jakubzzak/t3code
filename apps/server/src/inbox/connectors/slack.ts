@@ -149,6 +149,7 @@ export async function readSlackInbox(
   categories: ReadonlyArray<string>,
   since: string,
 ): Promise<ReadonlyArray<InboxSourceItem>> {
+  const sinceMillis = Date.parse(since);
   const identity = decodeIdentity(await read("auth.test", {}));
   const items = new Map<string, InboxSourceItem>();
   let groups: Promise<typeof Groups.Type> | undefined;
@@ -264,18 +265,22 @@ export async function readSlackInbox(
           const history = decodeHistory(
             await read("conversations.history", {
               channel: channel.id,
-              oldest: String(Date.parse(since) / 1000),
+              oldest: String(sinceMillis / 1000),
+              inclusive: "true",
               limit: "100",
               cursor: historyCursor,
             }),
           );
-          for (const message of history.messages ?? [])
+          for (const message of history.messages ?? []) {
+            if (Number(message.ts) * 1000 < sinceMillis || message.user === identity.user_id)
+              continue;
             await append(
               channel.id,
               channel.name ?? `DM · ${channel.user ? await displayName(channel.user) : channel.id}`,
               message,
               await contextFor(channel.id, message),
             );
+          }
           historyCursor = history.response_metadata?.next_cursor ?? "";
           if (
             (historyCursor && historyCursors.has(historyCursor)) ||
@@ -305,19 +310,23 @@ export async function readSlackInbox(
     for (let page = 1; page <= pages; page++) {
       const result = decodeSearch(
         await read("search.messages", {
-          query: `${query} after:${since.slice(0, 10)}`,
+          // Search only supports calendar dates. Include the boundary day, then stop the
+          // descending pages at the precise checkpoint before fetching any older bodies.
+          query: `${query} after:${DateTime.formatIso(DateTime.makeUnsafe(sinceMillis - 86_400_000)).slice(0, 10)}`,
           count: "100",
           page: String(page),
           sort: "timestamp",
-          sort_dir: "asc",
+          sort_dir: "desc",
         }),
       );
       pages = result.messages?.paging.pages ?? 1;
-      if (pages > 100)
-        throw new Error(
-          "Slack search exceeds the supported batch size. Choose a shorter initial history window.",
-        );
+      let reachedCheckpoint = false;
       for (const hit of result.messages?.matches ?? []) {
+        if (Number(hit.ts) * 1000 < sinceMillis) {
+          reachedCheckpoint = true;
+          continue;
+        }
+        if (hit.user === identity.user_id || items.has(`${hit.channel.id}:${hit.ts}`)) continue;
         let message = hit;
         if (!message.thread_ts) {
           const exact = decodeHistory(
@@ -340,6 +349,11 @@ export async function readSlackInbox(
           message.permalink,
         );
       }
+      if (reachedCheckpoint) break;
+      if (page === 100 && pages > page)
+        throw new Error(
+          "Slack search exceeds the supported batch size. Choose a shorter initial history window.",
+        );
     }
   }
   return [...items.values()];

@@ -27,7 +27,7 @@ export function stampInboxEnabledAt(
   return changed ? { ...next, inboxEnabledAtByProject: times } : next;
 }
 
-/** The overlap catches delayed source indexing, but cannot cross the selected history boundary. */
+/** Subsequent reads resume at the successful fetch start, within the selected history boundary. */
 export function inboxHistorySince(
   enabledAt: string,
   days: number,
@@ -38,8 +38,7 @@ export function inboxHistorySince(
     DateTime.makeUnsafe(
       Math.max(
         Date.parse(enabledAt) - days * 86_400_000,
-        now - 30 * 86_400_000,
-        lastSyncAt ? Date.parse(lastSyncAt) - 300_000 : -Infinity,
+        lastSyncAt ? Date.parse(lastSyncAt) : now - 30 * 86_400_000,
       ),
     ),
   );
