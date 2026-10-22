@@ -7,6 +7,8 @@ import { LinearSettings } from "./LinearSettings";
 
 const state = vi.hoisted(() => ({
   scope: { kind: "project", members: [{ environmentId: "env", id: "one" }] },
+  inboxEnabled: true,
+  linearViewEnabled: false,
   workspace: "acme",
   clientId: "existing-client",
   mixed: false,
@@ -19,6 +21,8 @@ vi.mock("./useScopedSettings", () => ({
   useScopedSettings: (selector: (value: typeof DEFAULT_SERVER_SETTINGS) => unknown) =>
     selector({
       ...DEFAULT_SERVER_SETTINGS,
+      inboxEnabled: state.inboxEnabled,
+      linearViewEnabled: state.linearViewEnabled,
       linearWorkspace: state.workspace,
       linearClientId: state.clientId,
     }),
@@ -57,10 +61,28 @@ afterEach(async () => {
   root = createRoot(container);
   state.scope = { kind: "project", members: [{ environmentId: "env", id: "one" }] };
   state.mixed = false;
+  state.inboxEnabled = true;
+  state.linearViewEnabled = false;
   vi.clearAllMocks();
 });
 
 describe("Linear project settings editing", () => {
+  it("blocks edits without a project feature and allows either Inbox or Linear view", async () => {
+    state.inboxEnabled = false;
+    await render();
+    expect(input("Linear workspace").disabled).toBe(true);
+    expect(input("Linear OAuth client ID").disabled).toBe(true);
+    await edit(input("Linear workspace"), "must-not-save");
+    expect(state.update).not.toHaveBeenCalled();
+    state.linearViewEnabled = true;
+    await render();
+    expect(input("Linear workspace").disabled).toBe(false);
+    await edit(input("Linear workspace"), "view-only-workspace");
+    expect(state.update).toHaveBeenCalledExactlyOnceWith({
+      linearWorkspace: "view-only-workspace",
+    });
+  });
+
   it("saves a public client ID and allows clearing the project override", async () => {
     await render();
     await edit(input("Linear OAuth client ID"), "my-public-client");

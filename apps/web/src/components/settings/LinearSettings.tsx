@@ -1,6 +1,9 @@
 import { LinearConnectionSettings } from "../linear/LinearConnectionSettings";
+import { integrationDisabledReason } from "../inbox/integrationAvailability";
+import { InboxSourceLogo } from "../inbox/InboxSourceLogo";
+import { Button } from "../ui/button";
 import { OAuthClientIdSetting } from "../inbox/OAuthClientIdSetting";
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { isElectron } from "~/env";
 import { useServerConfigs } from "~/state/entities";
 import { EnvironmentLinearSettings } from "../linear/EnvironmentLinearSettings";
@@ -14,9 +17,10 @@ import {
   useUpdateScopedSettings,
 } from "./useScopedSettings";
 
-export function LinearSettings() {
+export function LinearSettings({ children }: { children?: ReactNode }) {
   const { scope, search } = useSettingsScope();
   const configs = useServerConfigs();
+  const settings = useScopedSettings((settings) => settings);
   const workspace = useScopedSettings((settings) => settings.linearWorkspace);
   const clientId = useScopedSettings((settings) => settings.linearClientId);
   const mixed = useScopedSettingsMixed(["linearWorkspace"]);
@@ -26,68 +30,87 @@ export function LinearSettings() {
   const projects = projectSelected
     ? scope.members.map((member) => ({ environmentId: member.environmentId, projectId: member.id }))
     : [];
+  const reason = integrationDisabledReason("linear", projectSelected, projects.length, settings);
   const workspaceKey = JSON.stringify([search, workspace, mixed]);
 
   return (
-    <SettingsSection id="linear" title="Linear">
-      <OAuthClientIdSetting source="linear" />
-      <SettingsRow
-        id="linear-workspace"
-        title="Workspace"
-        serverScoped
-        settingKeys={["linearWorkspace"]}
-        mixed={mixed}
-        description={
-          projectSelected
-            ? "The workspace in linear.app/<workspace>."
-            : "Select a project above to configure its Linear workspace."
-        }
-        control={
-          <div className="w-full sm:w-72">
-            <Input
-              aria-label="Linear workspace"
-              disabled={!projectSelected}
-              key={workspaceKey}
-              defaultValue={mixed ? "" : workspace}
-              placeholder={mixed ? "Multiple workspaces" : "my-workspace"}
-              onInput={() => {
-                workspaceEdited.current = workspaceKey;
-              }}
-              onBlur={(event) => {
-                if (workspaceEdited.current !== workspaceKey) return;
-                workspaceEdited.current = null;
-                const value = event.target.value.trim();
-                if (!projectSelected || (!mixed && value === workspace)) return;
-                if (!/^(?:[a-zA-Z0-9][a-zA-Z0-9-]{0,127})?$/.test(value)) {
-                  toastManager.add({ type: "error", title: "Enter a workspace slug, not a URL" });
-                  return;
-                }
-                update({ linearWorkspace: value });
-              }}
-            />
-          </div>
-        }
-      />
-      {projects.length === 1 && configs.get(projects[0]!.environmentId)?.notificationInbox ? (
-        <EnvironmentLinearSettings
-          key={JSON.stringify([projects, workspace, clientId])}
-          environmentId={projects[0]!.environmentId}
-          projectId={projects[0]!.projectId}
-          workspace={mixed ? "" : workspace}
+    <SettingsSection id="linear" title="Linear" icon={<InboxSourceLogo source="linear" />}>
+      <fieldset
+        disabled={!!reason}
+        className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none"
+      >
+        {reason && <SettingsRow title="Project setup" description={reason} />}
+        <OAuthClientIdSetting source="linear" disabled={!!reason} />
+        <SettingsRow
+          id="linear-workspace"
+          title="Workspace"
+          serverScoped
+          settingKeys={["linearWorkspace"]}
+          mixed={mixed}
+          description={
+            projectSelected
+              ? "The workspace in linear.app/<workspace>."
+              : "Select a project above to configure its Linear workspace."
+          }
+          control={
+            <div className="w-full sm:w-72">
+              <Input
+                size="sm"
+                aria-label="Linear workspace"
+                disabled={!!reason}
+                key={workspaceKey}
+                defaultValue={mixed ? "" : workspace}
+                placeholder={mixed ? "Multiple workspaces" : "my-workspace"}
+                onInput={() => {
+                  workspaceEdited.current = workspaceKey;
+                }}
+                onBlur={(event) => {
+                  if (workspaceEdited.current !== workspaceKey) return;
+                  workspaceEdited.current = null;
+                  const value = event.target.value.trim();
+                  if (reason || (!mixed && value === workspace)) return;
+                  if (!/^(?:[a-zA-Z0-9][a-zA-Z0-9-]{0,127})?$/.test(value)) {
+                    toastManager.add({ type: "error", title: "Enter a workspace slug, not a URL" });
+                    return;
+                  }
+                  update({ linearWorkspace: value });
+                }}
+              />
+            </div>
+          }
         />
-      ) : (
-        isElectron && (
-          <LinearConnectionSettings
-            key={JSON.stringify([projects, workspace])}
-            workspace={mixed ? "" : workspace}
-            connectionKey={
-              projects.length === 1
-                ? JSON.stringify([projects[0]!.environmentId, projects[0]!.projectId])
-                : null
+        {reason ? (
+          <SettingsRow
+            title="Connection"
+            description="Connect an account only for the selected project."
+            control={
+              <Button size="sm" variant="outline" disabled>
+                Connect Linear
+              </Button>
             }
           />
-        )
-      )}
+        ) : projects.length === 1 && configs.get(projects[0]!.environmentId)?.notificationInbox ? (
+          <EnvironmentLinearSettings
+            key={JSON.stringify([projects, workspace, clientId])}
+            environmentId={projects[0]!.environmentId}
+            projectId={projects[0]!.projectId}
+            workspace={mixed ? "" : workspace}
+          />
+        ) : (
+          isElectron && (
+            <LinearConnectionSettings
+              key={JSON.stringify([projects, workspace])}
+              workspace={mixed ? "" : workspace}
+              connectionKey={
+                projects.length === 1
+                  ? JSON.stringify([projects[0]!.environmentId, projects[0]!.projectId])
+                  : null
+              }
+            />
+          )
+        )}
+        {children}
+      </fieldset>
     </SettingsSection>
   );
 }

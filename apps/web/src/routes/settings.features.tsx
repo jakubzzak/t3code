@@ -110,7 +110,8 @@ function FeaturesSettings() {
           control={
             <Switch
               aria-label="Linear view"
-              checked={settings.linearViewEnabled}
+              checked={projectSelected && !mixed ? settings.linearViewEnabled : false}
+              mixed={mixed}
               disabled={!supported || !isElectron}
               onCheckedChange={(linearViewEnabled) => update({ linearViewEnabled })}
             />
@@ -130,7 +131,7 @@ function FeaturesSettings() {
           control={
             <Switch
               aria-label="Inbox"
-              checked={inboxMixed ? false : settings.inboxEnabled}
+              checked={projectSelected && !inboxMixed ? settings.inboxEnabled : false}
               mixed={inboxMixed}
               disabled={!supported}
               onCheckedChange={(inboxEnabled) => update({ inboxEnabled })}

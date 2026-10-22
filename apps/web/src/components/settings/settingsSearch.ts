@@ -198,6 +198,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["feature flag optional desktop issue"],
   },
   {
+    id: "slack",
+    title: "Slack integration",
+    to: "/settings/integrations",
+    scope: "project",
+    searchTerms: [
+      "connection oauth client id notifications mentions direct messages history token",
+    ],
+  },
+  {
+    id: "superhuman",
+    title: "Superhuman integration",
+    to: "/settings/integrations",
+    scope: "project",
+    searchTerms: ["connection oauth email accounts splits labels important mail"],
+  },
+  {
     id: "linear-workspace",
     title: "Linear workspace",
     to: "/settings/integrations",

@@ -45,6 +45,11 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 ];
 
 describe("searchSettings", () => {
+  it("routes source-connection searches to their project integration groups", () => {
+    expect(searchSettings("Slack connection").map((item) => item.id)).toContain("slack");
+    expect(searchSettings("Superhuman accounts").map((item) => item.id)).toContain("superhuman");
+  });
+
   it("finds Inbox customization through prompt and processing searches", () => {
     for (const query of [
       "summary prompt",

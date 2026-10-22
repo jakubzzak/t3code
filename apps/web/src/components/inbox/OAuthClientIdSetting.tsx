@@ -9,7 +9,13 @@ import {
 import { Input } from "../ui/input";
 
 /** Public application identity; access and refresh tokens never populate this field. */
-export function OAuthClientIdSetting({ source }: { source: "linear" | "slack" }) {
+export function OAuthClientIdSetting({
+  source,
+  disabled = false,
+}: {
+  source: "linear" | "slack";
+  disabled?: boolean;
+}) {
   const key = source === "linear" ? "linearClientId" : "slackClientId";
   const name = source === "linear" ? "Linear" : "Slack";
   const value = useScopedSettings((settings) => settings[key]);
@@ -34,8 +40,9 @@ export function OAuthClientIdSetting({ source }: { source: "linear" | "slack" })
         <div className="w-full sm:w-72">
           <Input
             key={identity}
+            size="sm"
             aria-label={`${name} OAuth client ID`}
-            disabled={!selected}
+            disabled={disabled || !selected}
             defaultValue={mixed ? "" : value}
             placeholder={
               mixed
@@ -53,7 +60,7 @@ export function OAuthClientIdSetting({ source }: { source: "linear" | "slack" })
               if (edited.current !== identity) return;
               edited.current = null;
               const next = event.target.value.trim();
-              if (selected && (mixed || next !== value)) update({ [key]: next });
+              if (!disabled && selected && (mixed || next !== value)) update({ [key]: next });
             }}
           />
         </div>

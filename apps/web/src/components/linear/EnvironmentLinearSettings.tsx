@@ -112,15 +112,14 @@ export function EnvironmentLinearSettings({
   }
   return (
     <SettingsRow
-      title="Linear connection"
+      title="Connection"
       description={
         status?.connection
           ? `${status.connection.name} · ${status.connection.email} · ${status.connection.workspace}`
           : "One connection for this project's Linear view and Inbox, available from every connected client. The embedded Linear website signs in separately."
       }
-    >
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
+      control={
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {legacy?.connection && !status?.connection && (
             <Button size="sm" disabled={!canWrite || pending} onClick={() => void migrate()}>
               Move existing connection to environment
@@ -160,6 +159,9 @@ export function EnvironmentLinearSettings({
             </Button>
           )}
         </div>
+      }
+    >
+      <div className="space-y-2">
         {!workspace && (
           <p className="text-xs text-muted-foreground">Set this project's workspace first.</p>
         )}
