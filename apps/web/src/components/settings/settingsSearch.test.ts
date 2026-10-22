@@ -46,12 +46,7 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 
 describe("searchSettings", () => {
   it("finds Inbox customization through prompt and processing searches", () => {
-    for (const query of [
-      "summary prompt",
-      "delegation prompt",
-      "project memory",
-      "inbox processing",
-    ])
+    for (const query of ["summary prompt", "delegation prompt", "inbox memory", "inbox processing"])
       expect(searchSettings(query).map((item) => item.id)).toContain("notification-inbox");
   });
 

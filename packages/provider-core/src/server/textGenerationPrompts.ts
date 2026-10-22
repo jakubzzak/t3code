@@ -12,6 +12,7 @@ import { limitTitleMessage } from "./threadTitleContext.ts";
 import {
   FileFilterGenerationResult,
   InboxAnalysisContent,
+  DEFAULT_INBOX_SUMMARY_PROMPT,
   type FileFilterGenerationInput,
   type BranchNamingOptions,
   type ChatAttachment,
@@ -504,8 +505,8 @@ export function buildInboxAnalysisPrompt(input: InboxAnalysisInput) {
   return {
     outputSchema: InboxAnalysisContent,
     prompt: [
-      "Summarize the notification in one to five sentences, as briefly as possible. description must be one concise sentence. Preserve the triggering request and relevant details.",
-      ...(input.instructions?.trim() ? [`User's summary preferences:\n${input.instructions}`] : []),
+      input.instructions?.trim() || DEFAULT_INBOX_SUMMARY_PROMPT,
+      "description must be one concise sentence.",
       input.suggest
         ? "Suggest useful next steps or a drafted response only when supported by the context."
         : "Return an empty suggestions array.",

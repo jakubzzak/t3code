@@ -167,11 +167,13 @@ notification state. Undoing a running delegation requests a stop and keeps the c
 work. A stop can remain pending or fail, so check its status before assuming the agent has stopped.
 
 Enable Inbox in project Features settings to expand its processing controls within the feature.
-Choose summary and delegation models there. **Summary prompt** and **Delegation prompt** are optional
-customizations, both off by default; turn one on to edit it. Turning it off keeps your saved text
-and uses the built-in instructions. Raw content remains available when processing fails.
+**Summary** and **Agent Delegation** are separate subgroups, both off by default. Enable one to
+choose its model and edit its prefilled default prompt. There are no separate prompt switches.
+Turning a subgroup off hides its controls and keeps your model and prompt choices. Summary off
+stops AI processing; Agent Delegation off prevents direct runs while Agent chat remains available.
+Raw notification content stays usable without AI. An empty prompt uses the default instructions.
 
-**Project memory** is also off by default. Enable it to use confirmed outcomes from similar cases
+**Inbox memory** is also off by default. Enable it to use confirmed outcomes from similar cases
 in the same project. With memory enabled, record an outcome in the linked chat's Details to make
 it available to future processing. Turning memory off retains outcomes but stops history lookup.
 Suggested resolutions remain proposals; they are not sent or executed automatically.

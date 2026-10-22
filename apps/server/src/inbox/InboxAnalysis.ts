@@ -4,7 +4,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { InboxError, type InboxNotification } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, InboxError, type InboxNotification } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Settings from "../serverSettings.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -31,6 +31,10 @@ const make = Effect.gen(function* () {
           yield* settings.getSettings,
           notification.projectId,
         ).settings;
+        if (!config.inboxSummaryEnabled)
+          return yield* new InboxError({
+            detail: "Enable Summary in this project’s Inbox settings.",
+          });
         const project = yield* projects.getShell(notification.projectId);
         if (Option.isNone(project))
           return yield* new InboxError({ detail: "The notification's project is unavailable." });
@@ -49,9 +53,8 @@ const make = Effect.gen(function* () {
           context: inboxContext({ ...notification, analysis: null }).slice(0, 64000),
           precedents,
           suggest: config.inboxPreResolution,
-          ...(config.inboxSummaryPromptEnabled && config.inboxSummaryPrompt.trim()
-            ? { instructions: config.inboxSummaryPrompt }
-            : {}),
+          instructions:
+            config.inboxSummaryPrompt.trim() || DEFAULT_SERVER_SETTINGS.inboxSummaryPrompt,
         });
         return {
           ...result,

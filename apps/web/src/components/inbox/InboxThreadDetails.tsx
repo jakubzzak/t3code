@@ -66,7 +66,18 @@ export function InboxThreadDetails({
       <div className="px-2.5 py-2">
         <InboxNotificationMetadata notification={n} />
         <div className="mt-2">
-          <InboxSummary notification={n} expanded />
+          <InboxSummary
+            notification={n}
+            expanded
+            enabled={
+              !!(
+                thread &&
+                config &&
+                resolveProjectSettings(config.settings, thread.projectId).settings
+                  .inboxSummaryEnabled
+              )
+            }
+          />
         </div>
         <details className="mt-2 text-xs">
           <summary className="cursor-pointer text-muted-foreground">

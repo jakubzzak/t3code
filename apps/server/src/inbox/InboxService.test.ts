@@ -35,9 +35,14 @@ const item: InboxSourceItem = {
 };
 const dependencies = Layer.mergeAll(
   Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)),
-  Settings.layerTest({ projectSettingsOverrides: { [projectId]: { inboxEnabled: true } } }),
+  Settings.layerTest({
+    projectSettingsOverrides: {
+      [projectId]: { inboxEnabled: true, inboxSummaryEnabled: true, inboxAgentEnabled: true },
+    },
+  }),
 );
 const scenario = Effect.gen(function* () {
+  const analysisCalls = yield* Ref.make(0);
   const analyzedHistory = yield* Ref.make<ReadonlyArray<InboxNotification>>([]);
   const starts = yield* Ref.make(0);
   const stops = yield* Ref.make(0);
@@ -63,6 +68,7 @@ const scenario = Effect.gen(function* () {
       }).pipe(Effect.map((state) => ({ ...state, exists: true }))),
   });
   return {
+    analysisCalls,
     analyzedHistory,
     starts,
     stops,
@@ -76,7 +82,8 @@ const scenario = Effect.gen(function* () {
       Layer.provide(
         Layer.succeed(Analysis.InboxAnalysis, {
           analyze: (_, history) =>
-            Ref.set(analyzedHistory, history).pipe(
+            Ref.update(analysisCalls, (n) => n + 1).pipe(
+              Effect.andThen(Ref.set(analyzedHistory, history)),
               Effect.andThen(Effect.fail(new InboxError({ detail: "Model unavailable" }))),
             ),
         }),
@@ -308,7 +315,9 @@ it.effect("retrieves confirmed outcomes even when more than 500 active notificat
       const service = yield* Inbox.InboxService;
       const settings = yield* Settings.ServerSettingsService;
       yield* settings.updateSettings({
-        projectSettingsOverrides: { [projectId]: { inboxEnabled: true, inboxMemoryEnabled: true } },
+        projectSettingsOverrides: {
+          [projectId]: { inboxEnabled: true, inboxSummaryEnabled: true, inboxMemoryEnabled: true },
+        },
       });
       const precedent = {
         ...ingestInboxItem(projectId, { ...item, id: "past", groupId: "past" }),
@@ -400,4 +409,77 @@ it.effect("rechecks the caller after waiting for the mutation lock", () =>
       assert.equal((yield* repository.get(projectId, notification.id))?.state.placement, "active");
     }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
   }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "gates summary processing and direct delegation while compose and existing links remain available",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const repository = yield* Repository.InboxRepository;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [projectId]: {
+              inboxEnabled: true,
+              inboxSummaryEnabled: false,
+              inboxAgentEnabled: false,
+            },
+          },
+        });
+        const notification = ingestInboxItem(projectId, item);
+        yield* repository.put(notification);
+        yield* service.drainAnalysis;
+        assert.equal(yield* Ref.get(fixture.analysisCalls), 0);
+        const command = { projectId, id: notification.id, expectedRevision: notification.revision };
+        const blocked = yield* service
+          .mutate({
+            ...command,
+            commandId: CommandId.make("disabled-agent"),
+            action: { type: "delegate", startAgent: true },
+          })
+          .pipe(Effect.result);
+        assert.equal(blocked._tag, "Failure");
+        assert.equal((yield* repository.get(projectId, notification.id))?.state.threadId, null);
+        const reprocess = yield* service
+          .mutate({
+            ...command,
+            commandId: CommandId.make("disabled-summary"),
+            action: { type: "reprocess" },
+          })
+          .pipe(Effect.result);
+        assert.equal(reprocess._tag, "Failure");
+        const compose = yield* service.mutate({
+          ...command,
+          commandId: CommandId.make("compose-without-agent"),
+          action: { type: "delegate", startAgent: false },
+        });
+        assert.equal(compose.openThread, true);
+        yield* service.drain;
+        assert.equal(yield* Ref.get(fixture.starts), 0);
+        const linked = yield* repository.get(projectId, notification.id);
+        assert.ok(linked?.state.threadId);
+        const reopen = yield* service.mutate({
+          ...command,
+          expectedRevision: linked.revision,
+          commandId: CommandId.make("reopen-disabled-agent"),
+          action: { type: "delegate", startAgent: true },
+        });
+        assert.equal(reopen.openThread, true);
+        assert.equal(yield* Ref.get(fixture.starts), 0);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [projectId]: {
+              inboxEnabled: true,
+              inboxSummaryEnabled: true,
+              inboxAgentEnabled: false,
+            },
+          },
+        });
+        yield* service.drainAnalysis;
+        assert.equal(yield* Ref.get(fixture.analysisCalls), 1);
+      }).pipe(Effect.provide(Layer.merge(fixture.layer, dependencies)));
+    }).pipe(Effect.scoped),
 );

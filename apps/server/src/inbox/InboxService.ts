@@ -57,13 +57,17 @@ const make = Effect.gen(function* () {
   const settings = yield* ServerSettings.ServerSettingsService;
   const mutex = yield* Semaphore.make(1);
   const scope = yield* Effect.scope;
-  const requireEnabled = (projectId: ProjectId) =>
+  const readProjectSettings = (projectId: ProjectId) =>
     settings.getSettings.pipe(
       Effect.mapError(
         (cause) => new InboxError({ detail: "Could not read project settings.", cause }),
       ),
+      Effect.map((value) => resolveProjectSettings(value, projectId).settings),
+    );
+  const requireEnabled = (projectId: ProjectId) =>
+    readProjectSettings(projectId).pipe(
       Effect.flatMap((value) =>
-        resolveProjectSettings(value, projectId).settings.inboxEnabled
+        value.inboxEnabled
           ? Effect.void
           : Effect.fail(
               new InboxError({ detail: "Enable Inbox for this project in Settings → Features." }),
@@ -244,6 +248,13 @@ const make = Effect.gen(function* () {
                 undoable = false;
                 break;
               }
+              if (action.startAgent) {
+                const config = yield* readProjectSettings(input.projectId);
+                if (!config.inboxAgentEnabled)
+                  return yield* new InboxError({
+                    detail: "Enable Agent Delegation in this project’s Inbox settings.",
+                  });
+              }
               next = {
                 ...current,
                 state: {
@@ -301,6 +312,10 @@ const make = Effect.gen(function* () {
               undoable = false;
               break;
             case "reprocess":
+              if (!(yield* readProjectSettings(input.projectId)).inboxSummaryEnabled)
+                return yield* new InboxError({
+                  detail: "Enable Summary in this project’s Inbox settings.",
+                });
               next = {
                 ...current,
                 analysis: null,
@@ -349,7 +364,7 @@ const make = Effect.gen(function* () {
         ),
       );
       const projectSettings = resolveProjectSettings(config, notification.projectId).settings;
-      if (!projectSettings.inboxEnabled) return;
+      if (!projectSettings.inboxEnabled || !projectSettings.inboxSummaryEnabled) return;
       const history = projectSettings.inboxMemoryEnabled
         ? yield* repository.history(notification.projectId)
         : [];

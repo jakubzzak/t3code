@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { ProjectId, type InboxNotification } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, ProjectId, type InboxNotification } from "@t3tools/contracts";
 import type { InboxAnalysisInput } from "@t3tools/provider-core/server/textGeneration";
 import * as Settings from "../serverSettings.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -33,7 +33,7 @@ it.effect(
   () => {
     const inputs: InboxAnalysisInput[] = [];
     const dependencies = Layer.mergeAll(
-      Settings.layerTest({ inboxSummaryPrompt: "Saved summary preferences" }),
+      Settings.layerTest({}),
       Layer.mock(Projects.ProjectService)({
         getShell: (id) =>
           Effect.succeedSome({
@@ -62,8 +62,16 @@ it.effect(
     return Effect.gen(function* () {
       const analysis = yield* Analysis.InboxAnalysis;
       const settings = yield* Settings.ServerSettingsService;
+      const disabled = yield* analysis.analyze(notification, [past]).pipe(Effect.result);
+      assert.equal(disabled._tag, "Failure");
+      assert.equal(inputs.length, 0);
+      yield* settings.updateSettings({
+        projectSettingsOverrides: {
+          [projectId]: { inboxSummaryEnabled: true, inboxSummaryPrompt: "" },
+        },
+      });
       const first = yield* analysis.analyze(notification, [past]);
-      assert.equal(inputs[0]?.instructions, undefined);
+      assert.equal(inputs[0]?.instructions, DEFAULT_SERVER_SETTINGS.inboxSummaryPrompt);
       assert.deepEqual(inputs[0]?.precedents, []);
       assert.deepEqual(first.precedentIds, []);
       assert.deepEqual(first.suggestions, []);
@@ -71,7 +79,7 @@ it.effect(
         projectSettingsOverrides: {
           [projectId]: {
             inboxMemoryEnabled: true,
-            inboxSummaryPromptEnabled: true,
+            inboxSummaryEnabled: true,
             inboxSummaryPrompt: "Focus on the requested verification.",
             inboxPreResolution: true,
           },
@@ -96,14 +104,23 @@ it.effect(
         projectSettingsOverrides: {
           [projectId]: {
             inboxMemoryEnabled: false,
-            inboxSummaryPromptEnabled: false,
+            inboxSummaryEnabled: true,
+            inboxSummaryPrompt: "",
           },
         },
       });
       yield* analysis.analyze({ ...notification, analysis: enabled }, [past]);
-      assert.equal(inputs[2]?.instructions, undefined);
+      assert.equal(inputs[2]?.instructions, DEFAULT_SERVER_SETTINGS.inboxSummaryPrompt);
       assert.deepEqual(inputs[2]?.precedents, []);
       assert.equal(JSON.parse(inputs[2]!.context).analysis, null);
+      yield* settings.updateSettings({
+        projectSettingsOverrides: { [projectId]: { inboxSummaryEnabled: false } },
+      });
+      assert.equal(
+        (yield* analysis.analyze(notification, [past]).pipe(Effect.result))._tag,
+        "Failure",
+      );
+      assert.equal(inputs.length, 3);
     }).pipe(Effect.provide(Analysis.layer.pipe(Layer.provideMerge(dependencies))));
   },
 );

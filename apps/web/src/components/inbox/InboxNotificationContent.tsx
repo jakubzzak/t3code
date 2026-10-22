@@ -3,14 +3,16 @@ import { SparklesIcon } from "lucide-react";
 
 export function InboxSummary({
   notification,
+  enabled,
   expanded = false,
 }: {
   notification: InboxNotification;
+  enabled: boolean;
   expanded?: boolean;
 }) {
   return (
     <div className="min-w-0 flex-1 text-xs leading-relaxed">
-      {notification.analysis?.summary ? (
+      {enabled && notification.analysis?.summary ? (
         <div className="border-l-2 border-primary/30 pl-2.5">
           <div className="mb-1 flex items-center gap-1 text-2xs font-normal text-muted-foreground">
             <SparklesIcon className="size-3" />
@@ -33,9 +35,11 @@ export function InboxSummary({
       ) : (
         <>
           <p>{notification.items.at(-1)?.title}</p>
-          <p className="mt-1 text-2xs font-normal text-muted-foreground">
-            {notification.processingError ?? "AI summary pending"}
-          </p>
+          {enabled && (
+            <p className="mt-1 text-2xs font-normal text-muted-foreground">
+              {notification.processingError ?? "AI summary pending"}
+            </p>
+          )}
         </>
       )}
     </div>

@@ -995,9 +995,9 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "inboxAgentModelSelection",
   "inboxSummaryModelSelection",
   "inboxAgentPrompt",
-  "inboxAgentPromptEnabled",
+  "inboxAgentEnabled",
   "inboxSummaryPrompt",
-  "inboxSummaryPromptEnabled",
+  "inboxSummaryEnabled",
   "inboxMemoryEnabled",
   "inboxPreResolution",
   "linearViewEnabled",
@@ -1057,9 +1057,9 @@ export const ProjectSettingsOverrides = Schema.Struct({
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
-  inboxAgentPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxAgentEnabled: Schema.optionalKey(Schema.Boolean),
   inboxSummaryPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
-  inboxSummaryPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxSummaryEnabled: Schema.optionalKey(Schema.Boolean),
   inboxMemoryEnabled: Schema.optionalKey(Schema.Boolean),
   inboxPreResolution: Schema.optionalKey(Schema.Boolean),
 
@@ -1159,6 +1159,9 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+export const DEFAULT_INBOX_SUMMARY_PROMPT =
+  "Summarize this notification in one to five sentences, as briefly as possible. Preserve the triggering request and relevant details.";
+
 export const ServerSettings = Schema.Struct({
   inboxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   inboxAgentModelSelection: Schema.NullOr(ModelSelection).pipe(
@@ -1167,11 +1170,11 @@ export const ServerSettings = Schema.Struct({
   inboxSummaryModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  inboxAgentPromptEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxAgentEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   inboxSummaryPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
-    Schema.withDecodingDefault(Effect.succeed("")),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_INBOX_SUMMARY_PROMPT)),
   ),
-  inboxSummaryPromptEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxSummaryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   inboxMemoryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   inboxAgentPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
     Schema.withDecodingDefault(
@@ -1586,9 +1589,9 @@ export const ServerSettingsPatch = Schema.Struct({
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
-  inboxAgentPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxAgentEnabled: Schema.optionalKey(Schema.Boolean),
   inboxSummaryPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
-  inboxSummaryPromptEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxSummaryEnabled: Schema.optionalKey(Schema.Boolean),
   inboxMemoryEnabled: Schema.optionalKey(Schema.Boolean),
   inboxPreResolution: Schema.optionalKey(Schema.Boolean),
 

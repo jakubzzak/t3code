@@ -188,7 +188,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/features",
     scope: "project",
     searchTerms: [
-      "notifications delegate delegation Slack Superhuman summary project memory custom prompt processing",
+      "notifications delegate delegation Slack Superhuman summary inbox memory custom prompt processing",
     ],
   },
   {

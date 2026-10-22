@@ -1,5 +1,7 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { useServerConfigs } from "~/state/entities";
 import { waitForThreadShell } from "~/state/entities";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { randomUUID } from "~/lib/utils";
@@ -78,6 +80,8 @@ function InboxRow({
   onAction: (action: InboxMutation | "snooze-menu") => void;
 }) {
   const { notification: n, environmentId } = entry;
+  const config = useServerConfigs().get(environmentId);
+  const settings = config ? resolveProjectSettings(config.settings, n.projectId).settings : null;
   const canWrite = useAtomValue(inboxEnvironment.mutate.permissionAtom(environmentId));
   const [opened, setOpened] = useState(false);
   const detail = useEnvironmentQuery(
@@ -167,7 +171,11 @@ function InboxRow({
           aria-hidden
           className={`mt-1.5 size-1.5 shrink-0 rounded-full ${n.state.read ? "bg-transparent" : "bg-primary"}`}
         />
-        <InboxSummary notification={content} expanded={focused} />
+        <InboxSummary
+          notification={content}
+          expanded={focused}
+          enabled={settings?.inboxSummaryEnabled ?? false}
+        />
       </div>
       <div className={styles.details} data-open={focused} inert={!focused} aria-hidden={!focused}>
         <div>
@@ -215,32 +223,38 @@ function InboxRow({
         </div>
       )}
       <div className="mt-2 flex items-center gap-1">
-        {actions.map(({ label, hint, Icon, action, primary }, index) => (
-          <span className={`relative ${index === 2 ? "ml-auto" : ""}`} key={label}>
-            <Button
-              size="icon-xs"
-              variant={primary ? "default" : "ghost"}
-              disabled={
-                (!canWrite &&
-                  !(action !== "snooze-menu" && action.type === "delegate" && n.state.threadId)) ||
-                pending
-              }
-              aria-label={label}
-              title={label}
-              onClick={() => onAction(action)}
-            >
-              <Icon className="size-3.5" />
-            </Button>
-            {hints && focused && (
-              <span
-                aria-hidden
-                className="pointer-events-none absolute -top-2 right-0 rounded bg-popover px-1 text-3xs text-popover-foreground shadow-sm"
+        {actions
+          .filter((action) => !action.primary || settings?.inboxAgentEnabled)
+          .map(({ label, hint, Icon, action, primary }) => (
+            <span className={`relative ${action === "snooze-menu" ? "ml-auto" : ""}`} key={label}>
+              <Button
+                size="icon-xs"
+                variant={primary ? "default" : "ghost"}
+                disabled={
+                  (!canWrite &&
+                    !(
+                      action !== "snooze-menu" &&
+                      action.type === "delegate" &&
+                      n.state.threadId
+                    )) ||
+                  pending
+                }
+                aria-label={label}
+                title={label}
+                onClick={() => onAction(action)}
               >
-                {hint}
-              </span>
-            )}
-          </span>
-        ))}
+                <Icon className="size-3.5" />
+              </Button>
+              {hints && focused && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -top-2 right-0 rounded bg-popover px-1 text-3xs text-popover-foreground shadow-sm"
+                >
+                  {hint}
+                </span>
+              )}
+            </span>
+          ))}
       </div>
     </article>
   );
@@ -255,6 +269,7 @@ export function InboxSidebarLayout({
   chatHeader: ReactNode;
   children: ReactNode;
 }) {
+  const serverConfigs = useServerConfigs();
   const tab = useInboxNavigation((state) => state.tab);
   const revealId = useInboxNavigation((state) => state.revealId);
   const revealed = useInboxNavigation((state) => state.revealed);
@@ -512,6 +527,21 @@ export function InboxSidebarLayout({
     if (!entry.notification.state.read) void mutate(entry, { type: "read", read: true });
   }
   async function action(entry: Entry, value: InboxMutation | "snooze-menu") {
+    if (
+      value !== "snooze-menu" &&
+      value.type === "delegate" &&
+      value.startAgent &&
+      !entry.notification.state.threadId
+    ) {
+      const config = serverConfigs.get(entry.environmentId);
+      if (
+        !config ||
+        !resolveProjectSettings(config.settings, entry.notification.projectId).settings
+          .inboxAgentEnabled
+      )
+        return;
+    }
+
     if (
       value !== "snooze-menu" &&
       value.type === "delegate" &&

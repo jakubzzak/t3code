@@ -38,7 +38,8 @@ const runtime = Replay.layerWithRegistry(
   { databaseLayer: database, runEffectWorker: false },
 );
 const settings = Settings.layerTest({
-  inboxAgentPrompt: "Review this notification",
+  inboxAgentEnabled: true,
+  inboxAgentPrompt: "",
   inboxAgentModelSelection: { instanceId: "codex", model: "gpt-5" },
 });
 const layer = Agent.layer.pipe(
@@ -98,7 +99,7 @@ it.effect(
     }).pipe(Effect.provide(layer), Effect.scoped),
 );
 
-it.effect("uses a saved delegation prompt only after its project opts in", () =>
+it.effect("uses the editable delegation prompt when Agent Delegation is enabled", () =>
   Effect.gen(function* () {
     const agent = yield* Agent.InboxAgent;
     const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -107,7 +108,7 @@ it.effect("uses a saved delegation prompt only after its project opts in", () =>
     yield* settings.updateSettings({
       projectSettingsOverrides: {
         [projectId]: {
-          inboxAgentPromptEnabled: true,
+          inboxAgentEnabled: true,
           inboxAgentPrompt: "Investigate without sending a reply.",
         },
       },
@@ -125,6 +126,23 @@ it.effect("uses a saved delegation prompt only after its project opts in", () =>
       occurredAt: "2026-10-22T10:00:00Z",
     });
     const threadId = ThreadId.make("custom-inbox-prompt");
+    yield* settings.updateSettings({
+      projectSettingsOverrides: { [projectId]: { inboxAgentEnabled: false } },
+    });
+    const blocked = yield* agent
+      .start({ ...notification, state: { ...notification.state, threadId } }, true)
+      .pipe(Effect.result);
+    assert.equal(blocked._tag, "Failure");
+    assert.equal(yield* orchestrator.getThreadShell(threadId), null);
+    yield* settings.updateSettings({
+      projectSettingsOverrides: {
+        [projectId]: {
+          inboxAgentEnabled: true,
+          inboxAgentPrompt: "Investigate without sending a reply.",
+        },
+      },
+    });
+
     yield* agent.start(
       { ...notification, state: { ...notification.state, threadId }, agentAttempt: 1 },
       true,

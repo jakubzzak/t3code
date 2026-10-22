@@ -42,6 +42,10 @@ const make = Effect.gen(function* () {
           yield* settings.getSettings,
           notification.projectId,
         ).settings;
+        if (startAgent && !config.inboxAgentEnabled)
+          return yield* new InboxError({
+            detail: "Enable Agent Delegation in this project’s Inbox settings.",
+          });
         const modelSelection =
           config.inboxAgentModelSelection ??
           config.defaultModelSelection ??
@@ -72,10 +76,9 @@ const make = Effect.gen(function* () {
             messageId: MessageId.make(
               `inbox:${notification.id}:message:${notification.agentAttempt}`,
             ),
-            text:
-              config.inboxAgentPromptEnabled && config.inboxAgentPrompt.trim()
-                ? config.inboxAgentPrompt
-                : DEFAULT_SERVER_SETTINGS.inboxAgentPrompt,
+            text: config.inboxAgentPrompt.trim()
+              ? config.inboxAgentPrompt
+              : DEFAULT_SERVER_SETTINGS.inboxAgentPrompt,
             attachments: [],
             modelSelection,
             createdBy: "user",

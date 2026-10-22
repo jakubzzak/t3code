@@ -1,3 +1,4 @@
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import {
   applyProviderInstanceSettings,
@@ -17,67 +18,20 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 
-function InboxPromptSetting({
-  title,
-  description,
-  enabledKey,
-  promptKey,
-  placeholder,
-}: {
-  title: string;
-  description: string;
-  enabledKey: "inboxSummaryPromptEnabled" | "inboxAgentPromptEnabled";
-  promptKey: "inboxSummaryPrompt" | "inboxAgentPrompt";
-  placeholder: string;
-}) {
-  const settings = useScopedSettings();
-  const update = useUpdateScopedSettings();
-  const enabledMixed = useScopedSettingsMixed([enabledKey]);
-  const promptMixed = useScopedSettingsMixed([promptKey]);
-  return (
-    <SettingsRow
-      title={title}
-      description={description}
-      mixed={enabledMixed || promptMixed}
-      serverScoped
-      settingKeys={[enabledKey, promptKey]}
-      control={
-        <Switch
-          aria-label={`Custom ${title.toLowerCase()}`}
-          mixed={enabledMixed}
-          checked={enabledMixed ? false : settings[enabledKey]}
-          onCheckedChange={(enabled) => update({ [enabledKey]: enabled })}
-        />
-      }
-    >
-      {!enabledMixed && settings[enabledKey] && (
-        <div className="mt-3 pb-3">
-          <Textarea
-            key={settings[promptKey]}
-            aria-label={title}
-            defaultValue={promptMixed ? "" : settings[promptKey]}
-            placeholder={promptMixed ? "Mixed — enter a prompt for selected projects" : placeholder}
-            rows={4}
-            maxLength={8000}
-            onBlur={(event) => {
-              if (event.currentTarget.value !== (promptMixed ? "" : settings[promptKey]))
-                update({ [promptKey]: event.currentTarget.value });
-            }}
-          />
-        </div>
-      )}
-    </SettingsRow>
-  );
-}
-
-export function InboxFeatureSettings() {
+function InboxProcessingGroup({ kind }: { kind: "summary" | "agent" }) {
   const settings = useScopedSettings();
   const update = useUpdateScopedSettings();
   const { environment, target } = useSettingsScope();
-  const summaryMixed = useScopedSettingsMixed(["inboxSummaryModelSelection"]);
-  const agentMixed = useScopedSettingsMixed(["inboxAgentModelSelection"]);
-  const resolutionMixed = useScopedSettingsMixed(["inboxPreResolution"]);
-  const memoryMixed = useScopedSettingsMixed(["inboxMemoryEnabled"]);
+  const summary = kind === "summary";
+  const enabledKey = summary ? "inboxSummaryEnabled" : "inboxAgentEnabled";
+  const modelKey = summary ? "inboxSummaryModelSelection" : "inboxAgentModelSelection";
+  const promptKey = summary ? "inboxSummaryPrompt" : "inboxAgentPrompt";
+  const title = summary ? "Summary" : "Agent Delegation";
+  const modelLabel = summary ? "Summary model" : "Delegation model";
+  const promptLabel = summary ? "Summary prompt" : "Delegation prompt";
+  const enabledMixed = useScopedSettingsMixed([enabledKey]);
+  const modelMixed = useScopedSettingsMixed([modelKey]);
+  const promptMixed = useScopedSettingsMixed([promptKey]);
   const providers = environment?.serverConfig?.providers ?? [];
   const entries = sortProviderInstanceEntries(
     applyProviderInstanceSettings(
@@ -87,21 +41,40 @@ export function InboxFeatureSettings() {
     ),
   );
   const disabledReason = useScopedModelDisabledReason(settings, entries);
+  const selection =
+    settings[modelKey] ??
+    (!summary ? settings.defaultModelSelection : null) ??
+    settings.textGenerationModelSelection;
+  const prompt = settings[promptKey].trim()
+    ? settings[promptKey]
+    : DEFAULT_SERVER_SETTINGS[promptKey];
   return (
-    <div className="mt-4 mb-3 divide-y divide-border/50 border-t border-border/50 pt-1 [&>[data-slot=settings-row]]:rounded-none">
-      {(["inboxSummaryModelSelection", "inboxAgentModelSelection"] as const).map((key) => {
-        const selection =
-          settings[key] ??
-          (key === "inboxAgentModelSelection" ? settings.defaultModelSelection : null) ??
-          settings.textGenerationModelSelection;
-        const label = key === "inboxSummaryModelSelection" ? "Summary model" : "Delegation model";
-        return (
+    <SettingsRow
+      title={title}
+      description={
+        summary
+          ? "Add a concise AI summary to incoming notifications."
+          : "Start an agent directly from a notification. Agent chat still waits for your message."
+      }
+      mixed={enabledMixed}
+      serverScoped
+      settingKeys={[enabledKey]}
+      control={
+        <Switch
+          aria-label={title}
+          mixed={enabledMixed}
+          checked={enabledMixed ? false : settings[enabledKey]}
+          onCheckedChange={(enabled) => update({ [enabledKey]: enabled })}
+        />
+      }
+    >
+      {!enabledMixed && settings[enabledKey] && (
+        <div className="mt-3 mb-2 rounded-lg border border-border/50 bg-muted/15 [&>[data-slot=settings-row]]:rounded-none">
           <SettingsRow
-            key={key}
-            title={label}
-            mixed={key === "inboxSummaryModelSelection" ? summaryMixed : agentMixed}
+            title={modelLabel}
+            mixed={modelMixed}
             serverScoped
-            settingKeys={[key]}
+            settingKeys={[modelKey]}
             control={
               <ProviderModelPicker
                 environmentId={environment?.environmentId ?? null}
@@ -115,42 +88,68 @@ export function InboxFeatureSettings() {
                   selection.instanceId,
                   selection.model,
                 )}
-                triggerAriaLabel={label}
+                triggerAriaLabel={modelLabel}
                 size="sm"
                 triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                {...((key === "inboxSummaryModelSelection" ? summaryMixed : agentMixed)
-                  ? { triggerLabel: "Mixed" }
-                  : {})}
+                {...(modelMixed ? { triggerLabel: "Mixed" } : {})}
                 getModelDisabledReason={disabledReason}
                 onInstanceModelChange={(instanceId, model) => {
                   if (!disabledReason(instanceId, model))
-                    update({ [key]: createModelSelection(instanceId, model) });
+                    update({ [modelKey]: createModelSelection(instanceId, model) });
                 }}
               />
             }
           />
-        );
-      })}
-      <InboxPromptSetting
-        title="Summary prompt"
-        description="Customize the summary instructions. Off uses the built-in prompt."
-        enabledKey="inboxSummaryPromptEnabled"
-        promptKey="inboxSummaryPrompt"
-        placeholder="Summarize the request and relevant details in one to five concise sentences."
-      />
-      <InboxPromptSetting
-        title="Delegation prompt"
-        description="Customize the Agent action. Agent chat still waits for your message."
-        enabledKey="inboxAgentPromptEnabled"
-        promptKey="inboxAgentPrompt"
-        placeholder="Address this notification using its context. Leave empty for the built-in prompt."
-      />
+          <div className="border-t border-border/50">
+            <SettingsRow
+              title={promptLabel}
+              mixed={promptMixed}
+              serverScoped
+              settingKeys={[promptKey]}
+            >
+              <div className="mt-2 pb-2">
+                <Textarea
+                  key={`${promptMixed}:${prompt}`}
+                  aria-label={promptLabel}
+                  defaultValue={promptMixed ? "" : prompt}
+                  placeholder={
+                    promptMixed ? "Mixed — enter a prompt for selected projects" : undefined
+                  }
+                  rows={4}
+                  maxLength={8000}
+                  onBlur={(event) => {
+                    const value = event.currentTarget.value.trim()
+                      ? event.currentTarget.value
+                      : DEFAULT_SERVER_SETTINGS[promptKey];
+                    event.currentTarget.value = value;
+                    if (promptMixed || value !== settings[promptKey])
+                      update({ [promptKey]: value });
+                  }}
+                />
+              </div>
+            </SettingsRow>
+          </div>
+        </div>
+      )}
+    </SettingsRow>
+  );
+}
+
+export function InboxFeatureSettings() {
+  const settings = useScopedSettings();
+  const update = useUpdateScopedSettings();
+  const resolutionMixed = useScopedSettingsMixed(["inboxPreResolution"]);
+  const memoryMixed = useScopedSettingsMixed(["inboxMemoryEnabled"]);
+  return (
+    <div className="mt-4 mb-3 divide-y divide-border/50 border-t border-border/50 pt-1 [&>[data-slot=settings-row]]:rounded-none">
+      <InboxProcessingGroup kind="summary" />
+      <InboxProcessingGroup kind="agent" />
       <SettingsRow
         title="Suggested resolutions"
         mixed={resolutionMixed}
         serverScoped
         settingKeys={["inboxPreResolution"]}
-        description="Add suggested steps or a draft response to the summary. Suggestions do not send messages or settle notifications."
+        description="Add suggested steps or a draft response when Summary is enabled. Suggestions do not send messages or settle notifications."
         control={
           <Switch
             aria-label="Suggested resolutions"
@@ -161,14 +160,14 @@ export function InboxFeatureSettings() {
         }
       />
       <SettingsRow
-        title="Project memory"
+        title="Inbox memory"
         mixed={memoryMixed}
         serverScoped
         settingKeys={["inboxMemoryEnabled"]}
         description="Use confirmed outcomes from similar notifications in this project. Other projects stay separate."
         control={
           <Switch
-            aria-label="Project memory"
+            aria-label="Inbox memory"
             mixed={memoryMixed}
             checked={memoryMixed ? false : settings.inboxMemoryEnabled}
             onCheckedChange={(inboxMemoryEnabled) => update({ inboxMemoryEnabled })}
