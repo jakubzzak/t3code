@@ -268,10 +268,12 @@ function InboxRow({
 
 export function InboxSidebarLayout({
   projects,
+  chatCount,
   chatHeader,
   children,
 }: {
   projects: ReadonlyArray<ScopedProjectRef>;
+  chatCount: number;
   chatHeader: ReactNode;
   children: ReactNode;
 }) {
@@ -663,18 +665,17 @@ export function InboxSidebarLayout({
           value={tab}
           label="Sidebar views"
           items={[
-            { value: "chats", label: "Chats", icon: <MessageSquareIcon className="size-3.5" /> },
+            {
+              value: "chats",
+              label: "Chats",
+              icon: <MessageSquareIcon className="size-3.5" />,
+              count: chatCount,
+            },
             {
               value: "inbox",
-              label: (
-                <>
-                  Inbox{" "}
-                  <span className="text-2xs text-muted-foreground">
-                    {entries.filter((entry) => entry.notification.state.placement === "active")
-                      .length || ""}
-                  </span>
-                </>
-              ),
+              label: "Inbox",
+              count: entries.filter((entry) => entry.notification.state.placement === "active")
+                .length,
               icon: <InboxIcon className="size-3.5" />,
             },
           ]}
@@ -894,15 +895,6 @@ export function InboxSidebarLayout({
                     >
                       Load more notifications
                     </Button>
-                  )}
-                  {undo.length > 0 && (
-                    <div className="sticky bottom-0 flex items-center justify-between rounded-md bg-popover px-2 py-1.5 text-xs shadow-sm">
-                      <span>Notification updated</span>
-                      <Button variant="ghost" size="sm" onClick={undoLast}>
-                        <Undo2Icon className="size-3" />
-                        Undo
-                      </Button>
-                    </div>
                   )}
                 </div>
               </SidebarGroup>

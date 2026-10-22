@@ -5025,6 +5025,7 @@ export default function Sidebar() {
       <SidebarChromeHeader isElectron={isElectron} />
       <InboxSidebarLayout
         projects={inboxProjects}
+        chatCount={pinnedThreads.length + activeThreads.length + workingThreads.length}
         chatHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
