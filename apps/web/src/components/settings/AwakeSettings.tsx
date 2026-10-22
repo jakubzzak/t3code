@@ -45,7 +45,7 @@ export function AwakeSettings() {
       <SettingsSection id="awake" title="Keep awake">
         <SettingsRow
           {...searchableSetting("awake-enabled")}
-          description="Keep this Mac awake while Blackbird is running, including with the lid closed. The display can turn off and lock. Uses more battery. Applies only to this Mac, even when connected to another computer."
+          description="The same instance-wide switch as Settings → Features. Keeps this Mac awake while Blackbird runs, including with the lid closed. Applies to all projects in this instance, not a remote computer. The display can turn off and lock. Uses more battery."
           status={
             !bridge || state?.supported === false
               ? "Available only in the macOS desktop app."

@@ -58,8 +58,11 @@ separately. Signing out of T3 Connect does not stop or uninstall the service.
 
 ## Keep a Mac awake with the desktop app
 
-In the macOS desktop app, open **Settings → Keep awake**, complete the one-time
-administrator setup, then enable **Keep this Mac awake**. The Mac stays awake
+In the macOS desktop app, enable **Keep awake** in **Settings → Features**, then
+choose **Configure** to complete the one-time administrator setup and adjust
+battery/heat safeguards. The feature applies to the whole desktop instance and
+all its projects; there is no per-project override. The Keep awake settings page
+uses the same switch. The Mac stays awake
 while Blackbird runs, including with its lid closed or its window closed. The
 display can still turn off and lock. This applies to the Mac running the desktop
 app, regardless of which environment you are viewing; it does not keep a remote

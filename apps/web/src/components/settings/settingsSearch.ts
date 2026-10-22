@@ -230,6 +230,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["connection oauth email accounts splits labels important mail"],
   },
   {
+    id: "feature-keep-awake",
+    title: "Keep awake",
+    to: "/settings/features",
+    searchTerms: ["feature enable disable instance sleep lid power caffeine"],
+  },
+  {
     id: "linear-workspace",
     title: "Linear workspace",
     to: "/settings/integrations",
