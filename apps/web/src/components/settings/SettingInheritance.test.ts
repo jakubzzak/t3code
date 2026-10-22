@@ -8,6 +8,34 @@ const environmentId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project");
 
 describe("settingInheritanceLayers", () => {
+  it("does not reveal client IDs in the inheritance inspector", () => {
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      linearClientId: "environment-linear",
+      slackClientId: "environment-slack",
+      projectSettingsOverrides: {
+        [projectId]: { linearClientId: "project-linear", slackClientId: "project-slack" },
+      },
+    };
+    for (const key of ["linearClientId", "slackClientId"] as const) {
+      const resolved = resolveProjectSettings(settings, projectId);
+      const layers = settingInheritanceLayers(
+        { environmentId, label: "Laptop", projectId, ...resolved },
+        settings,
+        key,
+      );
+      expect(layers.filter((layer) => layer.set).map((layer) => layer.value)).toEqual([
+        "Configured",
+        "Configured",
+        "Not set",
+      ]);
+      expect(JSON.stringify(layers)).not.toContain(settings[key]);
+      expect(JSON.stringify(layers)).not.toContain(
+        settings.projectSettingsOverrides[projectId]![key],
+      );
+    }
+  });
+
   it("marks the built-in default effective when nothing is set", () => {
     const resolved = resolveProjectSettings(DEFAULT_SERVER_SETTINGS, null);
     const layers = settingInheritanceLayers(

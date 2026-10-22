@@ -149,8 +149,8 @@ collection requires Inbox even when Linear view is enabled. Feature switches ret
 settings when off. Inbox and Linear view are independent. The inbox is available on web and desktop;
 mobile keeps the same project data but does not yet have a native inbox screen.
 
-For Linear, enter your OAuth application's public client ID, or leave it blank to use the
-environment's configured application, then connect your account. For Slack, enter the app's
+For Linear, enter your OAuth application's public client ID, then connect your account.
+Client IDs are masked; use the eye button to show or hide them. For Slack, enter the app's
 public client ID, enable PKCE in Slack's OAuth settings, register the environment's callback URL,
 then choose **Connect Slack**. Both use browser authorization without a client secret. Existing
 Slack user tokens can still be entered manually. Slack supports DMs and personal/group mentions;

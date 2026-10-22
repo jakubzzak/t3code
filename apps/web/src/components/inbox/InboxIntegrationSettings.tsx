@@ -780,11 +780,10 @@ export function ProjectIntegrationSettings() {
   return (
     <>
       <LinearSettings>
-        <fieldset
-          disabled={!inboxReady}
-          className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none"
-        >
-          {renderSource("linear")}
+        <fieldset disabled={!inboxReady} className="contents">
+          <div className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none">
+            {renderSource("linear")}
+          </div>
         </fieldset>
       </LinearSettings>
       {(["slack", "superhuman"] as const).map((source) => {
@@ -796,15 +795,14 @@ export function ProjectIntegrationSettings() {
             title={source === "slack" ? "Slack" : "Superhuman"}
             icon={<InboxSourceLogo source={source} />}
           >
-            <fieldset
-              disabled={!!reason || !supported}
-              className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none"
-            >
-              {reason && <SettingsRow title="Project setup" description={reason} />}
-              {source === "slack" && (
-                <OAuthClientIdSetting source="slack" disabled={!!reason || !supported} />
-              )}
-              {renderSource(source)}
+            <fieldset disabled={!!reason || !supported} className="contents">
+              <div className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none">
+                {reason && <SettingsRow title="Project setup" description={reason} />}
+                {source === "slack" && (
+                  <OAuthClientIdSetting source="slack" disabled={!!reason || !supported} />
+                )}
+                {renderSource(source)}
+              </div>
             </fieldset>
           </SettingsSection>
         );

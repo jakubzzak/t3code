@@ -61,12 +61,67 @@ afterEach(async () => {
   root = createRoot(container);
   state.scope = { kind: "project", members: [{ environmentId: "env", id: "one" }] };
   state.mixed = false;
+  state.clientId = "existing-client";
+  state.workspace = "acme";
   state.inboxEnabled = true;
   state.linearViewEnabled = false;
   vi.clearAllMocks();
 });
 
 describe("Linear project settings editing", () => {
+  it("keeps client IDs masked until revealed without saving or replacing the input", async () => {
+    await render();
+    const field = input("Linear OAuth client ID");
+    expect(field.type).toBe("password");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Show Linear OAuth client ID"]')!
+        .click(),
+    );
+    expect(input("Linear OAuth client ID")).toBe(field);
+    expect(field.type).toBe("text");
+    expect(state.update).not.toHaveBeenCalled();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Hide Linear OAuth client ID"]')!
+        .click(),
+    );
+    expect(field.type).toBe("password");
+  });
+
+  it("preserves an editing draft and input through server updates, then resets visibility on project change", async () => {
+    await render();
+    const field = input("Linear OAuth client ID");
+    await act(async () => {
+      field.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        field,
+        "my-new-client",
+      );
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    state.clientId = "remote-client";
+    await render();
+    expect(input("Linear OAuth client ID")).toBe(field);
+    expect(field.value).toBe("my-new-client");
+    await act(async () =>
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    );
+    expect(state.update).toHaveBeenCalledExactlyOnceWith({ linearClientId: "my-new-client" });
+    state.clientId = "my-new-client";
+    await render();
+    expect(input("Linear OAuth client ID")).toBe(field);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Show Linear OAuth client ID"]')!
+        .click(),
+    );
+    state.scope = { kind: "project", members: [{ environmentId: "env", id: "two" }] };
+    await render();
+    expect(input("Linear OAuth client ID")).not.toBe(field);
+    expect(input("Linear OAuth client ID").type).toBe("password");
+  });
+
   it("blocks edits without a project feature and allows either Inbox or Linear view", async () => {
     state.inboxEnabled = false;
     await render();
