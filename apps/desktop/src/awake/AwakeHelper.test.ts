@@ -186,6 +186,22 @@ describe.skipIf(NodeOS.platform() !== "darwin")("macOS recovery helper", () => {
     expect(f.journal()).toBe(true);
     expect(f.calls()).toBe("");
   });
+  it("rejects unsupported operations and malformed requests without changing power settings", () => {
+    const f = fixture();
+    for (const args of [
+      ["status"],
+      ["/bin/sh", "-c", "id"],
+      ["apply", "not-a-token", String(process.pid), "0"],
+      ["apply", token, "1", "0"],
+      ["apply", token, String(process.pid), "2"],
+      ["apply", token, String(process.pid), "0", "extra"],
+      ["release", token, "extra"],
+    ]) {
+      expect(f.run(args).status, args.join(" ")).not.toBe(0);
+    }
+    expect(f.calls()).toBe("");
+    expect(f.journal()).toBe(false);
+  });
 });
 
 describe("Keep awake installer", () => {

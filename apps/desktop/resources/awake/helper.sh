@@ -94,11 +94,6 @@ case "$command" in
     [ "$#" = 0 ] && [ -z "${SUDO_UID-}" ] || fail "Recovery is reserved for launchd."
     recover
     ;;
-  status)
-    [ "$#" = 0 ] || fail "Invalid status request."
-    recover
-    printf '{"version":1}\n'
-    ;;
   apply)
     [ "$#" = 3 ] || fail "Invalid apply request."
     [ ! -f "$ROOT/disabled" ] || fail "Keep awake setup is being removed."
@@ -149,7 +144,6 @@ case "$command" in
     fi
     read_power
     [ "$sleep_current" = 1 ] || fail "macOS did not retain the sleep setting."
-    printf '{"version":1}\n'
     ;;
   release)
     [ "$#" = 1 ] && token_valid "$1" && number "${SUDO_UID-}" || fail "Invalid release request."

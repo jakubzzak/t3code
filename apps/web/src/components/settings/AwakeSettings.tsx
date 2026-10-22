@@ -63,7 +63,7 @@ export function AwakeSettings() {
         {available ? (
           <SettingsRow
             title="Closed-lid setup"
-            description="One-time administrator setup allows Blackbird to manage sleep and Low Power Mode. A recovery service restores your previous settings if Blackbird stops unexpectedly."
+            description="One-time administrator setup lets Blackbird manage sleep and Low Power Mode, with automatic recovery if it stops unexpectedly. Other apps running under your macOS account can use this permission outside Blackbird’s battery and heat safeguards. Remove setup revokes the permission; turning Keep awake off only stops Blackbird’s session."
             control={
               <div className="flex gap-2">
                 {state?.status === "error" && installed ? (
