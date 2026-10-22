@@ -64,7 +64,10 @@ export const layer = Layer.effect(
           : (__T3CODE_BUILD_LINEAR_CLIENT_ID__ ?? ""),
       ),
     );
-    const clients = new Map<ProjectId, ReturnType<typeof createLinearConnection>>();
+    const clients = new Map<
+      ProjectId,
+      { clientId: string; client: ReturnType<typeof createLinearConnection> }
+    >();
     const flows = new Map<
       string,
       { projectId: ProjectId; accept: (code: string) => void; finished: Promise<void> }
@@ -79,9 +82,9 @@ export const layer = Layer.effect(
       new InboxError({
         detail: cause instanceof Error ? cause.message : "Linear connection failed. Try again.",
       });
-    const workspace = (projectId: ProjectId) =>
+    const projectConfiguration = (projectId: ProjectId) =>
       settings.getSettings.pipe(
-        Effect.map((value) => resolveProjectSettings(value, projectId).settings.linearWorkspace),
+        Effect.map((value) => resolveProjectSettings(value, projectId).settings),
         Effect.mapError(
           () => new InboxError({ detail: "Could not read the project's Linear workspace." }),
         ),
@@ -92,13 +95,16 @@ export const layer = Layer.effect(
     >();
     const getClient = (
       projectId: ProjectId,
+      configuredClientId: string,
       authorization?: { origin: string; ready: (url: string) => void; finished: Promise<void> },
     ) => {
       if (authorization) authorizations.set(projectId, authorization);
       const cached = clients.get(projectId);
-      if (cached) return cached;
+      const effectiveClientId = configuredClientId || clientId;
+      if (cached && (cached.clientId === effectiveClientId || connecting.has(projectId)))
+        return cached.client;
       const client = createLinearConnection({
-        clientId,
+        clientId: effectiveClientId,
         get redirectUri() {
           return new URL(
             LINEAR_CALLBACK_PATH,
@@ -144,12 +150,12 @@ export const layer = Layer.effect(
             authorization.ready(url);
           }),
       });
-      clients.set(projectId, client);
+      clients.set(projectId, { clientId: effectiveClientId, client });
       return client;
     };
     const request = (projectId: ProjectId, input: LinearDesktopRequest) =>
       Effect.gen(function* () {
-        const slug = yield* workspace(projectId);
+        const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
         if (!slug || slug !== input.workspace)
           return yield* new InboxError({
             detail: "Set this project's Linear workspace in Integrations.",
@@ -164,7 +170,11 @@ export const layer = Layer.effect(
           return yield* new InboxError({ detail: errors.get(projectId)! });
         return yield* Effect.tryPromise({
           try: () =>
-            getClient(projectId).request({ ...input, connectionKey: projectId, workspace: slug }),
+            getClient(projectId, linearClientId).request({
+              ...input,
+              connectionKey: projectId,
+              workspace: slug,
+            }),
           catch: wrap,
         });
       });
@@ -177,7 +187,7 @@ export const layer = Layer.effect(
               try: () => connecting.get(projectId)!.url,
               catch: wrap,
             });
-          const slug = yield* workspace(projectId);
+          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           if (!slug)
             return yield* new InboxError({ detail: "Set this project's Linear workspace first." });
           errors.delete(projectId);
@@ -196,7 +206,7 @@ export const layer = Layer.effect(
           const finished = new Promise<void>((resolve) => {
             finish = resolve;
           });
-          const client = getClient(projectId, { origin, ready, finished });
+          const client = getClient(projectId, linearClientId, { origin, ready, finished });
           connecting.set(projectId, { url, status });
           yield* Effect.tryPromise({
             try: () =>
@@ -233,10 +243,10 @@ export const layer = Layer.effect(
         }),
       cancel: (projectId) =>
         Effect.gen(function* () {
-          const slug = yield* workspace(projectId);
+          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           yield* Effect.tryPromise({
             try: () =>
-              getClient(projectId).request({
+              getClient(projectId, linearClientId).request({
                 operation: "cancel",
                 workspace: slug,
                 connectionKey: projectId,
@@ -246,8 +256,8 @@ export const layer = Layer.effect(
         }).pipe(Effect.asVoid),
       disconnect: (projectId) =>
         Effect.gen(function* () {
-          const slug = yield* workspace(projectId);
-          const client = getClient(projectId);
+          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
+          const client = getClient(projectId, linearClientId);
           yield* Effect.tryPromise({
             try: () =>
               client.request({ operation: "cancel", workspace: slug, connectionKey: projectId }),
@@ -289,25 +299,27 @@ export const layer = Layer.effect(
               detail: "This migration expired or belongs to another project. Start it again.",
             });
           transfers.delete(ticket);
-          const slug = yield* workspace(projectId);
+          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           const credential = yield* Effect.try({
             try: () => openLinearConnection(envelope, transfer.privateKey),
             catch: () =>
               new InboxError({ detail: "The encrypted Linear connection could not be migrated." }),
           });
           yield* Effect.tryPromise({
-            try: () => getClient(projectId).importConnection(projectId, slug, credential),
+            try: () =>
+              getClient(projectId, linearClientId).importConnection(projectId, slug, credential),
             catch: wrap,
           });
           errors.delete(projectId);
         }),
       read: (projectId, categories) =>
         Effect.gen(function* () {
-          const slug = yield* workspace(projectId);
+          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           return yield* Effect.tryPromise({
             try: () =>
               readLinearInbox(
-                (query, variables) => getClient(projectId).query(projectId, slug, query, variables),
+                (query, variables) =>
+                  getClient(projectId, linearClientId).query(projectId, slug, query, variables),
                 categories,
               ),
             catch: wrap,

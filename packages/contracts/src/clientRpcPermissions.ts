@@ -31,6 +31,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.linearDisconnect]: AuthSettingsWriteScope,
   [WS_METHODS.linearPrepareMigration]: AuthSettingsWriteScope,
   [WS_METHODS.linearImportMigration]: AuthSettingsWriteScope,
+  [WS_METHODS.inboxBeginSlack]: AuthSettingsWriteScope,
+  [WS_METHODS.inboxCancelSlack]: AuthSettingsWriteScope,
   [WS_METHODS.inboxBeginSuperhuman]: AuthSettingsWriteScope,
   [WS_METHODS.inboxConfigureSource]: AuthSettingsWriteScope,
   [WS_METHODS.inboxDisconnectSource]: AuthSettingsWriteScope,

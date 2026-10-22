@@ -11,6 +11,53 @@ import * as Secrets from "../auth/ServerSecretStore.ts";
 const first = ProjectId.make("first");
 const second = ProjectId.make("second");
 it.effect(
+  "uses the selected project's client ID for PKCE without a build-specific application",
+  () =>
+    Effect.gen(function* () {
+      const values = new Map<string, Uint8Array>();
+      const secrets = Secrets.ServerSecretStore.of({
+        get: (key) => Effect.sync(() => Option.fromUndefinedOr(values.get(key))),
+        set: (key, value) =>
+          Effect.sync(() => {
+            values.set(key, value);
+          }),
+        create: () => Effect.die("Not used"),
+        remove: () => Effect.void,
+        getOrCreateRandom: () => Effect.die("Not used"),
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* Connection.LinearConnection;
+        const status = yield* service.request(first, {
+          operation: "status",
+          workspace: "acme",
+          connectionKey: first,
+        });
+        assert.isTrue(status.configured);
+        const url = new URL(yield* service.begin(first, "https://blackbird.example.test"));
+        assert.equal(url.searchParams.get("client_id"), "custom-public-client");
+        assert.equal(url.searchParams.get("code_challenge_method"), "S256");
+        assert.equal(url.searchParams.get("scope"), "read");
+        assert.isFalse(url.searchParams.has("client_secret"));
+        yield* service.cancel(first);
+      }).pipe(
+        Effect.provide(
+          Connection.layer.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(Secrets.ServerSecretStore, secrets),
+                Settings.layerTest({
+                  projectSettingsOverrides: {
+                    [first]: { linearWorkspace: "acme", linearClientId: "custom-public-client" },
+                  },
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    }).pipe(Effect.scoped),
+);
+it.effect(
   "binds encrypted migration to one selected project, rejects replay and expiry, and never replaces an existing connection",
   () =>
     Effect.gen(function* () {

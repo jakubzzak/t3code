@@ -32,6 +32,14 @@ export function createInboxEnvironmentAtoms<R, E>(
       tag: WS_METHODS.linearImportMigration,
     }),
 
+    beginSlack: createEnvironmentRpcCommand(runtime, {
+      label: "inbox:beginSlack",
+      tag: WS_METHODS.inboxBeginSlack,
+    }),
+    cancelSlack: createEnvironmentRpcCommand(runtime, {
+      label: "inbox:cancelSlack",
+      tag: WS_METHODS.inboxCancelSlack,
+    }),
     beginSuperhuman: createEnvironmentRpcCommand(runtime, {
       label: "inbox:beginSuperhuman",
       tag: WS_METHODS.inboxBeginSuperhuman,

@@ -1,4 +1,6 @@
 import * as Linear from "../linear/LinearConnection.ts";
+import * as Slack from "./SlackConnection.ts";
+import * as HttpClient from "effect/http/HttpClient";
 import * as Superhuman from "./SuperhumanConnection.ts";
 import * as Redacted from "effect/Redacted";
 import { assert, it } from "@effect/vitest";
@@ -56,6 +58,16 @@ it.effect(
       });
       const settingsLayer = Settings.layerTest();
       const layer = Sources.layer.pipe(
+        Layer.provide(
+          Slack.layer.pipe(
+            Layer.provide(
+              Layer.succeed(
+                HttpClient.HttpClient,
+                HttpClient.make(() => Effect.die("No OAuth request expected")),
+              ),
+            ),
+          ),
+        ),
         Layer.provide(
           Layer.succeed(Linear.LinearConnection, {
             request: () => Effect.succeed({ configured: false, connection: null }),

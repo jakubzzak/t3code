@@ -573,6 +573,8 @@ export const WS_METHODS = {
   linearDisconnect: "linear.disconnect",
   linearPrepareMigration: "linear.prepareMigration",
   linearImportMigration: "linear.importMigration",
+  inboxBeginSlack: "inbox.beginSlack",
+  inboxCancelSlack: "inbox.cancelSlack",
   inboxBeginSuperhuman: "inbox.beginSuperhuman",
   inboxSuperhumanCatalog: "inbox.superhumanCatalog",
   inboxSources: "inbox.sources",
@@ -1097,6 +1099,16 @@ const WsLinearPrepareMigrationRpc = Rpc.make(WS_METHODS.linearPrepareMigration, 
 });
 const WsLinearImportMigrationRpc = Rpc.make(WS_METHODS.linearImportMigration, {
   payload: LinearMigrationInput,
+  success: Schema.Void,
+  error: InboxError,
+});
+const WsInboxBeginSlackRpc = Rpc.make(WS_METHODS.inboxBeginSlack, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: Schema.String,
+  error: InboxError,
+});
+const WsInboxCancelSlackRpc = Rpc.make(WS_METHODS.inboxCancelSlack, {
+  payload: Schema.Struct({ projectId: ProjectId }),
   success: Schema.Void,
   error: InboxError,
 });
@@ -2224,6 +2236,8 @@ export const WsInboxRpcGroup = RpcGroup.make(
   WsLinearDisconnectRpc,
   WsLinearPrepareMigrationRpc,
   WsLinearImportMigrationRpc,
+  WsInboxBeginSlackRpc,
+  WsInboxCancelSlackRpc,
   WsInboxBeginSuperhumanRpc,
   WsInboxSuperhumanCatalogRpc,
   WsInboxListRpc,

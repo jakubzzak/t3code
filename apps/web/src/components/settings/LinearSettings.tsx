@@ -1,4 +1,5 @@
 import { LinearConnectionSettings } from "../linear/LinearConnectionSettings";
+import { OAuthClientIdSetting } from "../inbox/OAuthClientIdSetting";
 import { useRef } from "react";
 import { isElectron } from "~/env";
 import { useServerConfigs } from "~/state/entities";
@@ -17,6 +18,7 @@ export function LinearSettings() {
   const { scope, search } = useSettingsScope();
   const configs = useServerConfigs();
   const workspace = useScopedSettings((settings) => settings.linearWorkspace);
+  const clientId = useScopedSettings((settings) => settings.linearClientId);
   const mixed = useScopedSettingsMixed(["linearWorkspace"]);
   const update = useUpdateScopedSettings();
   const workspaceEdited = useRef<string | null>(null);
@@ -28,6 +30,7 @@ export function LinearSettings() {
 
   return (
     <SettingsSection id="linear" title="Linear">
+      <OAuthClientIdSetting source="linear" />
       <SettingsRow
         id="linear-workspace"
         title="Workspace"
@@ -67,7 +70,7 @@ export function LinearSettings() {
       />
       {projects.length === 1 && configs.get(projects[0]!.environmentId)?.notificationInbox ? (
         <EnvironmentLinearSettings
-          key={JSON.stringify([projects, workspace])}
+          key={JSON.stringify([projects, workspace, clientId])}
           environmentId={projects[0]!.environmentId}
           projectId={projects[0]!.projectId}
           workspace={mixed ? "" : workspace}

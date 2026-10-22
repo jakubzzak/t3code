@@ -1,6 +1,7 @@
 import * as LinearConnection from "./linear/LinearConnection.ts";
 import * as LinearOAuthHttp from "./linear/linearOAuthHttp.ts";
 import * as SuperhumanConnection from "./inbox/SuperhumanConnection.ts";
+import * as SlackConnection from "./inbox/SlackConnection.ts";
 import * as SuperhumanOAuthHttp from "./inbox/superhumanOAuthHttp.ts";
 import * as InboxSources from "./inbox/InboxSources.ts";
 import * as InboxSourceTransport from "./inbox/InboxSourceTransport.ts";
@@ -733,6 +734,7 @@ const layerInbox = InboxSources.layer.pipe(
     ),
   ),
   Layer.provide(SuperhumanConnection.layer),
+  Layer.provide(SlackConnection.layer.pipe(Layer.provide(FetchHttpClient.layer))),
   Layer.provideMerge(LinearConnection.layer),
 );
 

@@ -145,11 +145,16 @@ Select a project in **Settings → Features** and enable **Inbox**, then choose 
 each project. Inbox and Linear view are independent. The inbox is available on web and desktop;
 mobile keeps the same project data but does not yet have a native inbox screen.
 
-Slack supports DMs and personal/group mentions through a user OAuth token with the listed read
-scopes. Choose how much recent history to import; Saved and To-dos remain unavailable. Linear
+For Linear, enter your OAuth application's public client ID, or leave it blank to use the
+environment's configured application, then connect your account. For Slack, enter the app's
+public client ID, enable PKCE in Slack's OAuth settings, register the environment's callback URL,
+then choose **Connect Slack**. Both use browser authorization without a client secret. Existing
+Slack user tokens can still be entered manually. Slack supports DMs and personal/group mentions;
+choose how much recent history to import. Saved and To-dos remain unavailable. Linear
 uses the same environment connection as the issue picker. On desktop, **Move existing connection
 to environment** preserves your account and workspace without enabling Inbox or Linear view.
-Superhuman uses its official Mail MCP: sign in, select accounts, then select Important or other
+Superhuman uses its official Mail MCP and registers its OAuth client automatically; no client ID
+or secret is required. Sign in, select accounts, then select Important or other
 splits and labels. Sign-in requires access to Superhuman Mail MCP and its Chrome extension.
 
 Use the sidebar's **Inbox** tab to triage without leaving your current chat. Arrow keys focus and

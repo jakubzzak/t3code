@@ -13,6 +13,8 @@ import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
+import { OAuthClientIdSetting } from "./OAuthClientIdSetting";
+import { useScopedSettings } from "../settings/useScopedSettings";
 import { InboxSourceLogo } from "./InboxSourceLogo";
 function SlackConnection({
   environmentId,
@@ -24,6 +26,10 @@ function SlackConnection({
   refresh: () => void;
 }) {
   const [token, setToken] = useState("");
+  const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
+  const clientId = useScopedSettings((settings) => settings.slackClientId);
+  const begin = useAtomCommand(inboxEnvironment.beginSlack, { reportFailure: true });
+  const cancel = useAtomCommand(inboxEnvironment.cancelSlack, { reportFailure: true });
   const [lookback, setLookback] = useState(connection.initialLookbackDays);
   const [categories, setCategories] = useState<ReadonlyArray<string>>(connection.categories);
   const [pending, setPending] = useState(false);
@@ -54,6 +60,25 @@ function SlackConnection({
       setPending(false);
     }
   }
+  async function connect() {
+    const popup = !window.desktopBridge ? window.open("", "_blank") : null;
+    if (popup) popup.opener = null;
+    setPending(true);
+    try {
+      const result = await begin({ environmentId, input: { projectId: connection.projectId } });
+      if (result._tag !== "Success") {
+        popup?.close();
+        return;
+      }
+      setAuthorizationUrl(result.value);
+      if (popup) popup.location.href = result.value;
+      else await ensureLocalApi().shell.openExternal(result.value);
+    } catch {
+      popup?.close();
+    } finally {
+      setPending(false);
+    }
+  }
   return (
     <SettingsRow
       title={
@@ -62,9 +87,50 @@ function SlackConnection({
           Slack notifications
         </span>
       }
-      description="Read DMs and mentions using a Slack user OAuth connection for this project. Saved and To-dos have no supported API."
+      description="Connect your Slack account for this project. DMs and mentions are read-only; Saved and To-dos have no supported API."
     >
       <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canWrite || pending || !clientId}
+            onClick={() => void connect()}
+          >
+            {connection.connected ? "Reconnect Slack" : "Connect Slack"}
+          </Button>
+          {authorizationUrl && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!canWrite || pending}
+              onClick={() =>
+                void cancel({ environmentId, input: { projectId: connection.projectId } }).then(
+                  () => setAuthorizationUrl(null),
+                )
+              }
+            >
+              Cancel sign-in
+            </Button>
+          )}
+        </div>
+        {connection.connected && (
+          <p className="text-xs text-muted-foreground">
+            Connected{connection.account ? ` · ${connection.account}` : ""}
+          </p>
+        )}
+        {authorizationUrl && (
+          <p className="text-xs text-muted-foreground">
+            Complete authorization in your browser.{" "}
+            <a href={authorizationUrl} target="_blank" rel="noreferrer" className="underline">
+              Open sign-in
+            </a>
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Enable PKCE and register this environment's /oauth/inbox/slack/callback URL in your Slack
+          app.
+        </p>
         <div className="flex flex-wrap gap-3 text-xs">
           {[
             ["dms", "Direct messages"],
@@ -102,19 +168,24 @@ function SlackConnection({
             onChange={(event) => setLookback(Number(event.target.value))}
           />
         </label>
-        <Input
-          type="password"
-          autoComplete="off"
-          aria-label="Slack user OAuth token"
-          placeholder={
-            connection.connected
-              ? "Replace connection token (optional)"
-              : "Slack user OAuth token (xoxp-…)"
-          }
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          disabled={!canWrite || pending}
-        />
+        <details>
+          <summary className="cursor-pointer text-xs text-muted-foreground">
+            Enter an existing user token manually
+          </summary>
+          <Input
+            type="password"
+            autoComplete="off"
+            aria-label="Slack user OAuth token"
+            placeholder={
+              connection.connected
+                ? "Replace connection token (optional)"
+                : "Slack user OAuth token (xoxp-…)"
+            }
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            disabled={!canWrite || pending}
+          />
+        </details>
         <p className="text-xs text-muted-foreground">
           Required read scopes: im:read, im:history, mpim:read, mpim:history, search:read,
           usergroups:read, channels:history and groups:history for thread context. Credentials stay
@@ -139,7 +210,7 @@ function SlackConnection({
             }
             onClick={() => void save()}
           >
-            Save connection
+            Save selection
           </Button>
           {connection.connected && (
             <>
@@ -265,7 +336,7 @@ function SuperhumanConnection({
           Superhuman notifications
         </span>
       }
-      description="Use Superhuman's Important split, other splits and labels. Requires Superhuman Mail MCP access and its Chrome extension for sign-in."
+      description="Sign in with Superhuman; its OAuth client is registered automatically, with no client ID or secret to enter. Requires Superhuman Mail MCP access and its Chrome extension for sign-in."
     >
       <div className="space-y-3">
         {!connection.connected ? (
@@ -497,6 +568,14 @@ function ProjectSources({
           {result.error}
         </p>
       )}
+      {slack && (
+        <SlackConnection
+          key={`slack:${slack.connected}`}
+          environmentId={environmentId}
+          connection={slack}
+          refresh={result.refresh}
+        />
+      )}
       {linear && (
         <LinearNotifications
           key={`linear:${linear.connected}`}
@@ -510,14 +589,6 @@ function ProjectSources({
           key={`superhuman:${superhuman.connected}`}
           environmentId={environmentId}
           connection={superhuman}
-          refresh={result.refresh}
-        />
-      )}
-      {slack && (
-        <SlackConnection
-          key={`slack:${slack.connected}`}
-          environmentId={environmentId}
-          connection={slack}
           refresh={result.refresh}
         />
       )}
@@ -535,6 +606,7 @@ export function InboxIntegrationSettings() {
           ? "Each project has its own connections and relevance filters. Enable Inbox in Features to begin syncing."
           : "Select a project above to configure its notification sources."}
       </p>
+      {members.length > 0 && <OAuthClientIdSetting source="slack" />}
       {members.map((member) =>
         configs.get(member.environmentId)?.notificationInbox ? (
           <ProjectSources

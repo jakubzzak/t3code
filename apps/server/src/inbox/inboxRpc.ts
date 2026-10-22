@@ -22,6 +22,8 @@ export const layer = group.toLayer(
       [WS_METHODS.linearPrepareMigration]: (input) => linear.prepareMigration(input.projectId),
       [WS_METHODS.linearImportMigration]: (input) =>
         linear.importMigration(input.projectId, input.ticket, input.envelope),
+      [WS_METHODS.inboxBeginSlack]: (input) => sources.beginSlack(input.projectId, origin),
+      [WS_METHODS.inboxCancelSlack]: (input) => sources.cancelSlack(input.projectId),
       [WS_METHODS.inboxBeginSuperhuman]: (input) =>
         sources.beginSuperhuman(input.projectId, origin),
       [WS_METHODS.inboxSuperhumanCatalog]: (input) => sources.superhumanCatalog(input.projectId),

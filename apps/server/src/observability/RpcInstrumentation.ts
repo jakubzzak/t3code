@@ -113,6 +113,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.linearDisconnect]: "inbox",
   [WS_METHODS.linearPrepareMigration]: "inbox",
   [WS_METHODS.linearImportMigration]: "inbox",
+  [WS_METHODS.inboxBeginSlack]: "inbox",
+  [WS_METHODS.inboxCancelSlack]: "inbox",
   [WS_METHODS.inboxBeginSuperhuman]: "inbox",
   [WS_METHODS.inboxSuperhumanCatalog]: "inbox",
   [WS_METHODS.inboxSources]: "inbox",

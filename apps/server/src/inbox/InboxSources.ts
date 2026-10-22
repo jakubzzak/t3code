@@ -1,3 +1,4 @@
+import * as Slack from "./SlackConnection.ts";
 import * as Linear from "../linear/LinearConnection.ts";
 import * as Superhuman from "./SuperhumanConnection.ts";
 import * as Redacted from "effect/Redacted";
@@ -48,6 +49,12 @@ const iso = (millis: number) => DateTime.formatIso(DateTime.makeUnsafe(millis));
 export class InboxSources extends Context.Service<
   InboxSources,
   {
+    readonly beginSlack: (
+      projectId: ProjectId,
+      origin: string,
+    ) => Effect.Effect<string, InboxError>;
+    readonly cancelSlack: (projectId: ProjectId) => Effect.Effect<void>;
+    readonly completeSlack: (state: string, code: string) => Effect.Effect<void, InboxError>;
     readonly beginSuperhuman: (
       projectId: ProjectId,
       origin: string,
@@ -80,6 +87,7 @@ export const make = Effect.gen(function* () {
   const transport = yield* Transport.InboxSourceTransport;
   const superhuman = yield* Superhuman.SuperhumanConnection;
   const linear = yield* Linear.LinearConnection;
+  const slack = yield* Slack.SlackConnection;
   const locks = new Map<string, Semaphore.Semaphore>();
   const lock = (input: { projectId: ProjectId; source: InboxSource }) => {
     const key = JSON.stringify([input.projectId, input.source]);
@@ -174,12 +182,13 @@ export const make = Effect.gen(function* () {
             ? Date.parse(connection.lastSyncAt) - 300_000
             : now - connection.initialLookbackDays * 86400_000,
         );
-        const result = yield* transport
-          .read(connection, new TextDecoder().decode(credential.value), since)
-          .pipe(
-            Effect.flatMap((items) => inbox.ingest(input.projectId, items)),
-            Effect.result,
-          );
+        const result = yield* (
+          connection.source === "slack" ? slack.accessToken(input.projectId) : Effect.succeed("")
+        ).pipe(
+          Effect.flatMap((token) => transport.read(connection, token, since)),
+          Effect.flatMap((items) => inbox.ingest(input.projectId, items)),
+          Effect.result,
+        );
         return yield* save(
           result._tag === "Success"
             ? { ...connection, lastSyncAt: iso(now), error: null, retryAt: iso(now + 60_000) }
@@ -289,10 +298,7 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         if (input.source === "linear") yield* linear.disconnect(input.projectId);
         else if (input.source === "superhuman") yield* superhuman.disconnect(input.projectId);
-        else
-          yield* secrets
-            .remove(secretName(input.projectId, input.source))
-            .pipe(Effect.mapError(error));
+        else yield* slack.disconnect(input.projectId);
         yield* save(empty(input.projectId, input.source));
       }),
     );
@@ -315,6 +321,21 @@ export const make = Effect.gen(function* () {
     configure,
     disconnect,
     refresh: (input) => refresh(input, true),
+    beginSlack: slack.begin,
+    cancelSlack: slack.cancel,
+    completeSlack: (state, code) =>
+      slack.complete(state, code).pipe(
+        Effect.flatMap(({ projectId, account }) =>
+          lock({ projectId, source: "slack" })(
+            Effect.gen(function* () {
+              const previous = (yield* listStored(projectId)).find(
+                (entry) => entry.source === "slack",
+              )!;
+              yield* save({ ...previous, connected: true, account, error: null, retryAt: null });
+            }),
+          ),
+        ),
+      ),
     beginSuperhuman: superhuman.begin,
     superhumanCatalog: superhuman.catalog,
     completeSuperhuman: (state, code) =>
@@ -341,5 +362,6 @@ export const layer: Layer.Layer<
   | Inbox.InboxService
   | Transport.InboxSourceTransport
   | Superhuman.SuperhumanConnection
+  | Slack.SlackConnection
   | Linear.LinearConnection
 > = Layer.effect(InboxSources, make);

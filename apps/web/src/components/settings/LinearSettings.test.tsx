@@ -2,11 +2,13 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { LinearSettings } from "./LinearSettings";
 
 const state = vi.hoisted(() => ({
   scope: { kind: "project", members: [{ environmentId: "env", id: "one" }] },
   workspace: "acme",
+  clientId: "existing-client",
   mixed: false,
   update: vi.fn(),
 }));
@@ -14,7 +16,12 @@ vi.mock("./SettingsScopeContext", () => ({
   useSettingsScope: () => ({ scope: state.scope, search: state.scope }),
 }));
 vi.mock("./useScopedSettings", () => ({
-  useScopedSettings: () => state.workspace,
+  useScopedSettings: (selector: (value: typeof DEFAULT_SERVER_SETTINGS) => unknown) =>
+    selector({
+      ...DEFAULT_SERVER_SETTINGS,
+      linearWorkspace: state.workspace,
+      linearClientId: state.clientId,
+    }),
   useScopedSettingsMixed: () => state.mixed,
   useUpdateScopedSettings: () => state.update,
 }));
@@ -54,6 +61,15 @@ afterEach(async () => {
 });
 
 describe("Linear project settings editing", () => {
+  it("saves a public client ID and allows clearing the project override", async () => {
+    await render();
+    await edit(input("Linear OAuth client ID"), "my-public-client");
+    expect(state.update).toHaveBeenCalledExactlyOnceWith({ linearClientId: "my-public-client" });
+    vi.clearAllMocks();
+    await edit(input("Linear OAuth client ID"), "");
+    expect(state.update).toHaveBeenCalledExactlyOnceWith({ linearClientId: "" });
+  });
+
   it("preserves mixed workspace values on focus/blur and saves a deliberate replacement", async () => {
     state.mixed = true;
     await render();

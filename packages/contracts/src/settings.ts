@@ -998,6 +998,8 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "inboxPreResolution",
   "linearViewEnabled",
   "linearWorkspace",
+  "linearClientId",
+  "slackClientId",
   "worktreeCleanup",
   "defaultModelSelection",
   "defaultRuntimeMode",
@@ -1055,6 +1057,8 @@ export const ProjectSettingsOverrides = Schema.Struct({
 
   linearViewEnabled: Schema.optionalKey(Schema.Boolean),
   linearWorkspace: Schema.optionalKey(LinearWorkspace),
+  linearClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
+  slackClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
@@ -1165,6 +1169,12 @@ export const ServerSettings = Schema.Struct({
   inboxPreResolution: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   linearViewEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   linearWorkspace: LinearWorkspace.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  linearClientId: TrimmedString.check(Schema.isMaxLength(256)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  slackClientId: TrimmedString.check(Schema.isMaxLength(256)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
   // Null means no client has migrated this preference yet; an empty value is
   // authoritative so another device cannot resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -1566,6 +1576,8 @@ export const ServerSettingsPatch = Schema.Struct({
 
   linearViewEnabled: Schema.optionalKey(Schema.Boolean),
   linearWorkspace: Schema.optionalKey(LinearWorkspace),
+  linearClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
+  slackClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
   ),

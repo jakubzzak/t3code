@@ -130,6 +130,7 @@ export const InboxSourceConnection = Schema.Struct({
   enabled: Schema.Boolean,
   connected: Schema.Boolean,
   categories: Schema.Array(Schema.String),
+  account: Schema.optionalKey(Schema.String),
   initialLookbackDays: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 90 })).pipe(
     Schema.withDecodingDefault(Effect.succeed(7)),
   ),
