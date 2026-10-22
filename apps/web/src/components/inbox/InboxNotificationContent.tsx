@@ -1,6 +1,6 @@
 import type { InboxNotification } from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
-import { ExternalLinkIcon, SparklesIcon } from "lucide-react";
+import { ArrowUpRightIcon, SparklesIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { inboxSourceUrl, openInboxOriginal } from "./inboxSourceLink";
 
@@ -25,7 +25,7 @@ export function InboxOpenOriginalAction({
         title={shortcut ? `Open original (${mac ? "⌘⇧O" : "Ctrl+Shift+O"})` : "Open original"}
         onClick={() => openInboxOriginal(notification)}
       >
-        <ExternalLinkIcon className="size-3.5" />
+        <ArrowUpRightIcon className="size-3.5" />
       </Button>
       {shortcut && hints && (
         <span
