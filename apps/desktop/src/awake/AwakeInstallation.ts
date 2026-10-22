@@ -6,10 +6,10 @@ export const AWAKE_ROOT = `/var/db/${AWAKE_LABEL}`;
 
 export const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
-/** The helper accepts only fixed power operations, never arbitrary commands or paths. */
+/** Grants this user fixed power operations, not arbitrary commands or app-only authority. */
 export function installAwakeCommand(source: string, uid: number) {
   if (!Number.isSafeInteger(uid) || uid < 1) throw new Error("Invalid desktop user ID.");
-  const rule = `#${uid} ALL=(root) NOPASSWD: ${AWAKE_HELPER} status, ${AWAKE_HELPER} apply *, ${AWAKE_HELPER} release *\n`;
+  const rule = `#${uid} ALL=(root) NOPASSWD: ${AWAKE_HELPER} apply *, ${AWAKE_HELPER} release *\n`;
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>

@@ -65,6 +65,11 @@ display can still turn off and lock. This applies to the Mac running the desktop
 app, regardless of which environment you are viewing; it does not keep a remote
 computer awake or enable the feature for a standalone CLI service.
 
+Setup grants limited power-control permission to your macOS account. Other apps
+running as you can use that permission outside Blackbird's battery and heat
+safeguards. Turning Keep awake off stops Blackbird's session; **Remove setup**
+revokes the permission.
+
 By default, Low Power Mode starts below 40% battery and normal sleep is allowed
 below 10%. Heat safeguards also reduce power at serious thermal pressure and
 allow sleep at critical pressure. These limits are configurable. Keep awake
