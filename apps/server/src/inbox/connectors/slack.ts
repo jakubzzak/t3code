@@ -5,7 +5,8 @@ import type { InboxSourceItem } from "@t3tools/contracts";
 const Message = Schema.Struct({
   ts: Schema.String,
   text: Schema.optionalKey(Schema.String),
-  user: Schema.optionalKey(Schema.String),
+  user: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  username: Schema.optionalKey(Schema.NullOr(Schema.String)),
   thread_ts: Schema.optionalKey(Schema.String),
 });
 const History = Schema.Struct({
@@ -98,7 +99,7 @@ export async function readSlackInbox(
       groupId: `${channel}:${message.thread_ts ?? message.ts}`,
       location,
       title: (message.text ?? "Slack notification").split("\n")[0]!.slice(0, 250),
-      author: message.user ?? "Slack",
+      author: message.user || message.username || "Slack",
       content: `${message.text ?? ""}${context ? `\n\nThread context:\n${context}` : ""}`.slice(
         0,
         32000,
@@ -116,7 +117,7 @@ export async function readSlackInbox(
     );
     const context = (response.messages ?? [])
       .filter((entry) => entry.ts !== message.ts)
-      .map((entry) => `${entry.user ?? "Slack"}: ${entry.text ?? ""}`)
+      .map((entry) => `${entry.user || entry.username || "Slack"}: ${entry.text ?? ""}`)
       .join("\n");
     return `${context}${response.has_more || response.response_metadata?.next_cursor ? "\n[Additional thread messages omitted; open the original for the complete thread.]" : ""}`;
   };

@@ -1,6 +1,60 @@
 import { describe, expect, it } from "vite-plus/test";
 import { readSlackInbox } from "./slack.ts";
 describe("supported Slack intake", () => {
+  it.each([null, undefined, ""])(
+    "keeps bot search matches without a user ID (%s)",
+    async (user) => {
+      const items = await readSlackInbox(
+        async (method) => {
+          if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T1" };
+          if (method === "search.messages")
+            return {
+              ok: true,
+              messages: {
+                matches: [
+                  {
+                    ts: "1792620002.000000",
+                    text: "Please check the alert",
+                    ...(user === undefined ? {} : { user }),
+                    username: "Monitor",
+                    channel: { id: "C1", name: "alerts" },
+                    permalink: "https://slack.com/archives/C1/message",
+                  },
+                  {
+                    ts: "1792620003.000000",
+                    text: "My own message",
+                    user: "me",
+                    channel: { id: "C1", name: "alerts" },
+                    permalink: "https://slack.com/archives/C1/own",
+                  },
+                ],
+                paging: { pages: 1 },
+              },
+            };
+          if (method === "conversations.history")
+            return {
+              ok: true,
+              messages: [
+                {
+                  ts: "1792620002.000000",
+                  ...(user === undefined ? {} : { user }),
+                  username: "Monitor",
+                  text: "Please check the alert",
+                },
+              ],
+            };
+          throw new Error(`Unexpected method ${method}`);
+        },
+        ["mentions"],
+        "2026-10-01T00:00:00Z",
+      );
+      expect(items).toHaveLength(1);
+      expect(items[0]?.author).toBe("Monitor");
+      expect(items[0]?.content).toBe("Please check the alert");
+      expect(items[0]?.groupId).toBe("C1:1792620002.000000");
+    },
+  );
+
   it("reads DMs and personal/group mentions with thread context, excluding authored messages and undocumented endpoints", async () => {
     const calls: string[] = [];
     const items = await readSlackInbox(
