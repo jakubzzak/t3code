@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vite-plus/test";
 import { AsyncResult } from "effect/reactivity";
 import { ProjectId } from "@t3tools/contracts";
-import { isInboxInitialLoad, isInboxDetailCurrent } from "./inboxPresentation";
+import { isInboxInitialLoad, isInboxDetailCurrent, nextInboxFocusKey } from "./inboxPresentation";
+
+describe("Inbox focus after settling", () => {
+  it("chooses the following notification in rendered order", () => {
+    expect(nextInboxFocusKey(["newest", "focused", "next", "oldest"], "focused")).toBe("next");
+    expect(nextInboxFocusKey(["newest", "next"], "newest")).toBe("next");
+  });
+  it("falls back to the previous remaining notification at the end", () => {
+    expect(nextInboxFocusKey(["previous", "focused"], "focused")).toBe("previous");
+  });
+  it("leaves focus on the list if no candidate remains or the row is no longer present", () => {
+    expect(nextInboxFocusKey(["focused"], "focused")).toBeNull();
+    expect(nextInboxFocusKey([], "focused")).toBeNull();
+    expect(nextInboxFocusKey(["other"], "focused")).toBeNull();
+  });
+});
 
 describe("Inbox refresh presentation", () => {
   it("shows loading only without cached data, keeping a refreshed empty inbox steady", () => {

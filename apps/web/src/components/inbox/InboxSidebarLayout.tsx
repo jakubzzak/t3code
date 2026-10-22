@@ -56,7 +56,7 @@ import {
   InboxSummary,
 } from "./InboxNotificationContent";
 import { openInboxOriginal } from "./inboxSourceLink";
-import { isInboxInitialLoad, isInboxDetailCurrent } from "./inboxPresentation";
+import { isInboxInitialLoad, isInboxDetailCurrent, nextInboxFocusKey } from "./inboxPresentation";
 import styles from "./inboxSidebar.module.css";
 
 type Entry = { environmentId: EnvironmentId; notification: InboxNotification };
@@ -483,6 +483,13 @@ export function InboxSidebarLayout({
         entry.notification;
       const own = overridesRef.current[key];
       const n = own && own.revision > latest.revision ? own : latest;
+      const settling =
+        action.type === "resolve" && action.resolved && n.state.placement !== "resolved";
+      const focusOrder = settling
+        ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])].map(
+            (row) => row.dataset.inboxRow!,
+          )
+        : [];
       const result = await command({
         environmentId: entry.environmentId,
         input: {
@@ -506,10 +513,42 @@ export function InboxSidebarLayout({
           if (["starting", "linking"].includes(next.agentStatus)) setPendingOpen(key);
           else if (next.agentStatus !== "failed") await openChat({ ...entry, notification: next });
         }
-        if (next.state.placement !== n.state.placement && !sections.has(next.state.placement)) {
-          focusedRef.current = null;
-          setFocusedKey(null);
-          listRef.current?.focus();
+        if (focusedRef.current === key) {
+          if (settling && next.state.placement === "resolved") {
+            const rows = [
+              ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
+            ];
+            const visibleKeys = new Set(rows.map((row) => row.dataset.inboxRow));
+            const candidates = new Map(
+              entriesRef.current
+                .filter((candidate) => candidate.notification.state.placement !== "resolved")
+                .map((candidate) => [keyOf(candidate), candidate]),
+            );
+            const remainingOrder = focusOrder.filter(
+              (candidate) =>
+                candidate === key || (candidates.has(candidate) && visibleKeys.has(candidate)),
+            );
+            const nextKey = nextInboxFocusKey(remainingOrder, key);
+            const nextEntry = nextKey ? candidates.get(nextKey) : undefined;
+            const row = rows.find((candidate) => candidate.dataset.inboxRow === nextKey);
+            if (nextEntry && row) {
+              // The automatic read must leave settling as the next action undone by Cmd+Z.
+              focus(nextEntry, false);
+              row.focus();
+              row.scrollIntoView({ block: "nearest" });
+            } else {
+              focusedRef.current = null;
+              setFocusedKey(null);
+              listRef.current?.focus();
+            }
+          } else if (
+            next.state.placement !== n.state.placement &&
+            !sections.has(next.state.placement)
+          ) {
+            focusedRef.current = null;
+            setFocusedKey(null);
+            listRef.current?.focus();
+          }
         }
       }
       refresh();
@@ -527,12 +566,13 @@ export function InboxSidebarLayout({
     pendingActions.current.set(key, work);
     return work;
   }
-  function focus(entry: Entry) {
+  function focus(entry: Entry, recordReadUndo = true) {
     const key = keyOf(entry);
     if (focusedRef.current === key) return;
     focusedRef.current = key;
     setFocusedKey(key);
-    if (!entry.notification.state.read) void mutate(entry, { type: "read", read: true });
+    if (!entry.notification.state.read)
+      void mutate(entry, { type: "read", read: true }, recordReadUndo);
   }
   async function action(entry: Entry, value: InboxMutation | "snooze-menu") {
     if (

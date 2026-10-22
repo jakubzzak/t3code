@@ -2,6 +2,13 @@ import type { InboxNotification } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
 
+/** Continue below the settled row, falling back above it at the end of the list. */
+export function nextInboxFocusKey(order: ReadonlyArray<string>, current: string) {
+  const index = order.indexOf(current);
+  if (index === -1) return null;
+  return order[index + 1] ?? order[index - 1] ?? null;
+}
+
 /** Background revalidation must keep the loaded empty state and its height. */
 export function isInboxInitialLoad(result: AsyncResult.AsyncResult<unknown, unknown>) {
   return result.waiting && Option.isNone(AsyncResult.value(result));
