@@ -33,12 +33,10 @@ export function SegmentedViewTabs({
           className="relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-xs whitespace-nowrap text-muted-foreground outline-none data-active:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           {item.icon}
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-baseline gap-1">
             {item.label}
             {item.count !== undefined && item.count > 0 && (
-              <span className="text-2xs leading-none text-muted-foreground tabular-nums">
-                {item.count}
-              </span>
+              <span className="text-muted-foreground tabular-nums">{item.count}</span>
             )}
           </span>
         </Tabs.Tab>
