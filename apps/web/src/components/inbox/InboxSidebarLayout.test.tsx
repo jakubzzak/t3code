@@ -47,6 +47,7 @@ vi.mock("~/state/query", () => ({
     refresh: state.refresh,
   }),
 }));
+vi.mock("~/browser/useOpenLink", () => ({ useOpenLink: () => (url: string) => state.open(url) }));
 vi.mock("~/localApi", () => ({ readLocalApi: () => ({ shell: { openExternal: state.open } }) }));
 vi.mock("./InboxNotificationMetadata", () => ({
   InboxNotificationMetadata: () => <span>Notification header</span>,

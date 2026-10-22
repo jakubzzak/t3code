@@ -12,6 +12,7 @@ import {
   type InboxNotification,
   type InboxSource,
   type ScopedProjectRef,
+  type ScopedThreadRef,
   type EnvironmentId,
 } from "@t3tools/contracts";
 import { Atom, AsyncResult } from "effect/reactivity";
@@ -66,7 +67,7 @@ import {
   InboxSourceContent,
   InboxSummary,
 } from "./InboxNotificationContent";
-import { openInboxOriginal } from "./inboxSourceLink";
+import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
 import { isInboxInitialLoad, isInboxDetailCurrent, nextInboxFocusKey } from "./inboxPresentation";
 import styles from "./inboxSidebar.module.css";
 
@@ -112,11 +113,13 @@ export function InboxRow({
   pending,
   onFocus,
   onAction,
+  threadRef,
 }: {
   entry: Entry;
   focused: boolean;
   hints: boolean;
   pending: boolean;
+  threadRef?: ScopedThreadRef | null | undefined;
   onFocus: () => void;
   onAction: (action: InboxMutation | "snooze-menu") => void;
 }) {
@@ -223,7 +226,7 @@ export function InboxRow({
       <div className={styles.details} data-open={focused} inert={!focused} aria-hidden={!focused}>
         <div>
           {fullDetail ? (
-            <InboxSourceContent notification={fullDetail} />
+            <InboxSourceContent notification={fullDetail} threadRef={threadRef} />
           ) : (
             <p className="py-2 text-xs text-muted-foreground">
               {detail.error ?? "Loading context…"}
@@ -288,7 +291,12 @@ export function InboxRow({
               )}
             </span>
           ))}
-        <InboxOpenOriginalAction notification={n} shortcut hints={hints && focused} />
+        <InboxOpenOriginalAction
+          notification={n}
+          threadRef={threadRef}
+          shortcut
+          hints={hints && focused}
+        />
       </div>
     </article>
   );
@@ -296,15 +304,18 @@ export function InboxRow({
 
 export function InboxSidebarLayout({
   projects,
+  threadRef,
   chatCount,
   chatHeader,
   children,
 }: {
   projects: ReadonlyArray<ScopedProjectRef>;
+  threadRef: ScopedThreadRef | null;
   chatCount: number;
   chatHeader: ReactNode;
   children: ReactNode;
 }) {
+  const openLink = useInboxLink(threadRef);
   const serverConfigs = useServerConfigs();
   const tab = useInboxNavigation((state) => state.tab);
   const revealId = useInboxNavigation((state) => state.revealId);
@@ -697,7 +708,8 @@ export function InboxSidebarLayout({
     if (event.shiftKey && !event.altKey && event.key.toLowerCase() === "o") {
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat) openInboxOriginal(entry.notification);
+      const url = inboxSourceUrl(entry.notification);
+      if (!event.repeat && url) openLink(url);
       return;
     }
     if (event.key === "Enter") value = { type: "delegate", startAgent: !event.shiftKey };
@@ -937,6 +949,7 @@ export function InboxSidebarLayout({
                               <InboxRow
                                 key={keyOf(entry)}
                                 entry={entry}
+                                threadRef={threadRef}
                                 focused={focusedKey === keyOf(entry)}
                                 hints={hints}
                                 pending={pending.has(keyOf(entry))}

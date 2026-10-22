@@ -1,6 +1,7 @@
-import type { InboxNotification } from "@t3tools/contracts";
+import { useCallback } from "react";
+import { useOpenLink } from "~/browser/useOpenLink";
+import type { InboxNotification, ScopedThreadRef } from "@t3tools/contracts";
 import { slackLinkUrl } from "@t3tools/shared/slackText";
-import { readLocalApi } from "~/localApi";
 import { toastManager } from "../ui/toast";
 
 export function inboxSourceUrl(notification: InboxNotification) {
@@ -14,24 +15,21 @@ export function inboxSourceUrl(notification: InboxNotification) {
   }
 }
 
-/** Use the same external-opening path for the source icon and focused-list shortcut. */
-export function openInboxOriginal(notification: InboxNotification) {
-  const url = inboxSourceUrl(notification);
-  if (!url) return;
-  openInboxLink(url);
-}
-
-/** Preserve the shell's normal link opening and error reporting for message links as well. */
-export function openInboxLink(value: string) {
-  const url = slackLinkUrl(value);
-  if (!url) return;
-  void readLocalApi()
-    ?.shell.openExternal(url)
-    .catch((error: unknown) => {
-      toastManager.add({
-        type: "error",
-        title: "Could not open link",
-        description: error instanceof Error ? error.message : "Try opening the source again.",
+/** Apply the normal browser preference, permission checks and modifier-click behavior. */
+export function useInboxLink(threadRef?: ScopedThreadRef | null) {
+  const openLink = useOpenLink(threadRef);
+  return useCallback(
+    (value: string, event?: { metaKey: boolean; ctrlKey: boolean; button?: number }) => {
+      const url = slackLinkUrl(value);
+      if (!url) return;
+      void openLink(url, event ? { event } : undefined).catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open link",
+          description: error instanceof Error ? error.message : "Try opening the source again.",
+        });
       });
-    });
+    },
+    [openLink],
+  );
 }

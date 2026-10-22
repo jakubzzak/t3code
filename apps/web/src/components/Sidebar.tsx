@@ -5024,6 +5024,7 @@ export default function Sidebar() {
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
       <InboxSidebarLayout
+        threadRef={routeThreadRef}
         projects={inboxProjects}
         chatCount={pinnedThreads.length + activeThreads.length + workingThreads.length}
         chatHeader={

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { CommandId } from "@t3tools/contracts";
 import { randomUUID } from "~/lib/utils";
@@ -26,6 +26,7 @@ export function InboxThreadDetails({
   environmentId: EnvironmentId;
   threadId: ThreadId;
 }) {
+  const threadRef = useMemo(() => ({ environmentId, threadId }), [environmentId, threadId]);
   const thread = useThreadShell({ environmentId, threadId });
   const config = useServerConfigs().get(environmentId);
   const enabled =
@@ -88,7 +89,7 @@ export function InboxThreadDetails({
             Original message and context
           </summary>
           {detail.data ? (
-            <InboxSourceContent notification={detail.data} />
+            <InboxSourceContent notification={detail.data} threadRef={threadRef} />
           ) : (
             <p className="py-2 text-muted-foreground">{detail.error ?? "Loading context…"}</p>
           )}
@@ -115,7 +116,7 @@ export function InboxThreadDetails({
           >
             Show in Inbox
           </Button>
-          <InboxOpenOriginalAction notification={n} />
+          <InboxOpenOriginalAction notification={n} threadRef={threadRef} />
         </div>
         {memoryEnabled && (
           <details className="mt-2 text-xs">
