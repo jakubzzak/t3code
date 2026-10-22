@@ -9,7 +9,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomValue } from "@effect/atom-react";
 import { useInboxNavigation } from "./inboxNavigation";
-import { InboxSourceContent } from "./InboxSidebarLayout";
+import { InboxSourceContent, InboxSummary } from "./InboxNotificationContent";
 import { InboxSourceLogo } from "./InboxSourceLogo";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { Button } from "../ui/button";
@@ -64,13 +64,18 @@ export function InboxThreadDetails({
           <InboxSourceLogo source={n.source} />
           <span className="truncate">{n.items.at(-1)?.location}</span>
         </div>
-        <p className="mt-1 text-xs font-medium">
-          {n.analysis?.description ?? n.items.at(-1)?.title}
-        </p>
-        <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">{n.items.at(-1)?.content}</p>
+        <div className="mt-2">
+          <InboxSummary notification={n} expanded />
+        </div>
         <details className="mt-2 text-xs">
-          <summary className="cursor-pointer text-muted-foreground">Context and AI summary</summary>
-          <InboxSourceContent notification={detail.data ?? { ...n, analysis: null }} />
+          <summary className="cursor-pointer text-muted-foreground">
+            Original message and context
+          </summary>
+          {detail.data ? (
+            <InboxSourceContent notification={detail.data} />
+          ) : (
+            <p className="py-2 text-muted-foreground">{detail.error ?? "Loading context…"}</p>
+          )}
         </details>
         {detail.error && (
           <p role="alert" className="text-xs text-destructive">

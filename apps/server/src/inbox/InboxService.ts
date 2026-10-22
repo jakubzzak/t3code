@@ -421,7 +421,16 @@ const make = Effect.gen(function* () {
               items: next.items
                 .slice(-1)
                 .map((entry) => ({ ...entry, content: entry.content.slice(0, 320) })),
-              analysis: next.analysis ? { ...next.analysis, summary: "", suggestions: [] } : null,
+              analysis: next.analysis
+                ? {
+                    ...next.analysis,
+                    summary:
+                      next.analysis.summary.length > 600
+                        ? `${next.analysis.summary.slice(0, 600)}…`
+                        : next.analysis.summary,
+                    suggestions: [],
+                  }
+                : null,
             });
           }
           return result;

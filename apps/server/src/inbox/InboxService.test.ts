@@ -11,6 +11,7 @@ import {
   CommandId,
   InboxError,
   ProjectId,
+  ProviderInstanceId,
   type InboxSourceItem,
   type InboxNotification,
 } from "@t3tools/contracts";
@@ -228,6 +229,46 @@ it.effect(
         assert.equal(result.undoCommandId, null);
       }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
     }).pipe(Effect.scoped),
+);
+
+it.effect("lists bounded AI summaries and keeps full source context and next steps in detail", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    yield* Effect.gen(function* () {
+      const repository = yield* Repository.InboxRepository;
+      const service = yield* Inbox.InboxService;
+      const summary = "Review the reconnect fix after sleep. ".repeat(40);
+      const notification = {
+        ...ingestInboxItem(projectId, { ...item, content: "Original context. ".repeat(100) }),
+        analysis: {
+          description: "Old one-sentence description",
+          summary,
+          suggestions: ["Verify the reconnect flow."],
+          precedentIds: [],
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+          generatedAt: item.occurredAt,
+        },
+      } satisfies InboxNotification;
+      yield* repository.put(notification);
+      const [preview] = yield* service.list({ projectId });
+      assert.ok(preview);
+      assert.ok(preview.analysis);
+      assert.ok(preview.analysis.summary.startsWith("Review the reconnect fix after sleep."));
+      assert.ok(preview.analysis.summary.length <= 601);
+      assert.ok(preview.analysis.summary.endsWith("…"));
+      assert.deepEqual(preview.analysis.suggestions, []);
+      assert.ok(preview.items[0]!.content.length <= 320);
+      const detail = yield* service.get({ projectId, id: notification.id });
+      assert.deepEqual(detail?.analysis, notification.analysis);
+      assert.deepEqual(detail?.items, notification.items);
+      yield* repository.put({
+        ...notification,
+        analysis: { ...notification.analysis, summary: "Review the reconnect fix." },
+      });
+      const [shortPreview] = yield* service.list({ projectId });
+      assert.equal(shortPreview?.analysis?.summary, "Review the reconnect fix.");
+    }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+  }).pipe(Effect.scoped),
 );
 
 it.effect(

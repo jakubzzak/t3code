@@ -27,7 +27,6 @@ import {
   MessageSquareIcon,
   RotateCcwIcon,
   SettingsIcon,
-  SparklesIcon,
   Undo2Icon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
@@ -48,59 +47,13 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { InboxSourceLogo } from "./InboxSourceLogo";
+import { InboxSourceContent, InboxSummary } from "./InboxNotificationContent";
 import styles from "./inboxSidebar.module.css";
 
 type Entry = { environmentId: EnvironmentId; notification: InboxNotification };
 const keyOf = (entry: Entry) => `${entry.environmentId}:${entry.notification.id}`;
 const sources: InboxSource[] = ["slack", "linear", "superhuman"];
 
-export function InboxSourceContent({ notification }: { notification: InboxNotification }) {
-  return (
-    <div className="space-y-3 py-2 text-xs leading-relaxed">
-      {notification.items.map((item) => (
-        <div key={item.id}>
-          <div className="mb-1 text-2xs text-muted-foreground">
-            {item.author} · {item.location}
-          </div>
-          <p className="whitespace-pre-wrap break-words">{item.content}</p>
-          {/^https?:\/\//i.test(item.url) && (
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-2xs text-primary underline"
-            >
-              Open original
-            </a>
-          )}
-        </div>
-      ))}
-      {notification.analysis ? (
-        <div className="border-l-2 border-primary/30 pl-2.5">
-          <div className="mb-1 flex items-center gap-1 text-2xs text-muted-foreground">
-            <SparklesIcon className="size-3" />
-            AI summary
-          </div>
-          <p className="whitespace-pre-wrap">{notification.analysis.summary}</p>
-          {notification.analysis.suggestions.length > 0 && (
-            <>
-              <p className="mt-2 font-medium">Suggested next steps</p>
-              <ul className="list-disc space-y-1 pl-4">
-                {notification.analysis.suggestions.map((suggestion) => (
-                  <li key={suggestion}>{suggestion}</li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      ) : (
-        <p className="text-2xs text-muted-foreground">
-          {notification.processingError ?? "AI summary pending"}
-        </p>
-      )}
-    </div>
-  );
-}
 function InboxRow({
   entry,
   focused,
@@ -128,6 +81,7 @@ function InboxRow({
     if (opened || focused) detail.refresh();
   }, [opened, focused, n.revision, detail.refresh]);
   const item = n.items.at(-1);
+  const content = detail.data?.revision === n.revision ? detail.data : n;
   const actions = [
     {
       label: n.state.threadId ? "Open linked agent chat" : "Agent",
@@ -151,7 +105,7 @@ function InboxRow({
     {
       label: n.state.read ? "Mark as unread" : "Mark as read",
       hint: "⇧U",
-      Icon: n.state.read ? MailIcon : MailOpenIcon,
+      Icon: n.state.read ? MailOpenIcon : MailIcon,
       action: { type: "read", read: !n.state.read } as const,
     },
     {
@@ -165,7 +119,7 @@ function InboxRow({
     <article
       data-inbox-row={keyOf(entry)}
       tabIndex={focused ? 0 : -1}
-      aria-label={`${n.state.read ? "Read" : "Unread"}: ${n.analysis?.description || item?.title}`}
+      aria-label={`${n.state.read ? "Read" : "Unread"}: ${item?.title}`}
       aria-expanded={focused}
       onFocus={() => {
         setOpened(true);
@@ -197,20 +151,15 @@ function InboxRow({
         </time>
         <ChevronDownIcon className={`size-3 transition-transform ${focused ? "rotate-180" : ""}`} />
       </div>
-      <div className="mt-1.5 flex items-start gap-1.5">
+      <div
+        className={`mt-1.5 flex items-start gap-1.5 ${n.state.read ? "font-normal" : "font-semibold"}`}
+      >
         <span
           aria-hidden
           className={`mt-1.5 size-1.5 shrink-0 rounded-full ${n.state.read ? "bg-transparent" : "bg-primary"}`}
         />
-        <p className={`text-xs leading-snug ${n.state.read ? "font-medium" : "font-semibold"}`}>
-          {n.analysis?.description || item?.title}
-        </p>
+        <InboxSummary notification={content} expanded={focused} />
       </div>
-      {!focused && (
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {item?.content}
-        </p>
-      )}
       <div className={styles.details} data-open={focused} inert={!focused} aria-hidden={!focused}>
         <div>
           {detail.data ? (
@@ -230,15 +179,6 @@ function InboxRow({
           onClick={() => onAction({ type: "reprocess" })}
         >
           Retry summary
-        </button>
-      )}
-      {n.state.threadId && (
-        <button
-          type="button"
-          className="mt-1 text-2xs text-primary underline"
-          onClick={() => onAction({ type: "delegate", startAgent: false })}
-        >
-          Linked chat
         </button>
       )}
       {n.agentStatus === "starting" ||
@@ -265,9 +205,9 @@ function InboxRow({
           </button>
         </div>
       )}
-      <div className="mt-2 flex items-center justify-end gap-1">
-        {actions.map(({ label, hint, Icon, action, primary }) => (
-          <span className="relative" key={label}>
+      <div className="mt-2 flex items-center gap-1">
+        {actions.map(({ label, hint, Icon, action, primary }, index) => (
+          <span className={`relative ${index === 2 ? "ml-auto" : ""}`} key={label}>
             <Button
               size="icon-xs"
               variant={primary ? "default" : "ghost"}
