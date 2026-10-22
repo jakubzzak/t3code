@@ -346,7 +346,7 @@ it.effect("does not pass notification history to processing while project memory
       yield* repository.put(ingestInboxItem(projectId, item));
       yield* service.drainAnalysis;
       assert.deepEqual(yield* Ref.get(fixture.analyzedHistory), []);
-    }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+    }).pipe(Effect.provide(Layer.merge(fixture.layer, dependencies)));
   }).pipe(Effect.scoped),
 );
 
