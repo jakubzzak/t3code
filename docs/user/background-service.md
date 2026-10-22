@@ -56,6 +56,36 @@ Windows background services are not supported.
 T3 Connect can offer service installation during setup, but the two are managed
 separately. Signing out of T3 Connect does not stop or uninstall the service.
 
+## Keep a Mac awake with the desktop app
+
+In the macOS desktop app, enable **Keep awake** in **Settings → Features**, then
+choose **Configure** to complete the one-time administrator setup and adjust
+battery/heat safeguards. The feature applies to the whole desktop instance and
+all its projects; there is no per-project override. The Keep awake settings page
+uses the same switch. The Mac stays awake
+while Blackbird runs, including with its lid closed or its window closed. The
+display can still turn off and lock. This applies to the Mac running the desktop
+app, regardless of which environment you are viewing; it does not keep a remote
+computer awake or enable the feature for a standalone CLI service.
+
+Setup grants limited power-control permission to your macOS account. Other apps
+running as you can use that permission outside Blackbird's battery and heat
+safeguards. Turning Keep awake off stops Blackbird's session; **Remove setup**
+revokes the permission.
+
+By default, Low Power Mode starts below 40% battery and normal sleep is allowed
+below 10%. Heat safeguards also reduce power at serious thermal pressure and
+allow sleep at critical pressure. These limits are configurable. Keep awake
+resumes when conditions improve. Keeping a laptop awake uses more battery; keep
+it ventilated while running with the lid closed.
+
+Turn the setting off or quit Blackbird to restore normal power behavior. A
+separate recovery service restores settings after an unexpected exit. Use
+**Remove setup** in the same settings page to remove that service and its power
+permissions. If restoration fails, the page reports the error and retains
+recovery so it can try again. Only one Blackbird instance can own Keep awake on
+a Mac at a time.
+
 ## Troubleshooting
 
 Start with `t3 service status` on the host. It prints the log path and, on Linux,
