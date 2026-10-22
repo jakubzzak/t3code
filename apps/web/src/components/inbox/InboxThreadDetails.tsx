@@ -10,7 +10,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomValue } from "@effect/atom-react";
 import { useInboxNavigation } from "./inboxNavigation";
 import { InboxSourceContent, InboxSummary } from "./InboxNotificationContent";
-import { InboxSourceLogo } from "./InboxSourceLogo";
+import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
@@ -64,10 +64,7 @@ export function InboxThreadDetails({
   return (
     <ThreadDetailsSection headingId="thread-notification-heading" title="Notification" separated>
       <div className="px-2.5 py-2">
-        <div className="flex items-center gap-1.5 text-xs">
-          <InboxSourceLogo source={n.source} />
-          <span className="truncate">{n.items.at(-1)?.location}</span>
-        </div>
+        <InboxNotificationMetadata notification={n} />
         <div className="mt-2">
           <InboxSummary notification={n} expanded />
         </div>

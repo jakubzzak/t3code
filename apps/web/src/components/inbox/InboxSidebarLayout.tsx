@@ -1,4 +1,5 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { waitForThreadShell } from "~/state/entities";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { randomUUID } from "~/lib/utils";
@@ -45,14 +46,21 @@ import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
 import { InboxSourceLogo } from "./InboxSourceLogo";
 import { InboxSourceContent, InboxSummary } from "./InboxNotificationContent";
+import { isInboxInitialLoad, isInboxDetailCurrent } from "./inboxPresentation";
 import styles from "./inboxSidebar.module.css";
 
 type Entry = { environmentId: EnvironmentId; notification: InboxNotification };
 const keyOf = (entry: Entry) => `${entry.environmentId}:${entry.notification.id}`;
 const sources: InboxSource[] = ["slack", "linear", "superhuman"];
 const shelfLabels = { delegated: "Delegated", snoozed: "Snoozed", resolved: "Settled" } as const;
+
+function InboxAnimatedList({ children }: { children: ReactNode }) {
+  const [ref] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
+  return <div ref={ref}>{children}</div>;
+}
 
 function InboxRow({
   entry,
@@ -81,7 +89,8 @@ function InboxRow({
     if (opened || focused) detail.refresh();
   }, [opened, focused, n.revision, detail.refresh]);
   const item = n.items.at(-1);
-  const content = detail.data?.revision === n.revision ? detail.data : n;
+  const fullDetail = isInboxDetailCurrent(n, detail.data) ? detail.data : null;
+  const content = fullDetail ?? n;
   const actions = [
     {
       label: n.state.threadId ? "Open linked agent chat" : "Agent",
@@ -143,14 +152,14 @@ function InboxRow({
       }}
       className={`my-1 rounded-lg px-2.5 py-2 text-sidebar-foreground outline-none transition-colors ${focused ? "bg-sidebar-row-hover ring-1 ring-inset ring-primary/25" : "hover:bg-sidebar-row-hover/60"}`}
     >
-      <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-        <InboxSourceLogo source={n.source} />
-        <span className="min-w-0 flex-1 truncate">{item?.location}</span>
-        <time dateTime={n.updatedAt}>
-          {new Date(n.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-        </time>
-        <ChevronDownIcon className={`size-3 transition-transform ${focused ? "rotate-180" : ""}`} />
-      </div>
+      <InboxNotificationMetadata
+        notification={n}
+        trailing={
+          <ChevronDownIcon
+            className={`size-3 shrink-0 transition-transform ${focused ? "rotate-180" : ""}`}
+          />
+        }
+      />
       <div
         className={`mt-1.5 flex items-start gap-1.5 ${n.state.read ? "font-normal" : "font-semibold"}`}
       >
@@ -162,8 +171,8 @@ function InboxRow({
       </div>
       <div className={styles.details} data-open={focused} inert={!focused} aria-hidden={!focused}>
         <div>
-          {detail.data ? (
-            <InboxSourceContent notification={detail.data} />
+          {fullDetail ? (
+            <InboxSourceContent notification={fullDetail} />
           ) : (
             <p className="py-2 text-xs text-muted-foreground">
               {detail.error ?? "Loading context…"}
@@ -769,7 +778,7 @@ export function InboxSidebarLayout({
                     <p className="px-2 py-6 text-center text-xs text-muted-foreground">
                       {query || unreadOnly || selectedSources.length < sources.length
                         ? "No matching notifications"
-                        : results.some(({ result }) => result.waiting)
+                        : results.some(({ result }) => isInboxInitialLoad(result))
                           ? "Loading notifications…"
                           : results.some(({ result }) => result._tag === "Failure")
                             ? "Notifications unavailable"
@@ -811,25 +820,27 @@ export function InboxSidebarLayout({
                             </CollapsibleSectionHeader>
                           </div>
                         )}
-                        {expanded &&
-                          group.map((entry) => (
-                            <InboxRow
-                              key={keyOf(entry)}
-                              entry={entry}
-                              focused={focusedKey === keyOf(entry)}
-                              hints={hints}
-                              pending={pending.has(keyOf(entry))}
-                              onFocus={() => focus(entry)}
-                              onAction={(value) => {
-                                void action(entry, value).catch(() =>
-                                  toastManager.add({
-                                    type: "error",
-                                    title: "Could not update notification",
-                                  }),
-                                );
-                              }}
-                            />
-                          ))}
+                        <InboxAnimatedList>
+                          {expanded &&
+                            group.map((entry) => (
+                              <InboxRow
+                                key={keyOf(entry)}
+                                entry={entry}
+                                focused={focusedKey === keyOf(entry)}
+                                hints={hints}
+                                pending={pending.has(keyOf(entry))}
+                                onFocus={() => focus(entry)}
+                                onAction={(value) => {
+                                  void action(entry, value).catch(() =>
+                                    toastManager.add({
+                                      type: "error",
+                                      title: "Could not update notification",
+                                    }),
+                                  );
+                                }}
+                              />
+                            ))}
+                        </InboxAnimatedList>
                       </section>
                     );
                   })}

@@ -11,7 +11,7 @@ export function InboxSummary({
   return (
     <div className="min-w-0 flex-1 text-xs leading-relaxed">
       {notification.analysis?.summary ? (
-        <>
+        <div className="border-l-2 border-primary/30 pl-2.5">
           <div className="mb-1 flex items-center gap-1 text-2xs font-normal text-muted-foreground">
             <SparklesIcon className="size-3" />
             AI summary
@@ -19,7 +19,17 @@ export function InboxSummary({
           <p className={`whitespace-pre-wrap break-words ${expanded ? "" : "line-clamp-3"}`}>
             {notification.analysis.summary}
           </p>
-        </>
+          {expanded && notification.analysis.suggestions.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1 font-medium">Suggested next steps</p>
+              <ul className="list-disc space-y-1 pl-4">
+                {notification.analysis.suggestions.map((suggestion) => (
+                  <li key={suggestion}>{suggestion}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       ) : (
         <>
           <p>{notification.items.at(-1)?.title}</p>
@@ -33,26 +43,17 @@ export function InboxSummary({
 }
 
 export function InboxSourceContent({ notification }: { notification: InboxNotification }) {
-  const suggestions = notification.analysis?.suggestions ?? [];
   return (
     <div className="space-y-3 py-2 text-xs leading-relaxed">
-      {suggestions.length > 0 && (
-        <div>
-          <p className="mb-1 font-medium">Suggested next steps</p>
-          <ul className="list-disc space-y-1 pl-4">
-            {suggestions.map((suggestion) => (
-              <li key={suggestion}>{suggestion}</li>
-            ))}
-          </ul>
-        </div>
-      )}
       <div className="space-y-3 border-t border-border/50 pt-2">
         <p className="text-2xs text-muted-foreground">Original message</p>
-        {notification.items.map((item) => (
+        {notification.items.map((item, index) => (
           <div key={item.id}>
-            <div className="mb-1 text-2xs text-muted-foreground">
-              {item.author} · {item.location}
-            </div>
+            {index < notification.items.length - 1 && (
+              <div className="mb-1 text-2xs text-muted-foreground">
+                {item.author} · {item.location}
+              </div>
+            )}
             <p className="whitespace-pre-wrap break-words">{item.content}</p>
             {/^https?:\/\//i.test(item.url) && (
               <a
