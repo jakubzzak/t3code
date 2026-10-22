@@ -14,6 +14,7 @@ import {
   ForwardCompatibleOptional,
   OmittedWhenNull,
   ProjectId,
+  IsoDateTime,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
@@ -992,6 +993,7 @@ const LinearWorkspace = TrimmedString.check(
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "gitEnabled",
   "inboxEnabled",
+  "inboxInitialHistoryDays",
   "inboxAgentModelSelection",
   "inboxSummaryModelSelection",
   "inboxAgentPrompt",
@@ -1054,6 +1056,9 @@ export type ProjectProviderInstanceOverride = typeof ProjectProviderInstanceOver
 export const ProjectSettingsOverrides = Schema.Struct({
   gitEnabled: Schema.optionalKey(Schema.Boolean),
   inboxEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxInitialHistoryDays: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
+  ),
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
@@ -1164,6 +1169,13 @@ export const DEFAULT_INBOX_SUMMARY_PROMPT =
 
 export const ServerSettings = Schema.Struct({
   inboxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxInitialHistoryDays: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(7)),
+  ),
+  /** Server-owned activation times keep zero-history collection stable across restarts. */
+  inboxEnabledAtByProject: Schema.Record(ProjectId, IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   inboxAgentModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1586,6 +1598,9 @@ const ModelSelectionPatch = Schema.Struct({
 
 export const ServerSettingsPatch = Schema.Struct({
   inboxEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxInitialHistoryDays: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
+  ),
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),

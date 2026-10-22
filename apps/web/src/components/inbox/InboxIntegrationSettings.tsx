@@ -98,11 +98,6 @@ function SlackConnection({
   const cancel = useAtomCommand(inboxEnvironment.cancelSlack, { reportFailure: true });
   const { selection, saving, update } = useInboxSourceSettings(environmentId, connection, refresh);
   const { categories } = selection;
-  const history = useCommitOnBlur(String(selection.initialLookbackDays), (value) => {
-    const days = Number(value);
-    if (Number.isInteger(days) && days >= 1 && days <= 90)
-      void update({ initialLookbackDays: days });
-  });
   const tokenInput = useCommitOnBlur(token, (value) => {
     setToken(value);
     if (value.trim())
@@ -242,23 +237,6 @@ function SlackConnection({
               }))
             }
           />
-        }
-      />
-      <SettingsRow
-        title="Initial history"
-        description="How many days to collect when this connection starts (1–90)."
-        control={
-          <div className="w-full sm:w-72">
-            <Input
-              size="sm"
-              type="number"
-              aria-label="Slack initial history days"
-              min={1}
-              max={90}
-              {...history}
-              disabled={!canWrite || pending}
-            />
-          </div>
         }
       />
       <details className="px-3 py-3 sm:px-4">
@@ -563,21 +541,6 @@ function InactiveSource({ source }: { source: InboxSource }) {
           <SettingsRow
             title="Notification categories"
             description="Direct messages, personal mentions and group mentions. Saved and To-dos are unavailable."
-          />
-          <SettingsRow
-            title="Initial history"
-            description="Days of activity to collect when the connection starts."
-            control={
-              <div className="w-full sm:w-72">
-                <Input
-                  size="sm"
-                  type="number"
-                  aria-label="Slack initial history days"
-                  value="7"
-                  disabled
-                />
-              </div>
-            }
           />
         </>
       )}

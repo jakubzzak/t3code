@@ -149,12 +149,17 @@ collection requires Inbox even when Linear view is enabled. Feature switches ret
 settings when off. Inbox and Linear view are independent. The inbox is available on web and desktop;
 mobile keeps the same project data but does not yet have a native inbox screen.
 
+Set **Initial history** inside **Features → Inbox** for all connected sources. Choose 0–30 days
+(default 7). Zero imports no older notifications: collection starts at the time Inbox is enabled,
+even if a source is connected later or the server restarts. Re-enabling Inbox starts a new window.
+Notifications already imported are retained.
+
 For Linear, enter your OAuth application's public client ID, then connect your account.
 Client IDs are masked; use the eye button to show or hide them. For Slack, enter the app's
 public client ID, enable PKCE in Slack's OAuth settings, register the environment's callback URL,
 then choose **Connect Slack**. Both use browser authorization without a client secret. Existing
-Slack user tokens can still be entered manually. Slack supports DMs and personal/group mentions;
-choose how much recent history to import. Saved and To-dos remain unavailable. Linear
+Slack user tokens can still be entered manually. Slack supports DMs and personal/group mentions.
+Saved and To-dos remain unavailable. Linear
 uses the same environment connection as the issue picker. On desktop, **Move existing connection
 to environment** preserves your account and workspace without enabling Inbox or Linear view.
 Superhuman uses its official Mail MCP and registers its OAuth client automatically; no client ID

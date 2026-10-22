@@ -13,6 +13,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 import {
+  DEFAULT_SERVER_SETTINGS,
   LINEAR_INBOX_CATEGORIES,
   InboxError,
   InboxSourceConnection,
@@ -25,6 +26,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as Secrets from "../auth/ServerSecretStore.ts";
 import * as Inbox from "./InboxService.ts";
 import * as Transport from "./InboxSourceTransport.ts";
+import { inboxHistorySince } from "./inboxHistory.ts";
 const sources: ReadonlyArray<InboxSource> = ["slack", "linear", "superhuman"];
 const empty = (projectId: ProjectId, source: InboxSource): InboxSourceConnection => ({
   projectId,
@@ -186,21 +188,56 @@ export const make = Effect.gen(function* () {
             connected: false,
             error: "Reconnect this source to resume notifications.",
           });
-        const since = iso(
-          connection.lastSyncAt
-            ? Date.parse(connection.lastSyncAt) - 300_000
-            : now - connection.initialLookbackDays * 86400_000,
+        const enabledAt =
+          config.inboxEnabledAtByProject[input.projectId] ??
+          connection.collectionStartedAt ??
+          iso(now);
+        const since = inboxHistorySince(
+          enabledAt,
+          config.inboxInitialHistoryDays,
+          now,
+          (!connection.collectionStartedAt || connection.collectionStartedAt === enabledAt) &&
+            (connection.collectionHistoryDays ??
+              DEFAULT_SERVER_SETTINGS.inboxInitialHistoryDays) === config.inboxInitialHistoryDays
+            ? connection.lastSyncAt
+            : null,
         );
         const result = yield* (
           connection.source === "slack" ? slack.accessToken(input.projectId) : Effect.succeed("")
         ).pipe(
           Effect.flatMap((token) => transport.read(connection, token, since)),
-          Effect.flatMap((items) => inbox.ingest(input.projectId, items)),
+          Effect.flatMap((items) =>
+            settings
+              .withSettingsSnapshot((snapshot) => {
+                const latest = resolveProjectSettings(snapshot, input.projectId).settings;
+                if (
+                  !latest.inboxEnabled ||
+                  (latest.inboxEnabledAtByProject[input.projectId] ?? enabledAt) !== enabledAt ||
+                  latest.inboxInitialHistoryDays !== config.inboxInitialHistoryDays
+                )
+                  return Effect.succeed(false);
+                return inbox
+                  .ingest(
+                    input.projectId,
+                    items.filter((item) => Date.parse(item.occurredAt) >= Date.parse(since)),
+                  )
+                  .pipe(Effect.as(true));
+              })
+              .pipe(Effect.mapError(error)),
+          ),
           Effect.result,
         );
+        if (result._tag === "Success" && !result.success) return connection;
         return yield* save(
           result._tag === "Success"
-            ? { ...connection, lastSyncAt: iso(now), error: null, retryAt: iso(now + 60_000) }
+            ? {
+                ...connection,
+                collectionStartedAt: enabledAt,
+                collectionHistoryDays: config.inboxInitialHistoryDays,
+                lastSyncAt: iso(now),
+                error: null,
+                retryAt: iso(now + 60_000),
+              }
             : { ...connection, error: result.failure.detail, retryAt: iso(now + 300_000) },
         );
       }),
@@ -274,11 +311,8 @@ export const make = Effect.gen(function* () {
           connected: previous.connected || input.token !== undefined,
           categories: [...new Set(input.categories)],
           accounts: input.accounts ?? previous.accounts,
-          initialLookbackDays: input.initialLookbackDays ?? previous.initialLookbackDays,
           lastSyncAt:
             input.token ||
-            (input.initialLookbackDays !== undefined &&
-              input.initialLookbackDays !== previous.initialLookbackDays) ||
             input.categories.length !== previous.categories.length ||
             input.categories.some((category, index) => category !== previous.categories[index])
               ? null

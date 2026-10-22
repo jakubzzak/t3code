@@ -77,6 +77,7 @@ export async function readSuperhumanInbox(
   read: SuperhumanRead,
   selectedAccounts: ReadonlyArray<string>,
   categories: ReadonlyArray<string>,
+  since: string,
 ): Promise<ReadonlyArray<InboxSourceItem>> {
   if (!selectedAccounts.length || !categories.length)
     throw new Error("Select a Superhuman account and at least one split or label.");
@@ -101,10 +102,13 @@ export async function readSuperhumanInbox(
             acting_email: email,
             ...filter,
             limit: 50,
+            start_date: since,
             ...(cursor ? { cursor } : {}),
           }),
         );
-        for (const thread of page.threads ?? []) threads.set(thread.thread_id, thread);
+        for (const thread of page.threads ?? [])
+          if (Date.parse(thread.last_message_at) >= Date.parse(since))
+            threads.set(thread.thread_id, thread);
         cursor = page.next_cursor;
         if (cursor && seen.has(cursor))
           throw new Error("Superhuman returned a repeated page cursor.");
@@ -121,6 +125,7 @@ export async function readSuperhumanInbox(
           message_limit: 100,
         }),
       );
+      if (Date.parse(full.last_message_at) < Date.parse(since)) continue;
       const messages = full.messages?.filter((message) => !message.is_draft) ?? [];
       const content =
         [

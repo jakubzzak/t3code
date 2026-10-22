@@ -45,6 +45,7 @@ export class LinearConnection extends Context.Service<
     readonly read: (
       projectId: ProjectId,
       categories: ReadonlyArray<string>,
+      since: string,
     ) => Effect.Effect<Awaited<ReturnType<typeof readLinearInbox>>, InboxError>;
   }
 >()("t3/linear/LinearConnection") {}
@@ -312,7 +313,7 @@ export const layer = Layer.effect(
           });
           errors.delete(projectId);
         }),
-      read: (projectId, categories) =>
+      read: (projectId, categories, since) =>
         Effect.gen(function* () {
           const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           return yield* Effect.tryPromise({
@@ -321,6 +322,7 @@ export const layer = Layer.effect(
                 (query, variables) =>
                   getClient(projectId, linearClientId).query(projectId, slug, query, variables),
                 categories,
+                since,
               ),
             catch: wrap,
           });

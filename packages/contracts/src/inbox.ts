@@ -133,10 +133,15 @@ export const InboxSourceConnection = Schema.Struct({
   connected: Schema.Boolean,
   categories: Schema.Array(Schema.String),
   account: Schema.optionalKey(Schema.String),
+  /** Legacy wire field; collection now uses the project Inbox history setting. */
   initialLookbackDays: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 90 })).pipe(
     Schema.withDecodingDefault(Effect.succeed(7)),
   ),
   accounts: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  collectionStartedAt: Schema.optionalKey(IsoDateTime),
+  collectionHistoryDays: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
+  ),
   lastSyncAt: Schema.NullOr(IsoDateTime),
   error: Schema.NullOr(Schema.String),
   retryAt: Schema.NullOr(IsoDateTime),
@@ -147,6 +152,7 @@ export const InboxSourceConfigureInput = Schema.Struct({
   ...InboxSourceKey.fields,
   // Legacy wire compatibility; collection is controlled by the project Inbox feature.
   enabled: Schema.Boolean,
+  /** Accepted for older clients, but no longer changes collection history. */
   initialLookbackDays: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 90 })),
   ),

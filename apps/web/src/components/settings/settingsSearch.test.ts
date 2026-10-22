@@ -59,6 +59,7 @@ describe("searchSettings", () => {
       "AI summary",
       "recurring tasks",
       "patterns",
+      "initial history",
     ])
       expect(searchSettings(query).map((item) => item.id)).toContain("notification-inbox");
   });

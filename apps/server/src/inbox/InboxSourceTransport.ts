@@ -37,9 +37,14 @@ export const layer: Layer.Layer<
     return InboxSourceTransport.of({
       read: (connection, token, since) =>
         connection.source === "linear"
-          ? linear.read(connection.projectId, connection.categories)
+          ? linear.read(connection.projectId, connection.categories, since)
           : connection.source === "superhuman"
-            ? superhuman.read(connection.projectId, connection.accounts, connection.categories)
+            ? superhuman.read(
+                connection.projectId,
+                connection.accounts,
+                connection.categories,
+                since,
+              )
             : Effect.tryPromise({
                 try: async (signal) => {
                   if (connection.source !== "slack")

@@ -66,6 +66,7 @@ it("uses actual split membership, explicit accounts, and full thread context wit
     },
     ["work@example.com"],
     ["split:Important", "label:Product"],
+    "2026-10-21T00:00:00.000Z",
   );
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({
@@ -86,4 +87,40 @@ it("uses actual split membership, explicit accounts, and full thread context wit
   );
   expect(calls.some((call) => call.args.acting_email === "personal@example.com")).toBe(false);
   expect(calls.filter((call) => call.name === "get_thread")).toHaveLength(1);
+});
+
+it("sends the history boundary on every page and never downloads an older thread", async () => {
+  const since = "2026-10-22T10:00:00.000Z";
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const thread = (id: string, at: string) => ({
+    thread_id: id,
+    subject: id,
+    snippet: id,
+    last_message_at: at,
+    last_message_id: id,
+    labels: [],
+  });
+  const items = await readSuperhumanInbox(
+    async (name, args) => {
+      calls.push({ name, args });
+      if (name === "list_accounts")
+        return { accounts: [{ accountEmail: "work@example.com", isPrimary: true }] };
+      if (name === "list_threads")
+        return args.cursor
+          ? { threads: [thread("boundary", since)] }
+          : { threads: [thread("old", "2026-10-22T09:59:59.999Z")], next_cursor: "page-two" };
+      if (name === "get_thread") return thread("boundary", since);
+      throw new Error("Unexpected read");
+    },
+    ["work@example.com"],
+    ["split:Important"],
+    since,
+  );
+  expect(items.map((item) => item.id)).toEqual(["boundary"]);
+  expect(
+    calls.filter((call) => call.name === "get_thread").map((call) => call.args.thread_id),
+  ).toEqual(["boundary"]);
+  expect(
+    calls.filter((call) => call.name === "list_threads").map((call) => call.args.start_date),
+  ).toEqual([since, since]);
 });

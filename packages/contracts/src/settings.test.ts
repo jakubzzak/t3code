@@ -1298,3 +1298,31 @@ describe("server model preferences", () => {
     });
   });
 });
+
+describe("Inbox initial history", () => {
+  it("defaults to seven days and accepts zero and thirty at project scope", () => {
+    expect(decodeServerSettings({}).inboxInitialHistoryDays).toBe(7);
+    for (const days of [0, 30]) {
+      const patch = { projectSettingsOverrides: { project: { inboxInitialHistoryDays: days } } };
+      expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+      expect(decodeServerSettings(patch)).toMatchObject(patch);
+    }
+  });
+  it("keeps activation timestamps server-owned", () => {
+    expect(
+      decodeServerSettingsPatch({
+        inboxEnabledAtByProject: { project: "2000-01-01T00:00:00.000Z" },
+      }),
+    ).toEqual({});
+  });
+  it("rejects negative, fractional, and more than thirty days", () => {
+    for (const days of [-1, 0.5, 31, 90]) {
+      expect(() => decodeServerSettingsPatch({ inboxInitialHistoryDays: days })).toThrow();
+      expect(() =>
+        decodeServerSettingsPatch({
+          projectSettingsOverrides: { project: { inboxInitialHistoryDays: days } },
+        }),
+      ).toThrow();
+    }
+  });
+});

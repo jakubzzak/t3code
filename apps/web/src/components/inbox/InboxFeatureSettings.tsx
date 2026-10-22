@@ -17,6 +17,8 @@ import { useScopedModelDisabledReason } from "../settings/useScopedModelAvailabi
 import { SettingsRow, SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Switch } from "../ui/switch";
+import { useCommitOnBlur } from "~/hooks/useCommitOnBlur";
+import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 
 function InboxProcessingGroup({ kind }: { kind: "summary" | "agent" }) {
@@ -145,10 +147,40 @@ function InboxProcessingGroup({ kind }: { kind: "summary" | "agent" }) {
 export function InboxFeatureSettings() {
   const settings = useScopedSettings();
   const update = useUpdateScopedSettings();
+  const historyMixed = useScopedSettingsMixed(["inboxInitialHistoryDays"]);
+  const history = useCommitOnBlur(
+    historyMixed ? "" : String(settings.inboxInitialHistoryDays),
+    (value) => {
+      const days = Number(value);
+      if (value.trim() && Number.isInteger(days) && days >= 0 && days <= 30)
+        update({ inboxInitialHistoryDays: days });
+    },
+  );
   const resolutionMixed = useScopedSettingsMixed(["inboxPreResolution"]);
   const memoryMixed = useScopedSettingsMixed(["inboxMemoryEnabled"]);
   return (
     <div className="mt-4 mb-3 divide-y divide-border/50 border-t border-border/50 pt-1 [&>[data-slot=settings-row]]:rounded-none">
+      <SettingsRow
+        title="Initial history"
+        description="Load 0–30 days of notifications across all connected sources when Inbox starts. Zero skips older messages and starts from when you enable Inbox. Existing notifications are kept."
+        mixed={historyMixed}
+        serverScoped
+        settingKeys={["inboxInitialHistoryDays"]}
+        control={
+          <div className="w-full sm:w-72">
+            <Input
+              size="sm"
+              type="number"
+              aria-label="Inbox initial history days"
+              min={0}
+              max={30}
+              step={1}
+              placeholder={historyMixed ? "Mixed" : undefined}
+              {...history}
+            />
+          </div>
+        }
+      />
       <InboxProcessingGroup kind="summary" />
       <InboxProcessingGroup kind="agent" />
       <SettingsRow

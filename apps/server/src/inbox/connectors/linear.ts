@@ -43,9 +43,9 @@ const Page = Schema.Struct({
   }),
 });
 const decodePage = Schema.decodeUnknownSync(Page);
-export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String) {
+export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: DateTimeOrDuration!) {
   viewer { id } organization { id }
-  notifications(first: 50, after: $after, orderBy: updatedAt) {
+  notifications(first: 50, after: $after, orderBy: updatedAt, filter: { createdAt: { gte: $since } }) {
     nodes { id type category title subtitle url groupingKey createdAt actor { name }
       ... on IssueNotification { issue { id identifier title description } comment { body } parentComment { body } }
       ... on ProjectNotification { project { id name description } comment { body } parentComment { body } }
@@ -55,15 +55,17 @@ export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String) {
 }`;
 /** Every notification subtype is retained; issue comments are only one member of the inbox. */
 export async function readLinearInbox(
-  query: (query: string, variables: { after: string | null }) => Promise<unknown>,
+  query: (query: string, variables: { after: string | null; since: string }) => Promise<unknown>,
   categories: ReadonlyArray<string>,
+  since: string,
 ): Promise<ReadonlyArray<InboxSourceItem>> {
   const items: InboxSourceItem[] = [];
   const seen = new Set<string>();
   let after: string | null = null;
   do {
-    const page = decodePage(await query(LINEAR_INBOX_QUERY, { after }));
+    const page = decodePage(await query(LINEAR_INBOX_QUERY, { after, since }));
     for (const notification of page.data.notifications.nodes) {
+      if (Date.parse(notification.createdAt) < Date.parse(since)) continue;
       if (
         categories.length &&
         !categories.includes("all") &&

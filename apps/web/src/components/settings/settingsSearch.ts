@@ -188,7 +188,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/features",
     scope: "project",
     searchTerms: [
-      "notifications delegate delegation Slack Superhuman AI summary inbox memory custom prompt processing database recurring repeated tasks patterns resolutions",
+      "notifications delegate delegation Slack Superhuman AI summary inbox memory custom prompt processing database recurring repeated tasks patterns resolutions initial history days lookback",
     ],
   },
   {

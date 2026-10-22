@@ -192,21 +192,15 @@ it("serializes rapid edits and rolls a failed final edit back to the last saved 
   expect(checkbox("slack", "Group mentions").checked).toBe(true);
 });
 
-it("saves history on field commit, rejects invalid history, and connects a manual token without an extra collection opt-in", async () => {
+it("keeps history in feature settings and connects a manual token without an extra collection opt-in", async () => {
   await render();
-  await edit("Slack initial history days", "14");
-  expect(state.configure.mock.lastCall![0].input.initialLookbackDays).toBe(14);
-  const count = state.configure.mock.calls.length;
-  await edit("Slack initial history days", "91");
-  expect(state.configure).toHaveBeenCalledTimes(count);
-  expect(
-    container.querySelector<HTMLInputElement>('[aria-label="Slack initial history days"]')!.value,
-  ).toBe("14");
+  expect(container.querySelector('[aria-label="Slack initial history days"]')).toBeNull();
   await edit("Slack user OAuth token", "xoxp-fixture-not-a-real-credential");
   expect(state.configure.mock.lastCall![0]).toMatchObject({
     environmentId: EnvironmentId.make("env"),
-    input: { source: "slack", enabled: true, initialLookbackDays: 14 },
+    input: { source: "slack", enabled: true },
   });
+  expect(state.configure.mock.lastCall![0].input).not.toHaveProperty("initialLookbackDays");
   expect(state.configure.mock.lastCall![0].input.token).toBeDefined();
   expect(
     container.querySelector<HTMLInputElement>('[aria-label="Slack user OAuth token"]')!.value,

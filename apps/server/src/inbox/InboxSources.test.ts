@@ -4,13 +4,16 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as Superhuman from "./SuperhumanConnection.ts";
 import * as Redacted from "effect/Redacted";
 import { assert, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Fiber from "effect/Fiber";
 import * as Deferred from "effect/Deferred";
 import * as TestClock from "effect/testing/TestClock";
-import { InboxError, ProjectId } from "@t3tools/contracts";
+import { InboxError, ProjectId, type InboxSourceItem } from "@t3tools/contracts";
 import * as Sources from "./InboxSources.ts";
 import * as Transport from "./InboxSourceTransport.ts";
 import * as Inbox from "./InboxService.ts";
@@ -25,6 +28,12 @@ it.effect(
       const credentials = new Map<string, Uint8Array>();
       const calls = yield* Ref.make(0);
       const fail = yield* Ref.make(false);
+      const boundaries: string[] = [];
+      const imported: InboxSourceItem[] = [];
+      let historyItems: InboxSourceItem[] = [];
+      let pendingRead:
+        | { entered: Deferred.Deferred<void>; release: Deferred.Deferred<void> }
+        | undefined;
       const ingested = yield* Ref.make(0);
       const linearConnected = yield* Ref.make(false);
       const linearRead = yield* Deferred.make<void>();
@@ -45,16 +54,21 @@ it.effect(
         getOrCreateRandom: () => Effect.die("Not used in this test"),
       });
       const transport = Transport.InboxSourceTransport.of({
-        read: (connection) =>
+        read: (connection, _token, since) =>
           Effect.gen(function* () {
+            boundaries.push(since);
+            if (pendingRead) {
+              yield* Deferred.succeed(pendingRead.entered, undefined);
+              yield* Deferred.await(pendingRead.release);
+            }
             if (connection.source === "linear") {
               yield* Deferred.succeed(linearRead, undefined);
-              return [];
+              return historyItems;
             }
             yield* Ref.update(calls, (count) => count + 1);
             if (yield* Ref.get(fail))
               return yield* new InboxError({ detail: "Slack permission missing" });
-            return [];
+            return historyItems;
           }),
       });
       const inbox = Inbox.InboxService.of({
@@ -63,7 +77,10 @@ it.effect(
         mutate: () => Effect.die("Not used"),
         drain: Effect.void,
         drainAnalysis: Effect.void,
-        ingest: () => Ref.update(ingested, (n) => n + 1),
+        ingest: (_project, items) =>
+          Effect.sync(() => {
+            imported.push(...items);
+          }).pipe(Effect.andThen(Ref.update(ingested, (n) => n + 1))),
       });
       const settingsLayer = Settings.layerTest();
       const layer = Sources.layer.pipe(
@@ -235,6 +252,145 @@ it.effect(
         const linearSynced = yield* service.refresh({ projectId: linearProject, source: "linear" });
         assert.equal(linearSynced.connected, true);
         assert.ok(linearSynced.lastSyncAt);
+        // Each source uses the same enable-time boundary, even when connected later.
+        for (const source of ["slack", "linear", "superhuman"] as const) {
+          const id = ProjectId.make(`zero-${source}`);
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [id]: { inboxEnabled: true, inboxInitialHistoryDays: 0, linearWorkspace: "fixture" },
+            },
+          });
+          const enabled = yield* Clock.currentTimeMillis;
+          const item = (offset: number): InboxSourceItem => ({
+            id: String(offset),
+            source,
+            connectionId: "fixture",
+            groupId: String(offset),
+            location: "fixture",
+            title: "Fixture",
+            author: "Fixture",
+            content: "Fixture",
+            url: "https://example.test",
+            occurredAt: DateTime.formatIso(DateTime.makeUnsafe(enabled + offset)),
+          });
+          historyItems = [-1, 0, 1].map(item);
+          const connection = {
+            ...(yield* service.list(id)).find((entry) => entry.source === source)!,
+            connected: true,
+            categories:
+              source === "superhuman"
+                ? ["split:Important"]
+                : source === "slack"
+                  ? ["dms"]
+                  : ["all"],
+            accounts: ["one@example.test"],
+            initialLookbackDays: 90,
+          };
+          yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES(${id},${source},${JSON.stringify(connection)})`;
+          credentials.set(
+            `inbox-${source}-${id}`,
+            new TextEncoder().encode("xoxp-fixture-not-a-real-credential"),
+          );
+          yield* TestClock.adjust("10 seconds");
+          const before = imported.length;
+          yield* service.refresh({ projectId: id, source });
+          assert.equal(boundaries.at(-1), DateTime.formatIso(DateTime.makeUnsafe(enabled)));
+          assert.deepEqual(
+            imported.slice(before).map((entry) => entry.id),
+            ["0", "1"],
+          );
+          yield* service.refresh({ projectId: id, source });
+          assert.equal(boundaries.at(-1), DateTime.formatIso(DateTime.makeUnsafe(enabled)));
+          // Changing the shared policy must backfill instead of reusing the zero-day cursor.
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [id]: { inboxEnabled: true, inboxInitialHistoryDays: 30, linearWorkspace: "fixture" },
+            },
+          });
+          const now = yield* Clock.currentTimeMillis;
+          yield* service.refresh({ projectId: id, source });
+          assert.equal(
+            boundaries.at(-1),
+            DateTime.formatIso(DateTime.makeUnsafe(now - 30 * 86_400_000)),
+          );
+          // Legacy per-source history is ignored; changing it cannot reset the cursor.
+          const previous = (yield* service.list(id)).find((entry) => entry.source === source)!;
+          const updated = yield* service.configure({
+            projectId: id,
+            source,
+            enabled: true,
+            categories: connection.categories,
+            accounts: connection.accounts,
+            initialLookbackDays: 30,
+          });
+          assert.equal(updated.initialLookbackDays, 90);
+          assert.equal(updated.lastSyncAt, previous.lastSyncAt);
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [id]: { inboxEnabled: true, inboxInitialHistoryDays: 7, linearWorkspace: "fixture" },
+            },
+          });
+          yield* Ref.set(fail, true);
+          if (source === "slack") {
+            const failedHistory = yield* service.refresh({ projectId: id, source });
+            assert.equal(failedHistory.collectionHistoryDays, 30);
+          }
+          yield* Ref.set(fail, false);
+          yield* service.refresh({ projectId: id, source });
+          assert.equal(
+            boundaries.at(-1),
+            DateTime.formatIso(DateTime.makeUnsafe(enabled - 7 * 86_400_000)),
+          );
+        }
+
+        // An older client left a recent cursor but no policy checkpoint. A first shared edit to
+        // thirty days must still backfill, rather than silently continuing that cursor.
+        const legacyId = ProjectId.make("legacy-history");
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [legacyId]: { inboxEnabled: true, inboxInitialHistoryDays: 30 },
+          },
+        });
+        const now = yield* Clock.currentTimeMillis;
+        const legacyConnection = {
+          ...(yield* service.list(legacyId))[0]!,
+          connected: true,
+          lastSyncAt: DateTime.formatIso(DateTime.makeUnsafe(now - 1_000)),
+        };
+        yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES(${legacyId},'slack',${JSON.stringify(legacyConnection)})`;
+        credentials.set(
+          `inbox-slack-${legacyId}`,
+          new TextEncoder().encode("xoxp-fixture-not-a-real-credential"),
+        );
+        yield* service.refresh({ projectId: legacyId, source: "slack" });
+        assert.equal(
+          boundaries.at(-1),
+          DateTime.formatIso(DateTime.makeUnsafe(now - 30 * 86_400_000)),
+        );
+        // A delayed old-policy response cannot import history after the project changes to zero.
+        const id = ProjectId.make("zero-superhuman");
+        const before = imported.length;
+        const lastSync = (yield* service.list(id)).find(
+          (entry) => entry.source === "superhuman",
+        )!.lastSyncAt;
+        pendingRead = {
+          entered: yield* Deferred.make<void>(),
+          release: yield* Deferred.make<void>(),
+        };
+        const refresh = yield* service
+          .refresh({ projectId: id, source: "superhuman" })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(pendingRead.entered);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: { [id]: { inboxEnabled: true, inboxInitialHistoryDays: 0 } },
+        });
+        yield* Deferred.succeed(pendingRead.release, undefined);
+        yield* Fiber.join(refresh);
+        assert.equal(imported.length, before);
+        assert.equal(
+          (yield* service.list(id)).find((entry) => entry.source === "superhuman")!.lastSyncAt,
+          lastSync,
+        );
       }).pipe(Effect.provide(layer));
     }).pipe(Effect.scoped),
 );
