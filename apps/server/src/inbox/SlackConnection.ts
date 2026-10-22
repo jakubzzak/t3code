@@ -25,6 +25,7 @@ const Tokens = Schema.Struct({
 });
 const OAuthResponse = Schema.Struct({
   ok: Schema.Boolean,
+  error: Schema.optionalKey(Schema.String),
   authed_user: Schema.optionalKey(Schema.Struct({ ...Tokens.fields, id: Schema.String })),
   access_token: Schema.optionalKey(Schema.String),
   refresh_token: Schema.optionalKey(Schema.String),
@@ -41,6 +42,52 @@ const Credential = Schema.Struct({
 const decodeCredential = Schema.decodeUnknownSync(Schema.fromJsonString(Credential));
 const decodeResponse = Schema.decodeUnknownSync(OAuthResponse);
 const fail = (detail: string) => new InboxError({ detail });
+
+/** Only known Slack error codes are safe to show; never echo OAuth payloads or descriptions. */
+function authorizationFailure(error: string | undefined) {
+  switch (error) {
+    case "pkce_not_allowed":
+      return fail(
+        "Slack rejected authorization (pkce_not_allowed). Enable PKCE in the Slack app's OAuth & Permissions settings, then start a new connection.",
+      );
+    case "bad_client_secret":
+      return fail(
+        "Slack rejected authorization (bad_client_secret). Blackbird uses PKCE without a client secret. Check that PKCE is enabled for the configured Slack app, then connect again.",
+      );
+    case "invalid_client_id":
+      return fail(
+        "Slack rejected authorization (invalid_client_id). Check this project's Slack OAuth client ID and connect again.",
+      );
+    case "bad_redirect_uri":
+      return fail(
+        "Slack rejected authorization (bad_redirect_uri). The callback URL must match the address used to start sign-in. Start a new connection from Blackbird.",
+      );
+    case "invalid_code_verifier":
+      return fail(
+        "Slack rejected authorization (invalid_code_verifier). The PKCE verification failed. Start a new connection from Blackbird and use its latest sign-in link.",
+      );
+    case "invalid_code":
+      return fail(
+        "Slack rejected authorization (invalid_code). The sign-in code is invalid, expired, or already used. Start a new connection instead of reloading the callback page.",
+      );
+    case "invalid_refresh_token":
+      return fail(
+        "Slack rejected authorization (invalid_refresh_token). The saved authorization can no longer be refreshed. Reconnect Slack in this project's Integrations settings.",
+      );
+    case "access_denied":
+      return fail(
+        "Slack rejected authorization (access_denied). Check your workspace's app permissions and connect again.",
+      );
+    case "ratelimited":
+      return fail(
+        "Slack rejected authorization (ratelimited). Wait before trying to connect again.",
+      );
+    default:
+      return fail(
+        "Slack rejected authorization. Check the app's OAuth settings and start a new connection from Blackbird.",
+      );
+  }
+}
 
 export class SlackConnection extends Context.Service<
   SlackConnection,
@@ -102,7 +149,7 @@ export const layer = Layer.effect(
           );
         if (response.status !== 200)
           return yield* fail(
-            "Slack authorization failed. Check the app's PKCE and callback settings.",
+            `Slack authorization request failed (HTTP ${response.status}). Try connecting again later.`,
           );
         const data = yield* response.json.pipe(
           Effect.mapError(() => fail("Slack returned an invalid authorization response.")),
@@ -111,16 +158,13 @@ export const layer = Layer.effect(
           try: () => decodeResponse(data),
           catch: () => fail("Slack returned an invalid authorization response."),
         });
-        if (!result.ok)
-          return yield* fail(
-            "Slack authorization failed. Enable PKCE on your Slack app and connect again.",
-          );
+        if (!result.ok) return yield* authorizationFailure(result.error);
         return result;
       }).pipe(
-        Effect.timeout("30 seconds"),
-        Effect.mapError(() =>
-          fail("Slack authorization failed or timed out. Check PKCE and connect again."),
-        ),
+        Effect.timeoutOrElse({
+          duration: "30 seconds",
+          orElse: () => fail("Slack authorization timed out waiting for Slack. Connect again."),
+        }),
       );
     const save = (projectId: ProjectId, credential: typeof Credential.Type) =>
       secrets

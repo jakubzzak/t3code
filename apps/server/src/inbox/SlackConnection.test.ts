@@ -3,7 +3,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientError from "effect/http/HttpClientError";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { ProjectId } from "@t3tools/contracts";
 import * as Secrets from "../auth/ServerSecretStore.ts";
@@ -38,15 +41,27 @@ const setup = Effect.sync(() => {
       }),
     getOrCreateRandom: () => Effect.die("Not used"),
   });
+  let status = 200;
+  let stalled = false;
+  let offline = false;
+  const started = Deferred.makeUnsafe<void>();
   const client = HttpClient.make((request) =>
-    Effect.sync(() => {
+    Effect.gen(function* () {
       requests.push({
         url: request.url,
         body: request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "",
       });
+      if (offline)
+        return yield* new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({ request, cause: "fixture-private-network" }),
+        });
+      if (stalled) {
+        yield* Deferred.succeed(started, undefined);
+        return yield* Effect.never;
+      }
       return HttpClientResponse.fromWeb(
         request,
-        new Response(JSON.stringify(response), { status: 200 }),
+        new Response(JSON.stringify(response), { status }),
       );
     }),
   );
@@ -60,12 +75,113 @@ const setup = Effect.sync(() => {
   return {
     values,
     requests,
+    started,
+    setStatus: (next: number) => {
+      status = next;
+    },
+    stall: () => {
+      stalled = true;
+    },
+    setOffline: (next: boolean) => {
+      offline = next;
+    },
     setResponse: (next: unknown) => {
       response = next;
     },
     layer: Slack.layer.pipe(Layer.provide(dependencies)),
   };
 });
+
+it.effect("preserves actionable Slack failures without leaking OAuth response contents", () =>
+  Effect.gen(function* () {
+    const fixture = yield* setup;
+    yield* Effect.gen(function* () {
+      const slack = yield* Slack.SlackConnection;
+      for (const error of [
+        "pkce_not_allowed",
+        "bad_client_secret",
+        "invalid_code_verifier",
+        "bad_redirect_uri",
+        "invalid_client_id",
+        "invalid_code",
+        "invalid_refresh_token",
+        "access_denied",
+        "ratelimited",
+      ]) {
+        fixture.setResponse({
+          ok: false,
+          error,
+          error_description: "fixture-private-response",
+          access_token: "fixture-private-token",
+        });
+        const url = new URL(yield* slack.begin(project, "https://example.test"));
+        const result = yield* Effect.result(
+          slack.complete(url.searchParams.get("state")!, "fixture-private-code"),
+        );
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure") {
+          assert.include(result.failure.detail, error);
+          assert.notInclude(result.failure.detail, "timed out");
+          assert.notInclude(result.failure.detail, "fixture-private");
+        }
+        assert.equal(fixture.values.size, 0);
+      }
+      fixture.setResponse({
+        ok: false,
+        error: "fixture-private-unknown-error",
+        error_description: "fixture-private-response",
+      });
+      const url = new URL(yield* slack.begin(project, "https://example.test"));
+      const result = yield* Effect.result(slack.complete(url.searchParams.get("state")!, "code"));
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") assert.notInclude(result.failure.detail, "fixture-private");
+    }).pipe(Effect.provide(fixture.layer));
+  }),
+);
+
+it.effect(
+  "distinguishes invalid responses, HTTP and network failures from an exchange timeout",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* setup;
+      yield* Effect.gen(function* () {
+        const slack = yield* Slack.SlackConnection;
+        const complete = Effect.gen(function* () {
+          const url = new URL(yield* slack.begin(project, "https://example.test"));
+          return yield* Effect.result(slack.complete(url.searchParams.get("state")!, "code"));
+        });
+        fixture.setResponse({ ok: "invalid" });
+        const malformed = yield* complete;
+        assert.equal(malformed._tag, "Failure");
+        if (malformed._tag === "Failure")
+          assert.include(malformed.failure.detail, "invalid authorization response");
+        fixture.setStatus(503);
+        const unavailable = yield* complete;
+        assert.equal(unavailable._tag, "Failure");
+        if (unavailable._tag === "Failure") {
+          assert.include(unavailable.failure.detail, "HTTP 503");
+          assert.notInclude(unavailable.failure.detail, "PKCE");
+        }
+        fixture.setStatus(200);
+        fixture.setOffline(true);
+        const offline = yield* complete;
+        assert.equal(offline._tag, "Failure");
+        if (offline._tag === "Failure") {
+          assert.include(offline.failure.detail, "could not reach Slack");
+          assert.notInclude(offline.failure.detail, "fixture-private");
+        }
+        fixture.setOffline(false);
+        fixture.stall();
+        const fiber = yield* complete.pipe(Effect.forkChild);
+        yield* Deferred.await(fixture.started);
+        yield* TestClock.adjust("30 seconds");
+        const timeout = yield* Fiber.join(fiber);
+        assert.equal(timeout._tag, "Failure");
+        if (timeout._tag === "Failure") assert.include(timeout.failure.detail, "timed out");
+        assert.equal(fixture.values.size, 0);
+      }).pipe(Effect.provide(fixture.layer));
+    }),
+);
 
 it.effect(
   "uses project PKCE, grants only user read scopes, consumes callback state once and refreshes rotating tokens",
