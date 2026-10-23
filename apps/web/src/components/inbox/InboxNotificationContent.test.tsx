@@ -619,7 +619,7 @@ it("separates a Linear issue description from deduplicated comments and shows on
   expect(container.textContent?.match(/Description shown once/g)).toHaveLength(1);
   expect(container.textContent).not.toContain("Repeated flattened text");
   expect(container.textContent).not.toContain("First unique comment");
-  expect(container.querySelector("strong")?.textContent).toBe("comment");
+  expect(container.querySelector('[aria-label="Comments"] strong')?.textContent).toBe("comment");
   await act(async () =>
     container
       .querySelector<HTMLButtonElement>('button[aria-label="Show all issue comments"]')!

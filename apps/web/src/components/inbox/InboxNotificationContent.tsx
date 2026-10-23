@@ -296,9 +296,11 @@ function LinearIssueContent({
   }
   return (
     <div className={styles.slackContent}>
-      <div className="mb-3 font-medium">{issue.title}</div>
+      <div className="mb-3">
+        <strong>{issue.title}</strong>
+      </div>
       {issue.description && (
-        <section className={styles.slackSection} aria-label="Issue description">
+        <section className="mb-4" aria-label="Issue description">
           <div className={styles.slackLabel}>Issue description</div>
           <InboxContentPreview lines={8}>
             <LinearMarkdown content={issue.description} />
