@@ -68,8 +68,13 @@ export function ingestInboxItem(
       : { ...previous!, slackThread: thread!, revision: previous!.revision + 1 };
   }
   const items = [...(previous?.items ?? []).filter((candidate) => candidate.id !== item.id), body]
-    .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+    .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id))
     .slice(-50);
+  // An older delivery can be absent because it was evicted, not because it is new.
+  if (previous && sameLatest && NodeUtil.isDeepStrictEqual(previous.items, items))
+    return NodeUtil.isDeepStrictEqual(previous.slackThread, thread)
+      ? previous
+      : { ...previous, slackThread: thread!, revision: previous.revision + 1 };
   if (existing?.source === "linear" && body.linearIssue) {
     const { linearIssue: _oldIssue, ...oldContent } = existing;
     const { linearIssue: _newIssue, ...newContent } = body;

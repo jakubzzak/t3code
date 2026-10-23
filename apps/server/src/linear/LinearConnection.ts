@@ -6,6 +6,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Semaphore from "effect/Semaphore";
 import {
   InboxError,
   type ProjectId,
@@ -79,6 +80,15 @@ export const layer = Layer.effect(
       { projectId: ProjectId; accept: (code: string) => void; finished: Promise<void> }
     >();
     const connecting = new Map<ProjectId, { url: Promise<string>; status: LinearDesktopResult }>();
+    const beginLocks = new Map<ProjectId, Semaphore.Semaphore>();
+    const beginLock = (projectId: ProjectId) => {
+      let lock = beginLocks.get(projectId);
+      if (!lock) {
+        lock = Semaphore.makeUnsafe(1);
+        beginLocks.set(projectId, lock);
+      }
+      return lock.withPermits(1);
+    };
     const errors = new Map<ProjectId, string>();
     const transfers = new Map<
       string,
@@ -187,54 +197,59 @@ export const layer = Layer.effect(
     return LinearConnection.of({
       request,
       begin: (projectId, origin) =>
-        Effect.gen(function* () {
-          if (connecting.has(projectId))
-            return yield* Effect.tryPromise({
-              try: () => connecting.get(projectId)!.url,
-              catch: wrap,
+        beginLock(projectId)(
+          Effect.gen(function* () {
+            if (connecting.has(projectId))
+              return yield* Effect.tryPromise({
+                try: () => connecting.get(projectId)!.url,
+                catch: wrap,
+              });
+            const { linearWorkspace: slug, linearClientId } =
+              yield* projectConfiguration(projectId);
+            if (!slug)
+              return yield* new InboxError({
+                detail: "Set this project's Linear workspace first.",
+              });
+            errors.delete(projectId);
+            const status = yield* request(projectId, {
+              operation: "status",
+              workspace: slug,
+              connectionKey: projectId,
             });
-          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
-          if (!slug)
-            return yield* new InboxError({ detail: "Set this project's Linear workspace first." });
-          errors.delete(projectId);
-          const status = yield* request(projectId, {
-            operation: "status",
-            workspace: slug,
-            connectionKey: projectId,
-          });
-          let ready!: (url: string) => void;
-          let failed!: (error: unknown) => void;
-          const url = new Promise<string>((resolve, reject) => {
-            ready = resolve;
-            failed = reject;
-          });
-          let finish!: () => void;
-          const finished = new Promise<void>((resolve) => {
-            finish = resolve;
-          });
-          const client = getClient(projectId, linearClientId, { origin, ready, finished });
-          connecting.set(projectId, { url, status });
-          yield* Effect.tryPromise({
-            try: () =>
-              client.request({ operation: "connect", workspace: slug, connectionKey: projectId }),
-            catch: wrap,
-          }).pipe(
-            Effect.catch((error) =>
-              Effect.sync(() => {
-                errors.set(projectId, error.detail);
-                failed(error);
-              }),
-            ),
-            Effect.ensuring(
-              Effect.sync(() => {
-                connecting.delete(projectId);
-                finish();
-              }),
-            ),
-            Effect.forkIn(scope),
-          );
-          return yield* Effect.tryPromise({ try: () => url, catch: wrap });
-        }),
+            let ready!: (url: string) => void;
+            let failed!: (error: unknown) => void;
+            const url = new Promise<string>((resolve, reject) => {
+              ready = resolve;
+              failed = reject;
+            });
+            let finish!: () => void;
+            const finished = new Promise<void>((resolve) => {
+              finish = resolve;
+            });
+            const client = getClient(projectId, linearClientId, { origin, ready, finished });
+            connecting.set(projectId, { url, status });
+            yield* Effect.tryPromise({
+              try: () =>
+                client.request({ operation: "connect", workspace: slug, connectionKey: projectId }),
+              catch: wrap,
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.sync(() => {
+                  errors.set(projectId, error.detail);
+                  failed(error);
+                }),
+              ),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  connecting.delete(projectId);
+                  finish();
+                }),
+              ),
+              Effect.forkIn(scope),
+            );
+            return yield* Effect.tryPromise({ try: () => url, catch: wrap });
+          }),
+        ),
       complete: (state, code) =>
         Effect.gen(function* () {
           const flow = flows.get(state);

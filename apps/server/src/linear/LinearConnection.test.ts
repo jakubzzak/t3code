@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import { ProjectId } from "@t3tools/contracts";
 import { sealLinearConnection } from "@t3tools/shared/linearConnectionTransfer";
 import * as Connection from "./LinearConnection.ts";
@@ -161,4 +163,69 @@ it.effect(
         ),
       );
     }).pipe(Effect.scoped),
+);
+
+it.effect("shares a single pending authorization across concurrent project clients", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    let configurationReads = 0;
+    const originalSettings = Settings.layerTest({
+      projectSettingsOverrides: {
+        [first]: { linearWorkspace: "acme", linearClientId: "public-fixture-client" },
+      },
+    });
+    const settings = Layer.effect(
+      Settings.ServerSettingsService,
+      Effect.map(Settings.ServerSettingsService, (service) => ({
+        ...service,
+        getSettings: service.getSettings.pipe(
+          Effect.tap(() =>
+            Effect.gen(function* () {
+              configurationReads++;
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(release);
+            }),
+          ),
+        ),
+      })),
+    ).pipe(Layer.provide(originalSettings));
+    yield* Effect.gen(function* () {
+      const connection = yield* Connection.LinearConnection;
+      const a = yield* connection.begin(first, "https://first.example.test").pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      const b = yield* connection
+        .begin(first, "https://second.example.test")
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      assert.equal(
+        configurationReads,
+        1,
+        "A second client must join before async configuration reads",
+      );
+      yield* Deferred.succeed(release, undefined);
+      const urlA = yield* Fiber.join(a);
+      const urlB = yield* Fiber.join(b);
+      assert.equal(urlA, urlB);
+      assert.equal(
+        new URL(urlA).searchParams.get("redirect_uri"),
+        "https://first.example.test/oauth/linear/callback",
+      );
+      yield* connection.cancel(first);
+    }).pipe(
+      Effect.provide(
+        Connection.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              settings,
+              Layer.mock(Secrets.ServerSecretStore)({
+                get: () => Effect.succeed(Option.none()),
+                set: () => Effect.void,
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }).pipe(Effect.scoped),
 );

@@ -28,7 +28,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as Replay from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Agent from "./InboxAgent.ts";
-import { ingestInboxItem } from "./inboxState.ts";
+import { ingestInboxItem, restoreInboxState } from "./inboxState.ts";
 
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -55,11 +55,22 @@ const settings = Settings.layerTest({
   inboxAgentPrompt: "",
   inboxAgentModelSelection: { instanceId: "codex", model: "gpt-5" },
 });
-function makeLayer(settingsLayer: typeof settings) {
+function makeLayer(
+  settingsLayer: typeof settings,
+  override?: (
+    service: ThreadManagement.ThreadManagementService["Service"],
+  ) => ThreadManagement.ThreadManagementService["Service"],
+) {
   const receipts = Receipts.layer.pipe(Layer.provide(database));
-  const threads = ThreadManagement.layer.pipe(
+  const originalThreads = ThreadManagement.layer.pipe(
     Layer.provide(Layer.mergeAll(runtime, receipts, settingsLayer)),
   );
+  const threads = override
+    ? Layer.effect(
+        ThreadManagement.ThreadManagementService,
+        Effect.map(ThreadManagement.ThreadManagementService, override),
+      ).pipe(Layer.provide(originalThreads))
+    : originalThreads;
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectFiles.T3ProjectFileLoader)({ load: () => Effect.succeed(Option.none()) }),
     runtime,
@@ -134,6 +145,7 @@ it.effect(
       yield* agent.start(linked, true);
       const started = yield* orchestrator.getThreadShell(threadId);
       assert.ok(started?.latestRunId);
+      assert.isTrue((yield* agent.status(threadId)).running, "Queued work is not stopped");
       const timeline = yield* orchestrator.getTimelinePage(threadId, {
         limit: 10,
         view: "messages",
@@ -209,3 +221,47 @@ it.effect("uses the editable delegation prompt when Agent Delegation is enabled"
     );
   }).pipe(Effect.provide(makeLayer(settings)), Effect.scoped),
 );
+
+it.effect("keeps waiting work cancellable through Undo until its run is interrupted", () => {
+  let waiting = true;
+  const waitingLayer = makeLayer(settings, (service) => ({
+    ...service,
+    getThreadShell: (id) =>
+      service.getThreadShell(id).pipe(
+        Effect.map((shell) =>
+          shell && waiting
+            ? {
+                ...shell,
+                activeRunId: null,
+                activityRunStatus: "waiting" as const,
+                status: "waiting" as const,
+              }
+            : shell,
+        ),
+      ),
+  }));
+  return Effect.gen(function* () {
+    const agent = yield* Agent.InboxAgent;
+    const original = ingestInboxItem(ProjectId.make("inbox-project"), {
+      source: "slack",
+      id: "waiting",
+      connectionId: "team",
+      groupId: "waiting",
+      location: "DM",
+      title: "Review",
+      author: "Alex",
+      content: "Please review",
+      url: "https://slack.com",
+      occurredAt: "2026-10-22T10:00:00Z",
+    });
+    const threadId = ThreadId.make("waiting-inbox-agent");
+    const linked = { ...original, state: { ...original.state, threadId }, agentAttempt: 1 };
+    yield* agent.start(linked, true);
+    assert.isTrue((yield* agent.status(threadId)).running);
+    const restored = restoreInboxState({ ...linked, agentStatus: "running" }, original.state);
+    assert.equal(restored.agentStatus, "stop-requested");
+    yield* agent.stop(threadId, CommandId.make("undo-waiting"));
+    waiting = false;
+    assert.isFalse((yield* agent.status(threadId)).running);
+  }).pipe(Effect.provide(waitingLayer), Effect.scoped);
+});

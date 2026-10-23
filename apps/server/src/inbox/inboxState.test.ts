@@ -16,6 +16,39 @@ const message: InboxSourceItem = {
   occurredAt: "2026-10-22T09:00:00Z",
 };
 describe("notification lifecycle", () => {
+  it("ignores replayed events outside the retained 50 without clearing read state or analysis", () => {
+    const events = Array.from({ length: 51 }, (_, index) => ({
+      ...message,
+      source: "linear" as const,
+      id: `event-${index}`,
+      occurredAt: new Date(Date.parse(message.occurredAt) + index * 1000).toISOString(),
+    }));
+    let current = ingestInboxItem(project, events[0]!);
+    for (const event of events.slice(1)) current = ingestInboxItem(project, event, current);
+    current = {
+      ...current,
+      state: { ...current.state, read: true },
+      analysisAttempts: 3,
+      processingError: "AI summary not available",
+    };
+    const before = current;
+    for (const event of events) current = ingestInboxItem(project, event, current);
+    expect(current).toBe(before);
+    const edited = ingestInboxItem(
+      project,
+      { ...events.at(-1)!, content: "Updated request" },
+      current,
+    );
+    expect(edited.state.read).toBe(false);
+    expect(edited.analysisVersion).toBe(before.analysisVersion + 1);
+    const fresh = ingestInboxItem(
+      project,
+      { ...events.at(-1)!, id: "new", occurredAt: "2026-10-22T10:00:00Z" },
+      before,
+    );
+    expect(fresh.items.at(-1)?.id).toBe("new");
+    expect(fresh.state.read).toBe(false);
+  });
   it("groups native activity without losing the triggering messages or duplicating deliveries", () => {
     const first = ingestInboxItem(project, message);
     const second = ingestInboxItem(

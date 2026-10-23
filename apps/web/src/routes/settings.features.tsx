@@ -90,7 +90,9 @@ function FeaturesSettings() {
               description="Search chats and connected tools in parallel for a concise answer with sources."
               value={clientSettings.agenticSearchEverywherePrompt}
               defaultPrompt={DEFAULT_AGENTIC_SEARCH_PROMPTS.everywhere}
-              save={(agenticSearchEverywherePrompt) => updateClient({ agenticSearchEverywherePrompt })}
+              save={(agenticSearchEverywherePrompt) =>
+                updateClient({ agenticSearchEverywherePrompt })
+              }
             />
           </>
         ) : null}

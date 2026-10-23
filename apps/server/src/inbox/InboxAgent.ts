@@ -201,7 +201,13 @@ const make = Effect.gen(function* () {
       orchestrator.getThreadShell(threadId).pipe(
         Effect.map((shell) => ({
           exists: shell !== null,
-          running: shell?.activeRunId != null,
+          running:
+            shell !== null &&
+            (shell.activeRunId !== null ||
+              shell.activityRunStatus != null ||
+              ["queued", "preparing", "starting", "running", "waiting"].includes(shell.status) ||
+              shell.pendingRuntimeRequest !== null ||
+              (shell.pendingBackgroundTasks?.length ?? 0) > 0),
           settled: shell?.settledAt != null,
           error:
             shell?.status === "failed"
