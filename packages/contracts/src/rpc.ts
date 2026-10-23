@@ -16,6 +16,7 @@ import {
   InboxMutateInput,
   InboxMutationResult,
   InboxNotification,
+  InboxGetInput,
 } from "./inbox.ts";
 import { LinearIssueSetupInput, LinearIssueSetupResult, LinearIssueSetupError } from "./linear.ts";
 import { ThreadCleanupInput, ThreadCleanupSnapshot, ThreadCleanupError } from "./threadCleanup.ts";
@@ -1148,7 +1149,7 @@ const WsInboxListRpc = Rpc.make(WS_METHODS.inboxList, {
   error: InboxError,
 });
 const WsInboxGetRpc = Rpc.make(WS_METHODS.inboxGet, {
-  payload: Schema.Struct({ projectId: ProjectId, id: Schema.String }),
+  payload: InboxGetInput,
   success: Schema.NullOr(InboxNotification),
   error: InboxError,
 });

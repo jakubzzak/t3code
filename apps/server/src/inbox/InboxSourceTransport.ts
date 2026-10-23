@@ -6,8 +6,14 @@ import * as Layer from "effect/Layer";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Schema from "effect/Schema";
-import { InboxError, type InboxSourceConnection, type InboxSourceItem } from "@t3tools/contracts";
-import { readSlackInbox, SLACK_READ_METHODS } from "./connectors/slack.ts";
+import {
+  InboxError,
+  type InboxSourceConnection,
+  type InboxSourceItem,
+  type InboxSlackThread,
+} from "@t3tools/contracts";
+import { readSlackThread } from "./connectors/slackThread.ts";
+import { readSlackInbox, SLACK_READ_METHODS, type SlackRead } from "./connectors/slack.ts";
 const SlackResponse = Schema.Struct({
   ok: Schema.Boolean,
   error: Schema.optionalKey(Schema.String),
@@ -16,6 +22,12 @@ const decodeSlackResponse = Schema.decodeUnknownSync(SlackResponse);
 export class InboxSourceTransport extends Context.Service<
   InboxSourceTransport,
   {
+    readonly readThread: (
+      token: string,
+      channelId: string,
+      ts: string,
+      cached?: InboxSlackThread,
+    ) => Effect.Effect<InboxSlackThread, InboxError>;
     readonly read: (
       connection: InboxSourceConnection,
       token: string,
@@ -34,7 +46,48 @@ export const layer: Layer.Layer<
     const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
     const superhuman = yield* Superhuman.SuperhumanConnection;
     const linear = yield* Linear.LinearConnection;
+    const slackRead = <A>(operation: (read: SlackRead) => Promise<A>, token: string) =>
+      Effect.tryPromise({
+        try: (signal) =>
+          operation(async (method, params) => {
+            if (!SLACK_READ_METHODS.has(method))
+              throw new Error("Unsupported Slack read operation.");
+            const response = await runPromise(
+              client.execute(
+                HttpClientRequest.get(
+                  `https://slack.com/api/${method}?${new URLSearchParams(params)}`,
+                ).pipe(HttpClientRequest.setHeader("Authorization", `Bearer ${token}`)),
+              ),
+              { signal },
+            );
+            if (response.status === 429)
+              throw new Error(
+                `Slack rate limit reached. Retry after ${response.headers["retry-after"] ?? "60"} seconds.`,
+              );
+            if (response.status < 200 || response.status >= 300)
+              throw new Error(`Slack connection failed (${response.status}).`);
+            const data: unknown = await runPromise(response.json, { signal });
+            const result = decodeSlackResponse(data);
+            if (!result.ok)
+              throw new Error(
+                `Slack ${method} failed (${result.error ?? "unknown_error"}). Check the connection permissions.`,
+              );
+            return data;
+          }),
+        catch: (cause) =>
+          new InboxError({
+            detail: cause instanceof Error ? cause.message : "Could not read Slack messages.",
+          }),
+      }).pipe(
+        Effect.timeout("2 minutes"),
+        Effect.catchTags({
+          TimeoutError: () =>
+            Effect.fail(new InboxError({ detail: "Slack request timed out. Try again." })),
+        }),
+      );
     return InboxSourceTransport.of({
+      readThread: (token, channelId, ts, cached) =>
+        slackRead((read) => readSlackThread(read, channelId, ts, cached), token),
       read: (connection, token, since) =>
         connection.source === "linear"
           ? linear.read(connection.projectId, connection.categories, since)
@@ -45,58 +98,7 @@ export const layer: Layer.Layer<
                 connection.categories,
                 since,
               )
-            : Effect.tryPromise({
-                try: async (signal) => {
-                  if (connection.source !== "slack")
-                    throw new Error("This connection is not available yet.");
-                  return readSlackInbox(
-                    async (method, params) => {
-                      if (!SLACK_READ_METHODS.has(method))
-                        throw new Error("Unsupported Slack read operation.");
-                      const response = await runPromise(
-                        client.execute(
-                          HttpClientRequest.get(
-                            `https://slack.com/api/${method}?${new URLSearchParams(params)}`,
-                          ).pipe(HttpClientRequest.setHeader("Authorization", `Bearer ${token}`)),
-                        ),
-                        { signal },
-                      );
-                      if (response.status === 429)
-                        throw new Error(
-                          `Slack rate limit reached. Retry after ${response.headers["retry-after"] ?? "60"} seconds.`,
-                        );
-                      if (response.status < 200 || response.status >= 300)
-                        throw new Error(`Slack connection failed (${response.status}).`);
-                      const data: unknown = await runPromise(response.json, { signal });
-                      const result = decodeSlackResponse(data);
-                      if (!result.ok)
-                        throw new Error(
-                          `Slack ${method} failed (${result.error ?? "unknown_error"}). Check the connection permissions.`,
-                        );
-                      return data;
-                    },
-                    connection.categories,
-                    since,
-                  );
-                },
-                catch: (cause) =>
-                  new InboxError({
-                    detail:
-                      cause instanceof Error
-                        ? cause.message
-                        : "Could not refresh source notifications.",
-                  }),
-              }).pipe(
-                Effect.timeout("2 minutes"),
-                Effect.catchTags({
-                  TimeoutError: () =>
-                    Effect.fail(
-                      new InboxError({
-                        detail: "Source refresh timed out. Retry when the connection is available.",
-                      }),
-                    ),
-                }),
-              ),
+            : slackRead((read) => readSlackInbox(read, connection.categories, since), token),
     });
   }),
 );

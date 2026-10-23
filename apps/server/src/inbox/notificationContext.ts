@@ -14,6 +14,28 @@ export function inboxContext(notification: InboxNotification) {
         content: item.content.slice(0, 4000),
         truncated: item.content.length > 4000,
       })),
+    ...(notification.slackThread
+      ? {
+          slackThread: {
+            root: {
+              author: notification.slackThread.root.author,
+              content: notification.slackThread.root.content.slice(0, 4000),
+            },
+            latestReplyTs: notification.slackThread.latestReplyTs,
+            replyCount: notification.slackThread.replyCount,
+            omittedEarlierMessages: Math.max(
+              0,
+              (notification.slackThread.replyCount ?? notification.slackThread.messages.length) -
+                Math.min(10, notification.slackThread.messages.length),
+            ),
+            messages: notification.slackThread.messages.slice(-10).map((message) => ({
+              author: message.author,
+              occurredAt: message.occurredAt,
+              content: message.content.slice(0, 4000),
+            })),
+          },
+        }
+      : {}),
     analysis: notification.analysis,
   });
 }

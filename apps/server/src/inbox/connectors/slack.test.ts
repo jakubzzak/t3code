@@ -1,5 +1,32 @@
 import { describe, expect, it } from "vite-plus/test";
 import { readSlackInbox } from "./slack.ts";
+it("loads a parent thread identified by reply_count even without thread_ts", async () => {
+  const root = {
+    ts: "1792620000.000000",
+    user: "Alex",
+    text: "Review the release",
+    reply_count: 1,
+    latest_reply: "1792620001.000000",
+  };
+  const items = await readSlackInbox(
+    async (method) => {
+      if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T1" };
+      if (method === "conversations.list")
+        return { ok: true, channels: [{ id: "D1", user: "Alex", is_im: true }] };
+      if (method === "conversations.history") return { ok: true, messages: [root] };
+      if (method === "conversations.replies")
+        return {
+          ok: true,
+          messages: [root, { ts: root.latest_reply, user: "Maya", text: "Screenshots are ready" }],
+        };
+      throw new Error(method);
+    },
+    ["dms"],
+    "2026-10-01T00:00:00Z",
+  );
+  expect(items[0]?.slackThread?.latestReplyTs).toBe(root.latest_reply);
+  expect(items[0]?.slackThread?.messages[0]?.content).toBe("Screenshots are ready");
+});
 describe("supported Slack intake", () => {
   it.each([null, undefined, ""])(
     "keeps bot search matches without a user ID (%s)",
@@ -175,7 +202,16 @@ it("reports incomplete thread context instead of presenting a truncated thread a
       if (method === "conversations.replies")
         return {
           ok: true,
-          messages: [{ ts: "1792620000", user: "Sam", text: "Start" }],
+          messages: [
+            {
+              ts: "1792620000",
+              user: "Sam",
+              text: "Start",
+              reply_count: 20,
+              latest_reply: "1792620002",
+            },
+            { ts: "1792620002", user: "Alex", text: "Please review" },
+          ],
           has_more: true,
           response_metadata: { next_cursor: "more" },
         };
@@ -349,13 +385,14 @@ it("stops mention pagination at the checkpoint without hydrating older matches",
             paging: { pages: 80 },
           },
         };
-      if (method === "conversations.replies") return { ok: true, messages: [] };
+      if (method === "conversations.replies")
+        return { ok: true, messages: [{ ts: args.ts, user: "Alex", text: "Root" }] };
       throw new Error(`Unnecessary old-message request: ${method}`);
     },
     ["mentions"],
     "2026-10-22T13:00:00.000Z",
   );
-  expect(items.map((item) => item.content)).toEqual(["New"]);
+  expect(items.map((item) => item.content.split("\n")[0])).toEqual(["New"]);
   expect(calls.filter(([method]) => method === "search.messages")).toEqual([
     [
       "search.messages",

@@ -14,6 +14,24 @@ export const InboxSource = Schema.Literals(["slack", "linear", "superhuman"]);
 export type InboxSource = typeof InboxSource.Type;
 export const InboxPlacement = Schema.Literals(["active", "delegated", "snoozed", "resolved"]);
 export type InboxPlacement = typeof InboxPlacement.Type;
+export const InboxSlackMessage = Schema.Struct({
+  ts: Schema.String,
+  author: Schema.String,
+  content: Schema.String,
+  formattedContent: Schema.String,
+  occurredAt: IsoDateTime,
+});
+export type InboxSlackMessage = typeof InboxSlackMessage.Type;
+export const InboxSlackThread = Schema.Struct({
+  channelId: Schema.String,
+  ts: Schema.String,
+  root: InboxSlackMessage,
+  latestReplyTs: Schema.NullOr(Schema.String),
+  replyCount: Schema.NullOr(NonNegativeInt),
+  messages: Schema.Array(InboxSlackMessage),
+  nextCursor: Schema.NullOr(Schema.String),
+});
+export type InboxSlackThread = typeof InboxSlackThread.Type;
 export const InboxSourceItem = Schema.Struct({
   id: TrimmedNonEmptyString,
   source: InboxSource,
@@ -26,6 +44,7 @@ export const InboxSourceItem = Schema.Struct({
   contentFormat: Schema.optionalKey(Schema.Literals(["text"])),
   formattedContent: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32000))),
   sourceContentHash: Schema.optionalKey(Schema.String),
+  slackThread: Schema.optionalKey(InboxSlackThread),
   url: Schema.String,
   occurredAt: IsoDateTime,
 });
@@ -60,6 +79,7 @@ export const InboxNotification = Schema.Struct({
   source: InboxSource,
   connectionId: TrimmedNonEmptyString,
   groupId: TrimmedNonEmptyString,
+  slackThread: Schema.optionalKey(InboxSlackThread),
   revision: NonNegativeInt,
   state: InboxState,
   items: Schema.Array(InboxSourceItem),
@@ -199,3 +219,10 @@ export const LINEAR_INBOX_CATEGORIES = [
   "system",
   "triage",
 ] as const;
+
+export const InboxGetInput = Schema.Struct({
+  projectId: ProjectId,
+  id: Schema.String,
+  loadPreviousComments: Schema.optionalKey(Schema.Boolean),
+});
+export type InboxGetInput = typeof InboxGetInput.Type;

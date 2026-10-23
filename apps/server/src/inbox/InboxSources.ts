@@ -19,6 +19,9 @@ import {
   InboxSourceConnection,
   type InboxSourceConfigureInput,
   type InboxSource,
+  type InboxGetInput,
+  type InboxNotification,
+  type InboxSlackThread,
   ProjectId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -51,6 +54,7 @@ const iso = (millis: number) => DateTime.formatIso(DateTime.makeUnsafe(millis));
 export class InboxSources extends Context.Service<
   InboxSources,
   {
+    readonly get: (input: InboxGetInput) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly beginSlack: (
       projectId: ProjectId,
       origin: string,
@@ -383,7 +387,57 @@ export const make = Effect.gen(function* () {
     }
   }).pipe(Effect.catch(() => Effect.logWarning("Inbox sources could not be refreshed.")));
   yield* poll.pipe(Effect.repeat(Schedule.spaced("15 seconds")), Effect.forkIn(scope));
+  const get = (input: InboxGetInput) =>
+    Effect.gen(function* () {
+      const item = yield* inbox.get(input);
+      if (!item || item.source !== "slack" || !/^[CDG][A-Z0-9]+:\d+(?:\.\d+)?$/.test(item.groupId))
+        return item;
+      if (item.slackThread && (!input.loadPreviousComments || !item.slackThread.nextCursor))
+        return item;
+      return yield* lock({ projectId: input.projectId, source: "slack" })(
+        Effect.gen(function* () {
+          let current = yield* inbox.get(input);
+          if (!current) return null;
+          if (
+            current.slackThread &&
+            (!input.loadPreviousComments || !current.slackThread.nextCursor)
+          )
+            return current;
+          const [channelId, ts] = current.groupId.split(":");
+          const token = yield* slack.accessToken(input.projectId);
+          const seen = new Set<string>();
+          let pages = 0;
+          while (
+            !current.slackThread ||
+            (input.loadPreviousComments && current.slackThread.nextCursor)
+          ) {
+            const cursor = current.slackThread?.nextCursor;
+            if ((cursor && seen.has(cursor)) || pages++ >= 100)
+              return yield* Effect.fail(
+                new InboxError({
+                  detail: "Thread history is too large to load at once. Open the original thread.",
+                }),
+              );
+            if (cursor) seen.add(cursor);
+            const thread: InboxSlackThread = yield* transport.readThread(
+              token,
+              channelId!,
+              ts!,
+              current.slackThread,
+            );
+            current = yield* inbox.cacheSlackThread({
+              projectId: input.projectId,
+              id: input.id,
+              thread,
+            });
+            if (!current) return null;
+          }
+          return current;
+        }),
+      );
+    });
   return InboxSources.of({
+    get,
     list,
     configure,
     disconnect,

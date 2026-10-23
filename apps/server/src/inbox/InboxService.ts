@@ -15,6 +15,7 @@ import {
   type InboxMutationResult,
   type InboxNotification,
   type InboxSourceItem,
+  type InboxSlackThread,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -24,7 +25,12 @@ import * as InboxRepository from "./InboxRepository.ts";
 import * as InboxAnalysis from "./InboxAnalysis.ts";
 import * as InboxAgent from "./InboxAgent.ts";
 import { readableInboxItem, readableNotification } from "./notificationContent.ts";
-import { inboxIdentity, ingestInboxItem, restoreInboxState } from "./inboxState.ts";
+import {
+  inboxIdentity,
+  ingestInboxItem,
+  restoreInboxState,
+  mergeSlackThread,
+} from "./inboxState.ts";
 
 export class InboxService extends Context.Service<
   InboxService,
@@ -38,6 +44,11 @@ export class InboxService extends Context.Service<
     readonly get: (input: {
       projectId: ProjectId;
       id: string;
+    }) => Effect.Effect<InboxNotification | null, InboxError>;
+    readonly cacheSlackThread: (input: {
+      projectId: ProjectId;
+      id: string;
+      thread: InboxSlackThread;
     }) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly ingest: (
       projectId: ProjectId,
@@ -503,11 +514,12 @@ const make = Effect.gen(function* () {
             const next = yield* reconcile(item);
             if (config.inboxSummaryEnabled && !next.analysis && !next.processingError) continue;
             // List responses are bounded previews. Expanded rows fetch their full detail separately.
+            const { slackThread: _thread, ...preview } = next;
             result.push({
-              ...next,
+              ...preview,
               items: next.items
                 .slice(-1)
-                .map(({ formattedContent: _formattedContent, ...entry }) => ({
+                .map(({ formattedContent: _formattedContent, slackThread: _thread, ...entry }) => ({
                   ...entry,
                   content: entry.content.slice(0, 320),
                 })),
@@ -532,6 +544,32 @@ const make = Effect.gen(function* () {
           Effect.andThen(repository.get(input.projectId, input.id)),
           Effect.flatMap((item) => (item ? reconcile(item) : Effect.succeed(null))),
         ),
+      ),
+    cacheSlackThread: (input) =>
+      mutex.withPermits(1)(
+        Effect.gen(function* () {
+          yield* requireEnabled(input.projectId);
+          const current = yield* repository.get(input.projectId, input.id);
+          if (!current || current.source !== "slack") return null;
+          const key = `${input.thread.channelId}:${input.thread.ts}`;
+          if (current.groupId !== key)
+            return yield* Effect.fail(
+              new InboxError({ detail: "This thread does not belong to this notification." }),
+            );
+          // Hydration/history does not mark unread, clear analysis, or change triage state.
+          if (
+            current.slackThread?.latestReplyTs &&
+            input.thread.latestReplyTs &&
+            Number(current.slackThread.latestReplyTs) > Number(input.thread.latestReplyTs)
+          )
+            return current;
+          const next = {
+            ...current,
+            slackThread: mergeSlackThread(current.slackThread, input.thread),
+          };
+          yield* repository.put(next);
+          return next;
+        }),
       ),
     ingest: (projectId, items) =>
       mutex

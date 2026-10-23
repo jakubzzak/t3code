@@ -50,6 +50,34 @@ it("cleans email before bounding model/delegation context, preserving the reques
   expect(context.items[0].truncated).toBe(false);
   expect(inboxContext(notification)).not.toContain("tracking");
 });
+it("tells the agent how much Slack history is absent from a partial thread", () => {
+  const message = {
+    ts: "1792620000",
+    author: "Alex",
+    content: "Review the release",
+    formattedContent: "Review the release",
+    occurredAt: "2026-10-22T10:00:00Z",
+  };
+  const context = JSON.parse(
+    inboxContext({
+      ...notification,
+      slackThread: {
+        channelId: "C1",
+        ts: message.ts,
+        root: message,
+        latestReplyTs: "1792620002",
+        replyCount: 20,
+        messages: [
+          { ...message, ts: "1792620001" },
+          { ...message, ts: "1792620002" },
+        ],
+        nextCursor: "older",
+      },
+    }),
+  );
+  expect(context.slackThread.messages).toHaveLength(2);
+  expect(context.slackThread.omittedEarlierMessages).toBe(18);
+});
 it("preserves literal HTML examples already marked as plain text and leaves Linear source bodies untouched", () => {
   const text = {
     ...notification,

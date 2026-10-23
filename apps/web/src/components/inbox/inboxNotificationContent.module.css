@@ -51,3 +51,107 @@
 .linearMarkdown hr {
   border-color: var(--border);
 }
+.slackContent {
+  padding-block: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.65;
+}
+.slackSection {
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  padding-top: 0.75rem;
+}
+.slackSection + .slackSection {
+  margin-top: 1rem;
+}
+.slackLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.625rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+.slackLabel > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.previousComments {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.625rem;
+  padding-block: 0.125rem 0.75rem;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.previousComments::before,
+.previousComments::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+.previousComments:hover {
+  color: var(--foreground);
+}
+.previousComments:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.previousComments:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+.slackTimeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.slackReply {
+  position: relative;
+  padding-inline-start: 1.625rem;
+  padding-bottom: 0.875rem;
+}
+.slackReply:last-child {
+  padding-bottom: 0;
+}
+.slackReply:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0.5rem;
+  top: 1.25rem;
+  bottom: 0.125rem;
+  width: 1px;
+  background: var(--border);
+}
+.slackAvatar {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.125rem;
+  display: grid;
+  place-items: center;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  border-radius: 50%;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.5rem;
+  font-weight: 600;
+}
+.slackAuthor {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  margin-bottom: 0.1875rem;
+}
+.slackAuthor > span {
+  font-weight: 600;
+}
+.slackAuthor time {
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+}

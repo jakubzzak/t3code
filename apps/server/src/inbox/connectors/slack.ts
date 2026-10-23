@@ -1,26 +1,10 @@
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
+import { Message, History, messageText } from "./slackMessages.ts";
+import { readSlackThread } from "./slackThread.ts";
 import { readableSlackItem } from "../notificationContent.ts";
 import type { InboxSourceItem } from "@t3tools/contracts";
 
-const Message = Schema.Struct({
-  ts: Schema.String,
-  text: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  user: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  username: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  bot_profile: Schema.optionalKey(Schema.NullOr(Schema.Struct({ name: Schema.String }))),
-  thread_ts: Schema.optionalKey(Schema.String),
-  blocks: Schema.optionalKey(Schema.Array(Schema.Unknown)),
-  attachments: Schema.optionalKey(Schema.Array(Schema.Unknown)),
-});
-const History = Schema.Struct({
-  ok: Schema.Boolean,
-  messages: Schema.optionalKey(Schema.Array(Message)),
-  has_more: Schema.optionalKey(Schema.Boolean),
-  response_metadata: Schema.optionalKey(
-    Schema.Struct({ next_cursor: Schema.optionalKey(Schema.String) }),
-  ),
-});
 const Conversations = Schema.Struct({
   ok: Schema.Boolean,
   channels: Schema.optionalKey(
@@ -100,49 +84,6 @@ export const SLACK_READ_METHODS = new Set([
   "usergroups.list",
 ]);
 
-/** Text-bearing Block Kit fields only; never fetch files, images, unfurls or remote HTML. */
-function blockText(value: unknown, depth = 0): string {
-  if (depth > 8 || value === null || typeof value !== "object")
-    return typeof value === "string" ? value : "";
-  if (Array.isArray(value))
-    return value
-      .map((entry) => blockText(entry, depth + 1))
-      .filter(Boolean)
-      .join("\n");
-  const node = value as Record<string, unknown>;
-  if (node.type === "user" && typeof node.user_id === "string") return `<@${node.user_id}>`;
-  if (node.type === "usergroup" && typeof node.usergroup_id === "string")
-    return `<!subteam^${node.usergroup_id}>`;
-  if (node.type === "channel" && typeof node.channel_id === "string")
-    return `<#${node.channel_id}>`;
-  if (node.type === "emoji" && typeof node.name === "string") return `:${node.name}:`;
-  if (node.type === "link" && typeof node.url === "string")
-    return `<${node.url}|${typeof node.text === "string" ? node.text : node.url}>`;
-  if (Array.isArray(node.elements)) {
-    const body = node.elements
-      .map((entry) => blockText(entry, depth + 1))
-      .filter(Boolean)
-      .join(node.type === "rich_text_section" ? "" : "\n");
-    return node.type === "rich_text_preformatted" ? `\`\`\`\n${body}\n\`\`\`` : body;
-  }
-  const title =
-    typeof node.title === "string"
-      ? typeof node.title_link === "string"
-        ? `<${node.title_link}|${node.title}>`
-        : node.title
-      : "";
-  return [node.pretext, title, node.text ?? node.value ?? node.fallback, node.fields]
-    .map((entry) => blockText(entry, depth + 1))
-    .filter(Boolean)
-    .join("\n");
-}
-function messageText(message: typeof Message.Type) {
-  const main = message.text?.trim() ? message.text : blockText(message.blocks);
-  const attachments = blockText(message.attachments);
-  return [main, attachments && !main.includes(attachments) ? attachments : ""]
-    .filter(Boolean)
-    .join("\n\n");
-}
 /** Only documented read methods. Current Saved/To-dos are deliberately absent. */
 export async function readSlackInbox(
   read: SlackRead,
@@ -154,7 +95,13 @@ export async function readSlackInbox(
   const items = new Map<string, InboxSourceItem>();
   let groups: Promise<typeof Groups.Type> | undefined;
   const getGroups = () =>
-    (groups ??= read("usergroups.list", { include_users: "true" }).then(decodeGroups));
+    (groups ??= read("usergroups.list", { include_users: "true" })
+      .then(decodeGroups)
+      .then((result) => {
+        for (const group of result.usergroups)
+          names.groups[group.id] = group.handle || group.name || group.id;
+        return result;
+      }));
   const names: { users: Record<string, string>; groups: Record<string, string> } = {
     users: {},
     groups: {},
@@ -162,6 +109,7 @@ export async function readSlackInbox(
   const profiles = new Map<string, Promise<string>>();
   let profilesAvailable = true;
   const displayName = (id: string): Promise<string> => {
+    if (names.users[id]) return Promise.resolve(names.users[id]!);
     if (!/^[UW][A-Z0-9]+$/.test(id) || !profilesAvailable) return Promise.resolve(id);
     let profile = profiles.get(id);
     if (!profile) {
@@ -195,15 +143,20 @@ export async function readSlackInbox(
     channel: string,
     location: string,
     message: typeof Message.Type,
-    context: string,
+    thread: Awaited<ReturnType<typeof readSlackThread>> | undefined,
     url?: string,
   ) => {
     if (message.user === identity.user_id) return;
     const id = `${channel}:${message.ts}`;
-    const raw = `${messageText(message)}${context ? `\n\nThread context:\n${context}` : ""}`.slice(
-      0,
-      32000,
-    );
+    const context = (thread ? [thread.root, ...thread.messages] : [])
+      .filter((entry) => entry.ts !== message.ts)
+      .map((entry) => `${entry.author}: ${entry.content}`)
+      .join("\n");
+    const raw =
+      `${messageText(message)}${context ? `\n\nThread context:\n${context}${thread?.nextCursor ? "\n[Additional thread messages omitted; open the original for the complete thread.]" : ""}` : ""}`.slice(
+        0,
+        32000,
+      );
     const people = new Set(
       [...raw.matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]+)?>|(?:^|\n)([UW][A-Z0-9]+):/g)].map(
         (match) => match[1] || match[2]!,
@@ -214,42 +167,59 @@ export async function readSlackInbox(
     if (raw.includes("<!subteam^"))
       for (const group of (await getGroups()).usergroups)
         names.groups[group.id] = group.handle || group.name || group.id;
-    items.set(
-      id,
-      readableSlackItem(
-        {
-          id,
-          source: "slack",
-          connectionId: `${identity.team_id}:${identity.user_id}`,
-          groupId: `${channel}:${message.thread_ts ?? message.ts}`,
-          location,
-          title: (message.text ?? "Slack notification").split("\n")[0]!.slice(0, 250),
-          author:
-            (message.user && names.users[message.user]) ||
-            message.username ||
-            message.bot_profile?.name ||
-            message.user ||
-            "Slack",
-          content: raw,
-          url:
-            url ??
-            `https://app.slack.com/client/${identity.team_id}/${channel}/thread/${channel}-${message.thread_ts ?? message.ts}`,
-          occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
+    const formatted = readableSlackItem(
+      {
+        id,
+        source: "slack",
+        connectionId: `${identity.team_id}:${identity.user_id}`,
+        groupId: `${channel}:${message.thread_ts ?? message.ts}`,
+        location,
+        title: (message.text ?? "Slack notification").split("\n")[0]!.slice(0, 250),
+        author:
+          (message.user && names.users[message.user]) ||
+          message.username ||
+          message.bot_profile?.name ||
+          message.user ||
+          "Slack",
+        content: raw,
+        ...(thread ? { slackThread: thread } : {}),
+        url:
+          url ??
+          `https://app.slack.com/client/${identity.team_id}/${channel}/thread/${channel}-${message.thread_ts ?? message.ts}`,
+        occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
+      },
+      names,
+    );
+    items.set(id, {
+      ...formatted,
+      slackThread: thread ?? {
+        channelId: channel,
+        ts: message.ts,
+        root: {
+          ts: message.ts,
+          author: formatted.author,
+          content: formatted.content,
+          formattedContent: formatted.formattedContent!,
+          occurredAt: formatted.occurredAt,
         },
-        names,
-      ),
-    );
+        latestReplyTs: null,
+        replyCount: 0,
+        messages: [],
+        nextCursor: null,
+      },
+    });
   };
-  const contextFor = async (channel: string, message: typeof Message.Type) => {
-    if (!message.thread_ts) return "";
-    const response = decodeHistory(
-      await read("conversations.replies", { channel, ts: message.thread_ts, limit: "15" }),
-    );
-    const context = (response.messages ?? [])
-      .filter((entry) => entry.ts !== message.ts)
-      .map((entry) => `${entry.user || entry.username || "Slack"}: ${messageText(entry)}`)
-      .join("\n");
-    return `${context}${response.has_more || response.response_metadata?.next_cursor ? "\n[Additional thread messages omitted; open the original for the complete thread.]" : ""}`;
+  const threads = new Map<string, Promise<Awaited<ReturnType<typeof readSlackThread>>>>();
+  const contextFor = (channel: string, message: typeof Message.Type) => {
+    const ts = message.thread_ts ?? (message.reply_count ? message.ts : undefined);
+    if (!ts) return Promise.resolve(undefined);
+    const key = `${channel}:${ts}`;
+    let thread = threads.get(key);
+    if (!thread) {
+      thread = readSlackThread(read, channel, ts, undefined, names);
+      threads.set(key, thread);
+    }
+    return thread;
   };
   if (categories.includes("dms")) {
     let cursor = "";

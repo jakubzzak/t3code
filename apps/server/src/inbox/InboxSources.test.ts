@@ -13,8 +13,14 @@ import * as Ref from "effect/Ref";
 import * as Fiber from "effect/Fiber";
 import * as Deferred from "effect/Deferred";
 import * as TestClock from "effect/testing/TestClock";
-import { InboxError, ProjectId, type InboxSourceItem } from "@t3tools/contracts";
+import {
+  InboxError,
+  ProjectId,
+  type InboxSourceItem,
+  type InboxNotification,
+} from "@t3tools/contracts";
 import * as Sources from "./InboxSources.ts";
+import { ingestInboxItem } from "./inboxState.ts";
 import * as Transport from "./InboxSourceTransport.ts";
 import * as Inbox from "./InboxService.ts";
 import * as Secrets from "../auth/ServerSecretStore.ts";
@@ -59,7 +65,39 @@ it.effect(
           }),
         getOrCreateRandom: () => Effect.die("Not used in this test"),
       });
+      let threadNotification: InboxNotification | null = null;
+      const threadReads: string[] = [];
+      let failThread = true;
+      const msg = (ts: string) => ({
+        ts,
+        author: "Alex",
+        content: "Message",
+        formattedContent: "Message",
+        occurredAt: "2026-10-22T10:00:00Z",
+      });
       const transport = Transport.InboxSourceTransport.of({
+        readThread: (_token, channelId, ts, cached) =>
+          Effect.gen(function* () {
+            const cursor = cached?.nextCursor ?? "initial";
+            threadReads.push(cursor);
+            if (cursor === "page3" && failThread)
+              return yield* new InboxError({ detail: "Slack rate limit" });
+            if (!cached)
+              return {
+                channelId,
+                ts,
+                root: msg(ts),
+                latestReplyTs: "4",
+                replyCount: 3,
+                messages: [msg("4")],
+                nextCursor: "page2",
+              };
+            return {
+              ...cached,
+              messages: [...cached.messages, msg(cursor === "page2" ? "2" : "3")],
+              nextCursor: cursor === "page2" ? "page3" : null,
+            };
+          }),
         read: (connection, _token, since) =>
           Effect.gen(function* () {
             boundaries.push(since);
@@ -81,8 +119,15 @@ it.effect(
           }),
       });
       const inbox = Inbox.InboxService.of({
+        cacheSlackThread: (input) =>
+          Effect.sync(() => {
+            threadNotification = threadNotification
+              ? { ...threadNotification, slackThread: input.thread }
+              : null;
+            return threadNotification;
+          }),
         list: () => Effect.succeed([]),
-        get: () => Effect.succeed(null),
+        get: () => Effect.succeed(threadNotification),
         mutate: () => Effect.die("Not used"),
         drain: Effect.void,
         drainAnalysis: Effect.void,
@@ -222,6 +267,35 @@ it.effect(
         const synced = yield* service.refresh(input);
         assert.ok(synced.lastSyncAt);
         assert.equal(yield* Ref.get(ingested), 1);
+        threadNotification = ingestInboxItem(projectId, {
+          id: "thread",
+          source: "slack",
+          connectionId: "team",
+          groupId: "C1:1",
+          location: "DM",
+          title: "Root",
+          author: "Alex",
+          content: "Root",
+          contentFormat: "text",
+          url: "https://slack.com",
+          occurredAt: "2026-10-22T10:00:00Z",
+        });
+        const threadId = threadNotification.id;
+        yield* service.get({ projectId, id: threadId });
+        assert.deepEqual(threadReads, ["initial"]);
+        assert.equal(
+          (yield* Effect.result(
+            service.get({ projectId, id: threadId, loadPreviousComments: true }),
+          ))._tag,
+          "Failure",
+        );
+        assert.equal(threadNotification.slackThread?.nextCursor, "page3");
+        failThread = false;
+        yield* service.get({ projectId, id: threadId, loadPreviousComments: true });
+        yield* service.get({ projectId, id: threadId, loadPreviousComments: true });
+        assert.deepEqual(threadReads, ["initial", "page2", "page3", "page3"]);
+        assert.equal(threadNotification.slackThread?.nextCursor, null);
+        threadNotification = null;
         assert.equal(yield* Ref.get(calls), 1);
         yield* settings.updateSettings({
           projectSettingsOverrides: { [projectId]: { inboxEnabled: false } },

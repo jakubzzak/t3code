@@ -91,3 +91,35 @@ it("name enrichment repairs a Slack message without reopening it or marking it u
   expect(enriched.analysisAttempts).toBe(0);
   expect(enriched.processingError).toBeNull();
 });
+
+it("keeps cached history and its page cursor when intake repeats the same Slack snapshot", () => {
+  const msg = (ts: string) => ({
+    ts,
+    author: "Alex",
+    content: "Message",
+    formattedContent: "Message",
+    occurredAt: message.occurredAt,
+  });
+  const thread = {
+    channelId: "C1",
+    ts: "123",
+    root: msg("123"),
+    latestReplyTs: "140",
+    replyCount: 20,
+    messages: [msg("124"), msg("140")],
+    nextCursor: "first",
+  };
+  const incoming = { ...message, slackThread: thread };
+  const first = ingestInboxItem(project, incoming);
+  const cached = {
+    ...first,
+    state: { ...first.state, read: true },
+    slackThread: {
+      ...thread,
+      messages: [msg("124"), msg("125"), msg("140")],
+      nextCursor: "second",
+    },
+  };
+  expect(ingestInboxItem(project, incoming, cached)).toBe(cached);
+  expect(cached.slackThread.nextCursor).toBe("second");
+});

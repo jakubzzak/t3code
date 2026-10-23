@@ -544,3 +544,54 @@ it.effect(
       }).pipe(Effect.provide(fixture.layer));
     }),
 );
+
+it.effect(
+  "persists Slack thread history without changing triage or analysis and omits it from list previews",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const repository = yield* Repository.InboxRepository;
+        const slackItem = {
+          ...item,
+          source: "slack" as const,
+          groupId: "C1:1700000000",
+          contentFormat: "text" as const,
+        };
+        const original = {
+          ...ingestInboxItem(projectId, slackItem),
+          state: {
+            read: true,
+            placement: "snoozed" as const,
+            snoozedUntil: "2099-01-01T00:00:00Z",
+            threadId: null,
+          },
+        };
+        yield* repository.put(original);
+        const message = {
+          ts: "1700000000",
+          author: "Alex",
+          content: "Root",
+          formattedContent: "Root",
+          occurredAt: "2026-10-22T10:00:00Z",
+        };
+        const thread = {
+          channelId: "C1",
+          ts: message.ts,
+          root: message,
+          latestReplyTs: null,
+          replyCount: 0,
+          messages: [],
+          nextCursor: null,
+        };
+        const cached = yield* service.cacheSlackThread({ projectId, id: original.id, thread });
+        assert.deepEqual(cached?.state, original.state);
+        assert.equal(cached?.revision, original.revision);
+        assert.deepEqual(cached?.analysis, original.analysis);
+        assert.equal(cached?.analysisVersion, original.analysisVersion);
+        assert.deepEqual((yield* service.get({ projectId, id: original.id }))?.slackThread, thread);
+        assert.equal((yield* service.list({ projectId }))[0]?.slackThread, undefined);
+      }).pipe(Effect.provide(fixture.layer));
+    }).pipe(Effect.scoped),
+);

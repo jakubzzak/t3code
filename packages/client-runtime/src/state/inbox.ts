@@ -76,6 +76,10 @@ export function createInboxEnvironmentAtoms<R, E>(
       tag: WS_METHODS.inboxGet,
       staleTimeMs: 5_000,
     }),
+    loadPreviousComments: createEnvironmentRpcCommand(runtime, {
+      label: "inbox:loadPreviousComments",
+      tag: WS_METHODS.inboxGet,
+    }),
     mutate: createEnvironmentRpcCommand(runtime, {
       label: "inbox:mutate",
       tag: WS_METHODS.inboxMutate,

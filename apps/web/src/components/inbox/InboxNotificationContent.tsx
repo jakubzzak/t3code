@@ -1,9 +1,23 @@
-import { createContext, useContext, useMemo, type ComponentProps, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { find } from "linkifyjs";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { slackLinkUrl } from "@t3tools/shared/slackText";
-import type { InboxNotification, ScopedThreadRef } from "@t3tools/contracts";
+import { useClientSettings } from "~/hooks/useSettings";
+import { formatCompactTimestamp, formatChatTimestampTooltip } from "~/timestampFormat";
+import type {
+  InboxNotification,
+  ScopedThreadRef,
+  InboxSlackThread,
+  InboxSlackMessage,
+} from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
 import { ArrowUpRightIcon, SparklesIcon } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
@@ -185,14 +199,173 @@ export function InboxSummary({
   );
 }
 
+function SlackMessageBody({ message }: { message: InboxSlackMessage }) {
+  return (
+    <div className="space-y-2 whitespace-pre-wrap break-words [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
+      <ReactMarkdown
+        skipHtml
+        remarkPlugins={inboxMarkdownPlugins}
+        allowedElements={[
+          "p",
+          "a",
+          "strong",
+          "em",
+          "del",
+          "code",
+          "pre",
+          "blockquote",
+          "ul",
+          "ol",
+          "li",
+          "br",
+        ]}
+        unwrapDisallowed
+        urlTransform={(url) => slackLinkUrl(url) ?? ""}
+        components={inboxMarkdownComponents}
+      >
+        {message.formattedContent}
+      </ReactMarkdown>
+    </div>
+  );
+}
+function SlackThreadContent({
+  thread: initial,
+  onLoadPrevious,
+  sourceAuthor,
+}: {
+  sourceAuthor?: string | undefined;
+  thread: InboxSlackThread;
+  onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
+}) {
+  const [loaded, setLoaded] = useState<InboxSlackThread | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const thread = loaded ?? initial;
+  const replies = thread.messages.filter((message) => message.ts !== thread.ts);
+  const latest = replies.find((message) => message.ts === thread.latestReplyTs);
+  const older = replies.filter((message) => message.ts !== latest?.ts);
+  const hasPrevious =
+    older.length > 0 ||
+    !!thread.nextCursor ||
+    (thread.replyCount !== null && thread.replyCount > 1);
+  async function toggle() {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    if (!thread.nextCursor) {
+      setExpanded(true);
+      return;
+    }
+    if (!onLoadPrevious || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      setLoaded(await onLoadPrevious());
+      setExpanded(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load previous comments.");
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <div className={styles.slackContent}>
+      <section aria-label="Original message" className={styles.slackSection}>
+        <div className={styles.slackLabel}>
+          Original message{" "}
+          {thread.root.author !== sourceAuthor && <span>{thread.root.author}</span>}
+        </div>
+        <SlackMessageBody message={thread.root} />
+      </section>
+      {latest && (
+        <section aria-label="Thread" className={styles.slackSection}>
+          <div className={styles.slackLabel}>
+            Thread{" "}
+            {thread.replyCount !== null && (
+              <span>
+                {thread.replyCount} {thread.replyCount === 1 ? "reply" : "replies"}
+              </span>
+            )}
+          </div>
+          {hasPrevious && (
+            <button
+              type="button"
+              className={styles.previousComments}
+              onClick={() => void toggle()}
+              disabled={pending || (!!thread.nextCursor && !onLoadPrevious)}
+              aria-expanded={expanded}
+            >
+              {pending
+                ? "Loading previous comments…"
+                : error
+                  ? "Retry loading previous comments"
+                  : expanded
+                    ? "Hide previous comments"
+                    : "Load previous comments"}
+            </button>
+          )}
+          {error && (
+            <p role="alert" className="mb-3 text-2xs text-destructive">
+              {error}
+            </p>
+          )}
+          <ol className={styles.slackTimeline}>
+            {(expanded ? [...older, latest] : [latest]).map((message) => (
+              <li key={message.ts} data-slack-reply={message.ts} className={styles.slackReply}>
+                <span aria-hidden className={styles.slackAvatar}>
+                  {message.author
+                    .split(/\s+/)
+                    .slice(0, 2)
+                    .map((name) => name[0])
+                    .join("")}
+                </span>
+                <div className={styles.slackAuthor}>
+                  <span>{message.author}</span>
+                  <Tooltip>
+                    <TooltipTrigger render={<time dateTime={message.occurredAt} />}>
+                      {formatCompactTimestamp(message.occurredAt, timestampFormat)}
+                    </TooltipTrigger>
+                    <TooltipPopup>
+                      {formatChatTimestampTooltip(message.occurredAt, timestampFormat)}
+                    </TooltipPopup>
+                  </Tooltip>
+                </div>
+                <SlackMessageBody message={message} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+    </div>
+  );
+}
+
 export function InboxSourceContent({
   notification,
   threadRef,
+  onLoadPrevious,
 }: {
   notification: InboxNotification;
   threadRef?: ScopedThreadRef | null | undefined;
+  onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
 }) {
   const openLink = useInboxLink(threadRef);
+  if (notification.source === "slack" && notification.slackThread) {
+    const thread = notification.slackThread;
+    return (
+      <InboxLinkContext value={openLink}>
+        <SlackThreadContent
+          key={`${notification.id}:${thread.ts}:${thread.latestReplyTs}`}
+          thread={thread}
+          sourceAuthor={notification.items.at(-1)?.author}
+          onLoadPrevious={onLoadPrevious}
+        />
+      </InboxLinkContext>
+    );
+  }
   return (
     <InboxLinkContext value={openLink}>
       <div className="space-y-3 py-2 text-xs leading-relaxed">

@@ -22,6 +22,8 @@ const state = vi.hoisted(() => ({
   toast: vi.fn(),
 }));
 vi.mock("~/hooks/useSettings", () => ({
+  useClientSettings: (select: (settings: { timestampFormat: "locale" }) => unknown) =>
+    select({ timestampFormat: "locale" }),
   ensureClientSettingsHydrated: async () => {},
   getClientSettings: () => ({ browserLinkTarget: state.preference }),
 }));
@@ -383,4 +385,93 @@ it("keeps Linear Markdown HTML and unsafe destinations inert", async () => {
   expect(container.querySelector("a, img, script, iframe")).toBeNull();
   expect(container.textContent).toContain("Unsafe");
   expect(state.open).not.toHaveBeenCalled();
+});
+
+it("shows original and only the latest Slack reply until cached history is expanded", async () => {
+  const message = (ts: string, author: string, content: string) => ({
+    ts,
+    author,
+    content,
+    formattedContent: content,
+    occurredAt: "2026-10-22T10:00:00Z",
+  });
+  const slackThread = {
+    channelId: "C1",
+    ts: "1",
+    root: message("1", "Alex", "Original request"),
+    latestReplyTs: "4",
+    replyCount: 3,
+    messages: [
+      message("2", "You", "First reply"),
+      message("3", "Alex", "Second reply"),
+      message("4", "You", "Last reply\nSecond line"),
+    ],
+    nextCursor: null,
+  };
+  const load = vi.fn();
+  await act(async () =>
+    root.render(
+      <InboxSourceContent notification={{ ...notification, slackThread }} onLoadPrevious={load} />,
+    ),
+  );
+  expect(container.textContent).toContain("Original request");
+  expect(container.textContent).toContain("Last reply");
+  expect(container.textContent).not.toContain("First reply");
+  const button = [...container.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("Load previous comments"),
+  );
+  expect(button).toBeDefined();
+  await act(async () => button!.click());
+  expect(container.textContent).toContain("First reply");
+  expect(load).not.toHaveBeenCalled();
+  expect(
+    [...container.querySelectorAll("[data-slack-reply]")].map((row) =>
+      row.getAttribute("data-slack-reply"),
+    ),
+  ).toEqual(["2", "3", "4"]);
+});
+
+it("keeps the latest reply visible on history failure, then loads missing comments once on retry", async () => {
+  const msg = (ts: string, content: string) => ({
+    ts,
+    author: "Alex",
+    content,
+    formattedContent: content,
+    occurredAt: "2026-10-22T10:00:00Z",
+  });
+  const thread = {
+    channelId: "C1",
+    ts: "1",
+    root: msg("1", "Original"),
+    latestReplyTs: "4",
+    replyCount: 3,
+    messages: [msg("4", "Last reply")],
+    nextCursor: "missing",
+  };
+  const load = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Slack rate limited. Try again."))
+    .mockResolvedValueOnce({
+      ...thread,
+      messages: [msg("2", "Earlier"), msg("3", "Middle"), msg("4", "Last reply")],
+      nextCursor: null,
+    });
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{ ...notification, slackThread: thread }}
+        onLoadPrevious={load}
+      />,
+    ),
+  );
+  const button = () => container.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  await act(async () => button().click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Slack rate limited");
+  expect(container.textContent).toContain("Last reply");
+  await act(async () => button().click());
+  expect(container.textContent).toContain("Earlier");
+  expect(container.textContent).toContain("Middle");
+  await act(async () => button().click());
+  await act(async () => button().click());
+  expect(load).toHaveBeenCalledTimes(2);
 });

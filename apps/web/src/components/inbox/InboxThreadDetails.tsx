@@ -15,6 +15,7 @@ import {
   InboxSummary,
 } from "./InboxNotificationContent";
 import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
+import { useLoadInboxThread } from "./useLoadInboxThread";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
@@ -26,6 +27,7 @@ export function InboxThreadDetails({
   environmentId: EnvironmentId;
   threadId: ThreadId;
 }) {
+  const loadThread = useLoadInboxThread();
   const threadRef = useMemo(() => ({ environmentId, threadId }), [environmentId, threadId]);
   const thread = useThreadShell({ environmentId, threadId });
   const config = useServerConfigs().get(environmentId);
@@ -90,7 +92,13 @@ export function InboxThreadDetails({
             Original message and context
           </summary>
           {detail.data ? (
-            <InboxSourceContent notification={detail.data} threadRef={threadRef} />
+            <InboxSourceContent
+              notification={detail.data}
+              threadRef={threadRef}
+              onLoadPrevious={() =>
+                loadThread(environmentId, detail.data!.projectId, detail.data!.id)
+              }
+            />
           ) : (
             <p className="py-2 text-muted-foreground">{detail.error ?? "Loading context…"}</p>
           )}

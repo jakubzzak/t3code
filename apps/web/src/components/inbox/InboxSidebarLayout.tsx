@@ -13,6 +13,7 @@ import {
   type InboxSource,
   type ScopedProjectRef,
   type ScopedThreadRef,
+  type InboxSlackThread,
   type EnvironmentId,
 } from "@t3tools/contracts";
 import { Atom, AsyncResult } from "effect/reactivity";
@@ -67,6 +68,8 @@ import {
   InboxSourceContent,
   InboxSummary,
 } from "./InboxNotificationContent";
+import { keepInboxRowVisible } from "./inboxFocusScroll";
+import { useLoadInboxThread } from "./useLoadInboxThread";
 import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
 import { isInboxInitialLoad, isInboxDetailCurrent, nextInboxFocusKey } from "./inboxPresentation";
 import styles from "./inboxSidebar.module.css";
@@ -113,6 +116,7 @@ export function InboxRow({
   pending,
   onFocus,
   onAction,
+  onLoadPrevious,
   threadRef,
 }: {
   entry: Entry;
@@ -120,9 +124,11 @@ export function InboxRow({
   hints: boolean;
   pending: boolean;
   threadRef?: ScopedThreadRef | null | undefined;
+  onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
   onFocus: () => void;
   onAction: (action: InboxMutation | "snooze-menu") => void;
 }) {
+  const rowRef = useRef<HTMLElement>(null);
   const { notification: n, environmentId } = entry;
   const config = useServerConfigs().get(environmentId);
   const settings = config ? resolveProjectSettings(config.settings, n.projectId).settings : null;
@@ -139,6 +145,11 @@ export function InboxRow({
   const item = n.items.at(-1);
   const fullDetail = isInboxDetailCurrent(n, detail.data) ? detail.data : null;
   const content = fullDetail ?? n;
+  const detailReady = fullDetail !== null;
+  useLayoutEffect(() => {
+    if (focused && rowRef.current) return keepInboxRowVisible(rowRef.current);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A late detail response can move a bottom-anchored row after focus.
+  }, [focused, detailReady]);
   const actions = [
     {
       label: n.state.threadId ? "Open linked agent chat" : "Agent",
@@ -174,6 +185,7 @@ export function InboxRow({
   ];
   return (
     <article
+      ref={rowRef}
       data-inbox-row={keyOf(entry)}
       tabIndex={focused ? 0 : -1}
       aria-label={`${n.state.read ? "Read" : "Unread"}: ${item?.title}`}
@@ -227,7 +239,11 @@ export function InboxRow({
       <div className={styles.details} data-open={focused} inert={!focused} aria-hidden={!focused}>
         <div>
           {fullDetail ? (
-            <InboxSourceContent notification={fullDetail} threadRef={threadRef} />
+            <InboxSourceContent
+              notification={fullDetail}
+              threadRef={threadRef}
+              onLoadPrevious={onLoadPrevious}
+            />
           ) : (
             <p className="py-2 text-xs text-muted-foreground">
               {detail.error ?? "Loading context…"}
@@ -317,6 +333,7 @@ export function InboxSidebarLayout({
   children: ReactNode;
 }) {
   const openLink = useInboxLink(threadRef);
+  const loadThread = useLoadInboxThread();
   const serverConfigs = useServerConfigs();
   const tab = useInboxNavigation((state) => state.tab);
   const revealId = useInboxNavigation((state) => state.revealId);
@@ -505,8 +522,7 @@ export function InboxSidebarLayout({
       ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
     ].find((element) => element.dataset.inboxRow === keyOf(entry));
     if (row) {
-      row.focus();
-      row.scrollIntoView({ block: "nearest" });
+      row.focus({ preventScroll: true });
       useInboxNavigation.setState({ revealId: null });
     }
   }, [revealId, entries]);
@@ -574,8 +590,7 @@ export function InboxSidebarLayout({
             if (nextEntry && row) {
               // The automatic read must leave settling as the next action undone by Cmd+Z.
               focus(nextEntry, false);
-              row.focus();
-              row.scrollIntoView({ block: "nearest" });
+              row.focus({ preventScroll: true });
             } else {
               focusedRef.current = null;
               setFocusedKey(null);
@@ -689,7 +704,7 @@ export function InboxSidebarLayout({
       const index = rows.findIndex((row) => row.dataset.inboxRow === focusedKey);
       rows[
         Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))
-      ]?.focus();
+      ]?.focus({ preventScroll: true });
       return;
     }
     if (!modifier) return;
@@ -950,6 +965,13 @@ export function InboxSidebarLayout({
                               <InboxRow
                                 key={keyOf(entry)}
                                 entry={entry}
+                                onLoadPrevious={() =>
+                                  loadThread(
+                                    entry.environmentId,
+                                    entry.notification.projectId,
+                                    entry.notification.id,
+                                  )
+                                }
                                 threadRef={threadRef}
                                 focused={focusedKey === keyOf(entry)}
                                 hints={hints}
