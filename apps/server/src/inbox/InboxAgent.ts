@@ -12,6 +12,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings, resolveNewThreadEnvMode } from "@t3tools/shared/projectSettings";
+import { inboxSuggestedPrompt } from "@t3tools/shared/inboxSuggestions";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -69,9 +70,13 @@ const make = Effect.gen(function* () {
           config.defaultModelSelection ??
           config.textGenerationModelSelection;
         const existing = yield* orchestrator.getThreadShell(threadId);
-        const prompt = config.inboxAgentPrompt.trim()
+        const instructions = config.inboxAgentPrompt.trim()
           ? config.inboxAgentPrompt
           : DEFAULT_SERVER_SETTINGS.inboxAgentPrompt;
+        const suggestion = inboxSuggestedPrompt(notification, config);
+        const prompt = suggestion
+          ? `${instructions}\n\nSuggested resolution:\n${suggestion}`
+          : instructions;
         // Replaying delivery must not create another turn. Preparation retries
         // reuse the durable run and workspace that the launch service owns.
         if (existing?.latestRunId) {

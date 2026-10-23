@@ -12,12 +12,17 @@ import {
 import { InboxSidebarLayout } from "./InboxSidebarLayout";
 import { installSectionNavigation } from "~/sectionNavigation";
 import { useInboxNavigation } from "./inboxNavigation";
+import { useComposerDraftStore } from "~/composerDraftStore";
+import { subscribeSnapShotComposerFocus } from "~/lib/desktopSnapShot";
 
 const state = vi.hoisted(() => ({
   items: [] as InboxNotification[],
   navigate: vi.fn(),
   wait: vi.fn(),
   mutate: vi.fn(),
+  read: vi.fn(),
+  summary: false,
+  resolutions: false,
 }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => ({ navigate: state.navigate }) }));
 vi.mock("~/state/entities", () => ({
@@ -25,7 +30,15 @@ vi.mock("~/state/entities", () => ({
     new Map([
       [
         "env",
-        { settings: { ...DEFAULT_SERVER_SETTINGS, inboxEnabled: true, inboxAgentEnabled: true } },
+        {
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            inboxEnabled: true,
+            inboxAgentEnabled: true,
+            inboxSummaryEnabled: state.summary,
+            inboxPreResolution: state.resolutions,
+          },
+        },
       ],
     ]),
   waitForThreadShell: (...args: unknown[]) => state.wait(...args),
@@ -48,6 +61,7 @@ vi.mock("@effect/atom-react", async () => {
 });
 vi.mock("~/rpc/atomRegistry", () => ({ appAtomRegistry: { get: () => true, refresh: vi.fn() } }));
 vi.mock("~/state/inbox", () => ({
+  readInboxNotification: (...args: unknown[]) => state.read(...args),
   inboxEnvironment: {
     list: () => null,
     sources: () => null,
@@ -134,7 +148,111 @@ afterEach(async () => {
   await act(async () => root.unmount());
   root = createRoot(container);
   vi.clearAllMocks();
+  state.summary = false;
+  state.resolutions = false;
+  useComposerDraftStore.getState().setPrompt({ environmentId, threadId }, "");
 });
+
+it.each([
+  { linked: false, savedDraft: "", summary: true, resolutions: true },
+  { linked: true, savedDraft: "", summary: true, resolutions: true },
+  { linked: true, savedDraft: "My own instructions", summary: true, resolutions: true },
+  { linked: true, savedDraft: "", summary: false, resolutions: true },
+  { linked: true, savedDraft: "", summary: true, resolutions: false },
+])(
+  "opens Agent chat with an editable suggestion while preserving user drafts: %o",
+  async ({ linked, savedDraft, summary, resolutions }) => {
+    state.summary = summary;
+    state.resolutions = resolutions;
+    const analysis = {
+      summary: "Review release",
+      description: "Review",
+      suggestions: ["Check the release notes.", "Confirm the result with Alex."],
+      precedentIds: [],
+      modelSelection: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+      generatedAt: "2026-10-23T10:00:00Z",
+    };
+    const detail = {
+      ...notification,
+      analysis,
+      state: { ...notification.state, placement: "delegated" as const, threadId },
+    };
+    state.items = [
+      {
+        ...notification,
+        analysis: { ...analysis, suggestions: [] },
+        state: { ...notification.state, threadId: linked ? threadId : null },
+      },
+    ];
+    state.read.mockResolvedValue(detail);
+    state.wait.mockResolvedValue(true);
+    state.mutate.mockResolvedValue({
+      _tag: "Success",
+      value: { notification: detail, openThread: true, undoCommandId: null },
+    });
+    useComposerDraftStore.getState().setPrompt({ environmentId, threadId }, savedDraft);
+    useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+    await act(async () =>
+      root.render(
+        <>
+          <InboxSidebarLayout
+            projects={[{ environmentId, projectId }]}
+            threadRef={null}
+            chatCount={0}
+            chatHeader={null}
+          >
+            <div>Current chat</div>
+          </InboxSidebarLayout>
+          <main>
+            <textarea aria-label="Composer" />
+          </main>
+        </>,
+      ),
+    );
+    const composer = container.querySelector("textarea")!;
+    const unsubscribe = subscribeSnapShotComposerFocus(() => composer.focus());
+    document.documentElement.dataset.selectedSection = "chats";
+    try {
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            `button[aria-label="${linked ? "Open linked chat" : "Agent chat"}"]`,
+          )!
+          .click(),
+      );
+      expect(state.navigate).toHaveBeenCalledExactlyOnceWith({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId },
+      });
+      expect(
+        useComposerDraftStore.getState().getComposerDraft({ environmentId, threadId })?.prompt ??
+          "",
+      ).toBe(
+        savedDraft ||
+          (summary && resolutions
+            ? "Check the release notes.\n\nConfirm the result with Alex."
+            : ""),
+      );
+      expect(document.activeElement).toBe(composer);
+      expect(document.documentElement.dataset.selectedSection).toBeUndefined();
+      if (linked && summary && resolutions && !savedDraft)
+        expect(state.read).toHaveBeenCalledExactlyOnceWith(
+          environmentId,
+          projectId,
+          notification.id,
+        );
+      else expect(state.read).not.toHaveBeenCalled();
+      if (linked) expect(state.mutate).not.toHaveBeenCalled();
+      else
+        expect(state.mutate.mock.calls[0]![0].input.action).toEqual({
+          type: "delegate",
+          startAgent: false,
+        });
+    } finally {
+      unsubscribe();
+    }
+  },
+);
 it.each([false, true])(
   "handles a new delegation even when it leaves the loaded Inbox page (direct=%s)",
   async (direct) => {

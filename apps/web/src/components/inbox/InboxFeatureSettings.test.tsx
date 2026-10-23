@@ -5,16 +5,29 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { InboxFeatureSettings } from "./InboxFeatureSettings";
 
-const state = vi.hoisted(() => ({ update: vi.fn(), mixed: false }));
+const state = vi.hoisted(() => ({
+  update: vi.fn(),
+  mixed: false,
+  summary: false,
+  resolutions: false,
+  summaryMixed: false,
+}));
 vi.mock("../settings/SettingsScopeContext", () => ({
   useSettingsScope: () => ({ environment: null, target: null }),
 }));
 vi.mock("../settings/useScopedSettings", () => ({
-  useScopedSettings: () => DEFAULT_SERVER_SETTINGS,
+  useScopedSettings: () => ({
+    ...DEFAULT_SERVER_SETTINGS,
+    inboxSummaryEnabled: state.summary,
+    inboxPreResolution: state.resolutions,
+  }),
   useUpdateScopedSettings: () => state.update,
   useScopedSettingsMixed: (keys: string[]) =>
-    state.mixed &&
-    keys.some((key) => ["inboxInitialHistoryDays", "inboxRefreshIntervalMinutes"].includes(key)),
+    (state.mixed &&
+      keys.some((key) =>
+        ["inboxInitialHistoryDays", "inboxRefreshIntervalMinutes"].includes(key),
+      )) ||
+    (state.summaryMixed && keys.includes("inboxSummaryEnabled")),
 }));
 vi.mock("../settings/useScopedModelAvailability", () => ({
   useScopedModelDisabledReason: () => () => null,
@@ -26,6 +39,7 @@ vi.mock("~/providerInstances", () => ({
 }));
 vi.mock("../chat/ProviderModelPicker", () => ({ ProviderModelPicker: () => null }));
 vi.mock("../settings/settingsLayout", () => ({
+  SETTINGS_PICKER_TRIGGER_CLASSNAME: "",
   SettingsRow: ({
     title,
     children,
@@ -50,7 +64,38 @@ afterEach(async () => {
   await act(async () => root.unmount());
   root = createRoot(container);
   state.mixed = false;
+  state.summary = false;
+  state.resolutions = false;
+  state.summaryMixed = false;
   vi.clearAllMocks();
+});
+
+it("keeps suggestions unavailable while summary is off, retaining the saved opt-in on re-enable", async () => {
+  state.resolutions = true;
+  await act(async () => root.render(<InboxFeatureSettings />));
+  const suggestion = () =>
+    container.querySelector<HTMLButtonElement>('[aria-label="Suggested resolutions"]')!;
+  expect(suggestion().getAttribute("aria-disabled")).toBe("true");
+  expect(suggestion().getAttribute("aria-checked")).toBe("false");
+  await act(async () => suggestion().click());
+  expect(state.update).not.toHaveBeenCalled();
+  state.summary = true;
+  await act(async () => root.render(<InboxFeatureSettings />));
+  expect(suggestion().getAttribute("aria-disabled")).not.toBe("true");
+  expect(suggestion().getAttribute("aria-checked")).toBe("true");
+  await act(async () => suggestion().click());
+  expect(state.update).toHaveBeenCalledExactlyOnceWith({ inboxPreResolution: false });
+});
+
+it("requires summary enabled across every selected project before editing suggestions", async () => {
+  state.summary = true;
+  state.summaryMixed = true;
+  await act(async () => root.render(<InboxFeatureSettings />));
+  expect(
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="Suggested resolutions"]')!
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
 });
 const edit = async (value: string, label = "Inbox initial history days") => {
   const field = container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;

@@ -1,5 +1,9 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { inboxSuggestedPrompt } from "@t3tools/shared/inboxSuggestions";
+import { useComposerDraftStore } from "~/composerDraftStore";
+import { clearSectionSelection } from "~/sectionNavigation";
+import { dispatchSnapShotComposerFocus } from "~/lib/desktopSnapShot";
 import { useServerConfigs } from "~/state/entities";
 import { waitForThreadShell } from "~/state/entities";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
@@ -49,7 +53,7 @@ import { createSidebarListMotion } from "../Sidebar.motion";
 import { useRouter } from "@tanstack/react-router";
 import { useInboxNavigation } from "./inboxNavigation";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { inboxEnvironment } from "~/state/inbox";
+import { inboxEnvironment, readInboxNotification } from "~/state/inbox";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { readLocalApi } from "~/localApi";
@@ -235,6 +239,7 @@ export function InboxRow({
           notification={content}
           expanded={focused}
           enabled={settings?.inboxSummaryEnabled ?? false}
+          suggestionsEnabled={settings?.inboxPreResolution ?? false}
         />
       </div>
       <div className={styles.details} data-open={focused} inert={!focused} aria-hidden={!focused}>
@@ -483,7 +488,7 @@ export function InboxSidebarLayout({
           : {},
     });
   }
-  async function openChat(entry: Entry) {
+  async function openChat(entry: Entry, prefillSuggestion = false) {
     const threadId = entry.notification.state.threadId;
     if (!threadId) return;
     const ref = { environmentId: entry.environmentId, threadId };
@@ -496,7 +501,39 @@ export function InboxSidebarLayout({
       });
       return;
     }
+    const config = serverConfigs.get(entry.environmentId);
+    const settings = config
+      ? resolveProjectSettings(config.settings, entry.notification.projectId).settings
+      : null;
+    const store = useComposerDraftStore.getState();
+    if (
+      prefillSuggestion &&
+      settings?.inboxSummaryEnabled &&
+      settings.inboxPreResolution &&
+      !store.getComposerDraft(ref)?.prompt.trim()
+    ) {
+      // List previews omit suggestions. Read detail without loading older source comments.
+      const notification = entry.notification.analysis?.suggestions.length
+        ? entry.notification
+        : await readInboxNotification(
+            entry.environmentId,
+            entry.notification.projectId,
+            entry.notification.id,
+          );
+      const suggestion = notification ? inboxSuggestedPrompt(notification, settings) : "";
+      if (!notification)
+        toastManager.add({
+          type: "error",
+          title: "Could not load suggested resolution",
+          description:
+            "The chat will open without a prefilled suggestion. Try opening it again from Inbox.",
+        });
+      if (suggestion && !store.getComposerDraft(ref)?.prompt.trim())
+        store.setPrompt(ref, suggestion);
+    }
     await router.navigate({ to: "/$environmentId/$threadId", params: ref });
+    clearSectionSelection();
+    dispatchSnapShotComposerFocus();
   }
   const entriesRef = useRef(entries);
   entriesRef.current = entries;
@@ -562,7 +599,10 @@ export function InboxSidebarLayout({
         if (result.value.openThread && next.state.threadId) {
           // A newly delegated item can leave the loaded Inbox page. Wait for its
           // chat directly instead of waiting to find it in a later list response.
-          await openChat({ ...entry, notification: next });
+          await openChat(
+            { ...entry, notification: next },
+            action.type === "delegate" && !action.startAgent,
+          );
         }
         if (focusedRef.current === key) {
           if (settling && next.state.placement === "resolved") {
@@ -646,7 +686,7 @@ export function InboxSidebarLayout({
       entry.notification.state.threadId &&
       !["linking", "starting"].includes(entry.notification.agentStatus)
     ) {
-      await openChat(entry);
+      await openChat(entry, !value.startAgent);
       return true;
     }
     if (value !== "snooze-menu") return mutate(entry, value);

@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./inboxSuggestions": {
+      "types": "./src/inboxSuggestions.ts",
+      "import": "./src/inboxSuggestions.ts"
+    },
     "./githubMarkdownLinks": {
       "types": "./src/githubMarkdownLinks.ts",
       "import": "./src/githubMarkdownLinks.ts"

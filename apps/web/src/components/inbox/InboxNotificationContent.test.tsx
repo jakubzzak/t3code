@@ -265,6 +265,7 @@ it("links URLs in AI summaries, suggested next steps, and raw notification title
         threadRef={threadRef}
         enabled
         expanded
+        suggestionsEnabled
         notification={{
           ...notification,
           analysis: {
@@ -283,6 +284,31 @@ it("links URLs in AI summaries, suggested next steps, and raw notification title
     "github.com",
     "docs.example.com",
   ]);
+  const callout = container.querySelector('section[aria-label="Suggested resolution"]');
+  expect(callout?.textContent).toContain("Check docs.example.com");
+  expect(callout?.querySelector("button")).toBeNull();
+  await act(async () =>
+    root.render(
+      <InboxSummary
+        enabled
+        expanded
+        suggestionsEnabled={false}
+        notification={{
+          ...notification,
+          analysis: {
+            summary: "Review report",
+            suggestions: ["Check report"],
+            description: "Review",
+            precedentIds: [],
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+            generatedAt: "2026-10-22T10:00:00Z",
+          },
+        }}
+      />,
+    ),
+  );
+  expect(container.textContent).toContain("Review report");
+  expect(container.querySelector('section[aria-label="Suggested resolution"]')).toBeNull();
   await act(async () =>
     root.render(
       <InboxSummary

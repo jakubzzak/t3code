@@ -166,6 +166,8 @@ export function InboxFeatureSettings() {
     },
   );
   const resolutionMixed = useScopedSettingsMixed(["inboxPreResolution"]);
+  const summaryMixed = useScopedSettingsMixed(["inboxSummaryEnabled"]);
+  const canSuggest = !summaryMixed && settings.inboxSummaryEnabled;
   const memoryMixed = useScopedSettingsMixed(["inboxMemoryEnabled"]);
   return (
     <div className="mt-4 mb-3 divide-y divide-border/50 border-t border-border/50 pt-1 [&>[data-slot=settings-row]]:rounded-none">
@@ -220,14 +222,20 @@ export function InboxFeatureSettings() {
           </span>
         }
         mixed={resolutionMixed}
+        aria-disabled={!canSuggest}
         serverScoped
         settingKeys={["inboxPreResolution"]}
-        description="Generate suggested steps or a draft response together with AI summary when both are enabled. Suggestions do not send messages or settle notifications."
+        description={
+          canSuggest
+            ? "Generate suggested steps or a draft response together with AI summary. Suggestions do not send messages or settle notifications."
+            : "Enable AI summary to generate suggested steps or a draft response together with it."
+        }
         control={
           <Switch
             aria-label="Suggested resolutions"
             mixed={resolutionMixed}
-            checked={resolutionMixed ? false : settings.inboxPreResolution}
+            disabled={!canSuggest}
+            checked={canSuggest && !resolutionMixed && settings.inboxPreResolution}
             onCheckedChange={(inboxPreResolution) => update({ inboxPreResolution })}
           />
         }

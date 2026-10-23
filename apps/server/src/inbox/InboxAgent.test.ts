@@ -222,6 +222,72 @@ it.effect("uses the editable delegation prompt when Agent Delegation is enabled"
   }).pipe(Effect.provide(makeLayer(settings)), Effect.scoped),
 );
 
+it.effect.each([
+  { summary: true, resolutions: true },
+  { summary: true, resolutions: false },
+  { summary: false, resolutions: true },
+  { summary: false, resolutions: false },
+])(
+  "uses the suggested task only with both opt-ins (summary=$summary, resolutions=$resolutions)",
+  ({ summary, resolutions }) =>
+    Effect.gen(function* () {
+      const agent = yield* Agent.InboxAgent;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const settings = yield* Settings.ServerSettingsService;
+      const projectId = ProjectId.make("suggested-project");
+      yield* settings.updateSettings({
+        projectSettingsOverrides: {
+          [projectId]: {
+            inboxAgentEnabled: true,
+            inboxSummaryEnabled: summary,
+            inboxPreResolution: resolutions,
+            inboxAgentPrompt: "Investigate without sending a reply.",
+          },
+        },
+      });
+      const original = ingestInboxItem(projectId, {
+        source: "slack",
+        id: "suggestion",
+        connectionId: "team",
+        groupId: "suggestion",
+        location: "DM",
+        title: "Review",
+        author: "Alex",
+        content: "Check the bank",
+        url: "https://slack.com",
+        occurredAt: "2026-10-22T10:00:00Z",
+      });
+      const threadId = ThreadId.make("suggested-inbox-task");
+      const linked = {
+        ...original,
+        state: { ...original.state, threadId },
+        analysis: {
+          summary: "Check the bank",
+          description: "Check",
+          suggestions: ["Compare the regenerated request.", "Confirm the bank with Niels."],
+          precedentIds: [],
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+          generatedAt: "2026-10-22T10:00:00Z",
+        },
+      };
+      yield* agent.start(linked, false);
+      assert.equal((yield* orchestrator.getThreadShell(threadId))?.latestRunId, null);
+      yield* agent.start(linked, true);
+      const timeline = yield* orchestrator.getTimelinePage(threadId, {
+        limit: 10,
+        view: "messages",
+      });
+      const message = timeline.items.find((entry) => entry.item.type === "user_message")?.item;
+      assert.equal(
+        message?.type === "user_message" ? message.text : null,
+        "Investigate without sending a reply." +
+          (summary && resolutions
+            ? "\n\nSuggested resolution:\nCompare the regenerated request.\n\nConfirm the bank with Niels."
+            : ""),
+      );
+    }).pipe(Effect.provide(makeLayer(settings)), Effect.scoped),
+);
+
 it.effect("keeps waiting work cancellable through Undo until its run is interrupted", () => {
   let waiting = true;
   const waitingLayer = makeLayer(settings, (service) => ({

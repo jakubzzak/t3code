@@ -409,12 +409,14 @@ export function InboxSummary({
   notification,
   enabled,
   expanded = false,
+  suggestionsEnabled = false,
   threadRef,
 }: {
   notification: InboxNotification;
   threadRef?: ScopedThreadRef | null | undefined;
   enabled: boolean;
   expanded?: boolean;
+  suggestionsEnabled?: boolean;
 }) {
   const openLink = useInboxLink(threadRef);
   return (
@@ -429,18 +431,28 @@ export function InboxSummary({
             <p className={`whitespace-pre-wrap break-words ${expanded ? "" : "line-clamp-3"}`}>
               <InboxLinkedText text={notification.analysis.summary} />
             </p>
-            {expanded && notification.analysis.suggestions.length > 0 && (
-              <div className="mt-3">
-                <p className="mb-1 font-medium">Suggested next steps</p>
-                <ul className="list-disc space-y-1 pl-4">
-                  {notification.analysis.suggestions.map((suggestion) => (
-                    <li key={suggestion}>
-                      <InboxLinkedText text={suggestion} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {expanded &&
+              suggestionsEnabled &&
+              notification.analysis.suggestions.some((text) => text.trim()) && (
+                <section
+                  aria-label="Suggested resolution"
+                  className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 font-normal"
+                >
+                  <p className="mb-1 flex items-center gap-1 text-2xs text-muted-foreground">
+                    <SparklesIcon aria-hidden="true" className="size-3" />
+                    Suggested resolution
+                  </p>
+                  <ul className="space-y-2">
+                    {notification.analysis.suggestions
+                      .filter((text) => text.trim())
+                      .map((suggestion) => (
+                        <li key={suggestion}>
+                          <InboxLinkedText text={suggestion} />
+                        </li>
+                      ))}
+                  </ul>
+                </section>
+              )}
           </div>
         ) : (
           <>

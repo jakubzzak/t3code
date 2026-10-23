@@ -77,6 +77,14 @@ export function InboxThreadDetails({
             threadRef={threadRef}
             notification={n}
             expanded
+            suggestionsEnabled={
+              !!(
+                thread &&
+                config &&
+                resolveProjectSettings(config.settings, thread.projectId).settings
+                  .inboxPreResolution
+              )
+            }
             enabled={
               !!(
                 thread &&
