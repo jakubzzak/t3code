@@ -109,6 +109,7 @@ export type InboxNotification = typeof InboxNotification.Type;
 export const InboxListInput = Schema.Struct({
   projectId: ProjectId,
   offset: Schema.optionalKey(NonNegativeInt),
+  limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 101 }))),
   search: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(500))),
   threadId: Schema.optionalKey(ThreadId),
 });

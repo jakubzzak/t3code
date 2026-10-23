@@ -39,6 +39,7 @@ export class InboxService extends Context.Service<
       projectId: ProjectId;
       search?: string;
       offset?: number;
+      limit?: number;
       threadId?: ThreadId;
     }) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly get: (input: {

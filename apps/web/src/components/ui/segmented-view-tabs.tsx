@@ -36,7 +36,9 @@ export function SegmentedViewTabs({
           <span className="inline-flex items-baseline gap-1">
             {item.label}
             {item.count !== undefined && item.count > 0 && (
-              <span className="text-muted-foreground tabular-nums">{item.count}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {item.count > 100 ? "100+" : item.count}
+              </span>
             )}
           </span>
         </Tabs.Tab>

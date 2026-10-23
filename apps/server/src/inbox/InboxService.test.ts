@@ -595,3 +595,32 @@ it.effect(
       }).pipe(Effect.provide(fixture.layer));
     }).pipe(Effect.scoped),
 );
+
+it.effect(
+  "supports a one-item lookahead without changing default pagination or skipping items",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        for (let index = 0; index < 101; index++) {
+          yield* repository.put(
+            ingestInboxItem(projectId, {
+              ...item,
+              id: `item-${index}`,
+              groupId: `issue-${index}`,
+            }),
+          );
+        }
+        assert.equal((yield* service.list({ projectId })).length, 100);
+        const first = yield* service.list({ projectId, limit: 101 });
+        assert.equal(first.length, 101);
+        const next = yield* service.list({ projectId, offset: 100, limit: 101 });
+        assert.deepEqual(
+          next.map((notification) => notification.id),
+          [first[100]!.id],
+        );
+      }).pipe(Effect.provide(fixture.layer));
+    }).pipe(Effect.scoped),
+);

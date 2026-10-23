@@ -370,6 +370,8 @@ export function InboxSidebarLayout({
             input: {
               projectId,
               offset: page * 100,
+              // One overlapping item lets the tab detect overflow without loading another page.
+              limit: 101,
               ...(debouncedQuery ? { search: debouncedQuery } : {}),
             },
           }),
@@ -411,7 +413,7 @@ export function InboxSidebarLayout({
   const hasMore = results.some(
     ({ result }, index) =>
       index % pages === pages - 1 &&
-      (Option.getOrNull(AsyncResult.value(result))?.length ?? 0) === 100,
+      (Option.getOrNull(AsyncResult.value(result))?.length ?? 0) >= 100,
   );
   const sourceErrors = results
     .filter((_, index) => index % pages === 0)

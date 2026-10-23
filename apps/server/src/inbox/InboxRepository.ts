@@ -40,7 +40,13 @@ export class InboxRepository extends Context.Service<
     ) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly list: (
       projectId: ProjectId,
-      page?: { offset?: number; search?: string; threadId?: ThreadId; summaryReady?: boolean },
+      page?: {
+        offset?: number;
+        limit?: number;
+        search?: string;
+        threadId?: ThreadId;
+        summaryReady?: boolean;
+      },
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly history: (
       projectId: ProjectId,
@@ -103,7 +109,7 @@ const make = Effect.gen(function* () {
           WHERE instr(lower(json_extract(item.value, '$.title') || ' ' || json_extract(item.value, '$.location') || ' ' || json_extract(item.value, '$.content')), ${search}) > 0
         ))
         ORDER BY CASE json_extract(payload_json, '$.state.placement') WHEN 'active' THEN 0 WHEN 'delegated' THEN 1 WHEN 'snoozed' THEN 2 ELSE 3 END, updated_at DESC, id
-        LIMIT ${page ? 100 : 500} OFFSET ${page?.offset ?? 0}`);
+        LIMIT ${page ? Math.max(1, Math.min(page.limit ?? 100, 101)) : 500} OFFSET ${page?.offset ?? 0}`);
     },
     history: (projectId) =>
       rows(sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId}
