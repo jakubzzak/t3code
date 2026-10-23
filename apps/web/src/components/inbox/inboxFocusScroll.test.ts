@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
-import { expect, it } from "vite-plus/test";
+import { afterEach, expect, it, vi } from "vite-plus/test";
 import { inboxFocusScrollDelta } from "./inboxFocusScroll";
+afterEach(() => {
+  document.body.replaceChildren();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 it("scrolls to a short notification below the viewport after the preceding tall card collapses", () => {
   expect(inboxFocusScrollDelta(450, 530, 0, 300)).toBe(442);
 });
@@ -35,6 +41,9 @@ it("rechecks the selected row when accordion layout finishes and releases observ
   vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
   const viewport = document.createElement("div");
   viewport.dataset.slot = "scroll-area-viewport";
+  viewport.scrollTo = (options) => {
+    viewport.scrollTop = (options as ScrollToOptions).top!;
+  };
   const content = document.createElement("div");
   content.dataset.slot = "sidebar-content";
   const list = document.createElement("div");
@@ -72,3 +81,52 @@ it("rechecks the selected row when accordion layout finishes and releases observ
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
+
+it.each([false, true])(
+  "animates toward the final header position without restarting for unchanged geometry (reduced motion: %s)",
+  async (reduced) => {
+    const { keepInboxRowVisible } = await import("./inboxFocusScroll");
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", () => ({ matches: reduced }));
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(0), 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
+    const viewport = document.createElement("div");
+    viewport.dataset.slot = "scroll-area-viewport";
+    const list = document.createElement("div");
+    list.dataset.inboxList = "";
+    const row = document.createElement("article");
+    list.append(row);
+    viewport.append(list);
+    document.body.append(viewport);
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 300 } as DOMRect);
+    let contentTop = 500;
+    vi.spyOn(row, "getBoundingClientRect").mockImplementation(
+      () =>
+        ({
+          top: contentTop - viewport.scrollTop,
+          bottom: contentTop - viewport.scrollTop + 80,
+        }) as DOMRect,
+    );
+    const scroll = vi.fn((options?: ScrollToOptions | number) => {
+      if (typeof options === "object" && options.behavior === "instant")
+        viewport.scrollTop = options.top!;
+    });
+    viewport.scrollTo = scroll;
+    const stop = keepInboxRowVisible(row);
+    expect(scroll).toHaveBeenLastCalledWith({ top: 492, behavior: reduced ? "instant" : "smooth" });
+    // An intermediate native smooth-scroll frame must not restart the same destination.
+    viewport.scrollTop = reduced ? 492 : 100;
+    list.dispatchEvent(new Event("transitionend", { bubbles: true }));
+    vi.advanceTimersByTime(2);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    // The previous accordion finishing its collapse changes the final destination.
+    contentTop = 200;
+    list.dispatchEvent(new Event("transitionend", { bubbles: true }));
+    vi.advanceTimersByTime(250);
+    expect(scroll).toHaveBeenLastCalledWith({ top: 192, behavior: reduced ? "instant" : "smooth" });
+    stop();
+    if (!reduced) expect(scroll).toHaveBeenLastCalledWith({ top: 100, behavior: "instant" });
+  },
+);

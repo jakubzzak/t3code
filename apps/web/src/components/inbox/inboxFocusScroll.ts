@@ -22,11 +22,24 @@ export function keepInboxRowVisible(row: HTMLElement) {
   const viewport = row.closest<HTMLElement>('[data-slot="scroll-area-viewport"]');
   if (!list || !viewport) return () => {};
   let frame: number | undefined;
+  let target: number | undefined;
+  let scrolling = false;
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const completed = () => {
+    scrolling = false;
+  };
+  viewport.addEventListener("scrollend", completed);
   const adjust = () => {
     const box = row.getBoundingClientRect();
     const view = viewport.getBoundingClientRect();
     const delta = inboxFocusScrollDelta(box.top, box.bottom, view.top, view.bottom);
-    if (delta) viewport.scrollTop += delta;
+    if (!delta && target === undefined) return;
+    // Keep one destination through native scroll frames, retargeting only when layout moves it.
+    const next = Math.max(0, Math.round(viewport.scrollTop + box.top - view.top - 8));
+    if (target !== undefined && Math.abs(next - target) < 1) return;
+    target = next;
+    scrolling = !reducedMotion;
+    viewport.scrollTo({ top: next, behavior: reducedMotion ? "instant" : "smooth" });
   };
   const schedule = () => {
     if (frame !== undefined) cancelAnimationFrame(frame);
@@ -48,5 +61,8 @@ export function keepInboxRowVisible(row: HTMLElement) {
   return () => {
     window.clearTimeout(timer);
     stop();
+    viewport.removeEventListener("scrollend", completed);
+    // A new focus must not inherit the previous notification's unfinished scroll.
+    if (scrolling) viewport.scrollTo({ top: viewport.scrollTop, behavior: "instant" });
   };
 }
