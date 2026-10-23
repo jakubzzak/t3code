@@ -25,33 +25,36 @@ function FeaturesSettings() {
         <SettingsRow
           id="agentic-search"
           title="Agentic search"
-          description="Search chats on the hosting environment, then connected integrations with Search everywhere. Launch from the command palette or a shortcut. Other machines are excluded. Applies to this device."
-        >
-          <Switch
-            aria-label="Agentic search"
-            checked={settings.agenticSearchEnabled}
-            onCheckedChange={(agenticSearchEnabled) => {
-              void update({ agenticSearchEnabled }).catch(() =>
-                toastManager.add({ type: "error", title: "Could not save search preference" }),
-              );
-            }}
-          />
-        </SettingsRow>
+          description="Find answers in chats on the hosting environment, or include connected tools with Search everywhere. Launch from the command palette or a shortcut. Other machines are excluded. Applies to this device."
+          control={
+            <Switch
+              aria-label="Agentic search"
+              checked={settings.agenticSearchEnabled}
+              onCheckedChange={(agenticSearchEnabled) => {
+                void update({ agenticSearchEnabled }).catch(() =>
+                  toastManager.add({ type: "error", title: "Could not save search preference" }),
+                );
+              }}
+            />
+          }
+        />
         {settings.agenticSearchEnabled ? (
-          <div className="space-y-4">
+          <>
             <SearchPromptSetting
               label={AGENTIC_SEARCH_LABELS.chats}
+              description="Find answers across projects and archived chats on the hosting environment, with source links."
               value={settings.agenticSearchChatsPrompt}
               defaultPrompt={DEFAULT_AGENTIC_SEARCH_PROMPTS.chats}
               save={(agenticSearchChatsPrompt) => update({ agenticSearchChatsPrompt })}
             />
             <SearchPromptSetting
               label={AGENTIC_SEARCH_LABELS.everywhere}
+              description="Search chats and connected tools in parallel for a concise answer with sources."
               value={settings.agenticSearchEverywherePrompt}
               defaultPrompt={DEFAULT_AGENTIC_SEARCH_PROMPTS.everywhere}
               save={(agenticSearchEverywherePrompt) => update({ agenticSearchEverywherePrompt })}
             />
-          </div>
+          </>
         ) : null}
         <SettingsRow
           id="linear-view"
@@ -61,18 +64,19 @@ function FeaturesSettings() {
               ? "View and edit Linear issues beside your threads. Disabled by default; applies to this device."
               : "Available only in the desktop app"
           }
-        >
-          <Switch
-            aria-label="Linear view"
-            checked={enabled}
-            disabled={!isElectron}
-            onCheckedChange={(linearViewEnabled) => {
-              void update({ linearViewEnabled }).catch(() =>
-                toastManager.add({ type: "error", title: "Could not save feature preference" }),
-              );
-            }}
-          />
-        </SettingsRow>
+          control={
+            <Switch
+              aria-label="Linear view"
+              checked={enabled}
+              disabled={!isElectron}
+              onCheckedChange={(linearViewEnabled) => {
+                void update({ linearViewEnabled }).catch(() =>
+                  toastManager.add({ type: "error", title: "Could not save feature preference" }),
+                );
+              }}
+            />
+          }
+        />
       </SettingsSection>
     </SettingsPageContainer>
   );
@@ -80,11 +84,13 @@ function FeaturesSettings() {
 
 function SearchPromptSetting({
   label,
+  description,
   value,
   defaultPrompt,
   save,
 }: {
   label: string;
+  description: string;
   value: string;
   defaultPrompt: string;
   save: (value: string) => Promise<unknown>;
@@ -92,29 +98,26 @@ function SearchPromptSetting({
   const [draft, setDraft] = useState(value || defaultPrompt);
   useEffect(() => setDraft(value || defaultPrompt), [value, defaultPrompt]);
   return (
-    <label className="flex flex-col gap-2 text-sm">
-      <span>{label} — default prompt</span>
-      <Textarea
-        aria-label={`${label} default prompt`}
-        value={draft}
-        rows={6}
-        maxLength={16000}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const next = draft.trim() === defaultPrompt ? "" : draft;
-          void save(next)
-            .then(() => {
-              if (!next.trim()) setDraft(defaultPrompt);
-            })
-            .catch(() =>
-              toastManager.add({ type: "error", title: "Could not save search prompt" }),
-            );
-        }}
-      />
-      <span className="text-xs text-muted-foreground">
-        Saved when you leave the field. Clear to restore the default. Editing this prompt never
-        starts a search.
-      </span>
-    </label>
+    <SettingsRow title={`${label} — default prompt`} description={description}>
+      <div className="mt-3 max-w-2xl pb-3.5">
+        <Textarea
+          aria-label={`${label} default prompt`}
+          value={draft}
+          rows={6}
+          maxLength={16000}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            const next = draft.trim() === defaultPrompt ? "" : draft;
+            void save(next)
+              .then(() => {
+                if (!next.trim()) setDraft(defaultPrompt);
+              })
+              .catch(() =>
+                toastManager.add({ type: "error", title: "Could not save search prompt" }),
+              );
+          }}
+        />
+      </div>
+    </SettingsRow>
   );
 }

@@ -7,7 +7,7 @@ Blackbird users need answers without remembering which conversation, project, or
 ## Scope
 
 - **Search in all chats** searches Blackbird conversations across projects on the environment hosting the new chat, including projectless chats.
-- **Search everywhere** searches those chats first, then connected integrations. An answer found in chats does not skip the integration phase.
+- **Search everywhere** searches those chats and connected integrations concurrently, without prioritizing either source type. An answer found in one source does not skip other sources.
 - Launch only through the Command-K palette or the two dedicated keybindings. Do not add search buttons to chat views, sidebars, or existing find bars.
 - Settings controls feature enablement and the default prompt for each action. There is no search-specific provider/model setting; use the existing projectless-chat selection behavior and ordinary chat controls.
 - Preserve existing Command-F current-chat find and Command-Shift-F project-file search.
@@ -27,7 +27,7 @@ Blackbird users need answers without remembering which conversation, project, or
 ### Research and answer
 
 - All-chats research must be able to find and read relevant conversations outside the initiating project. It must not silently search only the new chat's backing project or only the currently visible sidebar list.
-- Everywhere research starts with chats and then makes query-driven searches across connected integrations that expose search/read capabilities. It can follow relevant references and refine queries. Do not require a source picker or a second submission between phases. "Everything" defines the accessible search scope, not a promise to read every item or dump every history into the model.
+- Everywhere research starts independent query-driven searches across chats and connected integrations concurrently, using their search/read capabilities. There is no chat-first phase or source-type preference. It can follow relevant references and refine queries as results arrive. Do not require a source picker or a second submission. "Everything" defines the accessible search scope, not a promise to read every item or dump every history into the model.
 - Use the current environment's authorized access and available connected sources. Searching does not authorize editing source records or sending messages. A projectless launch must not bypass project, environment, or connector access rules.
 - The default prompts request a very concise answer, normally two to four short bullets or an equally short paragraph, with links/citations supporting the findings. Avoid a long research narrative.
 - End with a compact **Sources:** line listing what was actually searched. Distinguish failures, unavailable sources, and incomplete coverage rather than counting them as successfully searched. For example: `Sources: Blackbird chats (hosting environment only), Slack, Linear · Drive unavailable.` Do not invent sources or results.
@@ -44,7 +44,7 @@ Blackbird users need answers without remembering which conversation, project, or
 1. From a project chat, each shortcut creates a distinct projectless draft with the correct visible, editable template. No provider turn starts until the user supplies a question and submits; the template alone cannot start research.
 2. A nonempty unmatched palette query shows both fallback actions. Choosing either launches exactly one projectless turn with that exact question and the selected implicit template, without requiring the user to enter it again.
 3. Finding a search command by name opens a prepared chat without researching the command name. Empty palette input cannot auto-submit a template. Existing palette matches and ordinary Enter behavior remain intact.
-4. A question whose evidence is in another project's conversation is answered with a working source link. Everywhere also searches integrations after chats, even when the chat phase found an answer.
+4. A question whose evidence is in another project's conversation is answered with a working source link. Everywhere starts independent chat and integration searches concurrently, without waiting for chat results or skipping sources once an answer is found.
 5. With one integration unavailable, the answer preserves other findings and briefly identifies the missing coverage under Sources. An unsuccessful search states that no evidence was found rather than producing an unsupported answer.
 6. Each customized prompt is used on its next launch through either entry path. Disabling and re-enabling behaves as specified, and ordinary find, project search, and existing chats continue to work.
 

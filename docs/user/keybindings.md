@@ -136,7 +136,8 @@ Enable **Agentic search** in **Settings → Features**. Use **Search in all chat
 or **Search everywhere** in the Command-K palette to open a fresh chat without a
 project. All chats searches every project on the environment hosting that chat,
 including retained archived chats; other connected machines are outside its scope.
-Everywhere searches those chats first, then the integrations available to the agent.
+Everywhere searches those chats and the integrations available to the agent in parallel,
+without prioritizing either source type.
 Answers include a concise summary, citations, and a **Sources:** report.
 
 If a palette query matches no command, project, or thread, select either search
