@@ -677,3 +677,61 @@ it("keeps Linear content on a failed history request and retries without losing 
   expect(load).toHaveBeenCalledTimes(2);
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
+
+it("shows a bold email subject and body without the redundant envelope or Original message introduction", async () => {
+  const content =
+    "sam@example.test · 2026-10-20T19:26:59Z\nHello team,\n\nReview https://meet.example.test/review.\n\nFrom: the product team, this is a request for feedback.\n\nRoadmap · 2026-11-01";
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{
+          ...notification,
+          source: "superhuman",
+          items: [
+            {
+              ...notification.items[0]!,
+              source: "superhuman",
+              author: "sam@example.test",
+              title: "October investor update",
+              content,
+            },
+          ],
+        }}
+      />,
+    ),
+  );
+  expect(container.querySelector("strong")?.textContent).toBe("October investor update");
+  expect(container.textContent).not.toContain("Original message");
+  expect(container.textContent).not.toContain("sam@example.test · 2026");
+  expect(container.textContent).toContain("Hello team,");
+  expect(container.textContent).toContain(
+    "From: the product team, this is a request for feedback.",
+  );
+  expect(container.textContent).toContain("Roadmap · 2026-11-01");
+  expect(container.querySelector("a")?.textContent).toBe("meet.example.test");
+});
+
+it("omits explicit legacy Email/From/Timestamp (UTC) envelope headers while preserving the greeting", async () => {
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{
+          ...notification,
+          source: "superhuman",
+          items: [
+            {
+              ...notification.items[0]!,
+              source: "superhuman",
+              title: "Review",
+              content:
+                "Email\nFrom: Sam <sam@example.test>\nTimestamp (UTC): 2026-10-20T19:26:59Z\n\nHello team,\nPlease review the report.",
+            },
+          ],
+        }}
+      />,
+    ),
+  );
+  expect(container.textContent).not.toContain("Timestamp (UTC)");
+  expect(container.textContent).not.toContain("From: Sam");
+  expect(container.textContent).toContain("Hello team,");
+});

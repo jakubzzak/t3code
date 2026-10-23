@@ -111,6 +111,26 @@ function compactInboxUrl(url: string) {
   }
 }
 
+/** Hide the connector's standalone envelope lines; keep ordinary body text and greetings. */
+function emailDisplayBody(content: string) {
+  const labeledEnvelope = content.match(
+    /^(?:Email:?\r?\n)?From:[^\n]+\r?\nTimestamp \(UTC\):\s*([^\r\n]+)\r?\n(?:\r?\n)?/i,
+  );
+  if (labeledEnvelope && !Number.isNaN(Date.parse(labeledEnvelope[1]!)))
+    content = content.slice(labeledEnvelope[0].length);
+  const lines = content.split(/\r?\n/);
+  return lines
+    .filter((line, index) => {
+      if (index > 0 && lines[index - 1]!.trim() !== "") return true;
+      const envelope = line.match(
+        /^.+ · (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))\s*$/,
+      );
+      return !envelope || Number.isNaN(Date.parse(envelope[1]!));
+    })
+    .join("\n")
+    .trim();
+}
+
 /** Add links without treating plain notification text as Markdown or HTML. */
 function InboxLinkedText({ text }: { text: string }) {
   return useMemo(() => {
@@ -580,6 +600,30 @@ export function InboxSourceContent({
   onLoadPrevious?: LoadComments | undefined;
 }) {
   const openLink = useInboxLink(threadRef);
+  if (notification.source === "superhuman") {
+    return (
+      <InboxLinkContext value={openLink}>
+        <div className={styles.slackContent}>
+          {notification.items.map((item) => (
+            <section
+              key={item.id}
+              className={styles.slackSection}
+              aria-label={item.title || "Email"}
+            >
+              <p className="mb-3">
+                <strong>{item.title}</strong>
+              </p>
+              <InboxContentPreview lines={8}>
+                <p className="whitespace-pre-wrap break-words">
+                  <InboxLinkedText text={emailDisplayBody(item.content)} />
+                </p>
+              </InboxContentPreview>
+            </section>
+          ))}
+        </div>
+      </InboxLinkContext>
+    );
+  }
   if (notification.source === "linear") {
     const issue =
       notification.linearIssue ??
