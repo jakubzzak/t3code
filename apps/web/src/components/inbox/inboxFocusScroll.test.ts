@@ -2,7 +2,7 @@
 import { expect, it } from "vite-plus/test";
 import { inboxFocusScrollDelta } from "./inboxFocusScroll";
 it("scrolls to a short notification below the viewport after the preceding tall card collapses", () => {
-  expect(inboxFocusScrollDelta(450, 530, 0, 300)).toBe(238);
+  expect(inboxFocusScrollDelta(450, 530, 0, 300)).toBe(442);
 });
 it("keeps the header of a tall notification visible rather than scrolling to its bottom", () => {
   expect(inboxFocusScrollDelta(400, 1000, 0, 300)).toBe(392);
@@ -34,12 +34,15 @@ it("rechecks the selected row when accordion layout finishes and releases observ
   );
   vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
   const viewport = document.createElement("div");
-  viewport.dataset.slot = "sidebar-content";
+  viewport.dataset.slot = "scroll-area-viewport";
+  const content = document.createElement("div");
+  content.dataset.slot = "sidebar-content";
   const list = document.createElement("div");
   list.dataset.inboxList = "";
   const row = document.createElement("article");
   list.append(row);
-  viewport.append(list);
+  content.append(list);
+  viewport.append(content);
   document.body.append(viewport);
   let top = 20;
   vi.spyOn(viewport, "getBoundingClientRect").mockImplementation(
@@ -55,7 +58,13 @@ it("rechecks the selected row when accordion layout finishes and releases observ
     { target: list, contentRect: { width: 200, height: 600 } } as unknown as ResizeObserverEntry,
   ]);
   vi.advanceTimersByTime(1);
-  expect(viewport.scrollTop).toBe(238);
+  expect(viewport.scrollTop).toBe(442);
+  expect(content.scrollTop).toBe(0);
+  // Collapsing the previous tall notification can move the new header above the viewport.
+  top = -180;
+  list.dispatchEvent(new Event("transitionend", { bubbles: true }));
+  vi.advanceTimersByTime(1);
+  expect(viewport.scrollTop).toBe(254);
   stop();
   expect(disconnect).toHaveBeenCalled();
   viewport.remove();

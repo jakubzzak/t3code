@@ -1,6 +1,6 @@
 import { observeResize } from "~/lib/observeResize";
 
-/** Keep a short card fully visible, or the start of a tall card visible. */
+/** Bring an obscured notification's header to the top, leaving visible cards in place. */
 export function inboxFocusScrollDelta(
   rowTop: number,
   rowBottom: number,
@@ -12,14 +12,14 @@ export function inboxFocusScrollDelta(
   if (rowBottom - rowTop > bottom - top)
     return rowTop < top || rowTop > bottom ? Math.round(rowTop - top) : 0;
   if (rowTop < top) return Math.round(rowTop - top);
-  if (rowBottom > bottom) return Math.round(rowBottom - bottom);
+  if (rowBottom > bottom) return Math.round(rowTop - top);
   return 0;
 }
 
 /** Track only the focus transition, including asynchronous detail arrival, not the user's later reading scroll. */
 export function keepInboxRowVisible(row: HTMLElement) {
   const list = row.closest<HTMLElement>("[data-inbox-list]");
-  const viewport = row.closest<HTMLElement>('[data-slot="sidebar-content"]');
+  const viewport = row.closest<HTMLElement>('[data-slot="scroll-area-viewport"]');
   if (!list || !viewport) return () => {};
   let frame: number | undefined;
   const adjust = () => {
