@@ -9,6 +9,7 @@ import {
   SettingsPageContainer,
   SettingsSection,
   SettingsRow,
+  SettingResetButton,
 } from "~/components/settings/settingsLayout";
 import { Switch } from "~/components/ui/switch";
 import { toastManager } from "~/components/ui/toast";
@@ -98,10 +99,27 @@ function SearchPromptSetting({
   const [draft, setDraft] = useState(value || defaultPrompt);
   useEffect(() => setDraft(value || defaultPrompt), [value, defaultPrompt]);
   return (
-    <SettingsRow title={`${label} — default prompt`} description={description}>
+    <SettingsRow
+      title={label}
+      description={description}
+      resetAction={
+        draft.trim() !== defaultPrompt ? (
+          <SettingResetButton
+            label={`${label} prompt`}
+            onClick={() => {
+              void save("")
+                .then(() => setDraft(defaultPrompt))
+                .catch(() =>
+                  toastManager.add({ type: "error", title: "Could not reset search prompt" }),
+                );
+            }}
+          />
+        ) : null
+      }
+    >
       <div className="mt-3 max-w-2xl pb-3.5">
         <Textarea
-          aria-label={`${label} default prompt`}
+          aria-label={`${label} prompt`}
           value={draft}
           rows={6}
           maxLength={16000}
