@@ -418,17 +418,22 @@ it("shows original and only the latest Slack reply until cached history is expan
   expect(container.textContent).toContain("Last reply");
   expect(container.textContent).not.toContain("First reply");
   const button = [...container.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("Load previous comments"),
+    button.textContent?.includes("Show all"),
   );
   expect(button).toBeDefined();
   await act(async () => button!.click());
   expect(container.textContent).toContain("First reply");
+  expect(button!.textContent).toContain("Latest only");
   expect(load).not.toHaveBeenCalled();
   expect(
     [...container.querySelectorAll("[data-slack-reply]")].map((row) =>
       row.getAttribute("data-slack-reply"),
     ),
   ).toEqual(["2", "3", "4"]);
+  await act(async () => button!.click());
+  expect(button!.textContent).toContain("Show all");
+  expect(container.textContent).not.toContain("First reply");
+  expect(container.textContent).toContain("Last reply");
 });
 
 it("keeps the latest reply visible on history failure, then loads missing comments once on retry", async () => {

@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useId,
   useMemo,
   useState,
   type ComponentProps,
@@ -20,7 +21,13 @@ import type {
   InboxSlackMention,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
-import { ArrowUpRightIcon, SparklesIcon, UserRoundIcon, UsersRoundIcon } from "lucide-react";
+import {
+  ArrowUpRightIcon,
+  ChevronDownIcon,
+  SparklesIcon,
+  UserRoundIcon,
+  UsersRoundIcon,
+} from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
@@ -306,6 +313,7 @@ function SlackThreadContent({
   const [expanded, setExpanded] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const historyId = useId();
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const thread = loaded ?? initial;
   const replies = thread.messages.filter((message) => message.ts !== thread.ts);
@@ -348,36 +356,44 @@ function SlackThreadContent({
       {latest && (
         <section aria-label="Thread" className={styles.slackSection}>
           <div className={styles.slackLabel}>
-            Thread{" "}
-            {thread.replyCount !== null && (
-              <span>
-                {thread.replyCount} {thread.replyCount === 1 ? "reply" : "replies"}
-              </span>
+            <span className={styles.slackThreadTitle}>
+              Thread
+              {thread.replyCount !== null && (
+                <span>
+                  · {thread.replyCount} {thread.replyCount === 1 ? "reply" : "replies"}
+                </span>
+              )}
+            </span>
+            {hasPrevious && (
+              <button
+                type="button"
+                className={styles.previousComments}
+                onClick={() => void toggle()}
+                disabled={pending || (!!thread.nextCursor && !onLoadPrevious)}
+                aria-expanded={expanded}
+                aria-controls={historyId}
+                aria-busy={pending}
+                aria-label={
+                  pending
+                    ? "Loading previous comments"
+                    : error
+                      ? "Retry loading previous comments"
+                      : expanded
+                        ? "Show latest reply only"
+                        : "Show all thread replies"
+                }
+              >
+                {pending ? "Loading…" : error ? "Retry" : expanded ? "Latest only" : "Show all"}
+                <ChevronDownIcon aria-hidden />
+              </button>
             )}
           </div>
-          {hasPrevious && (
-            <button
-              type="button"
-              className={styles.previousComments}
-              onClick={() => void toggle()}
-              disabled={pending || (!!thread.nextCursor && !onLoadPrevious)}
-              aria-expanded={expanded}
-            >
-              {pending
-                ? "Loading previous comments…"
-                : error
-                  ? "Retry loading previous comments"
-                  : expanded
-                    ? "Hide previous comments"
-                    : "Load previous comments"}
-            </button>
-          )}
           {error && (
             <p role="alert" className="mb-3 text-2xs text-destructive">
               {error}
             </p>
           )}
-          <ol className={styles.slackTimeline}>
+          <ol id={historyId} className={styles.slackTimeline}>
             {(expanded ? [...older, latest] : [latest]).map((message) => (
               <li key={message.ts} data-slack-reply={message.ts} className={styles.slackReply}>
                 <span aria-hidden className={styles.slackAvatar}>
