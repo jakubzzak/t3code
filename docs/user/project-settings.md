@@ -199,6 +199,8 @@ Turning a subgroup off hides its controls and keeps your model and prompt choice
 stops AI processing; Agent Delegation off prevents direct runs while Agent chat remains available.
 Raw notification content stays usable without AI. An empty prompt uses the default instructions.
 Summaries lead with the message's request or key update, including any explicit deadline.
+Automatic summaries currently support Claude without managed MCP and Pi. Other providers retain
+your selection but report summary unavailable until a tool-free summary runner is supported.
 After automatic summary retries are exhausted, the original content stays available. Email originals appear as readable text with paragraphs
 and links. Use the **Open original** icon, or **⌘⇧O** while a notification is focused, to open its
 source. On other platforms, use **Ctrl⇧O**.
@@ -209,6 +211,12 @@ and chat context remains available with this option off; memory adds reuse of pa
 With memory enabled, record an outcome in the linked chat's Details to make it available to future
 processing. Turning memory off retains outcomes but stops history lookup.
 Suggested resolutions remain proposals; they are not sent or executed automatically.
+
+Integration credentials are encrypted using the hosting machine's OS credential store. Allow
+access on that machine when prompted; remote clients cannot answer its OS prompt. A locked or
+unavailable credential store blocks the connection rather than saving unprotected credentials.
+Keep the OS key with your encrypted data when moving or restoring an environment. If the key is
+lost, disconnect the affected integrations and connect them again.
 
 On macOS, some web browsers reserve ⌘⇧H before the page can receive it. Use Ctrl⇧H or the
 Snooze action there; the desktop shortcut remains ⌘⇧H.

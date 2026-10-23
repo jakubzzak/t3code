@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Authenticated encryption of environment integration records.
+import * as NodeCrypto from "node:crypto";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -10,6 +12,13 @@ import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
+import * as IntegrationVault from "./IntegrationVaultKey.ts";
+
+const vaultHeader = Buffer.from("T3IV1:");
+const isIntegrationSecret = (name: string) => /^inbox-(?:linear|slack|superhuman)-/.test(name);
+const decodeLegacyIntegration = Schema.decodeSync(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+);
 
 const secretStoreErrorContext = {
   resource: Schema.String,
@@ -157,6 +166,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
+  const vault = yield* IntegrationVault.IntegrationVaultKey;
 
   yield* fileSystem.makeDirectory(serverConfig.secretsDir, { recursive: true });
   yield* fileSystem.chmod(serverConfig.secretsDir, 0o700).pipe(
@@ -170,79 +180,165 @@ export const make = Effect.gen(function* () {
   );
 
   const resolveSecretPath = (name: string) => path.join(serverConfig.secretsDir, `${name}.bin`);
+  const locked = <A>(name: string, task: Effect.Effect<A, SecretStoreError>) =>
+    !isIntegrationSecret(name)
+      ? task
+      : IntegrationVault.withIntegrationVaultLease(resolveSecretPath(name), task).pipe(
+          Effect.mapError((cause) =>
+            isSecretStoreError(cause)
+              ? cause
+              : new SecretStoreSecureError({ resource: "integration credential lease", cause }),
+          ),
+        );
+  const protect = (name: string, value: Uint8Array) =>
+    !isIntegrationSecret(name)
+      ? Effect.succeed(Uint8Array.from(value))
+      : Effect.gen(function* () {
+          const key = yield* vault.get;
+          return yield* Effect.try({
+            try: () => {
+              const nonce = NodeCrypto.randomBytes(12);
+              const cipher = NodeCrypto.createCipheriv("aes-256-gcm", key, nonce);
+              cipher.setAAD(Buffer.from(name));
+              const ciphertext = Buffer.concat([cipher.update(value), cipher.final()]);
+              return Uint8Array.from(
+                Buffer.concat([vaultHeader, nonce, cipher.getAuthTag(), ciphertext]),
+              );
+            },
+            catch: (cause) =>
+              new SecretStoreEncodeError({ resource: "integration credential", cause }),
+          });
+        }).pipe(
+          Effect.mapError((cause) =>
+            isSecretStoreError(cause)
+              ? cause
+              : new SecretStoreSecureError({ resource: "integration vault", cause }),
+          ),
+        );
 
   const get: ServerSecretStore["Service"]["get"] = (name) =>
-    fileSystem.readFile(resolveSecretPath(name)).pipe(
-      Effect.map((bytes) => Option.some(Uint8Array.from(bytes))),
-      Effect.catch((cause) =>
-        cause.reason._tag === "NotFound"
-          ? Effect.succeedNone
-          : Effect.fail(
-              new SecretStoreReadError({
+    locked(
+      name,
+      fileSystem.readFile(resolveSecretPath(name)).pipe(
+        Effect.map((bytes) => Option.some(Uint8Array.from(bytes))),
+        Effect.catch((cause) =>
+          cause.reason._tag === "NotFound"
+            ? Effect.succeedNone
+            : Effect.fail(
+                new SecretStoreReadError({
+                  resource: `secret ${name}`,
+                  cause,
+                }),
+              ),
+        ),
+        Effect.flatMap((stored) => {
+          if (Option.isNone(stored) || !isIntegrationSecret(name)) return Effect.succeed(stored);
+          const bytes = stored.value;
+          if (!Buffer.from(bytes.slice(0, vaultHeader.length)).equals(vaultHeader))
+            return Effect.try({
+              try: () =>
+                decodeLegacyIntegration(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+              catch: (cause) =>
+                new SecretStoreDecodeError({ resource: "legacy integration credential", cause }),
+            }).pipe(Effect.andThen(persist(name, bytes)), Effect.as(stored));
+          return vault.get.pipe(
+            Effect.mapError(
+              (cause) => new SecretStoreSecureError({ resource: "integration vault", cause }),
+            ),
+            Effect.flatMap((key) =>
+              Effect.try({
+                try: () => {
+                  if (bytes.length < vaultHeader.length + 28)
+                    throw new Error("Invalid encrypted credential.");
+                  const offset = vaultHeader.length;
+                  const decipher = NodeCrypto.createDecipheriv(
+                    "aes-256-gcm",
+                    key,
+                    bytes.slice(offset, offset + 12),
+                  );
+                  decipher.setAAD(Buffer.from(name));
+                  decipher.setAuthTag(bytes.slice(offset + 12, offset + 28));
+                  return Option.some(
+                    Uint8Array.from(
+                      Buffer.concat([decipher.update(bytes.slice(offset + 28)), decipher.final()]),
+                    ),
+                  );
+                },
+                catch: (cause) =>
+                  new SecretStoreDecodeError({ resource: "integration credential", cause }),
+              }),
+            ),
+          );
+        }),
+        Effect.withSpan("ServerSecretStore.get"),
+      ),
+    );
+
+  const persist: ServerSecretStore["Service"]["set"] = (name, value) => {
+    const secretPath = resolveSecretPath(name);
+    return protect(name, value).pipe(
+      Effect.flatMap((encoded) =>
+        crypto.randomUUIDv4().pipe(
+          Effect.mapError(
+            (cause) =>
+              new SecretStoreTemporaryPathError({
                 resource: `secret ${name}`,
                 cause,
               }),
-            ),
-      ),
-      Effect.withSpan("ServerSecretStore.get"),
-    );
-
-  const set: ServerSecretStore["Service"]["set"] = (name, value) => {
-    const secretPath = resolveSecretPath(name);
-    return crypto.randomUUIDv4().pipe(
-      Effect.mapError(
-        (cause) =>
-          new SecretStoreTemporaryPathError({
-            resource: `secret ${name}`,
-            cause,
-          }),
-      ),
-      Effect.flatMap((uuid) => {
-        const tempPath = `${secretPath}.${uuid}.tmp`;
-        return Effect.gen(function* () {
-          yield* fileSystem.writeFile(tempPath, value);
-          yield* fileSystem.chmod(tempPath, 0o600);
-          yield* fileSystem.rename(tempPath, secretPath);
-          yield* fileSystem.chmod(secretPath, 0o600);
-        }).pipe(
-          Effect.catch((cause) =>
-            fileSystem.remove(tempPath).pipe(
-              Effect.ignore,
-              Effect.flatMap(() =>
-                Effect.fail(
-                  new SecretStorePersistError({
-                    resource: `secret ${name}`,
-                    cause,
-                  }),
+          ),
+          Effect.flatMap((uuid) => {
+            const tempPath = `${secretPath}.${uuid}.tmp`;
+            return Effect.gen(function* () {
+              yield* fileSystem.writeFile(tempPath, encoded);
+              yield* fileSystem.chmod(tempPath, 0o600);
+              yield* fileSystem.rename(tempPath, secretPath);
+              yield* fileSystem.chmod(secretPath, 0o600);
+            }).pipe(
+              Effect.catch((cause) =>
+                fileSystem.remove(tempPath).pipe(
+                  Effect.ignore,
+                  Effect.flatMap(() =>
+                    Effect.fail(
+                      new SecretStorePersistError({
+                        resource: `secret ${name}`,
+                        cause,
+                      }),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-        );
-      }),
-      Effect.withSpan("ServerSecretStore.set"),
+            );
+          }),
+          Effect.withSpan("ServerSecretStore.set"),
+        ),
+      ),
     );
   };
 
+  const set: ServerSecretStore["Service"]["set"] = (name, value) =>
+    locked(name, persist(name, value));
+
   const create: ServerSecretStore["Service"]["create"] = (name, value) => {
     const secretPath = resolveSecretPath(name);
-    return Effect.scoped(
-      Effect.gen(function* () {
-        const file = yield* fileSystem.open(secretPath, {
-          flag: "wx",
-          mode: 0o600,
-        });
-        yield* file.writeAll(value);
-        yield* file.sync;
-        yield* fileSystem.chmod(secretPath, 0o600);
-      }),
-    ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SecretStorePersistError({
-            resource: `secret ${name}`,
-            cause,
-          }),
+    return locked(
+      name,
+      Effect.scoped(
+        Effect.gen(function* () {
+          const encoded = yield* protect(name, value);
+          const file = yield* fileSystem.open(secretPath, {
+            flag: "wx",
+            mode: 0o600,
+          });
+          yield* file.writeAll(encoded);
+          yield* file.sync;
+          yield* fileSystem.chmod(secretPath, 0o600);
+        }),
+      ).pipe(
+        Effect.mapError((cause) =>
+          isSecretStoreError(cause)
+            ? cause
+            : new SecretStorePersistError({ resource: `secret ${name}`, cause }),
+        ),
       ),
     );
   };
@@ -290,18 +386,21 @@ export const make = Effect.gen(function* () {
     );
 
   const remove: ServerSecretStore["Service"]["remove"] = (name) =>
-    fileSystem.remove(resolveSecretPath(name)).pipe(
-      Effect.catch((cause) =>
-        cause.reason._tag === "NotFound"
-          ? Effect.void
-          : Effect.fail(
-              new SecretStoreRemoveError({
-                resource: `secret ${name}`,
-                cause,
-              }),
-            ),
+    locked(
+      name,
+      fileSystem.remove(resolveSecretPath(name)).pipe(
+        Effect.catch((cause) =>
+          cause.reason._tag === "NotFound"
+            ? Effect.void
+            : Effect.fail(
+                new SecretStoreRemoveError({
+                  resource: `secret ${name}`,
+                  cause,
+                }),
+              ),
+        ),
+        Effect.withSpan("ServerSecretStore.remove"),
       ),
-      Effect.withSpan("ServerSecretStore.remove"),
     );
 
   return ServerSecretStore.of({
@@ -314,4 +413,6 @@ export const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(ServerSecretStore, make);
+export const layer = Layer.effect(ServerSecretStore, make).pipe(
+  Layer.provide(IntegrationVault.layer),
+);

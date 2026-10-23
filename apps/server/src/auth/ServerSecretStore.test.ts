@@ -11,6 +11,7 @@ import * as PlatformError from "effect/PlatformError";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
+import * as IntegrationVault from "./IntegrationVaultKey.ts";
 
 const layerServerConfig = () =>
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-secret-store-test-" });
@@ -265,3 +266,85 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
     }).pipe(Effect.provide(layerRemoveFailureSecretStore())),
   );
 });
+
+it.effect(
+  "encrypts separate integration records with one vault key and authenticates their identity",
+  () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const store = yield* ServerSecretStore.make.pipe(
+        Effect.provideService(IntegrationVault.IntegrationVaultKey, {
+          get: Effect.succeed(new Uint8Array(32).fill(17)),
+        }),
+      );
+      const token = new TextEncoder().encode("fixture-sensitive-access-and-refresh");
+      for (const source of ["linear", "slack", "superhuman"]) {
+        const name = `inbox-${source}-fixture`;
+        yield* store.set(name, token);
+        const bytes = yield* fs.readFile(`${config.secretsDir}/${name}.bin`);
+        assert.notInclude(new TextDecoder().decode(bytes), "fixture-sensitive");
+        assert.equal(new TextDecoder().decode(bytes.slice(0, 6)), "T3IV1:");
+        assert.deepEqual(Option.getOrThrow(yield* store.get(name)), token);
+      }
+      const ciphertext = yield* fs.readFile(`${config.secretsDir}/inbox-linear-fixture.bin`);
+      yield* fs.writeFile(`${config.secretsDir}/inbox-slack-fixture.bin`, ciphertext);
+      assert.equal((yield* Effect.result(store.get("inbox-slack-fixture")))._tag, "Failure");
+      ciphertext[ciphertext.length - 1]! ^= 1;
+      yield* fs.writeFile(`${config.secretsDir}/inbox-linear-fixture.bin`, ciphertext);
+      assert.equal((yield* Effect.result(store.get("inbox-linear-fixture")))._tag, "Failure");
+    }).pipe(
+      Effect.provide(layerServerConfig().pipe(Layer.provideMerge(NodeServices.layer))),
+      Effect.scoped,
+    ),
+);
+
+it.effect(
+  "migrates plaintext integration records on read without altering unrelated authentication secrets",
+  () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const store = yield* ServerSecretStore.make.pipe(
+        Effect.provideService(IntegrationVault.IntegrationVaultKey, {
+          get: Effect.succeed(new Uint8Array(32).fill(23)),
+        }),
+      );
+      const token = new TextEncoder().encode('{"accessToken":"legacy-fixture"}');
+      const file = `${config.secretsDir}/inbox-linear-legacy.bin`;
+      yield* fs.writeFile(file, token);
+      assert.deepEqual(Option.getOrThrow(yield* store.get("inbox-linear-legacy")), token);
+      assert.equal(new TextDecoder().decode((yield* fs.readFile(file)).slice(0, 6)), "T3IV1:");
+      yield* store.set("server-auth-fixture", token);
+      assert.deepEqual(yield* fs.readFile(`${config.secretsDir}/server-auth-fixture.bin`), token);
+    }).pipe(
+      Effect.provide(layerServerConfig().pipe(Layer.provideMerge(NodeServices.layer))),
+      Effect.scoped,
+    ),
+);
+
+it.effect("fails closed on unavailable OS key access without writing or replacing plaintext", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const store = yield* ServerSecretStore.make.pipe(
+      Effect.provideService(IntegrationVault.IntegrationVaultKey, {
+        get: Effect.fail(
+          new IntegrationVault.IntegrationVaultKeyError({
+            cause: new Error("synthetic locked keyring"),
+          }),
+        ),
+      }),
+    );
+    const token = new TextEncoder().encode("existing-fixture");
+    const file = `${config.secretsDir}/inbox-linear-locked.bin`;
+    yield* fs.writeFile(file, token);
+    assert.equal((yield* Effect.result(store.get("inbox-linear-locked")))._tag, "Failure");
+    assert.deepEqual(yield* fs.readFile(file), token);
+    assert.equal((yield* Effect.result(store.set("inbox-slack-new", token)))._tag, "Failure");
+    assert.isFalse(yield* fs.exists(`${config.secretsDir}/inbox-slack-new.bin`));
+  }).pipe(
+    Effect.provide(layerServerConfig().pipe(Layer.provideMerge(NodeServices.layer))),
+    Effect.scoped,
+  ),
+);
