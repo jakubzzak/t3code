@@ -3567,3 +3567,28 @@ describe("composerDraftStore attachment references", () => {
     );
   });
 });
+
+it("keeps search instructions with their draft through persistence and consumes auto-submit", () => {
+  const store = useComposerDraftStore.getState();
+  const draftId = DraftId.make("search-draft");
+  const project = scopeProjectRef(EnvironmentId.make("search-env"), ProjectId.make("scratch"));
+  store.setProjectDraftThreadId(project, draftId, { threadId: ThreadId.make("search-thread") });
+  store.setPrompt(draftId, "What did we decide?");
+  const search = {
+    scope: "chats" as const,
+    template: "Find and cite.",
+    presentation: "implicit" as const,
+    autoSubmit: true,
+  };
+  store.setDraftThreadContext(draftId, { search });
+  expect(store.getDraftSession(draftId)?.search).toEqual(search);
+  const persisted = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+  expect(
+    Object.values(persisted.draftThreadsByThreadKey).find(
+      (draft) => draft.threadId === "search-thread",
+    )?.search,
+  ).toEqual({ ...search, autoSubmit: false });
+  store.setDraftThreadContext(draftId, { search: { ...search, autoSubmit: false } });
+  expect(store.getDraftSession(draftId)?.search?.autoSubmit).toBe(false);
+  expect(store.getComposerDraft(draftId)?.prompt).toBe("What did we decide?");
+});
