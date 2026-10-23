@@ -11,8 +11,7 @@ import { find } from "linkifyjs";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { slackLinkUrl, slackMentionHref } from "@t3tools/shared/slackText";
-import { useClientSettings } from "~/hooks/useSettings";
-import { formatCompactTimestamp, formatChatTimestampTooltip } from "~/timestampFormat";
+import { InboxTimestampLabel } from "./InboxTimestampLabel";
 import type {
   InboxNotification,
   ScopedThreadRef,
@@ -304,7 +303,9 @@ function SlackThreadContent({
   thread: initial,
   onLoadPrevious,
   sourceAuthor,
+  notificationTimestamp,
 }: {
+  notificationTimestamp: string;
   sourceAuthor?: string | undefined;
   thread: InboxSlackThread;
   onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
@@ -314,7 +315,6 @@ function SlackThreadContent({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const historyId = useId();
-  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const thread = loaded ?? initial;
   const replies = thread.messages.filter((message) => message.ts !== thread.ts);
   const latest = replies.find((message) => message.ts === thread.latestReplyTs);
@@ -405,14 +405,10 @@ function SlackThreadContent({
                 </span>
                 <div className={styles.slackAuthor}>
                   <span>{message.author}</span>
-                  <Tooltip>
-                    <TooltipTrigger render={<time dateTime={message.occurredAt} />}>
-                      {formatCompactTimestamp(message.occurredAt, timestampFormat)}
-                    </TooltipTrigger>
-                    <TooltipPopup>
-                      {formatChatTimestampTooltip(message.occurredAt, timestampFormat)}
-                    </TooltipPopup>
-                  </Tooltip>
+                  <InboxTimestampLabel
+                    timestamp={message.occurredAt}
+                    sameDayAs={notificationTimestamp}
+                  />
                 </div>
                 <SlackMessageBody message={message} />
               </li>
@@ -441,6 +437,7 @@ export function InboxSourceContent({
         <SlackThreadContent
           key={`${notification.id}:${thread.ts}:${thread.latestReplyTs}`}
           thread={thread}
+          notificationTimestamp={notification.items.at(-1)?.occurredAt ?? notification.updatedAt}
           sourceAuthor={notification.items.at(-1)?.author}
           onLoadPrevious={onLoadPrevious}
         />

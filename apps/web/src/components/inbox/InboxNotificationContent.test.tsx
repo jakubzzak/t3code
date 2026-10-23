@@ -14,6 +14,7 @@ import {
   InboxSourceContent,
   InboxSummary,
 } from "./InboxNotificationContent";
+import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
 import { slackText, slackMentions } from "@t3tools/shared/slackText";
 const state = vi.hoisted(() => ({
   open: vi.fn(),
@@ -517,4 +518,54 @@ it("renders solid personal/group mention tags only for native Slack references, 
     expect(container.textContent).toContain(" @Jakub ");
   }
   expect(state.open).not.toHaveBeenCalled();
+});
+
+it("uses 24-hour notification dates and shortens thread replies against the header's day", async () => {
+  const date = (year: number, day: number, hour: number) =>
+    new Date(year, 9, day, hour, 52).toISOString();
+  const message = (ts: string, occurredAt: string) => ({
+    ts,
+    occurredAt,
+    author: "Alex",
+    content: "Review",
+    formattedContent: "Review",
+  });
+  const currentYear = new Date().getFullYear();
+  const parentYear = currentYear - 1;
+  const parent = date(parentYear, 22, 10);
+  const item = {
+    ...notification,
+    items: [{ ...notification.items[0]!, occurredAt: parent }],
+    slackThread: {
+      channelId: "C1",
+      ts: "1",
+      root: message("1", date(parentYear, 20, 10)),
+      latestReplyTs: "3",
+      replyCount: 2,
+      nextCursor: null,
+      messages: [message("2", date(parentYear, 21, 14)), message("3", date(parentYear, 22, 14))],
+    },
+  };
+  await act(async () =>
+    root.render(
+      <>
+        <InboxNotificationMetadata notification={item} />
+        <InboxSourceContent notification={item} />
+      </>,
+    ),
+  );
+  const times = () => [...container.querySelectorAll("time")];
+  expect(times().map((time) => time.textContent)).toEqual([
+    `10:52 · 22 Oct ${parentYear}`,
+    "14:52",
+  ]);
+  expect(times()[1]!.getAttribute("aria-label")).toBe(`14:52 · 22 Oct ${parentYear}`);
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click(),
+  );
+  expect(times().map((time) => time.textContent)).toEqual([
+    `10:52 · 22 Oct ${parentYear}`,
+    `14:52 · 21 Oct ${parentYear}`,
+    "14:52",
+  ]);
 });

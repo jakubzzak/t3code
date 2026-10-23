@@ -1,7 +1,6 @@
 import type { InboxNotification } from "@t3tools/contracts";
 import type { ReactNode } from "react";
-import { useClientSettings } from "~/hooks/useSettings";
-import { formatCompactTimestamp, formatChatTimestampTooltip } from "~/timestampFormat";
+import { InboxTimestampLabel } from "./InboxTimestampLabel";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { InboxSourceLogo } from "./InboxSourceLogo";
 
@@ -12,10 +11,8 @@ export function InboxNotificationMetadata({
   notification: InboxNotification;
   trailing?: ReactNode;
 }) {
-  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const item = notification.items.at(-1);
   const timestamp = item?.occurredAt ?? notification.updatedAt;
-  const fullTimestamp = formatChatTimestampTooltip(timestamp, timestampFormat);
   return (
     <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
       <InboxSourceLogo source={notification.source} />
@@ -29,20 +26,7 @@ export function InboxNotificationMetadata({
         </TooltipTrigger>
         <TooltipPopup>{[item?.author, item?.location].filter(Boolean).join(" · ")}</TooltipPopup>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <time
-              dateTime={timestamp}
-              aria-label={fullTimestamp}
-              className="shrink-0 whitespace-nowrap tabular-nums"
-            />
-          }
-        >
-          {formatCompactTimestamp(timestamp, timestampFormat)}
-        </TooltipTrigger>
-        <TooltipPopup>{fullTimestamp}</TooltipPopup>
-      </Tooltip>
+      <InboxTimestampLabel timestamp={timestamp} />
       {trailing}
     </div>
   );
