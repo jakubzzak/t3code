@@ -186,13 +186,15 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.mapError(wrap)),
     stop: (threadId, commandId) =>
       Effect.gen(function* () {
-        const shell = yield* orchestrator.getThreadShell(threadId);
-        if (shell?.latestRunId)
+        const records = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
+        for (const run of records.runs.filter((run) =>
+          ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+        ))
           yield* orchestrator.dispatch({
             type: "run.interrupt",
             threadId,
-            commandId,
-            runId: shell.latestRunId,
+            commandId: CommandId.make(`${commandId}:${run.id}`),
+            runId: run.id,
             reason: "Notification delegation undone",
             holdQueue: true,
           });

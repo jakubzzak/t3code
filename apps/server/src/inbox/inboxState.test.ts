@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 import { ProjectId, ThreadId, type InboxSourceItem } from "@t3tools/contracts";
 import { readableSlackItem } from "./notificationContent.ts";
@@ -21,7 +22,9 @@ describe("notification lifecycle", () => {
       ...message,
       source: "linear" as const,
       id: `event-${index}`,
-      occurredAt: new Date(Date.parse(message.occurredAt) + index * 1000).toISOString(),
+      occurredAt: DateTime.formatIso(
+        DateTime.makeUnsafe(Date.parse(message.occurredAt) + index * 1000),
+      ),
     }));
     let current = ingestInboxItem(project, events[0]!);
     for (const event of events.slice(1)) current = ingestInboxItem(project, event, current);

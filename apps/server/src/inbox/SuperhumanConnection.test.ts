@@ -79,9 +79,13 @@ it.effect(
           "Failure",
         );
       }).pipe(
-        Effect.provide(Connection.layer),
-        Effect.provide(Layer.succeed(Secrets.ServerSecretStore, secrets)),
-        Effect.provide(NodeCrypto.layer),
+        Effect.provide(
+          Connection.layer.pipe(
+            Layer.provide(
+              Layer.mergeAll(Layer.succeed(Secrets.ServerSecretStore, secrets), NodeCrypto.layer),
+            ),
+          ),
+        ),
       );
     }),
 );

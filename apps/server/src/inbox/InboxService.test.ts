@@ -240,7 +240,7 @@ it.effect(
         assert.deepEqual(result.notification.items, [item]);
         assert.deepEqual(result.notification.state, notification.state);
         assert.equal(result.undoCommandId, null);
-      }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+      }).pipe(Effect.provide(Layer.mergeAll(fixture.layer, dependencies)));
     }).pipe(Effect.scoped),
 );
 
@@ -285,7 +285,7 @@ it.effect("lists bounded AI summaries and keeps full source context and next ste
       });
       const [shortPreview] = yield* service.list({ projectId });
       assert.equal(shortPreview?.analysis?.summary, "Review the reconnect fix.");
-    }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+    }).pipe(Effect.provide(Layer.mergeAll(fixture.layer, dependencies)));
   }).pipe(Effect.scoped),
 );
 
@@ -314,7 +314,7 @@ it.effect(
         assert.equal(next.length, 5);
         assert.equal(new Set([...page, ...next].map((entry) => entry.id)).size, 105);
         assert.equal((yield* service.list({ projectId, search: "Rare historical" })).length, 1);
-      }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+      }).pipe(Effect.provide(Layer.mergeAll(fixture.layer, dependencies)));
     }).pipe(Effect.scoped),
 );
 
@@ -348,7 +348,7 @@ it.effect("retrieves confirmed outcomes even when more than 500 active notificat
       assert.ok(
         (yield* Ref.get(fixture.analyzedHistory)).some((entry) => entry.id === precedent.id),
       );
-    }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+    }).pipe(Effect.provide(Layer.mergeAll(fixture.layer, dependencies)));
   }).pipe(Effect.scoped),
 );
 
@@ -424,7 +424,7 @@ it.effect("rechecks the caller after waiting for the mutation lock", () =>
       assert.equal(result._tag, "Failure");
       if (result._tag === "Failure") assert.equal(result.failure, "permission revoked");
       assert.equal((yield* repository.get(projectId, notification.id))?.state.placement, "active");
-    }).pipe(Effect.provide(fixture.layer), Effect.provide(dependencies));
+    }).pipe(Effect.provide(Layer.mergeAll(fixture.layer, dependencies)));
   }).pipe(Effect.scoped),
 );
 
