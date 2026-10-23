@@ -17,17 +17,12 @@ function formatDateTime(date: Date, now: Date, includeDate: boolean) {
   return `${time} · ${date.getDate()} ${monthFormatter.format(date)}${year}`;
 }
 
-/** Thread comments shorten against their notification's day; headers shorten against today. */
-export function formatInboxTimestamp(
-  isoDate: string,
-  referenceTimestamp?: string,
-  nowMs = Date.now(),
-) {
+/** All Inbox timestamps shorten against today in the viewer's local timezone. */
+export function formatInboxTimestamp(isoDate: string, nowMs = Date.now()) {
   const date = parseTimestampDate(isoDate);
   if (!date) return "";
   const now = new Date(nowMs);
-  const reference = referenceTimestamp ? (parseTimestampDate(referenceTimestamp) ?? now) : now;
-  return formatDateTime(date, now, !sameDay(date, reference));
+  return formatDateTime(date, now, !sameDay(date, now));
 }
 
 export function formatInboxTimestampTooltip(isoDate: string, nowMs = Date.now()) {

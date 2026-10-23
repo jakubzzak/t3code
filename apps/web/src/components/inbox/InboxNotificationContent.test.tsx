@@ -520,7 +520,7 @@ it("renders solid personal/group mention tags only for native Slack references, 
   expect(state.open).not.toHaveBeenCalled();
 });
 
-it("uses 24-hour notification dates and shortens thread replies against the header's day", async () => {
+it("uses the same today-based date rule for notification headers and thread replies", async () => {
   const date = (year: number, day: number, hour: number) =>
     new Date(year, 9, day, hour, 52).toISOString();
   const message = (ts: string, occurredAt: string) => ({
@@ -557,7 +557,7 @@ it("uses 24-hour notification dates and shortens thread replies against the head
   const times = () => [...container.querySelectorAll("time")];
   expect(times().map((time) => time.textContent)).toEqual([
     `10:52 · 22 Oct ${parentYear}`,
-    "14:52",
+    `14:52 · 22 Oct ${parentYear}`,
   ]);
   expect(times()[1]!.getAttribute("aria-label")).toBe(`14:52 · 22 Oct ${parentYear}`);
   await act(async () =>
@@ -566,6 +566,6 @@ it("uses 24-hour notification dates and shortens thread replies against the head
   expect(times().map((time) => time.textContent)).toEqual([
     `10:52 · 22 Oct ${parentYear}`,
     `14:52 · 21 Oct ${parentYear}`,
-    "14:52",
+    `14:52 · 22 Oct ${parentYear}`,
   ]);
 });

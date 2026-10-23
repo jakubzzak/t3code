@@ -1,13 +1,7 @@
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatInboxTimestamp, formatInboxTimestampTooltip } from "./inboxTimestampFormat";
 
-export function InboxTimestampLabel({
-  timestamp,
-  sameDayAs,
-}: {
-  timestamp: string;
-  sameDayAs?: string | undefined;
-}) {
+export function InboxTimestampLabel({ timestamp }: { timestamp: string }) {
   const fullTimestamp = formatInboxTimestampTooltip(timestamp);
   return (
     <Tooltip>
@@ -20,7 +14,7 @@ export function InboxTimestampLabel({
           />
         }
       >
-        {formatInboxTimestamp(timestamp, sameDayAs)}
+        {formatInboxTimestamp(timestamp)}
       </TooltipTrigger>
       <TooltipPopup>{fullTimestamp}</TooltipPopup>
     </Tooltip>

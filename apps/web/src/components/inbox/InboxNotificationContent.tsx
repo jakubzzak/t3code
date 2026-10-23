@@ -303,9 +303,7 @@ function SlackThreadContent({
   thread: initial,
   onLoadPrevious,
   sourceAuthor,
-  notificationTimestamp,
 }: {
-  notificationTimestamp: string;
   sourceAuthor?: string | undefined;
   thread: InboxSlackThread;
   onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
@@ -405,10 +403,7 @@ function SlackThreadContent({
                 </span>
                 <div className={styles.slackAuthor}>
                   <span>{message.author}</span>
-                  <InboxTimestampLabel
-                    timestamp={message.occurredAt}
-                    sameDayAs={notificationTimestamp}
-                  />
+                  <InboxTimestampLabel timestamp={message.occurredAt} />
                 </div>
                 <SlackMessageBody message={message} />
               </li>
@@ -437,7 +432,6 @@ export function InboxSourceContent({
         <SlackThreadContent
           key={`${notification.id}:${thread.ts}:${thread.latestReplyTs}`}
           thread={thread}
-          notificationTimestamp={notification.items.at(-1)?.occurredAt ?? notification.updatedAt}
           sourceAuthor={notification.items.at(-1)?.author}
           onLoadPrevious={onLoadPrevious}
         />

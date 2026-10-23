@@ -15,20 +15,12 @@ describe("Inbox timestamps", () => {
     [local(2027, 1, 1), "10:52 · 1 Jan 2027"],
     [local(2026, 9, 1), "10:52 · 1 Sep"],
   ])("formats %s as %s", (timestamp, expected) => {
-    expect(formatInboxTimestamp(timestamp, undefined, now)).toBe(expected);
-  });
-
-  it("omits a thread comment's date only when it shares the notification's local calendar day", () => {
-    const parent = local(2026, 10, 22);
-    expect(formatInboxTimestamp(local(2026, 10, 22, 14), parent, now)).toBe("14:52");
-    expect(formatInboxTimestamp(local(2026, 10, 21, 14), parent, now)).toBe("14:52 · 21 Oct");
-    expect(formatInboxTimestamp(local(2026, 10, 23, 14), parent, now)).toBe("14:52 · 23 Oct");
-    expect(formatInboxTimestamp(local(2025, 10, 22, 14), local(2025, 10, 22), now)).toBe("14:52");
+    expect(formatInboxTimestamp(timestamp, now)).toBe(expected);
   });
 
   it("compares local calendar dates rather than elapsed 24-hour periods", () => {
     const justAfterMidnight = new Date(2026, 9, 23, 0, 1).getTime();
-    expect(formatInboxTimestamp(local(2026, 10, 22, 23, 59), undefined, justAfterMidnight)).toBe(
+    expect(formatInboxTimestamp(local(2026, 10, 22, 23, 59), justAfterMidnight)).toBe(
       "23:59 · 22 Oct",
     );
   });
@@ -39,7 +31,7 @@ describe("Inbox timestamps", () => {
   });
 
   it("handles invalid timestamps without rendering Invalid Date", () => {
-    expect(formatInboxTimestamp("invalid", undefined, now)).toBe("");
+    expect(formatInboxTimestamp("invalid", now)).toBe("");
     expect(formatInboxTimestampTooltip("invalid", now)).toBe("");
   });
 });
