@@ -392,14 +392,17 @@ export const make = Effect.gen(function* () {
       const item = yield* inbox.get(input);
       if (!item || item.source !== "slack" || !/^[CDG][A-Z0-9]+:\d+(?:\.\d+)?$/.test(item.groupId))
         return item;
-      if (item.slackThread && (!input.loadPreviousComments || !item.slackThread.nextCursor))
+      if (
+        item.slackThread?.formatVersion === 2 &&
+        (!input.loadPreviousComments || !item.slackThread.nextCursor)
+      )
         return item;
       return yield* lock({ projectId: input.projectId, source: "slack" })(
         Effect.gen(function* () {
           let current = yield* inbox.get(input);
           if (!current) return null;
           if (
-            current.slackThread &&
+            current.slackThread?.formatVersion === 2 &&
             (!input.loadPreviousComments || !current.slackThread.nextCursor)
           )
             return current;
@@ -408,7 +411,7 @@ export const make = Effect.gen(function* () {
           const seen = new Set<string>();
           let pages = 0;
           while (
-            !current.slackThread ||
+            current.slackThread?.formatVersion !== 2 ||
             (input.loadPreviousComments && current.slackThread.nextCursor)
           ) {
             const cursor = current.slackThread?.nextCursor;

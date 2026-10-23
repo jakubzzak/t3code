@@ -556,6 +556,7 @@ it.effect(
         const slackItem = {
           ...item,
           source: "slack" as const,
+          id: "C1:1700000000",
           groupId: "C1:1700000000",
           contentFormat: "text" as const,
         };
@@ -574,6 +575,8 @@ it.effect(
           author: "Alex",
           content: "Root",
           formattedContent: "Root",
+          formattedTitle: "[@Jakub](slack-mention:user:UME)",
+          slackMentions: [{ kind: "user" as const, id: "UME", label: "Jakub", personal: true }],
           occurredAt: "2026-10-22T10:00:00Z",
         };
         const thread = {
@@ -586,6 +589,7 @@ it.effect(
           nextCursor: null,
         };
         const cached = yield* service.cacheSlackThread({ projectId, id: original.id, thread });
+        assert.deepEqual(cached?.items[0]?.slackMentions, message.slackMentions);
         assert.deepEqual(cached?.state, original.state);
         assert.equal(cached?.revision, original.revision);
         assert.deepEqual(cached?.analysis, original.analysis);

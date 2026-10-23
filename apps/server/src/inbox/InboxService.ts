@@ -523,6 +523,15 @@ const make = Effect.gen(function* () {
                 .map(({ formattedContent: _formattedContent, slackThread: _thread, ...entry }) => ({
                   ...entry,
                   content: entry.content.slice(0, 320),
+                  ...(entry.slackMentions
+                    ? {
+                        slackMentions: entry.slackMentions.filter((mention) =>
+                          entry.formattedTitle?.includes(
+                            `slack-mention:${mention.kind}:${mention.id}`,
+                          ),
+                        ),
+                      }
+                    : {}),
                 })),
               analysis: next.analysis
                 ? {
@@ -567,6 +576,19 @@ const make = Effect.gen(function* () {
           const next = {
             ...current,
             slackThread: mergeSlackThread(current.slackThread, input.thread),
+            items: current.items.map((item) => {
+              const message = [input.thread.root, ...input.thread.messages].find(
+                (message) => item.id === `${input.thread.channelId}:${message.ts}`,
+              );
+              return message?.formattedTitle
+                ? {
+                    ...item,
+                    formattedTitle: message.formattedTitle,
+                    ...(message.slackMentions ? { slackMentions: message.slackMentions } : {}),
+                    formattedContent: message.formattedContent,
+                  }
+                : item;
+            }),
           };
           yield* repository.put(next);
           return next;

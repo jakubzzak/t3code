@@ -82,8 +82,9 @@ it.effect(
             threadReads.push(cursor);
             if (cursor === "page3" && failThread)
               return yield* new InboxError({ detail: "Slack rate limit" });
-            if (!cached)
+            if (cached?.formatVersion !== 2)
               return {
+                formatVersion: 2 as const,
                 channelId,
                 ts,
                 root: msg(ts),
@@ -295,6 +296,15 @@ it.effect(
         yield* service.get({ projectId, id: threadId, loadPreviousComments: true });
         assert.deepEqual(threadReads, ["initial", "page2", "page3", "page3"]);
         assert.equal(threadNotification.slackThread?.nextCursor, null);
+        const { formatVersion: _version, ...oldThread } = threadNotification.slackThread!;
+        threadNotification = { ...threadNotification, slackThread: oldThread };
+        yield* service.get({ projectId, id: threadId });
+        assert.equal(threadReads.at(-1), "initial");
+        assert.equal(threadNotification.slackThread?.formatVersion, 2);
+        assert.equal(threadNotification.slackThread?.nextCursor, "page2");
+        const readsAfterUpgrade = threadReads.length;
+        yield* service.get({ projectId, id: threadId });
+        assert.equal(threadReads.length, readsAfterUpgrade);
         threadNotification = null;
         assert.equal(yield* Ref.get(calls), 1);
         yield* settings.updateSettings({

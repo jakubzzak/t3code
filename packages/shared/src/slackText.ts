@@ -1,7 +1,37 @@
 export type SlackNames = {
   users?: Readonly<Record<string, string>>;
   groups?: Readonly<Record<string, string>>;
+  viewerUserId?: string;
+  memberGroupIds?: ReadonlyArray<string>;
+  emojis?: Readonly<Record<string, string>>;
 };
+export type SlackMention = { kind: "user" | "group"; id: string; label: string; personal: boolean };
+const nativeMentions =
+  /```[\s\S]*?```|`[^`\n]*`|<(@([UW][A-Z0-9]+)|!subteam\^([A-Z0-9]+))(?:\|([^>]*))?>/g;
+/** Retain authentic references only; plain @names and code never become mentions. */
+export function slackMentions(value: string, names: SlackNames = {}): SlackMention[] {
+  const mentions = new Map<string, SlackMention>();
+  for (const match of value.matchAll(nativeMentions)) {
+    if (match[0].startsWith("`")) continue;
+    const kind = match[2] ? "user" : "group";
+    const id = match[2] || match[3]!;
+    const label =
+      (kind === "user" ? names.users?.[id] : names.groups?.[id]) ||
+      match[4]?.replace(/^@/, "") ||
+      id;
+    mentions.set(`${kind}:${id}`, {
+      kind,
+      id,
+      label: label.slice(0, 200),
+      personal:
+        kind === "user" ? id === names.viewerUserId : (names.memberGroupIds?.includes(id) ?? false),
+    });
+    if (mentions.size === 100) break;
+  }
+  return [...mentions.values()];
+}
+export const slackMentionHref = (mention: Pick<SlackMention, "kind" | "id">) =>
+  `slack-mention:${mention.kind}:${mention.id}`;
 const decode = (value: string) =>
   value.replace(/&(?:amp|lt|gt);/g, (entity) =>
     entity === "&amp;" ? "&" : entity === "&lt;" ? "<" : ">",
@@ -19,19 +49,24 @@ export function slackLinkUrl(value: string): string | null {
 export function slackText(
   value: string,
   names: SlackNames = {},
-  format: "markdown" | "text" | "preview" = "markdown",
+  format: "markdown" | "text" | "preview" | "rich" = "markdown",
 ): string {
-  const markdown = format === "markdown";
-  const literal = (text: string) => {
+  const markdown = format === "markdown" || format === "rich";
+  const mentions = format === "rich" ? slackMentions(value, names) : [];
+  const literal = (text: string, emojify = true) => {
     const decoded = decode(text).replace(
       /(^|\n)([UW][A-Z0-9]+):/g,
       (_, prefix: string, id: string) => `${prefix}${names.users?.[id] || id}:`,
     );
-    return markdown ? escape(decoded) : decoded;
+    const emoji = emojify
+      ? decoded.replace(/:([\w+-]+):/g, (match, name: string) => names.emojis?.[name] ?? match)
+      : decoded;
+    return markdown ? escape(emoji) : emoji;
   };
   const link = (url: string, label: string) => {
     const safe = slackLinkUrl(decode(url));
-    if (markdown && safe) return `[${literal(label)}](<${safe.replace(/>/g, "%3E")}>)`;
+    if (markdown && safe)
+      return `[${literal(label, label !== url)}](<${safe.replace(/>/g, "%3E")}>)`;
     return format === "text" && safe && decode(label) !== decode(url)
       ? `${literal(label)} (${safe})`
       : literal(label);
@@ -49,11 +84,15 @@ export function slackText(
       const label = labels.join("|");
       const user = reference!.match(/^@([UW][A-Z0-9]+)$/);
       const group = reference!.match(/^!subteam\^([A-Z0-9]+)$/);
-      if (user)
-        result += literal(`@${names.users?.[user[1]!] || label.replace(/^@/, "") || user[1]}`);
-      else if (group)
-        result += literal(`@${names.groups?.[group[1]!] || label.replace(/^@/, "") || group[1]}`);
-      else if (reference!.startsWith("#")) result += literal(`#${label || reference!.slice(1)}`);
+      if (user || group) {
+        const kind = user ? "user" : "group";
+        const id = user?.[1] ?? group![1]!;
+        const mention = mentions.find((entry) => entry.kind === kind && entry.id === id);
+        const text = literal(
+          `@${mention?.label || (user ? names.users?.[id] : names.groups?.[id]) || label.replace(/^@/, "") || id}`,
+        );
+        result += mention ? `[${text}](${slackMentionHref(mention)})` : text;
+      } else if (reference!.startsWith("#")) result += literal(`#${label || reference!.slice(1)}`);
       else if (["!here", "!channel", "!everyone"].includes(reference!))
         result += literal(reference!.replace("!", "@"));
       else if (reference!.startsWith("!date^")) result += literal(label || "Date");

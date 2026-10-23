@@ -272,6 +272,12 @@ it("preserves Slack links, resolves people and groups, and retains the complete 
     "[the report](<https://example.com/report?a=1&b=2>)",
   );
   expect(items[0]?.formattedContent).toContain("**Urgent**");
+  expect(items[0]?.slackMentions?.map(({ id, personal }) => ({ id, personal }))).toEqual([
+    { id: "U123", personal: false },
+    { id: "S123", personal: true },
+  ]);
+  expect(calls.filter((method) => method === "auth.test")).toHaveLength(1);
+  expect(calls.filter((method) => method === "usergroups.list")).toHaveLength(1);
   expect(items[0]?.contentFormat).toBe("text");
   expect(calls.filter((method) => method === "users.info")).toHaveLength(1);
 });

@@ -73,3 +73,44 @@ it("resumes only the missing page and retains multiline replies, names and safe 
   expect(await readSlackThread(read, "C1", "1700000000", result)).toBe(result);
   expect(read).toHaveBeenCalledOnce();
 });
+
+it("uses the authorized identity and group membership for mention colours in roots and replies", async () => {
+  const read = vi.fn(async (method: string) => {
+    if (method === "auth.test") return { user_id: "UME" };
+    if (method === "users.info") return { user: { profile: { display_name: "Alex" } } };
+    if (method === "usergroups.list")
+      return {
+        usergroups: [
+          { id: "SMINE", handle: "checkout-review", users: ["UME"] },
+          { id: "SOTHER", handle: "design", users: ["UOTHER"] },
+        ],
+      };
+    return {
+      ok: true,
+      messages: [
+        {
+          ts: "1700000000",
+          user: "UOTHER",
+          text: "<@UME> <!subteam^SMINE> :rotating_light:",
+          reply_count: 1,
+          latest_reply: "1700000001",
+        },
+        { ts: "1700000001", user: "UME", text: "<@UOTHER> <!subteam^SOTHER>" },
+      ],
+    };
+  });
+  const result = await readSlackThread(read, "C1", "1700000000");
+  expect(result.root.slackMentions?.map((mention) => mention.personal)).toEqual([true, true]);
+  expect(result.messages[0]?.slackMentions?.map((mention) => mention.personal)).toEqual([
+    false,
+    false,
+  ]);
+  expect(result.root.formattedContent).toContain("🚨");
+  expect(read).toHaveBeenCalledWith("usergroups.list", { include_users: "true" });
+  expect(await readSlackThread(read, "C1", "1700000000", result)).toBe(result);
+  expect(read.mock.calls.filter(([method]) => method === "auth.test")).toHaveLength(1);
+  const { formatVersion: _version, ...legacy } = result;
+  const upgraded = await readSlackThread(read, "C1", "1700000000", legacy);
+  expect(upgraded.formatVersion).toBe(2);
+  expect(upgraded.root.slackMentions).toEqual(result.root.slackMentions);
+});

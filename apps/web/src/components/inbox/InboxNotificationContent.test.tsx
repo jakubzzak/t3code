@@ -14,7 +14,7 @@ import {
   InboxSourceContent,
   InboxSummary,
 } from "./InboxNotificationContent";
-import { slackText } from "@t3tools/shared/slackText";
+import { slackText, slackMentions } from "@t3tools/shared/slackText";
 const state = vi.hoisted(() => ({
   open: vi.fn(),
   preview: vi.fn(),
@@ -474,4 +474,42 @@ it("keeps the latest reply visible on history failure, then loads missing commen
   await act(async () => button().click());
   await act(async () => button().click());
   expect(load).toHaveBeenCalledTimes(2);
+});
+
+it("renders solid personal/group mention tags only for native Slack references, in previews and originals", async () => {
+  const names = {
+    viewerUserId: "UME",
+    users: { UME: "Jakub", UOTHER: "Alex" },
+    groups: { SMINE: "checkout-review", SOTHER: "design" },
+    memberGroupIds: ["SMINE"],
+  };
+  const raw = "<@UME> <@UOTHER> <!subteam^SMINE> <!subteam^SOTHER> @Jakub `<!subteam^SMINE>`";
+  const item = {
+    ...notification.items[0]!,
+    formattedTitle: slackText(raw, names, "rich"),
+    formattedContent: slackText(raw, names, "rich"),
+    slackMentions: slackMentions(raw, names),
+  };
+  for (const element of [
+    <InboxSummary
+      key="summary"
+      notification={{ ...notification, items: [item] }}
+      enabled={false}
+    />,
+    <InboxSourceContent key="source" notification={{ ...notification, items: [item] }} />,
+  ]) {
+    await act(async () => root.render(element));
+    const tags = [...container.querySelectorAll<HTMLElement>("[data-slack-mention]")];
+    expect(tags.map((tag) => [tag.dataset.slackMention, tag.dataset.personal])).toEqual([
+      ["user:UME", "true"],
+      ["user:UOTHER", "false"],
+      ["group:SMINE", "true"],
+      ["group:SOTHER", "false"],
+    ]);
+    expect(tags.every((tag) => tag.querySelector("svg") !== null)).toBe(true);
+    expect(container.querySelector("code")?.textContent).toBe("<!subteam^SMINE>");
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+    expect(container.textContent).toContain(" @Jakub ");
+  }
+  expect(state.open).not.toHaveBeenCalled();
 });

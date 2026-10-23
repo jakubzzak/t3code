@@ -9,11 +9,19 @@ export function inboxContext(notification: InboxNotification) {
     items: notification.items
       .slice(-10)
       .map(readableInboxItem)
-      .map(({ formattedContent: _formattedContent, ...item }) => ({
-        ...item,
-        content: item.content.slice(0, 4000),
-        truncated: item.content.length > 4000,
-      })),
+      .map(
+        ({
+          formattedContent: _formattedContent,
+          formattedTitle: _formattedTitle,
+          slackMentions: _mentions,
+          slackThread: _thread,
+          ...item
+        }) => ({
+          ...item,
+          content: item.content.slice(0, 4000),
+          truncated: item.content.length > 4000,
+        }),
+      ),
     ...(notification.slackThread
       ? {
           slackThread: {

@@ -9,7 +9,7 @@ import {
 import { find } from "linkifyjs";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { slackLinkUrl } from "@t3tools/shared/slackText";
+import { slackLinkUrl, slackMentionHref } from "@t3tools/shared/slackText";
 import { useClientSettings } from "~/hooks/useSettings";
 import { formatCompactTimestamp, formatChatTimestampTooltip } from "~/timestampFormat";
 import type {
@@ -17,9 +17,10 @@ import type {
   ScopedThreadRef,
   InboxSlackThread,
   InboxSlackMessage,
+  InboxSlackMention,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
-import { ArrowUpRightIcon, SparklesIcon } from "lucide-react";
+import { ArrowUpRightIcon, SparklesIcon, UserRoundIcon, UsersRoundIcon } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
@@ -29,8 +30,41 @@ import styles from "./inboxNotificationContent.module.css";
 const inboxMarkdownPlugins = [remarkGfm];
 
 const InboxLinkContext = createContext<ReturnType<typeof useInboxLink> | null>(null);
+const emptySlackMentions: ReadonlyArray<InboxSlackMention> = [];
+const SlackMentionsContext = createContext(emptySlackMentions);
 function InboxMarkdownLink({ href, children }: ComponentProps<"a">) {
   const openLink = useContext(InboxLinkContext);
+  const mentions = useContext(SlackMentionsContext);
+  const mention = mentions.find((entry) => slackMentionHref(entry) === href);
+  if (mention) {
+    const Icon = mention.kind === "user" ? UserRoundIcon : UsersRoundIcon;
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              className={styles.slackMention}
+              data-personal={mention.personal}
+              data-slack-mention={`${mention.kind}:${mention.id}`}
+            />
+          }
+        >
+          <Icon aria-hidden />
+          <span>@{mention.label}</span>
+        </TooltipTrigger>
+        <TooltipPopup>
+          {mention.kind === "group"
+            ? mention.personal
+              ? "Group you belong to"
+              : "Slack group"
+            : mention.personal
+              ? "You"
+              : "Slack member"}
+        </TooltipPopup>
+      </Tooltip>
+    );
+  }
+  if (href?.startsWith("slack-mention:")) return <>{children}</>;
   return href ? (
     <Tooltip>
       <TooltipTrigger
@@ -91,6 +125,51 @@ function InboxLinkedText({ text }: { text: string }) {
 }
 
 const inboxMarkdownComponents: Components = { a: InboxMarkdownLink };
+const inlineSlackMarkdownComponents: Components = {
+  ...inboxMarkdownComponents,
+  p: ({ children }) => <span>{children}</span>,
+};
+function SlackMarkdown({
+  content,
+  mentions = emptySlackMentions,
+  inline = false,
+}: {
+  content: string;
+  mentions?: ReadonlyArray<InboxSlackMention> | undefined;
+  inline?: boolean;
+}) {
+  return (
+    <SlackMentionsContext value={mentions}>
+      <ReactMarkdown
+        skipHtml
+        remarkPlugins={inboxMarkdownPlugins}
+        allowedElements={[
+          "p",
+          "a",
+          "strong",
+          "em",
+          "del",
+          "code",
+          "pre",
+          "blockquote",
+          "ul",
+          "ol",
+          "li",
+          "br",
+        ]}
+        unwrapDisallowed
+        urlTransform={(url) =>
+          mentions.some((entry) => slackMentionHref(entry) === url)
+            ? url
+            : (slackLinkUrl(url) ?? "")
+        }
+        components={inline ? inlineSlackMarkdownComponents : inboxMarkdownComponents}
+      >
+        {content}
+      </ReactMarkdown>
+    </SlackMentionsContext>
+  );
+}
 
 function InboxMarkdownImage({ src, alt }: ComponentProps<"img">) {
   return typeof src === "string" && src ? (
@@ -184,9 +263,17 @@ export function InboxSummary({
           </div>
         ) : (
           <>
-            <p>
-              <InboxLinkedText text={notification.items.at(-1)?.title ?? ""} />
-            </p>
+            <div>
+              {notification.source === "slack" && notification.items.at(-1)?.formattedTitle ? (
+                <SlackMarkdown
+                  content={notification.items.at(-1)!.formattedTitle!}
+                  mentions={notification.items.at(-1)?.slackMentions}
+                  inline
+                />
+              ) : (
+                <InboxLinkedText text={notification.items.at(-1)?.title ?? ""} />
+              )}
+            </div>
             {enabled && (
               <p className="mt-1 text-2xs font-normal text-muted-foreground">
                 AI summary not available
@@ -202,29 +289,7 @@ export function InboxSummary({
 function SlackMessageBody({ message }: { message: InboxSlackMessage }) {
   return (
     <div className="space-y-2 whitespace-pre-wrap break-words [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
-      <ReactMarkdown
-        skipHtml
-        remarkPlugins={inboxMarkdownPlugins}
-        allowedElements={[
-          "p",
-          "a",
-          "strong",
-          "em",
-          "del",
-          "code",
-          "pre",
-          "blockquote",
-          "ul",
-          "ol",
-          "li",
-          "br",
-        ]}
-        unwrapDisallowed
-        urlTransform={(url) => slackLinkUrl(url) ?? ""}
-        components={inboxMarkdownComponents}
-      >
-        {message.formattedContent}
-      </ReactMarkdown>
+      <SlackMarkdown content={message.formattedContent} mentions={message.slackMentions} />
     </div>
   );
 }
@@ -378,7 +443,11 @@ export function InboxSourceContent({
                   {item.author} · {item.location}
                 </div>
               )}
-              {item.source === "linear" || item.formattedContent !== undefined ? (
+              {item.source === "slack" && item.formattedContent !== undefined ? (
+                <SlackMessageBody
+                  message={{ ...item, ts: item.id, formattedContent: item.formattedContent }}
+                />
+              ) : item.source === "linear" || item.formattedContent !== undefined ? (
                 <div
                   className={
                     item.source === "linear"

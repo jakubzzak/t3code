@@ -1,3 +1,30 @@
+.slackMention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #7bbcf2;
+  color: #092e50;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.45;
+  vertical-align: baseline;
+}
+.slackMention[data-personal="true"] {
+  background: #f1ce5e;
+  color: #342a0f;
+}
+.slackMention svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+}
+.slackMention > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .linearMarkdown {
   overflow-wrap: anywhere;
   white-space: normal;

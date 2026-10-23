@@ -4,6 +4,7 @@ import { Message, History, messageText } from "./slackMessages.ts";
 import { readSlackThread } from "./slackThread.ts";
 import { readableSlackItem } from "../notificationContent.ts";
 import type { InboxSourceItem } from "@t3tools/contracts";
+import type { SlackNames } from "@t3tools/shared/slackText";
 
 const Conversations = Schema.Struct({
   ok: Schema.Boolean,
@@ -100,9 +101,13 @@ export async function readSlackInbox(
       .then((result) => {
         for (const group of result.usergroups)
           names.groups[group.id] = group.handle || group.name || group.id;
+        names.memberGroupIds = result.usergroups
+          .filter((group) => group.users?.includes(identity.user_id))
+          .map((group) => group.id);
         return result;
       }));
-  const names: { users: Record<string, string>; groups: Record<string, string> } = {
+  const names: SlackNames & { users: Record<string, string>; groups: Record<string, string> } = {
+    viewerUserId: identity.user_id,
     users: {},
     groups: {},
   };
@@ -164,7 +169,7 @@ export async function readSlackInbox(
     );
     if (message.user) people.add(message.user);
     for (const person of people) await displayName(person);
-    if (raw.includes("<!subteam^"))
+    if (raw.includes("<!subteam^") && names.memberGroupIds === undefined)
       for (const group of (await getGroups()).usergroups)
         names.groups[group.id] = group.handle || group.name || group.id;
     const formatted = readableSlackItem(
@@ -193,6 +198,7 @@ export async function readSlackInbox(
     items.set(id, {
       ...formatted,
       slackThread: thread ?? {
+        formatVersion: 2,
         channelId: channel,
         ts: message.ts,
         root: {
@@ -200,6 +206,8 @@ export async function readSlackInbox(
           author: formatted.author,
           content: formatted.content,
           formattedContent: formatted.formattedContent!,
+          formattedTitle: formatted.formattedTitle!,
+          slackMentions: formatted.slackMentions!,
           occurredAt: formatted.occurredAt,
         },
         latestReplyTs: null,
@@ -271,9 +279,8 @@ export async function readSlackInbox(
   const queries: string[] = [];
   if (categories.includes("mentions")) queries.push(`<@${identity.user_id}>`);
   if (categories.includes("group-mentions")) {
-    const groups = await getGroups();
-    for (const group of groups.usergroups)
-      if (group.users?.includes(identity.user_id)) queries.push(`<!subteam^${group.id}>`);
+    if (names.memberGroupIds === undefined) await getGroups();
+    for (const id of names.memberGroupIds ?? []) queries.push(`<!subteam^${id}>`);
   }
   for (const query of queries) {
     let pages = 1;

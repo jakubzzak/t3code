@@ -22,6 +22,7 @@ export function mergeSlackThread(
 ) {
   if (!previous || previous.ts !== incoming.ts || previous.channelId !== incoming.channelId)
     return incoming;
+  if (incoming.formatVersion === 2 && previous.formatVersion !== 2) return incoming;
   if (
     previous.latestReplyTs &&
     incoming.latestReplyTs &&

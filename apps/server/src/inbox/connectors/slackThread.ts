@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
-import { slackText, type SlackNames } from "@t3tools/shared/slackText";
+import { slackText, slackMentions, type SlackNames } from "@t3tools/shared/slackText";
+import { slackEmojis } from "../slackEmoji.ts";
 import type { InboxSlackMessage, InboxSlackThread } from "@t3tools/contracts";
 import { History, Message, messageText } from "./slackMessages.ts";
 import type { SlackRead } from "./slack.ts";
@@ -29,10 +30,12 @@ const decodeGroups = Schema.decodeUnknownSync(
         id: Schema.String,
         handle: Schema.optionalKey(Schema.String),
         name: Schema.optionalKey(Schema.String),
+        users: Schema.optionalKey(Schema.Array(Schema.String)),
       }),
     ),
   }),
 );
+const decodeIdentity = Schema.decodeUnknownSync(Schema.Struct({ user_id: Schema.String }));
 
 /** One cached page plus the authoritative latest reply, never the last of an incomplete page. */
 export async function readSlackThread(
@@ -42,6 +45,8 @@ export async function readSlackThread(
   cached?: InboxSlackThread,
   names: SlackNames = { users: {}, groups: {} },
 ): Promise<InboxSlackThread> {
+  // Legacy caches flattened references into names, so recover native IDs once from Slack.
+  if (cached?.formatVersion !== 2) cached = undefined;
   if (cached && !cached.nextCursor) return cached;
   const response = decode(
     await read("conversations.replies", {
@@ -117,13 +122,22 @@ export async function readSlackThread(
   const groupIds = raw.flatMap((message) =>
     [...messageText(message).matchAll(/<!subteam\^([A-Z0-9]+)/g)].map((match) => match[1]!),
   );
-  if (groupIds.some((id) => !groups[id])) {
-    const result = decodeGroups(await read("usergroups.list", {}));
+  if (!names.viewerUserId && raw.some((message) => slackMentions(messageText(message)).length > 0))
+    names.viewerUserId = decodeIdentity(await read("auth.test", {})).user_id;
+  if (
+    groupIds.length &&
+    (names.memberGroupIds === undefined || groupIds.some((id) => !groups[id]))
+  ) {
+    const result = decodeGroups(await read("usergroups.list", { include_users: "true" }));
     for (const group of result.usergroups)
       groups[group.id] = group.handle || group.name || group.id;
+    names.memberGroupIds = result.usergroups
+      .filter((group) => names.viewerUserId && group.users?.includes(names.viewerUserId))
+      .map((group) => group.id);
   }
   Object.assign(names.users ?? {}, users);
   Object.assign(names.groups ?? {}, groups);
+  const options = { ...names, users, groups, emojis: slackEmojis };
   const format = (message: typeof Message.Type): InboxSlackMessage => ({
     ts: message.ts,
     author:
@@ -132,13 +146,20 @@ export async function readSlackThread(
       message.bot_profile?.name ||
       message.user ||
       "Slack",
-    content: slackText(messageText(message), { users, groups }, "text").slice(0, 32000),
-    formattedContent: slackText(messageText(message), { users, groups }).slice(0, 32000),
+    content: slackText(messageText(message), options, "text").slice(0, 32000),
+    formattedContent: slackText(messageText(message), options, "rich").slice(0, 32000),
+    formattedTitle: slackText(
+      messageText(message).split("\n")[0]!.slice(0, 250),
+      options,
+      "rich",
+    ).slice(0, 2000),
+    slackMentions: slackMentions(messageText(message), options),
     occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
   });
   const messages = new Map(cached?.messages.map((message) => [message.ts, message]));
   for (const message of raw) if (message.ts !== ts) messages.set(message.ts, format(message));
   return {
+    formatVersion: 2,
     channelId,
     ts,
     root: cached?.root ?? format(root!),

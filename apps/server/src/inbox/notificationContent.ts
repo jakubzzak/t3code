@@ -1,15 +1,22 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Hash source text to distinguish formatting repairs from new activity.
 import * as NodeCrypto from "node:crypto";
-import { slackText, type SlackNames } from "@t3tools/shared/slackText";
+import { slackText, slackMentions, type SlackNames } from "@t3tools/shared/slackText";
+import { slackEmojis } from "./slackEmoji.ts";
 import type { InboxNotification, InboxSourceItem } from "@t3tools/contracts";
 import { emailText } from "@t3tools/shared/emailText";
 
 export function readableSlackItem(item: InboxSourceItem, names: SlackNames = {}): InboxSourceItem {
+  const options = { ...names, emojis: slackEmojis };
   return {
     ...item,
-    content: slackText(item.content, names, "text").slice(0, 32000),
-    formattedContent: slackText(item.content, names).slice(0, 32000),
-    title: slackText(item.content, names, "preview").replace(/\s+/g, " ").slice(0, 250),
+    content: slackText(item.content, options, "text").slice(0, 32000),
+    formattedContent: slackText(item.content, options, "rich").slice(0, 32000),
+    formattedTitle: slackText(item.content.split("\n")[0]!.slice(0, 250), options, "rich").slice(
+      0,
+      2000,
+    ),
+    slackMentions: slackMentions(item.content, options),
+    title: slackText(item.content, options, "preview").replace(/\s+/g, " ").slice(0, 250),
     contentFormat: "text",
     sourceContentHash: NodeCrypto.createHash("sha256").update(item.content).digest("hex"),
   };

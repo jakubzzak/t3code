@@ -14,7 +14,19 @@ export const InboxSource = Schema.Literals(["slack", "linear", "superhuman"]);
 export type InboxSource = typeof InboxSource.Type;
 export const InboxPlacement = Schema.Literals(["active", "delegated", "snoozed", "resolved"]);
 export type InboxPlacement = typeof InboxPlacement.Type;
+export const InboxSlackMention = Schema.Struct({
+  kind: Schema.Literals(["user", "group"]),
+  id: Schema.String,
+  label: Schema.String.check(Schema.isMaxLength(200)),
+  personal: Schema.Boolean,
+});
+export type InboxSlackMention = typeof InboxSlackMention.Type;
+const slackPresentation = {
+  formattedTitle: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(2000))),
+  slackMentions: Schema.optionalKey(Schema.Array(InboxSlackMention).check(Schema.isMaxLength(100))),
+};
 export const InboxSlackMessage = Schema.Struct({
+  ...slackPresentation,
   ts: Schema.String,
   author: Schema.String,
   content: Schema.String,
@@ -23,6 +35,7 @@ export const InboxSlackMessage = Schema.Struct({
 });
 export type InboxSlackMessage = typeof InboxSlackMessage.Type;
 export const InboxSlackThread = Schema.Struct({
+  formatVersion: Schema.optionalKey(Schema.Literal(2)),
   channelId: Schema.String,
   ts: Schema.String,
   root: InboxSlackMessage,
@@ -33,6 +46,7 @@ export const InboxSlackThread = Schema.Struct({
 });
 export type InboxSlackThread = typeof InboxSlackThread.Type;
 export const InboxSourceItem = Schema.Struct({
+  ...slackPresentation,
   id: TrimmedNonEmptyString,
   source: InboxSource,
   connectionId: TrimmedNonEmptyString,
