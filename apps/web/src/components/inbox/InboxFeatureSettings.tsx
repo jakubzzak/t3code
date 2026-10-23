@@ -1,4 +1,4 @@
-import { BotIcon, SparklesIcon } from "lucide-react";
+import { BotIcon, LightbulbIcon, SparklesIcon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import {
@@ -212,13 +212,17 @@ export function InboxFeatureSettings() {
         }
       />
       <InboxProcessingGroup kind="summary" />
-      <InboxProcessingGroup kind="agent" />
       <SettingsRow
-        title="Suggested resolutions"
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            <LightbulbIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+            Suggested resolutions
+          </span>
+        }
         mixed={resolutionMixed}
         serverScoped
         settingKeys={["inboxPreResolution"]}
-        description="Add suggested steps or a draft response when AI summary is enabled. Suggestions do not send messages or settle notifications."
+        description="Generate suggested steps or a draft response together with AI summary when both are enabled. Suggestions do not send messages or settle notifications."
         control={
           <Switch
             aria-label="Suggested resolutions"
@@ -228,6 +232,7 @@ export function InboxFeatureSettings() {
           />
         }
       />
+      <InboxProcessingGroup kind="agent" />
       <SettingsRow
         title="Inbox memory"
         mixed={memoryMixed}
