@@ -1708,3 +1708,47 @@ describe("Usage shortcuts", () => {
     );
   });
 });
+
+it("matches search shortcuts with Option-produced characters and preserves existing find bindings", () => {
+  const options = { platform: "MacIntel", context: { terminalFocus: false, previewFocus: false } };
+  assert.equal(
+    resolveShortcutCommand(
+      event({ key: "Ï", code: "KeyF", altKey: true, shiftKey: true }),
+      DEFAULT_RESOLVED_KEYBINDINGS,
+      options,
+    ),
+    "search.allChats",
+  );
+  assert.equal(
+    resolveShortcutCommand(
+      event({ key: "ƒ", code: "KeyF", altKey: true, ctrlKey: true }),
+      DEFAULT_RESOLVED_KEYBINDINGS,
+      options,
+    ),
+    "search.everywhere",
+  );
+  assert.equal(
+    resolveShortcutCommand(
+      event({ key: "f", metaKey: true }),
+      DEFAULT_RESOLVED_KEYBINDINGS,
+      options,
+    ),
+    "chat.find",
+  );
+  assert.equal(
+    resolveShortcutCommand(
+      event({ key: "F", metaKey: true, shiftKey: true }),
+      DEFAULT_RESOLVED_KEYBINDINGS,
+      options,
+    ),
+    "projectSearch.toggle",
+  );
+  assert.equal(
+    resolveShortcutCommand(
+      event({ key: "Ï", code: "KeyF", altKey: true, shiftKey: true }),
+      DEFAULT_RESOLVED_KEYBINDINGS,
+      { ...options, context: { terminalFocus: true, previewFocus: false } },
+    ),
+    null,
+  );
+});

@@ -1,3 +1,4 @@
+import { prepareAgenticSearchPrompt } from "~/agenticSearch";
 import { readThreadPreviewState } from "~/previewStateStore";
 import { type LinearIssue, type LinearIssueSetupResult } from "@t3tools/contracts";
 import { gitEnvironment } from "../state/git";
@@ -8941,11 +8942,19 @@ export default function ChatView(props: ChatViewProps) {
         : sendContextPreviewAnnotations;
     // A direct "send annotation" writes the draft and sends in the same tick; the reference
     // must be in the text now, not after the next render.
-    const promptForSend = directAnnotation
+    const rawPromptForSend = directAnnotation
       ? ensureInlineContextReferences(promptRef.current, [
           previewAnnotationContextReference(directAnnotation.annotation),
         ])
       : promptRef.current;
+    const searchDraft = isLocalDraftThread ? draftThread?.search : undefined;
+    const promptForSend = searchDraft
+      ? prepareAgenticSearchPrompt(searchDraft, rawPromptForSend)
+      : rawPromptForSend;
+    if (promptForSend === null) {
+      toastManager.add({ type: "info", title: "Add what you want to search for before sending" });
+      return;
+    }
     if (editingQueuedRun !== null) {
       // Edit mode repurposes the composer: sending saves the queued message
       // in place instead of dispatching a new turn.
@@ -9291,6 +9300,7 @@ export default function ChatView(props: ChatViewProps) {
         promptForSend,
       )
       .trim();
+    const promptToRestore = searchDraft ? rawPromptForSend : messageTextForSend;
     // Records bind attachments by the id each side knows: the local id for the optimistic
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
@@ -9707,7 +9717,7 @@ export default function ChatView(props: ChatViewProps) {
         const restoreFailedDraft = () => {
           setMultipleModelSelections(failedSelections);
           if (clearedDraft) {
-            setComposerDraftPrompt(composerDraftTarget, messageTextForSend);
+            setComposerDraftPrompt(composerDraftTarget, promptToRestore);
             addComposerDraftImages(
               composerDraftTarget,
               composerImagesSnapshot.map(cloneComposerImageForRetry),
@@ -9721,13 +9731,10 @@ export default function ChatView(props: ChatViewProps) {
             setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
             setComposerDraftThreadContexts(composerDraftTarget, composerThreadContextsSnapshot);
             if (composerRef.current && currentRouteThreadKeyRef.current === routeThreadKey) {
-              promptRef.current = messageTextForSend;
+              promptRef.current = promptToRestore;
               composerRef.current.resetCursorState({
-                cursor: collapseExpandedComposerCursor(
-                  messageTextForSend,
-                  messageTextForSend.length,
-                ),
-                prompt: messageTextForSend,
+                cursor: collapseExpandedComposerCursor(promptToRestore, promptToRestore.length),
+                prompt: promptToRestore,
                 detectTrigger: true,
               });
             }
@@ -10116,12 +10123,12 @@ export default function ChatView(props: ChatViewProps) {
           const next = existing.filter((message) => message.id !== messageIdForSend);
           return next.length === existing.length ? existing : next;
         });
-        promptRef.current = messageTextForSend;
+        promptRef.current = promptToRestore;
         const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
         composerImagesRef.current = retryComposerImages;
         composerFilesRef.current = composerFilesSnapshot;
         composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
-        setComposerDraftPrompt(composerDraftTarget, messageTextForSend);
+        setComposerDraftPrompt(composerDraftTarget, promptToRestore);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
         addComposerDraftFiles(composerDraftTarget, composerFilesSnapshot);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
@@ -10129,8 +10136,8 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
         setComposerDraftThreadContexts(composerDraftTarget, composerThreadContextsSnapshot);
         composerRef.current?.resetCursorState({
-          cursor: collapseExpandedComposerCursor(messageTextForSend, messageTextForSend.length),
-          prompt: messageTextForSend,
+          cursor: collapseExpandedComposerCursor(promptToRestore, promptToRestore.length),
+          prompt: promptToRestore,
           detectTrigger: true,
         });
       }
@@ -10915,6 +10922,43 @@ export default function ChatView(props: ChatViewProps) {
     setDraftThreadContext,
     workLocallyResendReady,
   ]);
+
+  // A palette query is an explicit one-shot submission. Consume it before invoking
+  // the ordinary send path so rerenders, failures and Strict Mode cannot resend it.
+  const searchAutoSubmitReady =
+    Boolean(draftThread?.search?.autoSubmit) &&
+    isLocalDraftThread &&
+    serverConfig !== null &&
+    canOperateThread &&
+    !isEnvironmentChanging &&
+    !worktreeSetupBlocksSend &&
+    projectCloneSendBlockReason === null &&
+    !isSendBusy &&
+    !isConnecting &&
+    !isRevertingCheckpoint &&
+    !threadDetailLoading &&
+    clientSettingsHydrated &&
+    !needsLoadBalancing &&
+    !activeEnvironmentUnavailable &&
+    !activePendingProgress &&
+    !feedbackUploading;
+  useEffect(() => {
+    if (
+      !searchAutoSubmitReady ||
+      !draftId ||
+      sendInFlightRef.current ||
+      environmentChangeRef.current !== null ||
+      feedbackUploadsInFlightRef.current.has(routeThreadKey)
+    )
+      return;
+    const store = useComposerDraftStore.getState();
+    const search = store.getDraftSession(draftId)?.search;
+    const prompt = store.getComposerDraft(draftId)?.prompt ?? "";
+    if (!search?.autoSubmit || !composerRef.current || !prompt.trim()) return;
+    store.setDraftThreadContext(draftId, { search: { ...search, autoSubmit: false } });
+    promptRef.current = prompt;
+    void onSendRef.current();
+  }, [searchAutoSubmitReady, draftId, routeThreadKey, composerRef, sendInFlightRef]);
 
   const onStartFromOriginChange = (nextStartFromOrigin: boolean) => {
     if (canOverrideServerThreadEnvMode && activeThread) {

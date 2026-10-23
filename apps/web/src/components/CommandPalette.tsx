@@ -1,5 +1,12 @@
 "use client";
 
+import { useAgenticSearch } from "~/hooks/useAgenticSearch";
+import {
+  AGENTIC_SEARCH_SCOPES,
+  AGENTIC_SEARCH_LABELS,
+  AGENTIC_SEARCH_COMMANDS,
+} from "~/agenticSearch";
+
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
@@ -375,6 +382,7 @@ function projectFavicon(project: Project) {
 }
 
 export function CommandPalette({ children }: { children: ReactNode }) {
+  const agenticSearch = useAgenticSearch();
   const navigate = useNavigate();
   const [state, dispatch] = useReducer(reduceCommandPaletteUiState, {
     open: false,
@@ -434,6 +442,20 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           modelPickerOpen: composerHandleRef.current?.isModelPickerOpen() ?? false,
         },
       });
+      if (
+        agenticSearch.enabled &&
+        (command === "search.allChats" || command === "search.everywhere")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat || event.isComposing) return;
+        setOpen(false);
+        void agenticSearch.launch(
+          command === "search.allChats" ? "chats" : "everywhere",
+          "explicit",
+        );
+        return;
+      }
       if (command === "appearance.cycle") {
         event.preventDefault();
         event.stopPropagation();
@@ -486,6 +508,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    agenticSearch,
     appearanceMode,
     keybindings,
     navigate,
@@ -620,6 +643,7 @@ function OpenCommandPaletteDialog(props: {
     setHighlightedItemValue(null);
   }
   const clientSettings = useClientSettings();
+  const agenticSearch = useAgenticSearch();
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -2302,6 +2326,26 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  const searchActions: CommandPaletteActionItem[] = agenticSearch.enabled
+    ? AGENTIC_SEARCH_SCOPES.map((scope) => ({
+        kind: "action",
+        value: `action:agentic-search:${scope}`,
+        title: AGENTIC_SEARCH_LABELS[scope],
+        disabled: !agenticSearch.available,
+        ...(agenticSearch.unavailableReason
+          ? { description: agenticSearch.unavailableReason }
+          : {}),
+        searchTerms: [
+          "search",
+          "research",
+          scope === "chats" ? "all chats" : "everywhere integrations",
+        ],
+        icon: <TextSearchIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: AGENTIC_SEARCH_COMMANDS[scope],
+        run: () => agenticSearch.launch(scope, "implicit"),
+      }))
+    : [];
+  actionItems.push(...searchActions);
   const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
   const settingsSearchItems: CommandPaletteActionItem[] = searchSettings(
     deferredQuery,
@@ -2340,6 +2384,21 @@ function OpenCommandPaletteDialog(props: {
           : (currentView?.groups ?? rootGroups);
 
   const filteredGroups = filterCommandPaletteGroups({
+    noResultsActions:
+      newProjectFlow === null &&
+      addProjectCloneFlow === null &&
+      !isBrowsing &&
+      query === deferredQuery
+        ? searchActions.map((item) => ({
+            ...item,
+            run: () =>
+              agenticSearch.launch(
+                item.shortcutCommand === "search.allChats" ? "chats" : "everywhere",
+                "implicit",
+                query,
+              ),
+          }))
+        : [],
     activeGroups,
     query: deferredQuery,
     isInSubmenu: currentView !== null,

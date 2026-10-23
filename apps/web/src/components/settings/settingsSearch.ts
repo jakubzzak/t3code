@@ -170,6 +170,12 @@ const SOURCE_CONTROL_HOST_SEARCH_ITEMS = sourceControlClients.definitions.flatMa
  */
 export const SETTINGS_SEARCH_ITEMS = [
   {
+    id: "agentic-search",
+    title: "Agentic search",
+    to: "/settings/features",
+    searchTerms: ["search all chats everywhere prompt template integrations enable disable"],
+  },
+  {
     id: "terminal-command",
     title: "Install t3 terminal command",
     to: "/settings/general",

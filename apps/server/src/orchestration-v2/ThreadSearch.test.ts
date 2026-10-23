@@ -180,6 +180,62 @@ it.layer(layerTest)("ThreadSearch", (it) => {
     }),
   );
 
+  it.effect(
+    "scopes before limiting and pages retained archived chats without deleted history",
+    () =>
+      Effect.gen(function* () {
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const search = yield* ThreadSearch.ThreadSearch;
+        const first = ProjectId.make("search:first");
+        const second = ProjectId.make("search:second");
+        yield* createProject(first);
+        yield* createProject(second);
+        const events = [
+          thread(ThreadId.make("a-other-project"), first),
+          message(
+            ThreadId.make("a-other-project"),
+            "other",
+            "user",
+            "decision from another project",
+            { minute: 8 },
+          ),
+          thread(ThreadId.make("b-retained"), second),
+          message(ThreadId.make("b-retained"), "retained", "assistant", "decision retained"),
+          thread(ThreadId.make("c-archived"), second, { archivedAt: at(2) }),
+          message(ThreadId.make("c-archived"), "archive", "assistant", "decision archived"),
+          thread(ThreadId.make("d-deleted"), second, { deletedAt: at(2) }),
+          message(ThreadId.make("d-deleted"), "deleted", "assistant", "decision deleted"),
+        ];
+        yield* Effect.forEach(events, projections.apply, { discard: true });
+        const scoped = yield* search.search({
+          query: "decision",
+          projectId: second,
+          includeArchived: true,
+          limit: 1,
+        });
+        assert.equal(scoped.matches[0]?.threadId, "b-retained");
+        assert.equal(scoped.hasMore, true);
+        assert.equal(scoped.nextOffset, 1);
+        const next = yield* search.search({
+          query: "decision",
+          projectId: second,
+          includeArchived: true,
+          limit: 1,
+          offset: scoped.nextOffset ?? 0,
+        });
+        assert.deepEqual(
+          next.matches.map((match) => match.threadId),
+          ["c-archived"],
+        );
+        assert.equal(next.hasMore, false);
+        const all = yield* search.search({ query: "decision", includeArchived: true });
+        assert.deepEqual(
+          all.matches.map((match) => match.threadId),
+          ["a-other-project", "b-retained", "c-archived"],
+        );
+      }),
+  );
+
   it.effect("reports an unreadable match as a decode failure", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;

@@ -439,6 +439,7 @@ function rankCommandPaletteItemMatch(
 }
 
 export function filterCommandPaletteGroups(input: {
+  noResultsActions?: ReadonlyArray<CommandPaletteActionItem>;
   activeGroups: ReadonlyArray<CommandPaletteGroup>;
   query: string;
   isInSubmenu: boolean;
@@ -490,7 +491,7 @@ export function filterCommandPaletteGroups(input: {
     }
   }
 
-  return searchableGroups.flatMap((group) => {
+  const groups = searchableGroups.flatMap((group) => {
     const items = Arr.filterMap(group.items, (item, index) => {
       const haystack = normalizeSearchText(item.searchTerms.join(" "));
       if (!queryTokens.every((token) => haystack.includes(token))) {
@@ -518,6 +519,9 @@ export function filterCommandPaletteGroups(input: {
 
     return [{ value: group.value, label: group.label, items }];
   });
+  return groups.length === 0 && !input.isInSubmenu && input.noResultsActions?.length
+    ? [{ value: "agentic-search", label: "Search", items: input.noResultsActions }]
+    : groups;
 }
 
 export function buildBrowseGroups(input: {

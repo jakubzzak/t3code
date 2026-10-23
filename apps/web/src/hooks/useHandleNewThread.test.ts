@@ -317,3 +317,18 @@ describe.each([
     },
   );
 });
+
+it("creates a fresh search draft without reusing an empty scratch draft", async () => {
+  testState.reset({
+    draftId: "draft-existing",
+    environmentId: "environment-ssh",
+    promotedTo: null,
+    threadId: "thread-existing",
+  });
+  const opened = await useNewThreadHandler()(
+    { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+    { forceNew: true, envMode: "local" },
+  );
+  expect(opened?.draftId).toBe("draft-delayed");
+  expect(testState.router.state.location.href).toBe("/draft/draft-delayed");
+});

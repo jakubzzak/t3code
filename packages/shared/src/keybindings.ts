@@ -121,6 +121,8 @@ type WhenToken =
   | { type: "rparen" };
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
+  { key: "shift+alt+f", command: "search.allChats", when: "!terminalFocus && !previewFocus" },
+  { key: "ctrl+alt+f", command: "search.everywhere", when: "!terminalFocus && !previewFocus" },
   { key: "mod+b", command: "sidebar.toggle" },
   { key: "mod+[", command: "navigation.back", when: "!terminalFocus" },
   { key: "mod+]", command: "navigation.forward", when: "!terminalFocus" },

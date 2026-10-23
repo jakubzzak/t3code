@@ -894,3 +894,31 @@ describe("virtualized command palette rows", () => {
     expect(findHighlightedCommandPaletteItem(groups, null)).toBeNull();
   });
 });
+
+it("offers unfiltered search actions only for a nonempty unmatched root query", () => {
+  const action: CommandPaletteActionItem = {
+    kind: "action",
+    value: "search",
+    title: "Search in all chats",
+    searchTerms: ["search chats"],
+    icon: null,
+    run: async () => {},
+  };
+  const input = {
+    activeGroups: [{ value: "actions", label: "Actions", items: [action] }],
+    query: "unrelated question",
+    isInSubmenu: false,
+    projectSearchItems: [],
+    threadSearchItems: [],
+    noResultsActions: [action],
+  };
+  expect(filterCommandPaletteGroups(input)).toEqual([
+    { value: "agentic-search", label: "Search", items: [action] },
+  ]);
+  expect(filterCommandPaletteGroups({ ...input, noResultsActions: [] })).toEqual([]);
+  expect(filterCommandPaletteGroups({ ...input, isInSubmenu: true })).toEqual([]);
+  expect(filterCommandPaletteGroups({ ...input, query: "search chats" })).toEqual(
+    input.activeGroups,
+  );
+  expect(filterCommandPaletteGroups({ ...input, query: "   ", activeGroups: [] })).toEqual([]);
+});

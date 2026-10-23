@@ -1,3 +1,4 @@
+import { AgenticSearchDraft } from "./agenticSearch";
 import { stripInlineContextReferences } from "./lib/composerContextReferences";
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
 import {
@@ -319,6 +320,7 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
   LegacyV2StoreFields;
 
 const PersistedDraftThreadState = Schema.Struct({
+  search: Schema.optionalKey(AgenticSearchDraft),
   threadId: ThreadId,
   environmentId: Schema.String,
   projectId: ProjectId,
@@ -451,6 +453,7 @@ export function composerDraftHasUserContent(
  * environment/worktree configuration before the first send.
  */
 export interface DraftSessionState {
+  search?: AgenticSearchDraft;
   threadId: ThreadId;
   environmentId: EnvironmentId;
   projectId: ProjectId;
@@ -546,6 +549,7 @@ interface ComposerDraftStoreState {
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
+      search?: AgenticSearchDraft;
     },
   ) => void;
   /** Creates or updates the draft session tracked for a concrete project ref. */
@@ -563,6 +567,7 @@ interface ComposerDraftStoreState {
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
+      search?: AgenticSearchDraft;
     },
   ) => void;
   /** Updates mutable draft-session metadata without touching composer content. */
@@ -579,6 +584,7 @@ interface ComposerDraftStoreState {
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
+      search?: AgenticSearchDraft;
     },
   ) => void;
   clearProjectDraftThreadId: (projectRef: ScopedProjectRef) => void;
@@ -1599,6 +1605,7 @@ function createDraftThreadState(
     interactionMode?: ProviderInteractionMode;
     environmentSelection?: "auto" | "manual";
     loadBalancedEnvironmentId?: EnvironmentId | null;
+    search?: AgenticSearchDraft;
   },
 ): DraftThreadState {
   // A project change (including switching environments within a logical
@@ -1627,8 +1634,10 @@ function createDraftThreadState(
       : options.startFromOrigin;
   const environmentSelection =
     options?.environmentSelection ?? existingThread?.environmentSelection;
+  const search = options?.search ?? existingThread?.search;
   return {
     threadId,
+    ...(search ? { search } : {}),
     environmentId: projectRef.environmentId,
     projectId: projectRef.projectId,
     logicalProjectKey,
@@ -1685,6 +1694,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
+    left.search === right.search &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -1808,6 +1818,9 @@ function normalizePersistedDraftThreads(
       const normalizedEnvironmentId = environmentId as EnvironmentId;
       draftThreadsByThreadKey[threadKey] = {
         threadId,
+        ...(Schema.is(AgenticSearchDraft)(candidateDraftThread.search)
+          ? { search: { ...candidateDraftThread.search, autoSubmit: false } }
+          : {}),
         environmentId: normalizedEnvironmentId,
         projectId: projectId as ProjectId,
         logicalProjectKey:
@@ -2306,7 +2319,10 @@ export function partializeComposerDraftStoreState(
     if (!keptSessionKeys.has(threadKey)) {
       continue;
     }
-    persistedDraftThreadsByThreadKey[threadKey] = draftThread;
+    persistedDraftThreadsByThreadKey[threadKey] = {
+      ...draftThread,
+      ...(draftThread.search ? { search: { ...draftThread.search, autoSubmit: false } } : {}),
+    };
   }
   return {
     draftsByThreadKey: persistedDraftsByThreadKey,
@@ -2579,6 +2595,9 @@ function toHydratedDraftThreadState(
 ): DraftThreadState {
   return {
     threadId: persistedDraftThread.threadId,
+    ...(persistedDraftThread.search
+      ? { search: { ...persistedDraftThread.search, autoSubmit: false } }
+      : {}),
     environmentId: persistedDraftThread.environmentId as EnvironmentId,
     projectId: persistedDraftThread.projectId,
     logicalProjectKey:
@@ -2878,8 +2897,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               (options.branch != null || options.worktreePath != null
                 ? "manual"
                 : existing.environmentSelection);
+            const search = options.search ?? existing.search;
             const nextDraftThread: DraftThreadState = {
               threadId: existing.threadId,
+              ...(search ? { search } : {}),
               environmentId: nextProjectRef.environmentId,
               projectId: nextProjectRef.projectId,
               logicalProjectKey: existing.logicalProjectKey,
@@ -2916,6 +2937,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.worktreePath === existing.worktreePath &&
               nextDraftThread.envMode === existing.envMode &&
               nextDraftThread.startFromOrigin === existing.startFromOrigin &&
+              nextDraftThread.search === existing.search &&
               scopedThreadRefsEqual(nextDraftThread.promotedTo, existing.promotedTo);
             if (isUnchanged) {
               return state;

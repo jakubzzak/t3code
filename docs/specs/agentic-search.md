@@ -6,7 +6,7 @@ Blackbird users need answers without remembering which conversation, project, or
 
 ## Scope
 
-- **Search in all chats** searches Blackbird conversations across projects, including projectless chats.
+- **Search in all chats** searches Blackbird conversations across projects on the environment hosting the new chat, including projectless chats.
 - **Search everywhere** searches those chats first, then connected integrations. An answer found in chats does not skip the integration phase.
 - Launch only through the Command-K palette or the two dedicated keybindings. Do not add search buttons to chat views, sidebars, or existing find bars.
 - Settings controls feature enablement and the default prompt for each action. There is no search-specific provider/model setting; use the existing projectless-chat selection behavior and ordinary chat controls.
@@ -30,7 +30,7 @@ Blackbird users need answers without remembering which conversation, project, or
 - Everywhere research starts with chats and then makes query-driven searches across connected integrations that expose search/read capabilities. It can follow relevant references and refine queries. Do not require a source picker or a second submission between phases. "Everything" defines the accessible search scope, not a promise to read every item or dump every history into the model.
 - Use the current environment's authorized access and available connected sources. Searching does not authorize editing source records or sending messages. A projectless launch must not bypass project, environment, or connector access rules.
 - The default prompts request a very concise answer, normally two to four short bullets or an equally short paragraph, with links/citations supporting the findings. Avoid a long research narrative.
-- End with a compact **Sources:** line listing what was actually searched. Distinguish failures, unavailable sources, and incomplete coverage rather than counting them as successfully searched. For example: `Sources: Blackbird chats, Slack, Linear · Drive unavailable.` Do not invent sources or results.
+- End with a compact **Sources:** line listing what was actually searched. Distinguish failures, unavailable sources, and incomplete coverage rather than counting them as successfully searched. For example: `Sources: Blackbird chats (hosting environment only), Slack, Linear · Drive unavailable.` Do not invent sources or results.
 - If no evidence is found, say so briefly and retain the Sources line. A failing integration must not discard findings from chats or other available integrations. Follow-up questions remain in the same projectless chat.
 
 ### Settings
@@ -51,8 +51,12 @@ Blackbird users need answers without remembering which conversation, project, or
 ## Constraints and assumptions
 
 - The launch UI applies to web and desktop, which share the command palette. Use the same environment-backed path for local, remote, and tunnel connections. Native mobile continues to display and continue these ordinary chats; a new native mobile launch surface is outside the requested palette-and-shortcuts scope.
-- Assumption: "all chats" includes retrievable retained conversations across the user's connected environments, including settled conversations; disconnected environments must be disclosed as unavailable. It does not mean restoring deleted history.
-- The current [thread-search tool](../../apps/server/src/mcp/toolkits/thread/tools.ts) is bounded, searches active threads, and defaults to the caller's project. Prompt wording alone cannot guarantee the required coverage. Ensure the underlying search/read capability supports the scope and reports limits without claiming an exhaustive search.
+- Decision (2026-10-23): "all chats" includes retrievable retained conversations across all projects on the environment hosting the new chat, including projectless, settled, and archived conversations. This version does not federate across other connected machines or restore deleted history. Disclose the hosting-environment scope in Settings and the default Sources report.
+- The current [thread-search tool](../../apps/server/src/mcp/toolkits/thread/tools.ts) is bounded and defaults to the caller's project. Prompt wording alone cannot guarantee the required coverage. Ensure the underlying search/read capability supports the scope and reports limits without claiming an exhaustive search.
 - Available integration tools can vary by provider and environment. Preserve ordinary provider selection; missing capabilities must produce an honest limitation rather than an unannounced provider switch. Any added server capability belongs in a service with typed contracts and thin transport/MCP entry points.
 - Search on submission, not on each palette keystroke. Keep retrieval bounded and progressive instead of loading every conversation into the client or model.
 - Nonblocking defaults to resolve during implementation review: initial enablement and exact shipped prompt wording, using existing feature-setting conventions and the required behavior above.
+
+## Tracking
+
+Implementation intentionally proceeds without a Linear issue, as requested on 2026-10-23. Reuse the published `spec/agentic-search` branch.

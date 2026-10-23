@@ -130,6 +130,26 @@ update an older server to enable it. Select **Retry** if a search fails. It defa
 `mod+f` outside terminals and previews. Press **Enter** or **Shift+Enter** to move between matches,
 and **Escape** to close find.
 
+## Agentic search
+
+Enable **Agentic search** in **Settings → Features**. Use **Search in all chats**
+or **Search everywhere** in the Command-K palette to open a fresh chat without a
+project. All chats searches every project on the environment hosting that chat,
+including retained archived chats; other connected machines are outside its scope.
+Everywhere searches those chats first, then the integrations available to the agent.
+Answers include a concise summary, citations, and a **Sources:** report.
+
+If a palette query matches no command, project, or thread, select either search
+option and press Enter to research that query immediately. Choosing an action by
+name opens a blank composer and waits for your question.
+
+`shift+alt+f` (**Shift-Option-F** on macOS) opens Search in all chats;
+`ctrl+alt+f` (**Control-Option-F**) opens Search everywhere. These shortcuts
+prefill editable instructions and wait for you to add a question and send.
+Customize the two default prompts in **Settings → Features**, or clear a prompt
+to restore its default. Disable the feature there to remove both launch actions;
+existing search chats remain accessible. There is no separate search model setting.
+
 ## Precedence
 
 The last rule whose key and condition both match wins, even if it belongs to a

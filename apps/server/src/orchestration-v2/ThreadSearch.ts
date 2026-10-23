@@ -27,7 +27,13 @@ export class ThreadSearchError extends Schema.TaggedError<ThreadSearchError>()(
   }
 }
 
-const SearchRequest = Schema.Struct({ pattern: Schema.String, limit: Schema.Int });
+const SearchRequest = Schema.Struct({
+  pattern: Schema.String,
+  limit: Schema.Int,
+  offset: Schema.Int,
+  projectId: Schema.NullOr(ProjectId),
+  includeArchived: Schema.Boolean,
+});
 const SearchRow = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
@@ -62,9 +68,9 @@ function buildSearchSnippet(text: string, query: string): string {
 }
 
 /**
- * Searches the finished user and assistant messages of active V2 threads in
- * active projects. Legacy V1 transcripts that have not been imported yet are
- * not searched.
+ * Searches finished user and assistant messages in retained V2 threads.
+ * Archived threads are opt-in; project scope is applied before paging.
+ * Legacy V1 transcripts that have not been imported yet are not searched.
  */
 export class ThreadSearch extends Context.Service<
   ThreadSearch,
@@ -84,7 +90,7 @@ export const make = Effect.gen(function* () {
   const searchRows = SqlSchema.findAll({
     Request: SearchRequest,
     Result: SearchRow,
-    execute: ({ pattern, limit }) => sql`
+    execute: ({ pattern, limit, offset, projectId, includeArchived }) => sql`
       WITH candidate AS (
         SELECT
           threads.thread_id,
@@ -100,7 +106,8 @@ export const make = Effect.gen(function* () {
         INNER JOIN projection_projects AS projects
           ON projects.project_id = threads.project_id
         WHERE threads.deleted_at IS NULL
-          AND threads.archived_at IS NULL
+          AND (${includeArchived ? 1 : 0} = 1 OR threads.archived_at IS NULL)
+          AND (${projectId} IS NULL OR threads.project_id = ${projectId})
           AND projects.deleted_at IS NULL
           AND messages.streaming = 0
           AND messages.role IN ('user', 'assistant')
@@ -133,7 +140,7 @@ export const make = Effect.gen(function* () {
       FROM ranked
       WHERE thread_match_rank = 1
       ORDER BY match_rank ASC, thread_updated_at DESC, thread_id ASC
-      LIMIT ${limit}
+      LIMIT ${limit} OFFSET ${offset}
     `,
   });
 
@@ -145,7 +152,10 @@ export const make = Effect.gen(function* () {
         .withTransaction(
           searchRows({
             pattern: `%${escapeLikePattern(input.query)}%`,
-            limit: input.limit ?? 50,
+            limit: (input.limit ?? 50) + 1,
+            offset: input.offset ?? 0,
+            projectId: input.projectId ?? null,
+            includeArchived: input.includeArchived ?? false,
           }),
         )
         .pipe(
@@ -159,7 +169,11 @@ export const make = Effect.gen(function* () {
           ),
         );
       return {
-        matches: rows.map((row) => ({
+        hasMore: rows.length > (input.limit ?? 50),
+        ...(rows.length > (input.limit ?? 50) && (input.offset ?? 0) + (input.limit ?? 50) <= 10000
+          ? { nextOffset: (input.offset ?? 0) + (input.limit ?? 50) }
+          : {}),
+        matches: rows.slice(0, input.limit ?? 50).map((row) => ({
           threadId: row.threadId,
           projectId: row.projectId,
           source: row.source,
