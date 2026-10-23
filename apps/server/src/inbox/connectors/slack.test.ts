@@ -19,6 +19,8 @@ it("loads a parent thread identified by reply_count even without thread_ts", asy
           ok: true,
           messages: [root, { ts: root.latest_reply, user: "Maya", text: "Screenshots are ready" }],
         };
+      if (method === "search.messages")
+        return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
       throw new Error(method);
     },
     ["dms"],
@@ -109,7 +111,15 @@ describe("supported Slack intake", () => {
         if (method === "conversations.replies")
           return {
             ok: true,
-            messages: [{ ts: "1792620000.000000", text: "Launch context", user: "Alex" }],
+            messages: [
+              { ts: "1792620000.000000", text: "Launch context", user: "Alex" },
+              {
+                ts: args.oldest || "1792620002.000000",
+                text: "Could you review?",
+                user: "Alex",
+                thread_ts: "1792620000.000000",
+              },
+            ],
           };
         if (method === "search.messages")
           return {
@@ -137,7 +147,7 @@ describe("supported Slack intake", () => {
     expect(items.filter((item) => item.groupId === "C1:1792620000.000000")).toHaveLength(2);
     expect(items[1]?.content).toContain("Launch context");
     expect(calls).not.toContain("stars.list");
-    expect(calls.filter((call) => call === "search.messages")).toHaveLength(2);
+    expect(calls.filter((call) => call === "search.messages")).toHaveLength(3);
   });
 });
 
@@ -155,7 +165,8 @@ it("resolves a search hit to its native thread when search omits thread_ts", asy
                 text: "Review please",
                 user: "Alex",
                 channel: { id: "C1", name: "launch" },
-                permalink: "https://slack.com/archives/C1/p1792620002000000",
+                permalink:
+                  "https://slack.com/archives/C1/p1792620002000000?thread_ts=1792620000.000000",
               },
             ],
             paging: { pages: 1 },
@@ -164,7 +175,13 @@ it("resolves a search hit to its native thread when search omits thread_ts", asy
       if (method === "conversations.history")
         return {
           ok: true,
+          messages: [],
+        };
+      if (method === "conversations.replies")
+        return {
+          ok: true,
           messages: [
+            { ts: "1792620000.000000", text: "Release context", user: "Alex" },
             {
               ts: "1792620002.000000",
               thread_ts: "1792620000.000000",
@@ -172,11 +189,6 @@ it("resolves a search hit to its native thread when search omits thread_ts", asy
               user: "Alex",
             },
           ],
-        };
-      if (method === "conversations.replies")
-        return {
-          ok: true,
-          messages: [{ ts: "1792620000.000000", text: "Release context", user: "Alex" }],
         };
       throw new Error(method);
     },
@@ -196,7 +208,13 @@ it("reports incomplete thread context instead of presenting a truncated thread a
         return {
           ok: true,
           messages: [
-            { ts: "1792620002", thread_ts: "1792620000", user: "Alex", text: "Please review" },
+            {
+              ts: "1792620000",
+              reply_count: 20,
+              latest_reply: "1792620002",
+              user: "Sam",
+              text: "Start",
+            },
           ],
         };
       if (method === "conversations.replies")
@@ -215,6 +233,8 @@ it("reports incomplete thread context instead of presenting a truncated thread a
           has_more: true,
           response_metadata: { next_cursor: "more" },
         };
+      if (method === "search.messages")
+        return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
       throw new Error(method);
     },
     ["dms"],
@@ -321,6 +341,8 @@ it("keeps block-only message content and attachment links without downloading me
             },
           ],
         };
+      if (method === "search.messages")
+        return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
       throw new Error(method);
     },
     ["dms"],
@@ -351,6 +373,8 @@ it("retains links and unresolved mentions when an older connection lacks profile
         profiles++;
         throw new Error("Slack users.info failed (missing_scope).");
       }
+      if (method === "search.messages")
+        return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
       throw new Error(method);
     },
     ["dms"],
@@ -392,7 +416,17 @@ it("stops mention pagination at the checkpoint without hydrating older matches",
           },
         };
       if (method === "conversations.replies")
-        return { ok: true, messages: [{ ts: args.ts, user: "Alex", text: "Root" }] };
+        return {
+          ok: true,
+          messages: [
+            {
+              ts: args.oldest ?? args.ts,
+              user: "Alex",
+              text: args.oldest ? "New" : "Root",
+              ...(args.oldest ? { thread_ts: args.ts } : {}),
+            },
+          ],
+        };
       throw new Error(`Unnecessary old-message request: ${method}`);
     },
     ["mentions"],
@@ -406,4 +440,58 @@ it("stops mention pagination at the checkpoint without hydrating older matches",
     ],
   ]);
   expect(calls.filter(([method]) => method === "conversations.history")).toEqual([]);
+});
+
+it("discovers new non-mentioned DM replies independently of an older parent history window", async () => {
+  const calls: Array<[string, Record<string, string>]> = [];
+  const root = {
+    ts: "1792620000.000000",
+    user: "Alex",
+    text: "Old request",
+    reply_count: 1,
+    latest_reply: "1792706400.000000",
+  };
+  const reply = {
+    ts: root.latest_reply,
+    user: "Maya",
+    text: "New information",
+    thread_ts: root.ts,
+  };
+  const items = await readSlackInbox(
+    async (method, args) => {
+      calls.push([method, args]);
+      if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T" };
+      if (method === "conversations.list")
+        return { ok: true, channels: [{ id: "D1", user: "Alex", is_im: true }] };
+      if (method === "conversations.history") return { ok: true, messages: [] };
+      if (method === "search.messages")
+        return {
+          ok: true,
+          messages: {
+            matches: [
+              {
+                ts: reply.ts,
+                user: reply.user,
+                text: "abbreviated",
+                channel: { id: "D1", name: "Alex" },
+                permalink: `https://example.slack.com/archives/D1/p1792706400000000?thread_ts=${root.ts}&cid=D1`,
+              },
+            ],
+            paging: { pages: 1 },
+          },
+        };
+      if (method === "conversations.replies")
+        return { ok: true, messages: args.oldest ? [reply] : [root, reply] };
+      throw new Error(method);
+    },
+    ["dms"],
+    "2026-10-22T00:00:00Z",
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]?.groupId).toBe(`D1:${root.ts}`);
+  expect(items[0]?.content).toContain("New information");
+  expect(items[0]?.slackThread?.root.content).toBe("Old request");
+  expect(calls.find(([method]) => method === "search.messages")?.[1].query).toContain(
+    "is:dm is:thread",
+  );
 });

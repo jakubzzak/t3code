@@ -218,6 +218,7 @@ export async function readSlackInbox(
     });
   };
   const threads = new Map<string, Promise<Awaited<ReturnType<typeof readSlackThread>>>>();
+  const dmLocations = new Map<string, string>();
   const contextFor = (channel: string, message: typeof Message.Type) => {
     const ts = message.thread_ts ?? (message.reply_count ? message.ts : undefined);
     if (!ts) return Promise.resolve(undefined);
@@ -237,6 +238,9 @@ export async function readSlackInbox(
         await read("conversations.list", { types: "im,mpim", limit: "200", cursor }),
       );
       for (const channel of page.channels ?? []) {
+        const location =
+          channel.name ?? `DM · ${channel.user ? await displayName(channel.user) : channel.id}`;
+        dmLocations.set(channel.id, location);
         let historyCursor = "";
         const historyCursors = new Set<string>();
         do {
@@ -252,12 +256,7 @@ export async function readSlackInbox(
           for (const message of history.messages ?? []) {
             if (Number(message.ts) * 1000 < sinceMillis || message.user === identity.user_id)
               continue;
-            await append(
-              channel.id,
-              channel.name ?? `DM · ${channel.user ? await displayName(channel.user) : channel.id}`,
-              message,
-              await contextFor(channel.id, message),
-            );
+            await append(channel.id, location, message, await contextFor(channel.id, message));
           }
           historyCursor = history.response_metadata?.next_cursor ?? "";
           if (
@@ -277,6 +276,8 @@ export async function readSlackInbox(
     } while (cursor);
   }
   const queries: string[] = [];
+  // A reply does not move its parent into conversations.history's oldest window.
+  if (categories.includes("dms")) queries.push("is:dm is:thread");
   if (categories.includes("mentions")) queries.push(`<@${identity.user_id}>`);
   if (categories.includes("group-mentions")) {
     if (names.memberGroupIds === undefined) await getGroups();
@@ -304,7 +305,13 @@ export async function readSlackInbox(
           continue;
         }
         if (hit.user === identity.user_id || items.has(`${hit.channel.id}:${hit.ts}`)) continue;
+        if (query === "is:dm is:thread" && !dmLocations.has(hit.channel.id)) continue;
         let message = hit;
+        // Search links can retain the parent ID even when the match omits thread_ts.
+        if (!message.thread_ts) {
+          const parent = new URL(hit.permalink).searchParams.get("thread_ts");
+          if (parent && /^\d+(?:\.\d+)?$/.test(parent)) message = { ...hit, thread_ts: parent };
+        }
         if (!message.thread_ts) {
           const exact = decodeHistory(
             await read("conversations.history", {
@@ -317,10 +324,25 @@ export async function readSlackInbox(
           );
           const native = exact.messages?.find((entry) => entry.ts === hit.ts);
           if (native) message = { ...hit, ...native };
+        } else if (message.thread_ts !== message.ts) {
+          const exact = decodeHistory(
+            await read("conversations.replies", {
+              channel: hit.channel.id,
+              ts: message.thread_ts,
+              oldest: hit.ts,
+              latest: hit.ts,
+              inclusive: "true",
+              limit: "1",
+            }),
+          );
+          const native = exact.messages?.find((entry) => entry.ts === hit.ts);
+          if (!native)
+            throw new Error("Slack did not return the matching thread reply. Try syncing again.");
+          message = { ...message, ...native, thread_ts: message.thread_ts };
         }
         await append(
           message.channel.id,
-          `#${message.channel.name}`,
+          dmLocations.get(message.channel.id) ?? `#${message.channel.name}`,
           message,
           await contextFor(message.channel.id, message),
           message.permalink,
