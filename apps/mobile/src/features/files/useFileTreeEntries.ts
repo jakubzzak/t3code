@@ -1,5 +1,5 @@
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectEntry, FilesSearchOptions } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
@@ -12,21 +12,30 @@ export function useFileTreeEntries(input: {
   readonly cwd: string | null;
   readonly environmentId: EnvironmentId | null;
   readonly searchQuery: string;
+  readonly files: FilesSearchOptions;
 }) {
   const { cwd, environmentId } = input;
+  const [filesRevision, setFilesRevision] = useState("");
+  const files = useMemo(
+    () => ({ includeIgnored: input.files.includeIgnored, includeTests: input.files.includeTests }),
+    [input.files.includeIgnored, input.files.includeTests],
+  );
   const searching = input.searchQuery.trim().length > 0;
   const query = input.searchQuery.trim().slice(0, 256);
   const debouncedQuery = useDebouncedValue(query, 200);
   const root = useEnvironmentQuery(
     cwd !== null && environmentId !== null
-      ? projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } })
+      ? projectEnvironment.listEntries({
+          environmentId,
+          input: { cwd, directoryPath: "", followLinks: true },
+        })
       : null,
   );
   const search = useEnvironmentQuery(
     searching && debouncedQuery.length > 0 && cwd !== null && environmentId !== null
       ? projectEnvironment.searchEntries({
           environmentId,
-          input: { cwd, query: debouncedQuery, limit: 200 },
+          input: { cwd, query: debouncedQuery, limit: 200, files, filesRevision },
         })
       : null,
   );
@@ -70,7 +79,10 @@ export function useFileTreeEntries(input: {
       directories.pending.set(directoryPath, controller);
       directories.errors.delete(directoryPath);
       render();
-      const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
+      const atom = projectEnvironment.listEntries({
+        environmentId,
+        input: { cwd, directoryPath, followLinks: true },
+      });
       appAtomRegistry.refresh(atom);
       return executeAtomQuery(appAtomRegistry, atom, {
         signal: controller.signal,
@@ -105,12 +117,15 @@ export function useFileTreeEntries(input: {
   const snapshot = useMemo(() => {
     const merged = new Map<string, ProjectEntry>();
     if (searching) {
-      for (const entry of searchData?.entries ?? []) merged.set(entry.path, entry);
+      if (query === debouncedQuery && !search.isPending) {
+        for (const entry of [...(searchData?.ancestors ?? []), ...(searchData?.entries ?? [])])
+          merged.set(entry.path, entry);
+      }
     }
     const reachableDirectories = new Set<string>();
     const visit = (items: ReadonlyArray<ProjectEntry>) => {
       for (const entry of items) {
-        merged.set(entry.path, entry);
+        if (!searching) merged.set(entry.path, entry);
         if (entry.kind === "directory") {
           reachableDirectories.add(entry.path);
           visit(directories.entries.get(entry.path) ?? []);
@@ -119,11 +134,23 @@ export function useFileTreeEntries(input: {
     };
     visit((rootData?.entries ?? []).filter((entry) => !entry.path.includes("/")));
     return { revision: entriesRevision, entries: [...merged.values()], reachableDirectories };
-  }, [directories, entriesRevision, rootData, searchData, searching]);
+  }, [
+    directories,
+    entriesRevision,
+    rootData,
+    searchData,
+    searching,
+    query,
+    debouncedQuery,
+    search.isPending,
+  ]);
 
   const refresh = useCallback(() => {
     refreshRoot();
-    if (searching) refreshSearch();
+    if (searching) {
+      setFilesRevision(String(Date.now()));
+      refreshSearch();
+    }
     const paths = new Set(
       [...directories.requested].filter((path) => snapshot.reachableDirectories.has(path)),
     );
@@ -143,12 +170,15 @@ export function useFileTreeEntries(input: {
     const queries =
       cwd !== null && environmentId !== null
         ? [
-            projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } }),
+            projectEnvironment.listEntries({
+              environmentId,
+              input: { cwd, directoryPath: "", followLinks: true },
+            }),
             ...(searching
               ? [
                   projectEnvironment.searchEntries({
                     environmentId,
-                    input: { cwd, query: debouncedQuery, limit: 200 },
+                    input: { cwd, query: debouncedQuery, limit: 200, files, filesRevision },
                   }),
                 ]
               : []),
@@ -167,6 +197,8 @@ export function useFileTreeEntries(input: {
   }, [
     cwd,
     debouncedQuery,
+    files,
+    filesRevision,
     environmentId,
     directories,
     loadDirectory,

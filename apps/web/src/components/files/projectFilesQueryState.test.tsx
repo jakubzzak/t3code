@@ -446,6 +446,46 @@ describe("project query refresh", () => {
     }
   });
 
+  it("clears stale external contents when a link disappears and recovers on refresh", async () => {
+    let exists = true;
+    const data = { ...file("linked contents"), readOnly: true };
+    const error = new ProjectReadFileError({
+      cwd: "/repo",
+      relativePath: "src/preview.ts",
+      failure: "operation_failed",
+    });
+    const readAtom = Atom.make(
+      Effect.suspend(() => (exists ? Effect.succeed(data) : Effect.fail(error))),
+    );
+    const registry = AtomRegistry.make();
+    const unmount = registry.mount(readAtom);
+    projectMocks.readFile.mockReturnValue(readAtom);
+    projectMocks.optimisticFile.mockReturnValue(Atom.make(null));
+    atomHooks.registry = registry;
+    const render = () => {
+      reactHooks.beginRender();
+      return useProjectFileQuery(environmentId, "/repo", "src/preview.ts");
+    };
+    try {
+      await flushEffects();
+      expect(render().data?.contents).toBe("linked contents");
+      exists = false;
+      render().refresh();
+      await flushEffects();
+      expect(render().readError).toBe(error);
+      expect(render().data).toBeNull();
+      exists = true;
+      render().refresh();
+      await flushEffects();
+      expect(render().data?.contents).toBe("linked contents");
+      expect(render().readError).toBeNull();
+    } finally {
+      unmount();
+      registry.dispose();
+      atomHooks.registry = null;
+    }
+  });
+
   it("reports a directory named like an image as not a file", async () => {
     const readAtom = Atom.make(
       Effect.fail(

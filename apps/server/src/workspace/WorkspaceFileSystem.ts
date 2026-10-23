@@ -195,9 +195,9 @@ export const make = Effect.gen(function* () {
   });
 
   /**
-   * Resolves the file a read targets. Workspace-relative paths must stay inside the
-   * root, symlinks included. An absolute path reads a host file in place, such as a
-   * report an agent wrote to a temp directory; it gets no root check.
+   * Relative reads stay inside the root unless Files explicitly follows links;
+   * external targets then carry read-only metadata. Absolute host paths retain
+   * the existing exact-file preview behavior.
    */
   const resolveReadTarget = Effect.fn("WorkspaceFileSystem.resolveReadTarget")(function* (
     input: ProjectReadFileInput,
@@ -216,7 +216,7 @@ export const make = Effect.gen(function* () {
             cause,
           }),
       });
-      return { relativePath: requestedPath, realTargetPath };
+      return { relativePath: requestedPath, realTargetPath, readOnly: input.followLinks === true };
     }
 
     const target = yield* workspacePaths.resolveRelativePathWithinRoot({
@@ -249,10 +249,15 @@ export const make = Effect.gen(function* () {
         }),
     });
     const relativeRealPath = path.relative(realWorkspaceRoot, realTargetPath);
-    if (
+    const readOnly =
       relativeRealPath.startsWith(`..${path.sep}`) ||
       relativeRealPath === ".." ||
-      path.isAbsolute(relativeRealPath)
+      path.isAbsolute(relativeRealPath);
+    if (
+      (readOnly && !input.followLinks) ||
+      (input.followLinks &&
+        (realTargetPath.split(path.sep).includes(".git") ||
+          target.relativePath.split("/").includes(".git")))
     ) {
       return yield* new WorkspaceFilePathEscapeError({
         workspaceRoot: input.cwd,
@@ -261,7 +266,7 @@ export const make = Effect.gen(function* () {
         resolvedPath: realTargetPath,
       });
     }
-    return { relativePath: target.relativePath, realTargetPath };
+    return { relativePath: target.relativePath, realTargetPath, readOnly };
   });
 
   const readFile: WorkspaceFileSystem["Service"]["readFile"] = Effect.fn(
@@ -335,6 +340,7 @@ export const make = Effect.gen(function* () {
           }
 
           return {
+            ...(target.readOnly ? { readOnly: true } : {}),
             relativePath: target.relativePath,
             contents: new TextDecoder("utf-8").decode(fileBytes),
             byteLength: stat.size,
@@ -365,7 +371,48 @@ export const make = Effect.gen(function* () {
       relativePath: input.relativePath,
     });
 
-    yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true }).pipe(
+    // Resolve the nearest existing ancestor before creating anything. Lexical
+    // containment alone permits writes through an external file or directory link.
+    const resolved = yield* Effect.tryPromise({
+      try: async () => {
+        const root = await NodeFSP.realpath(input.cwd);
+        let ancestor = target.absolutePath;
+        const suffix: string[] = [];
+        while (true) {
+          try {
+            return { root, absolutePath: path.join(await NodeFSP.realpath(ancestor), ...suffix) };
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            const entry = await NodeFSP.lstat(ancestor).catch((cause: NodeJS.ErrnoException) => {
+              if (cause.code === "ENOENT") return null;
+              throw cause;
+            });
+            if (entry?.isSymbolicLink() || path.dirname(ancestor) === ancestor) throw error;
+            suffix.unshift(path.basename(ancestor));
+            ancestor = path.dirname(ancestor);
+          }
+        }
+      },
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: target.absolutePath,
+          operationPath: target.absolutePath,
+          operation: "realpath-target",
+          cause,
+        }),
+    });
+    const relative = path.relative(resolved.root, resolved.absolutePath);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      return yield* new WorkspaceFilePathEscapeError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedWorkspaceRoot: resolved.root,
+        resolvedPath: resolved.absolutePath,
+      });
+    }
+    yield* fileSystem.makeDirectory(path.dirname(resolved.absolutePath), { recursive: true }).pipe(
       Effect.mapError(
         (cause) =>
           new WorkspaceFileSystemOperationError({
@@ -378,7 +425,7 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    yield* fileSystem.writeFileString(target.absolutePath, input.contents).pipe(
+    yield* fileSystem.writeFileString(resolved.absolutePath, input.contents).pipe(
       Effect.mapError(
         (cause) =>
           new WorkspaceFileSystemOperationError({

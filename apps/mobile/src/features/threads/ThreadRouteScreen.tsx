@@ -585,6 +585,8 @@ function ThreadRouteContent(
     () =>
       selectedThread !== null && selectedThreadCwd !== null ? (
         <ThreadFileNavigatorPane
+          key={`${selectedThread.environmentId}:${selectedThread.id}`}
+          chatKey={`${selectedThread.environmentId}:${selectedThread.id}`}
           cwd={selectedThreadCwd}
           environmentId={selectedThread.environmentId}
           headerInset={inspectorHeaderInset}

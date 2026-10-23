@@ -146,6 +146,38 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
     );
   });
 
+  it.effect.skipIf(!symlinksSupported)(
+    "previews external links only on opt-in and rejects writes through files and parent links",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outside = yield* makeTempDir;
+        yield* writeTextFile(outside, "config", "original");
+        yield* fs.symlink(path.join(outside, "config"), path.join(cwd, ".env"));
+        yield* fs.symlink(outside, path.join(cwd, "shared"));
+        const result = yield* service.readFile({ cwd, relativePath: ".env", followLinks: true });
+        expect(result).toMatchObject({
+          contents: "original",
+          relativePath: ".env",
+          readOnly: true,
+        });
+        expect(
+          (yield* service.readFile({ cwd, relativePath: ".env" }).pipe(Effect.flip))._tag,
+        ).toBe("WorkspaceFilePathEscapeError");
+        for (const relativePath of [".env", "shared/config", "shared/new/nested.txt"]) {
+          expect(
+            (yield* service.writeFile({ cwd, relativePath, contents: "changed" }).pipe(Effect.flip))
+              ._tag,
+          ).toBe("WorkspaceFilePathEscapeError");
+        }
+        expect(yield* fs.readFileString(path.join(outside, "config"))).toBe("original");
+        expect(yield* fs.exists(path.join(outside, "new"))).toBe(false);
+      }),
+  );
+
   describe("readFile", () => {
     it.effect("reads UTF-8 files relative to the workspace root", () =>
       Effect.gen(function* () {
@@ -341,6 +373,28 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
   });
 
   describe("writeFile", () => {
+    it.effect.skipIf(!symlinksSupported)(
+      "keeps internal links writable and rejects dangling external parents",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTempDir;
+          const outside = yield* makeTempDir;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const service = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          yield* writeTextFile(cwd, "target.txt", "before");
+          yield* fs.symlink(path.join(cwd, "target.txt"), path.join(cwd, "alias.txt"));
+          yield* service.writeFile({ cwd, relativePath: "alias.txt", contents: "after" });
+          expect(yield* fs.readFileString(path.join(cwd, "target.txt"))).toBe("after");
+          yield* fs.symlink(path.join(outside, "missing"), path.join(cwd, "dangling"));
+          const error = yield* service
+            .writeFile({ cwd, relativePath: "dangling/new.txt", contents: "no" })
+            .pipe(Effect.flip);
+          expect(error._tag).toBe("WorkspaceFileSystemOperationError");
+          expect(yield* fs.exists(path.join(outside, "missing"))).toBe(false);
+        }),
+    );
+
     it.effect("writes files relative to the workspace root", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;

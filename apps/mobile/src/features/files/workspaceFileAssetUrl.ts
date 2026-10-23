@@ -39,13 +39,14 @@ export function useWorkspaceFileAssetUrlState(props: {
           isAbsolutePath(relativePath)
             ? "media-file"
             : "workspace-file",
+        followLinks: true,
         threadId: props.threadId,
         path: absolutePath,
       };
     }
     // A project draft has no thread, so it names its workspace root explicitly.
     if (draftCwd === null) return null;
-    return { _tag: "draft-workspace-file", cwd: draftCwd, path: relativePath };
+    return { _tag: "draft-workspace-file", cwd: draftCwd, path: relativePath, followLinks: true };
   }, [absolutePath, relativePath, props.threadId, draftCwd]);
   const state = useAssetUrlState(props.environmentId, resource);
   const refresh = useRefreshAssetUrl(props.environmentId, resource);

@@ -13,6 +13,7 @@ const ASSET_PATH_MAX_LENGTH = 1024;
 
 export const AssetResource = Schema.Union([
   Schema.TaggedStruct("workspace-file", {
+    followLinks: Schema.optional(Schema.Boolean),
     threadId: ThreadId,
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
   }),
@@ -26,6 +27,7 @@ export const AssetResource = Schema.Union([
   // A workspace file named by a draft that has no thread yet. The draft names
   // its workspace root explicitly instead of resolving one from a thread.
   Schema.TaggedStruct("draft-workspace-file", {
+    followLinks: Schema.optional(Schema.Boolean),
     cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
   }),

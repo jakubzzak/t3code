@@ -295,7 +295,11 @@ const resolveCanonicalFile = Effect.fn("AssetAccess.resolveCanonicalFile")(funct
 });
 
 const resolveCanonicalWorkspaceFile = Effect.fn("AssetAccess.resolveCanonicalWorkspaceFile")(
-  function* (input: { readonly workspaceRoot: string; readonly relativePath: string }) {
+  function* (input: {
+    readonly workspaceRoot: string;
+    readonly relativePath: string;
+    readonly followLinks?: boolean;
+  }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
     const resolved = yield* workspacePaths.resolveRelativePathWithinRoot(input).pipe(
@@ -314,7 +318,17 @@ const resolveCanonicalWorkspaceFile = Effect.fn("AssetAccess.resolveCanonicalWor
 
     const path = yield* Path.Path;
     const relative = path.relative(canonicalRoot.value, canonicalFile.value);
-    if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return null;
+    if (
+      relative === "" ||
+      (!input.followLinks && (relative.startsWith("..") || path.isAbsolute(relative)))
+    )
+      return null;
+    if (
+      input.followLinks &&
+      (resolved.value.relativePath.split("/").includes(".git") ||
+        canonicalFile.value.split(path.sep).includes(".git"))
+    )
+      return null;
 
     const info = yield* optionOnNotFound(fileSystem.stat(canonicalFile.value));
     return Option.isSome(info) && info.value.type === "File" ? canonicalFile.value : null;
@@ -451,6 +465,11 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
     const canonicalFile = yield* resolveCanonicalWorkspaceFile({
       workspaceRoot: input.workspaceRoot,
       relativePath: resolved.relativePath,
+      ...((input.resource._tag === "workspace-file" ||
+        input.resource._tag === "draft-workspace-file") &&
+      input.resource.followLinks
+        ? { followLinks: true }
+        : {}),
     }).pipe(
       Effect.mapError(
         (cause) =>
@@ -474,6 +493,19 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
           }),
       ),
     );
+    const relativeTarget = path.relative(canonicalWorkspaceRoot, canonicalFile);
+    if (
+      relativeTarget.startsWith(`..${path.sep}`) ||
+      relativeTarget === ".." ||
+      path.isAbsolute(relativeTarget)
+    ) {
+      const exact = yield* finalizeAbsoluteMediaFileAsset({
+        requestedPath: canonicalFile,
+        resource: input.resource,
+        expiresAt: input.expiresAt,
+      });
+      return exact;
+    }
     const imageDimensions = HEADER_IMAGE_EXTENSIONS.has(
       path.extname(resolved.relativePath).toLowerCase(),
     )

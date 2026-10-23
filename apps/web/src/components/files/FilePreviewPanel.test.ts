@@ -206,6 +206,7 @@ describe("workspaceAssetResource", () => {
   it("names the thread once the server knows it", () => {
     expect(workspaceAssetResource({ ...input, draft: false })).toEqual({
       _tag: "workspace-file",
+      followLinks: true,
       threadId: "thread-1",
       path: "/repo/docs/index.html",
     });

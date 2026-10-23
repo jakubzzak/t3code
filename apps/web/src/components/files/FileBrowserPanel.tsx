@@ -1,3 +1,5 @@
+import { useAtom } from "@effect/atom-react";
+import { filesSearchOptionsAtom } from "@t3tools/client-runtime/state/files-search-options";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import type {
   ContextMenuItem as TreeContextMenuItem,
@@ -6,10 +8,13 @@ import type {
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { ChevronsDownUp, ChevronsUpDown } from "lucide";
+import { ChevronsDownUp, ChevronsUpDown, SlidersHorizontal } from "lucide";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { Popover, PopoverTrigger, PopoverPopup } from "~/components/ui/popover";
+import { Switch } from "~/components/ui/switch";
+import { FILE_LINK_CSS, annotateFileLinks } from "./fileTreeLinks";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
 import { MorphIcon } from "~/components/MorphIcon";
 import { toastManager } from "~/components/ui/toast";
@@ -30,6 +35,7 @@ import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
 
 interface FileBrowserPanelProps {
+  chatKey: string;
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
@@ -95,6 +101,7 @@ export function FileSearchField(props: {
 }
 
 export default function FileBrowserPanel({
+  chatKey,
   environmentId,
   cwd,
   projectName,
@@ -118,21 +125,37 @@ export default function FileBrowserPanel({
   } = useDirectoryEntries(environmentId, cwd);
   const [query, setQuery] = useState("");
   const [expandAll, setExpandAll] = useState(false);
-  const pathSearch = useProjectPathSearch({ environmentId, cwd, query: query.slice(0, 256) }, 200);
+  const [filesRevision, setFilesRevision] = useState("");
+  const [options, setOptions] = useAtom(filesSearchOptionsAtom(chatKey));
+  const { includeIgnored, includeTests } = options;
+  const pathSearch = useProjectPathSearch(
+    {
+      environmentId,
+      cwd,
+      query: query.slice(0, 256),
+      files: { includeIgnored, includeTests },
+      filesRevision,
+    },
+    200,
+  );
   const entries = useMemo(() => {
-    const result = new Map(directoryEntries.map((entry) => [entry.path, entry]));
+    if (!query.trim()) return directoryEntries;
+    const known = new Map(
+      [...directoryEntries, ...pathSearch.ancestors].map((entry) => [entry.path, entry]),
+    );
+    const result = new Map<string, ProjectEntry>();
     if (query.trim() && !pathSearch.isPending) {
       for (const entry of pathSearch.entries) {
         if (!result.has(entry.path)) result.set(entry.path, entry);
         const segments = entry.path.split("/");
         for (let index = 1; index < segments.length; index++) {
           const path = segments.slice(0, index).join("/");
-          if (!result.has(path)) result.set(path, { path, kind: "directory" });
+          if (!result.has(path)) result.set(path, known.get(path) ?? { path, kind: "directory" });
         }
       }
     }
     return [...result.values()];
-  }, [directoryEntries, pathSearch.entries, pathSearch.isPending, query]);
+  }, [directoryEntries, pathSearch.ancestors, pathSearch.entries, pathSearch.isPending, query]);
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
     [entries],
@@ -140,7 +163,10 @@ export default function FileBrowserPanel({
   const entryKindsRef = useRef<ReadonlyMap<string, ProjectEntry["kind"]>>(entryKinds);
   const treePaths = useMemo(() => entries.map(treePath), [entries]);
   const directoryPaths = useMemo(
-    () => entries.filter((entry) => entry.kind === "directory").map(treePath),
+    () =>
+      entries
+        .filter((entry) => entry.kind === "directory" && !entry.link?.unavailable)
+        .map(treePath),
     [entries],
   );
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
@@ -242,6 +268,16 @@ export default function FileBrowserPanel({
   // The tree reads decorations at render time; a folder still loading its
   // children shows a spinner in its row instead of a banner that shifts the tree.
   const loadingDirectoriesRef = useRef(loadingDirectories);
+  const unavailableLinks = useMemo(
+    () =>
+      new Map(
+        entries
+          .filter((entry) => entry.link?.unavailable)
+          .map((entry) => [entry.path, entry.link!.target]),
+      ),
+    [entries],
+  );
+  const unavailableLinksRef = useRef(unavailableLinks);
   const treeModelRef = useRef<ReturnType<typeof useFileTree>["model"] | null>(null);
   const dragMention = useMemo(
     () =>
@@ -264,7 +300,7 @@ export default function FileBrowserPanel({
     dragAndDrop: { canDrop: () => false },
     density: "compact",
     fileTreeSearchMode: "hide-non-matches",
-    flattenEmptyDirectories: true,
+    flattenEmptyDirectories: false,
     initialExpansion: "closed",
     icons: T3_PIERRE_ICONS,
     onSelectionChange: (selectedPaths) => {
@@ -291,17 +327,22 @@ export default function FileBrowserPanel({
       row.isExpanded &&
       loadingDirectoriesRef.current.has(item.path.replace(/\/$/, ""))
         ? { icon: "t3-tree-icon-loading", title: "Loading…" }
-        : null,
+        : unavailableLinksRef.current.has(item.path.replace(/\/$/, ""))
+          ? {
+              text: "Unavailable",
+              title: unavailableLinksRef.current.get(item.path.replace(/\/$/, "")) ?? "",
+            }
+          : null,
     search: false,
     onSearchChange: (value) => setQuery(value ?? ""),
-    unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
+    unsafeCSS: PIERRE_TREE_UNSAFE_CSS + FILE_LINK_CSS,
   });
   useEffect(() => {
-    if (loadingDirectoriesRef.current === loadingDirectories) return;
     loadingDirectoriesRef.current = loadingDirectories;
+    unavailableLinksRef.current = unavailableLinks;
     // Re-render the rows with the current options so decorations update.
     model.setComposition(model.getComposition());
-  }, [loadingDirectories, model]);
+  }, [loadingDirectories, unavailableLinks, model]);
   const search = useFileTreeSearch(model);
   const allDirectoriesExpanded = useFileTreeSelector(model, (currentModel) =>
     areAllDirectoriesExpanded(currentModel, directoryPaths),
@@ -368,14 +409,14 @@ export default function FileBrowserPanel({
   };
   const handleRefresh = () => {
     refresh();
-    if (query.trim()) pathSearch.refresh();
+    if (query.trim()) setFilesRevision(String(Date.now()));
     onRefreshSelectedFile?.();
   };
   useWorkspaceMutationRefresh({
     mutationId: workspaceMutationId,
     refresh: () => {
       refresh();
-      if (query.trim()) pathSearch.refresh();
+      if (query.trim()) setFilesRevision(String(Date.now()));
     },
     resourceKey: `files:${environmentId}:${cwd}`,
   });
@@ -476,6 +517,20 @@ export default function FileBrowserPanel({
   // the dragged row, so the drag flag is up before that selection emits.
   const panelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
+    const root = panelRef.current?.querySelector("file-tree-container")?.shadowRoot;
+    if (!root) return;
+    const update = () => annotateFileLinks(root, entries);
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-item-path"],
+    });
+    return () => observer.disconnect();
+  }, [entries]);
+  useEffect(() => {
     treeModelRef.current = model;
   }, [model]);
   useEffect(() => {
@@ -510,6 +565,43 @@ export default function FileBrowserPanel({
           value={search.value}
           onValueChange={handleSearchValueChange}
         />
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                size="icon-xs"
+                variant={includeIgnored || includeTests ? "secondary" : "ghost"}
+                aria-label="File search options"
+              />
+            }
+          >
+            <MorphIcon icon={SlidersHorizontal} className="size-3.5" />
+          </PopoverTrigger>
+          <PopoverPopup width="sm" padding="compact" align="end" aria-label="File search options">
+            <div className="flex flex-col gap-3 py-1">
+              <label className="flex items-center justify-between gap-4 text-xs">
+                Include ignored files
+                <Switch
+                  size="sm"
+                  checked={includeIgnored}
+                  onCheckedChange={(includeIgnored) => setOptions({ ...options, includeIgnored })}
+                  aria-label="Include ignored files"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-4 text-xs">
+                Include test files
+                <Switch
+                  size="sm"
+                  checked={includeTests}
+                  onCheckedChange={(includeTests) => setOptions({ ...options, includeTests })}
+                  aria-label="Include test files"
+                />
+              </label>
+              <p className="text-xs text-muted-foreground">node_modules is always excluded</p>
+            </div>
+          </PopoverPopup>
+        </Popover>
         {directoryPaths.length > 0 ? (
           <Tooltip>
             <TooltipTrigger
@@ -549,7 +641,7 @@ export default function FileBrowserPanel({
       ) : null}
       {query.trim() && pathSearch.truncated && !pathSearch.isPending ? (
         <div className="px-3 py-1 text-xs text-muted-foreground">
-          More matches available. Refine your search.
+          Search results are incomplete. Refine your search or browse folders.
         </div>
       ) : null}
       {(!ready || pathSearch.isPending) && (

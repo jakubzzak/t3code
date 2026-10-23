@@ -14,6 +14,7 @@ export function MaterialFilesHeader(props: {
   readonly onRefresh: () => void;
   readonly onBack?: () => void;
   readonly leading?: ReactNode;
+  readonly searchOptions?: ReactNode;
 }) {
   const { paddingTop, paddingBottom } = useMaterialToolbarLayout();
   const searchRef = useRef<TextInputInstance>(null);
@@ -58,21 +59,24 @@ export function MaterialFilesHeader(props: {
             },
           ]}
           trailing={
-            <AndroidAnchoredMenu
-              title="File options"
-              actions={[{ id: "refresh", title: "Refresh files" }]}
-              onPressAction={({ nativeEvent }) => {
-                if (nativeEvent.event === "refresh") props.onRefresh();
-              }}
-            >
-              {(open) => (
-                <AndroidHeaderIconButton
-                  accessibilityLabel="File options"
-                  icon="ellipsis"
-                  onPress={open}
-                />
-              )}
-            </AndroidAnchoredMenu>
+            <View className="flex-row items-center">
+              {props.searchOptions}
+              <AndroidAnchoredMenu
+                title="File options"
+                actions={[{ id: "refresh", title: "Refresh files" }]}
+                onPressAction={({ nativeEvent }) => {
+                  if (nativeEvent.event === "refresh") props.onRefresh();
+                }}
+              >
+                {(open) => (
+                  <AndroidHeaderIconButton
+                    accessibilityLabel="File options"
+                    icon="ellipsis"
+                    onPress={open}
+                  />
+                )}
+              </AndroidAnchoredMenu>
+            </View>
           }
         />
       </View>
@@ -84,6 +88,7 @@ export function MaterialFilesHeader(props: {
               icon="arrow.left"
               onPress={closeSearch}
             />
+            {props.searchOptions}
             <MaterialSearchField
               inputRef={searchRef}
               accessibilityLabel="Search files"

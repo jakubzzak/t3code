@@ -72,5 +72,10 @@ export function workspaceAssetResource(input: {
   if (input.draft) {
     return { _tag: "draft-workspace-file", cwd: input.workspaceRoot, path: input.absolutePath };
   }
-  return { _tag: input.kind, threadId: input.threadRef.threadId, path: input.absolutePath };
+  return {
+    _tag: input.kind,
+    threadId: input.threadRef.threadId,
+    path: input.absolutePath,
+    ...(input.kind === "workspace-file" ? { followLinks: true } : {}),
+  };
 }

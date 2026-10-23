@@ -14,6 +14,7 @@ import {
 } from "react-native-screens";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { FileSearchOptionsButton, useFileSearchOptions } from "./FileSearchOptions";
 import { MaterialFilesHeader } from "./MaterialFilesHeader";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -26,6 +27,7 @@ import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 
 export function ThreadFileNavigatorPane(props: {
+  readonly chatKey: string;
   readonly cwd: string;
   readonly environmentId: EnvironmentId;
   readonly headerInset: number;
@@ -34,6 +36,7 @@ export function ThreadFileNavigatorPane(props: {
   readonly onSelectFile: (path: string) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const settings = useFileSearchOptions(props.chatKey);
   const { toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
   const theme = useUniwindTheme();
@@ -55,6 +58,7 @@ export function ThreadFileNavigatorPane(props: {
     environmentId: props.environmentId,
     cwd: canReadFiles ? props.cwd : null,
     searchQuery,
+    files: settings.options,
   });
   const handlePreviewFile = useCallback(
     (relativePath: string) => {
@@ -71,6 +75,29 @@ export function ThreadFileNavigatorPane(props: {
     () =>
       [
         {
+          type: "menu" as const,
+          accessibilityLabel: settings.active
+            ? "File search options, enabled"
+            : "File search options",
+          icon: {
+            name: settings.active
+              ? "line.3.horizontal.decrease.circle.fill"
+              : "slider.horizontal.3",
+            type: "sfSymbol" as const,
+          },
+          menu: {
+            title: "File search options",
+            items: settings.items.map((item) => ({
+              type: "action" as const,
+              title: item.title,
+              state: item.selected ? ("on" as const) : ("off" as const),
+              disabled: item.disabled,
+              keepsMenuPresented: true,
+              onPress: item.onPress,
+            })),
+          },
+        },
+        {
           accessibilityLabel: "Close files",
           icon: { name: "xmark", type: "sfSymbol" as const },
           identifier: "thread-file-navigator-close",
@@ -80,7 +107,7 @@ export function ThreadFileNavigatorPane(props: {
           type: "button" as const,
         },
       ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"],
-    [foregroundColor, toggleAuxiliaryPane],
+    [foregroundColor, toggleAuxiliaryPane, settings],
   );
 
   const fileTree = (
@@ -173,6 +200,7 @@ export function ThreadFileNavigatorPane(props: {
       >
         {Platform.OS === "android" ? (
           <MaterialFilesHeader
+            searchOptions={<FileSearchOptionsButton settings={settings} />}
             projectName={props.projectName}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
@@ -210,6 +238,7 @@ export function ThreadFileNavigatorPane(props: {
               tintColorClassName="accent-icon-muted"
               type="monochrome"
             />
+            <FileSearchOptionsButton settings={settings} />
             <TextInput
               accessibilityLabel="Search files"
               autoCapitalize="none"
