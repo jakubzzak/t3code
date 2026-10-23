@@ -97,14 +97,20 @@ function contentOwnsFocus() {
   );
 }
 
-function visibleChatRows() {
+function visibleSidebarRows() {
   return [
     ...document.querySelectorAll<HTMLElement>(
-      '[data-navigation-section="chats"] [data-navigation-chat]',
+      '[data-navigation-section="chats"] :is([data-navigation-chat], [data-inbox-row])',
     ),
   ].filter((row) => {
     for (let node: HTMLElement | null = row; node; node = node.parentElement) {
-      if (node.hidden || node.inert || getComputedStyle(node).display === "none") return false;
+      if (
+        node.hidden ||
+        node.inert ||
+        node.matches('[inert], [aria-hidden="true"]') ||
+        getComputedStyle(node).display === "none"
+      )
+        return false;
     }
     return true;
   });
@@ -142,7 +148,8 @@ export function installSectionNavigation(options: {
     movingHighlight = true;
     row.focus({ preventScroll: true });
     movingHighlight = false;
-    row.scrollIntoView?.({ block: "nearest" });
+    // Inbox focus owns accordion-aware smooth scrolling.
+    if (!row.hasAttribute("data-inbox-row")) row.scrollIntoView?.({ block: "nearest" });
   };
   const escape = (event: KeyboardEvent) => {
     if (event.repeat) return false;
@@ -258,10 +265,12 @@ export function installSectionNavigation(options: {
       document.documentElement.dataset.selectedSection = next;
       options.reveal(next);
       if (next === "chats") {
-        const rows = visibleChatRows();
+        const rows = visibleSidebarRows();
         highlight(
           rows.find((row) =>
-            row.matches('[aria-current="page"], [aria-current="true"], [data-active="true"]'),
+            row.matches(
+              '[aria-current="page"], [aria-current="true"], [data-active="true"], [data-inbox-row][aria-expanded="true"]',
+            ),
           ) ?? rows[0],
         );
       }
@@ -271,11 +280,21 @@ export function installSectionNavigation(options: {
     if (selected === "chats" && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       event.preventDefault();
       event.stopPropagation();
-      const rows = visibleChatRows();
+      const rows = visibleSidebarRows();
       const index = rows.findIndex((row) => row.hasAttribute("data-section-highlight"));
       highlight(
         rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))],
       );
+    } else if (
+      selected === "chats" &&
+      (event.key === "Enter" || event.key === "Tab") &&
+      document.querySelector("[data-inbox-row][data-section-highlight]")
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = document.querySelector<HTMLElement>("[data-inbox-row][data-section-highlight]");
+      clearSectionSelection();
+      row?.focus({ preventScroll: true });
     } else if (event.key === "Enter" && selected !== "surfaces") {
       event.preventDefault();
       event.stopPropagation();

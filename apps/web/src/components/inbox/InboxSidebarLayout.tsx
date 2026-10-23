@@ -863,6 +863,15 @@ export function InboxSidebarLayout({
                   role="region"
                   aria-label="Notifications"
                   onKeyDownCapture={keyDown}
+                  onFocus={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    const rows = [
+                      ...event.currentTarget.querySelectorAll<HTMLElement>("[data-inbox-row]"),
+                    ];
+                    (rows.find((row) => row.dataset.inboxRow === focusedKey) ?? rows[0])?.focus({
+                      preventScroll: true,
+                    });
+                  }}
                   onKeyUp={(event) => setHints(event.metaKey || event.ctrlKey)}
                   onBlur={(event) => {
                     if (!event.currentTarget.contains(event.relatedTarget)) {

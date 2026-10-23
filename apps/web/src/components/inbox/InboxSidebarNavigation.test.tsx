@@ -10,6 +10,7 @@ import {
   type InboxNotification,
 } from "@t3tools/contracts";
 import { InboxSidebarLayout } from "./InboxSidebarLayout";
+import { installSectionNavigation } from "~/sectionNavigation";
 import { useInboxNavigation } from "./inboxNavigation";
 
 const state = vi.hoisted(() => ({
@@ -194,6 +195,78 @@ it.each([false, true])(
         to: "/$environmentId/$threadId",
         params: { environmentId, threadId },
       });
+    }
+  },
+);
+
+it.each(["Enter", "Tab"])(
+  "enters Inbox rows from panel navigation with %s, then keeps arrows in the list",
+  async (enterKey) => {
+    state.items = [
+      notification,
+      { ...notification, id: "second", updatedAt: "2026-10-23T09:00:00Z" },
+    ];
+    useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+    await act(async () =>
+      root.render(
+        <>
+          <aside data-navigation-section="chats">
+            <InboxSidebarLayout
+              projects={[{ environmentId, projectId }]}
+              threadRef={null}
+              chatCount={0}
+              chatHeader={null}
+            >
+              <button data-navigation-chat>Hidden chat</button>
+            </InboxSidebarLayout>
+          </aside>
+          <main data-navigation-section="conversation">
+            <textarea aria-label="Composer" />
+          </main>
+        </>,
+      ),
+    );
+    const composer = container.querySelector("textarea")!;
+    const focusComposer = vi.fn(() => composer.focus());
+    const cleanup = installSectionNavigation({
+      platform: "MacIntel",
+      reveal: vi.fn(),
+      focusComposer,
+    });
+    const press = (key: string, metaKey = false) =>
+      act(async () => {
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent("keydown", { key, metaKey, bubbles: true, cancelable: true }),
+        );
+      });
+    try {
+      const rows = [...container.querySelectorAll<HTMLElement>("[data-inbox-row]")];
+      composer.focus();
+      await press("Escape");
+      await press("Escape");
+      await press("ArrowLeft", true);
+      expect(document.activeElement).toBe(rows[0]);
+      expect(rows[0]?.getAttribute("aria-expanded")).toBe("true");
+      await press("ArrowDown");
+      expect(document.activeElement).toBe(rows[1]);
+      await press(enterKey);
+      expect(document.activeElement).toBe(rows[1]);
+      expect(document.documentElement.dataset.selectedSection).toBeUndefined();
+      expect(focusComposer).not.toHaveBeenCalled();
+      expect(state.mutate).not.toHaveBeenCalled();
+      await press("ArrowUp");
+      expect(document.activeElement).toBe(rows[0]);
+      const list = container.querySelector<HTMLElement>("[data-inbox-list]")!;
+      await act(async () => composer.focus());
+      await act(async () => list.focus());
+      expect(document.activeElement).toBe(rows[0]);
+      await press("ArrowDown");
+      expect(document.activeElement).toBe(rows[1]);
+      await press("ArrowRight", true);
+      await press("ArrowLeft", true);
+      expect(document.activeElement).toBe(rows[1]);
+    } finally {
+      cleanup();
     }
   },
 );
