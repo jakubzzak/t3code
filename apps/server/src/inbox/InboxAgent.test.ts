@@ -9,6 +9,19 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Projects from "../project/ProjectService.ts";
+import * as ManagedFolders from "../project/ManagedProjectFolders.ts";
+import * as SetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as CloneTracker from "../project/ProjectCloneTracker.ts";
+import * as SetupScripts from "../project/ProjectSetupScriptRunner.ts";
+import * as Git from "../git/GitWorkflowService.ts";
+import * as Terminals from "../terminal/Manager.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ProjectFiles from "../project/T3ProjectFileLoader.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -42,13 +55,54 @@ const settings = Settings.layerTest({
   inboxAgentPrompt: "",
   inboxAgentModelSelection: { instanceId: "codex", model: "gpt-5" },
 });
-const layer = Agent.layer.pipe(
-  Layer.provide(
-    ThreadManagement.layer.pipe(Layer.provide(Receipts.layer.pipe(Layer.provide(database)))),
-  ),
-  Layer.provideMerge(runtime),
-  Layer.provide(settings),
-);
+function makeLayer(settingsLayer: typeof settings) {
+  const receipts = Receipts.layer.pipe(Layer.provide(database));
+  const threads = ThreadManagement.layer.pipe(
+    Layer.provide(Layer.mergeAll(runtime, receipts, settingsLayer)),
+  );
+  const dependencies = Layer.mergeAll(
+    Layer.mock(ProjectFiles.T3ProjectFileLoader)({ load: () => Effect.succeed(Option.none()) }),
+    runtime,
+    threads,
+    receipts,
+    settingsLayer,
+    IdAllocator.layer,
+    SetupTracker.layer,
+    Layer.mock(Projects.ProjectService)({
+      getById: (id) =>
+        Effect.succeed(
+          Option.some({
+            id,
+            title: "Inbox project",
+            workspaceRoot: "/repo",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-10-22T10:00:00Z",
+            updatedAt: "2026-10-22T10:00:00Z",
+            deletedAt: null,
+          }),
+        ),
+    }),
+    Layer.mock(ManagedFolders.ManagedProjectFolders)({
+      namedProjectsRoot: "/projects",
+      folderForThread: () => Effect.succeed(Option.none()),
+    }),
+    Layer.mock(CloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
+    Layer.mock(Terminals.TerminalManager)({ close: () => Effect.void }),
+    Layer.mock(SetupScripts.ProjectSetupScriptRunner)({
+      runForThread: () => Effect.succeed({ status: "no-script" as const }),
+    }),
+    Layer.mock(Git.GitWorkflowService)({}),
+    Layer.mock(TextGeneration.TextGeneration)({}),
+    ProviderRegistryMock.layer(),
+  );
+  return Agent.layer.pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(dependencies, ThreadLaunch.layer.pipe(Layer.provide(dependencies))),
+    ),
+  );
+}
+const layer = makeLayer(settings);
 it.effect(
   "creates a compose-only chat, dispatches direct delegation once and retains the chat on stop",
   () =>
@@ -153,16 +207,5 @@ it.effect("uses the editable delegation prompt when Agent Delegation is enabled"
       message?.type === "user_message" ? message.text : null,
       "Investigate without sending a reply.",
     );
-  }).pipe(
-    Effect.provide(
-      Agent.layer.pipe(
-        Layer.provide(
-          ThreadManagement.layer.pipe(Layer.provide(Receipts.layer.pipe(Layer.provide(database)))),
-        ),
-        Layer.provideMerge(runtime),
-        Layer.provideMerge(settings),
-      ),
-    ),
-    Effect.scoped,
-  ),
+  }).pipe(Effect.provide(makeLayer(settings)), Effect.scoped),
 );

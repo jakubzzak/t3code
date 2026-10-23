@@ -729,7 +729,7 @@ const layerInbox = InboxSources.layer.pipe(
   Layer.provideMerge(
     InboxService.layer.pipe(
       Layer.provide(InboxRepository.layer),
-      Layer.provide(InboxAgent.layer),
+      Layer.provide(InboxAgent.layer.pipe(Layer.provide(T3ProjectFileLoader.layer))),
       Layer.provide(InboxAnalysis.layer),
     ),
   ),

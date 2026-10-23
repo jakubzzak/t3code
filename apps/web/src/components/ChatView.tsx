@@ -4112,7 +4112,11 @@ export default function ChatView(props: ChatViewProps) {
   const worktreeSetupQuery = useEnvironmentQuery(
     worktreeSetupActive ||
       (activeThread?.id === routeThreadRef.threadId &&
-        (isLocallyPreparingWorktree || activeRunPreparing || activeThread.worktreePath !== null))
+        // Compose-only launches can prepare a workspace before they have a run or path.
+        (isLocallyPreparingWorktree ||
+          activeRunPreparing ||
+          activeThread.worktreePath !== null ||
+          (isServerThread && activeThread.latestRun === null)))
       ? vcsEnvironment.worktreeSetup({
           environmentId: setupTarget.environmentId,
           input: { threadId: setupTarget.threadId },

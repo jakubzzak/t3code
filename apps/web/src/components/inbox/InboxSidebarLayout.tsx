@@ -354,7 +354,6 @@ export function InboxSidebarLayout({
   const [undo, setUndo] = useState<Array<{ entry: Entry; commandId: CommandId }>>([]);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const pendingActions = useRef(new Map<string, Promise<boolean>>());
-  const [pendingOpen, setPendingOpen] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -406,10 +405,10 @@ export function InboxSidebarLayout({
         for (const atom of new Set(atoms.map(({ sourcesAtom }) => sourcesAtom)))
           appAtomRegistry.refresh(atom);
       },
-      pendingOpen ? 1_000 : tab === "inbox" ? 5_000 : 30_000,
+      tab === "inbox" ? 5_000 : 30_000,
     );
     return () => window.clearInterval(timer);
-  }, [atoms, pendingOpen, projects.length, tab]);
+  }, [atoms, projects.length, tab]);
   const hasMore = results.some(
     ({ result }, index) =>
       index % pages === pages - 1 &&
@@ -487,7 +486,7 @@ export function InboxSidebarLayout({
     const threadId = entry.notification.state.threadId;
     if (!threadId) return;
     const ref = { environmentId: entry.environmentId, threadId };
-    if (!(await waitForThreadShell(ref))) {
+    if (!(await waitForThreadShell(ref, 30_000))) {
       toastManager.add({
         type: "error",
         title: "Chat is still syncing",
@@ -500,14 +499,6 @@ export function InboxSidebarLayout({
   }
   const entriesRef = useRef(entries);
   entriesRef.current = entries;
-  useEffect(() => {
-    if (!pendingOpen) return;
-    const entry = entries.find((item) => keyOf(item) === pendingOpen);
-    if (!entry || ["starting", "linking"].includes(entry.notification.agentStatus)) return;
-    setPendingOpen(null);
-    if (entry.notification.agentStatus !== "failed" && entry.notification.state.threadId)
-      void openChat(entry);
-  }, [entries, pendingOpen, router]);
   useEffect(() => {
     if (!revealId) return;
     const entry = entries.find((candidate) => candidate.notification.id === revealId);
@@ -568,8 +559,9 @@ export function InboxSidebarLayout({
             { entry: { ...entry, notification: next }, commandId: result.value.undoCommandId! },
           ]);
         if (result.value.openThread && next.state.threadId) {
-          if (["starting", "linking"].includes(next.agentStatus)) setPendingOpen(key);
-          else if (next.agentStatus !== "failed") await openChat({ ...entry, notification: next });
+          // A newly delegated item can leave the loaded Inbox page. Wait for its
+          // chat directly instead of waiting to find it in a later list response.
+          await openChat({ ...entry, notification: next });
         }
         if (focusedRef.current === key) {
           if (settling && next.state.placement === "resolved") {

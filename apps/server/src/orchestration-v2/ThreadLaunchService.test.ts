@@ -58,6 +58,9 @@ import * as EffectOutbox from "./EffectOutbox.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";
+import * as InboxAgent from "../inbox/InboxAgent.ts";
+import { ingestInboxItem } from "../inbox/inboxState.ts";
+import * as ProjectFiles from "../project/T3ProjectFileLoader.ts";
 import * as OrchestratorMcpService from "../mcp/OrchestratorMcpService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
@@ -2976,3 +2979,99 @@ it.effect("rejects new worktrees while allowing ordinary threads when project Gi
     assert.equal(harness.createWorktree.mock.calls.length, 0);
   }).pipe(Effect.provide(harness.layer));
 });
+
+it.effect.each([true, false])(
+  "prepares an Inbox action in its configured workspace before agent execution (direct=%s)",
+  (startAgent) =>
+    Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        serverSettings: {
+          projectSettingsOverrides: {
+            [projectId]: {
+              inboxAgentEnabled: true,
+              ...(startAgent ? { defaultThreadEnvMode: "worktree" as const } : {}),
+              newWorktreesStartFromOrigin: false,
+            },
+          },
+        },
+        git: {
+          localStatus: () =>
+            Effect.succeed({
+              isRepo: true,
+              refName: "release",
+              hasPrimaryRemote: true,
+              isDefaultRef: false,
+              hasWorkingTreeChanges: false,
+              workingTree: { files: [], insertions: 0, deletions: 0 },
+            }),
+        },
+        runSetup: () =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.as({ status: "no-script" as const }),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const agent = yield* InboxAgent.InboxAgent;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const threadId = ThreadId.make("inbox:prepared-background");
+        const notification = ingestInboxItem(projectId, {
+          source: "slack",
+          id: "workspace",
+          connectionId: "team",
+          groupId: "thread",
+          location: "#release",
+          title: "Review release",
+          author: "Alex",
+          content: "Review the release notes.",
+          url: "https://slack.com",
+          occurredAt: "2026-10-23T10:00:00Z",
+        });
+        const linked = { ...notification, state: { ...notification.state, threadId } };
+        yield* agent.start(linked, startAgent);
+        const initial = yield* threads.getThreadProjection(threadId);
+        assert.equal(initial.runs[0]?.status, startAgent ? "preparing" : undefined);
+        assert.equal(initial.messages.length, startAgent ? 1 : 0);
+        yield* Deferred.await(entered);
+        const preparing = yield* threads.getThreadProjection(threadId);
+        assert.equal(preparing.thread.worktreePath, "/repo-worktrees/feature");
+        assert.equal(preparing.messages.length, startAgent ? 1 : 0);
+        assert.equal(harness.createWorktree.mock.calls[0]?.[0].refName, "release");
+        assert.equal(harness.runSetup.mock.calls[0]?.[0].projectCwd, "/repo");
+        yield* agent.start(linked, startAgent);
+        assert.equal(
+          (yield* threads.getThreadProjection(threadId)).messages.length,
+          startAgent ? 1 : 0,
+        );
+        assert.equal(harness.createWorktree.mock.calls.length, 1);
+        yield* Deferred.succeed(release, undefined);
+        const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+        yield* tracker.stream(threadId).pipe(
+          Stream.filter((snapshot) => snapshot?.phase === "done"),
+          Stream.runHead,
+        );
+        const ready = yield* threads.getThreadProjection(threadId);
+        assert.equal(ready.runs[0]?.status, startAgent ? "starting" : undefined);
+        assert.equal(ready.messages.length, startAgent ? 1 : 0);
+        assert.equal(harness.runSetup.mock.calls.length, 1);
+      }).pipe(
+        Effect.provide(
+          InboxAgent.layer.pipe(
+            Layer.provideMerge(harness.layer),
+            Layer.provide(
+              Layer.mock(ProjectFiles.T3ProjectFileLoader)({
+                load: () =>
+                  Effect.succeed(
+                    startAgent
+                      ? Option.none()
+                      : Option.some({ defaultThreadEnvMode: "worktree" as const }),
+                  ),
+              }),
+            ),
+          ),
+        ),
+      );
+    }).pipe(Effect.scoped),
+);
