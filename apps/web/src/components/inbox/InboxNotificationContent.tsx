@@ -310,7 +310,10 @@ function LinearIssueContent({
       <section className={styles.slackSection} aria-label="Comments">
         <div className={styles.slackLabel}>
           <span className={styles.slackThreadTitle}>
-            Comments{issue.commentsComplete && <span>· {comments.length}</span>}
+            Comments
+            {(issue.commentCount !== undefined || issue.commentsComplete) && (
+              <span>· {issue.commentsComplete ? comments.length : issue.commentCount}</span>
+            )}
           </span>
           {(!issue.commentsComplete || comments.length > 1) && (
             <button

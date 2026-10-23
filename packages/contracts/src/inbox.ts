@@ -57,6 +57,7 @@ export const InboxLinearIssue = Schema.Struct({
   title: Schema.String,
   description: Schema.NullOr(Schema.String),
   comments: Schema.Array(InboxLinearComment),
+  commentCount: Schema.optionalKey(NonNegativeInt),
   commentsComplete: Schema.Boolean,
 });
 export type InboxLinearIssue = typeof InboxLinearIssue.Type;

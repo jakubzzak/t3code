@@ -199,7 +199,8 @@ Turning a subgroup off hides its controls and keeps your model and prompt choice
 stops AI processing; Agent Delegation off prevents direct runs while Agent chat remains available.
 Raw notification content stays usable without AI. An empty prompt uses the default instructions.
 Summaries lead with the message's request or key update, including any explicit deadline.
-Automatic summaries currently support Claude without managed MCP and Pi. Other providers retain
+Automatic summaries currently support Codex, Claude without managed MCP, and Pi. Codex summaries
+use an isolated runner without custom CLI configuration or tools. Other providers retain
 your selection but report summary unavailable until a tool-free summary runner is supported.
 After automatic summary retries are exhausted, the original content stays available. Email originals appear as readable text with paragraphs
 and links. Use the **Open original** icon, or **⌘⇧O** while a notification is focused, to open its

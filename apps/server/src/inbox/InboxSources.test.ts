@@ -73,6 +73,7 @@ it.effect(
         id: "issue",
         title: "Review release",
         description: "Separated issue context",
+        commentCount: 1,
         comments: [
           { id: "comment", author: "Maya", body: "Review", occurredAt: "2026-10-22T10:00:00Z" },
         ],

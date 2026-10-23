@@ -181,12 +181,14 @@ it.each([null, "repeat"])(
   },
 );
 
-it("can hydrate only the description without a comments query, and handles removed or wrong issues", async () => {
+it("hydrates the latest comment preview without downloading history, and handles removed or wrong issues", async () => {
   const issue = { id: "issue", title: "Review", description: null };
   expect(
     await readLinearIssue(
       async (query) => {
-        expect(query).not.toContain("comments(");
+        expect(query).toContain("latestComments: comments(last: 1");
+        expect(query).toContain("nodes { id } pageInfo");
+        expect(query).not.toContain("comments(first: 50, after:");
         return { data: { issue } };
       },
       "issue",
@@ -197,4 +199,98 @@ it("can hydrate only the description without a comments query, and handles remov
   await expect(
     readLinearIssue(async () => ({ data: { issue: { ...issue, id: "other" } } }), "issue", false),
   ).rejects.toThrow("different issue");
+});
+
+it("imports the latest issue comment and exact count before Show all, counting IDs once per issue", async () => {
+  let countCalls = 0;
+  const comment = {
+    id: "latest",
+    body: "The newest reply",
+    createdAt: "2026-10-23T10:00:00Z",
+    user: { name: "Maya" },
+  };
+  const items = await readLinearInbox(
+    async (query, variables) => {
+      if (variables.id) {
+        countCalls++;
+        expect(query).not.toContain("body");
+        expect(variables).toMatchObject({ id: "issue", after: "count-next" });
+        return {
+          data: {
+            issue: {
+              id: "issue",
+              commentIndex: {
+                nodes: [{ id: "middle" }, { id: "latest" }],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        };
+      }
+      expect(query).toContain("latestComments: comments(last: 1");
+      const issue = {
+        id: "issue",
+        identifier: "ENG-1",
+        title: "Launch",
+        description: "Context",
+        latestComments: { nodes: [comment] },
+        commentIndex: {
+          nodes: [{ id: "old" }, { id: "middle" }],
+          pageInfo: { hasNextPage: true, endCursor: "count-next" },
+        },
+      };
+      return {
+        data: {
+          viewer: { id: "me" },
+          organization: { id: "org" },
+          notifications: {
+            nodes: ["first", "second"].map((id) => ({
+              id,
+              type: "issueAssignedToYou",
+              category: "assignments",
+              title: "Assigned",
+              subtitle: "Issue",
+              url: "https://linear.app/x",
+              groupingKey: "issue",
+              createdAt: "2026-10-22T10:00:00Z",
+              actor: null,
+              issue,
+            })),
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      };
+    },
+    ["all"],
+    "2026-10-21T00:00:00Z",
+  );
+  expect(countCalls).toBe(1);
+  expect(items).toHaveLength(2);
+  for (const item of items) {
+    expect(item.linearIssue).toMatchObject({
+      commentCount: 3,
+      commentsComplete: false,
+      comments: [{ id: "latest", author: "Maya", body: "The newest reply" }],
+    });
+    expect(item.content).toContain("The newest reply");
+  }
+});
+
+it("recognizes an issue with no comments on the initial detail request", async () => {
+  const result = await readLinearIssue(
+    async () => ({
+      data: {
+        issue: {
+          id: "issue",
+          title: "Launch",
+          description: null,
+          latestComments: { nodes: [] },
+          commentIndex: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+        },
+      },
+    }),
+    "issue",
+    false,
+  );
+  expect(result).toMatchObject({ comments: [], commentCount: 0, commentsComplete: true });
 });

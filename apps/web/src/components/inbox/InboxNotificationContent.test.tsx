@@ -616,6 +616,7 @@ it("separates a Linear issue description from deduplicated comments and shows on
     title: "Review release",
     description: "Description shown once",
     comments,
+    commentCount: 12,
     commentsComplete: false,
   };
   const n = {
@@ -642,6 +643,7 @@ it("separates a Linear issue description from deduplicated comments and shows on
   const load = vi.fn().mockResolvedValue({ ...issue, commentsComplete: true });
   await act(async () => root.render(<InboxSourceContent notification={n} onLoadPrevious={load} />));
   expect(container.textContent).toContain("Issue description");
+  expect(container.querySelector('[aria-label="Comments"]')?.textContent).toContain("Comments· 12");
   expect(container.textContent?.match(/Description shown once/g)).toHaveLength(1);
   expect(container.textContent).not.toContain("Repeated flattened text");
   expect(container.textContent).not.toContain("First unique comment");

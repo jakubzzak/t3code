@@ -396,12 +396,21 @@ export const make = Effect.gen(function* () {
         const isLegacyIssue =
           !issue &&
           item.items.some((entry) => /^https:\/\/linear\.app\/[^/]+\/issue\//.test(entry.url));
-        if ((!input.loadPreviousComments && !isLegacyIssue) || issue?.commentsComplete) return item;
+        if (
+          (!input.loadPreviousComments && !isLegacyIssue && issue?.commentCount !== undefined) ||
+          issue?.commentsComplete
+        )
+          return item;
         if (!issue && !isLegacyIssue) return item;
         return yield* lock({ projectId: input.projectId, source: "linear" })(
           Effect.gen(function* () {
             const current = yield* inbox.get(input);
-            if (!current || current.linearIssue?.commentsComplete) return current;
+            if (
+              !current ||
+              current.linearIssue?.commentsComplete ||
+              (!input.loadPreviousComments && current.linearIssue?.commentCount !== undefined)
+            )
+              return current;
             const detail = yield* linear.readIssue(
               input.projectId,
               current.groupId,

@@ -839,7 +839,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
 });
 
 it.effect(
-  "refuses automatic external summaries before a shell-capable Codex runner can read an outside canary",
+  "summarizes external text in isolation without user launch configuration or model tools",
   () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -855,12 +855,23 @@ it.effect(
           'import * as fs from "node:fs";',
           "const args=process.argv.slice(2);",
           'if(args.includes("mcp")){process.stdout.write("[]");process.exit(0);}',
-          `const canary=fs.readFileSync(${JSON.stringify(canary)},"utf8");`,
-          `fs.writeFileSync(${JSON.stringify(marker)},canary);`,
-          'fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify({summary:canary,description:canary,suggestions:[],precedentIds:[]}));',
+          'const configs=args.flatMap((arg,index)=>arg==="--config"?[args[index+1]]:[]);',
+          'const catalog=JSON.parse(fs.readFileSync(JSON.parse(configs.find(x=>x.startsWith("model_catalog_json=")).split("=").slice(1).join("=")),"utf8"));',
+          "const model=catalog.models[0];",
+          'const required=["features.shell_tool=false","features.view_image=false","features.hooks=false","features.apps=false","features.plugins=false","features.multi_agent=false",\'web_search="disabled"\',"project_doc_max_bytes=0"];',
+          'if(required.some(x=>!configs.includes(x))||!args.includes("--ignore-user-config")||!args.includes("--ignore-rules")||!args.includes("--strict-config")||model.shell_type!=="disabled"||model.apply_patch_tool_type!==null||model.experimental_supported_tools.length||model.tool_mode!=="direct") process.exit(7);',
+          `if(process.cwd()===${JSON.stringify(dir)}||args.includes("danger-full-access")) process.exit(8);`,
+          "const chunks=[]; for await(const chunk of process.stdin) chunks.push(chunk);",
+          'if(!Buffer.concat(chunks).toString().includes("Summarize the message only.")) process.exit(9);',
+          'fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify({summary:"Review the launch date.",description:model.slug,suggestions:[],precedentIds:[]}));',
         ].join("\n"),
       });
-      const generation = yield* makeCodexTextGeneration(decodeCodexSettings({ binaryPath: cli }));
+      const generation = yield* makeCodexTextGeneration(
+        decodeCodexSettings({
+          binaryPath: cli,
+          launchArgs: "--dangerously-bypass-approvals-and-sandbox",
+        }),
+      );
       const result = yield* generation.generateInboxAnalysis!({
         cwd: dir,
         modelSelection: DEFAULT_TEST_MODEL_SELECTION,
@@ -869,8 +880,11 @@ it.effect(
         precedents: [],
         suggest: false,
       }).pipe(Effect.result);
-      expect(result._tag).toBe("Failure");
-      if (result._tag === "Failure") expect(result.failure.detail).toContain("tool-free");
+      expect(result._tag).toBe("Success");
+      if (result._tag === "Success") {
+        expect(result.success.summary).toBe("Review the launch date.");
+        expect(result.success.description).toBe(DEFAULT_TEST_MODEL_SELECTION.model);
+      }
       expect(yield* fs.exists(marker)).toBe(false);
       expect(yield* fs.readFileString(canary)).toBe("BENIGN_OUTSIDE_SUPPLIED_CONTEXT");
     }).pipe(Effect.provide(layerCodexTextGenerationTest), Effect.scoped),
