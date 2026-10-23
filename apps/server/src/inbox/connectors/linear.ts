@@ -1,6 +1,24 @@
 import * as Schema from "effect/Schema";
-import type { InboxSourceItem } from "@t3tools/contracts";
-const Comment = Schema.NullOr(Schema.Struct({ body: Schema.String }));
+import type { InboxSourceItem, InboxLinearComment, InboxLinearIssue } from "@t3tools/contracts";
+const CommentFields = Schema.Struct({
+  id: Schema.String,
+  body: Schema.String,
+  createdAt: Schema.String,
+  user: Schema.NullOr(Schema.Struct({ name: Schema.String })),
+  botActor: Schema.optionalKey(
+    Schema.NullOr(Schema.Struct({ name: Schema.NullOr(Schema.String) })),
+  ),
+});
+const Comment = Schema.NullOr(CommentFields);
+function formatComment(comment: typeof CommentFields.Type): InboxLinearComment {
+  return {
+    id: comment.id,
+    body: comment.body,
+    author: comment.user?.name || comment.botActor?.name || "Linear",
+    occurredAt: comment.createdAt,
+  };
+}
+const commentFields = "id body createdAt user { name } botActor { name }";
 const Notification = Schema.Struct({
   id: Schema.String,
   type: Schema.String,
@@ -47,8 +65,8 @@ export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: 
   viewer { id } organization { id }
   notifications(first: 50, after: $after, orderBy: updatedAt, filter: { createdAt: { gte: $since } }) {
     nodes { id type category title subtitle url groupingKey createdAt actor { name }
-      ... on IssueNotification { issue { id identifier title description } comment { body } parentComment { body } }
-      ... on ProjectNotification { project { id name description } comment { body } parentComment { body } }
+      ... on IssueNotification { issue { id identifier title description } comment { ${commentFields} } parentComment { ${commentFields} } }
+      ... on ProjectNotification { project { id name description } comment { ${commentFields} } parentComment { ${commentFields} } }
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -92,6 +110,23 @@ export async function readLinearInbox(
         title: notification.title,
         author: notification.actor?.name ?? "Linear",
         content: context.slice(0, 32000),
+        ...(notification.issue
+          ? {
+              linearIssue: {
+                id: notification.issue.id,
+                title: notification.issue.title,
+                description: notification.issue.description,
+                comments: [
+                  ...new Map(
+                    [notification.parentComment, notification.comment]
+                      .filter((c) => c != null)
+                      .map((c) => [c.id, formatComment(c)]),
+                  ).values(),
+                ],
+                commentsComplete: false,
+              },
+            }
+          : {}),
         url: notification.url,
         occurredAt: notification.createdAt,
       });
@@ -104,4 +139,71 @@ export async function readLinearInbox(
     if (after) seen.add(after);
   } while (after);
   return items;
+}
+
+const IssuePage = Schema.Struct({
+  data: Schema.Struct({
+    issue: Schema.NullOr(
+      Schema.Struct({
+        id: Schema.String,
+        title: Schema.String,
+        description: Schema.NullOr(Schema.String),
+        comments: Schema.optionalKey(
+          Schema.Struct({
+            nodes: Schema.Array(CommentFields),
+            pageInfo: Schema.Struct({
+              hasNextPage: Schema.Boolean,
+              endCursor: Schema.NullOr(Schema.String),
+            }),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+const decodeIssuePage = Schema.decodeUnknownSync(IssuePage);
+
+/** Issue detail is fetched on demand; history pagination is only requested by Show all. */
+export async function readLinearIssue(
+  query: (query: string, variables: { id: string; after: string | null }) => Promise<unknown>,
+  id: string,
+  includeComments: boolean,
+): Promise<InboxLinearIssue | null> {
+  const comments = new Map<string, InboxLinearComment>();
+  const seen = new Set<string>();
+  let after: string | null = null;
+  let result: InboxLinearIssue | null = null;
+  do {
+    const page = decodeIssuePage(
+      await query(
+        `query BlackbirdInboxIssue($id: String!${includeComments ? ", $after: String" : ""}) {
+      issue(id: $id) { id title description ${includeComments ? `comments(first: 50, after: $after, orderBy: createdAt) { nodes { ${commentFields} } pageInfo { hasNextPage endCursor } }` : ""} }
+    }`,
+        { id, after },
+      ),
+    );
+    const issue = page.data.issue;
+    if (!issue) return null;
+    if (issue.id !== id) throw new Error("Linear returned a different issue.");
+    for (const comment of issue.comments?.nodes ?? [])
+      comments.set(comment.id, formatComment(comment));
+    result = {
+      id: issue.id,
+      title: issue.title,
+      description: issue.description,
+      comments: [...comments.values()].sort(
+        (a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id),
+      ),
+      commentsComplete: includeComments,
+    };
+    after = issue.comments?.pageInfo.hasNextPage ? issue.comments.pageInfo.endCursor : null;
+    if (includeComments && !issue.comments)
+      throw new Error("Linear did not return the issue comments.");
+    if (issue.comments?.pageInfo.hasNextPage && !after)
+      throw new Error("Linear returned an incomplete comments page without a cursor.");
+    if (after && (seen.has(after) || seen.size >= 100))
+      throw new Error("Linear comment history could not be paginated. Open the original issue.");
+    if (after) seen.add(after);
+  } while (after);
+  return result;
 }

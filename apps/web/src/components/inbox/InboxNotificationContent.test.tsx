@@ -569,3 +569,111 @@ it("uses the same today-based date rule for notification headers and thread repl
     `14:52 · 22 Oct ${parentYear}`,
   ]);
 });
+
+it("separates a Linear issue description from deduplicated comments and shows only the latest initially", async () => {
+  const comments = [
+    {
+      id: "first",
+      author: "Maya",
+      body: "First unique comment",
+      occurredAt: "2026-10-22T12:00:00Z",
+    },
+    {
+      id: "latest",
+      author: "Alex",
+      body: "Latest **comment**",
+      occurredAt: "2026-10-22T13:00:00Z",
+    },
+  ];
+  const issue = {
+    id: "issue",
+    title: "Review release",
+    description: "Description shown once",
+    comments,
+    commentsComplete: false,
+  };
+  const n = {
+    ...notification,
+    source: "linear" as const,
+    groupId: "issue",
+    items: [
+      {
+        ...notification.items[0]!,
+        id: "n1",
+        source: "linear" as const,
+        content: "Repeated flattened text",
+        linearIssue: issue,
+      },
+      {
+        ...notification.items[0]!,
+        id: "n2",
+        source: "linear" as const,
+        content: "Repeated flattened text",
+        linearIssue: issue,
+      },
+    ],
+  };
+  const load = vi.fn().mockResolvedValue({ ...issue, commentsComplete: true });
+  await act(async () => root.render(<InboxSourceContent notification={n} onLoadPrevious={load} />));
+  expect(container.textContent).toContain("Issue description");
+  expect(container.textContent?.match(/Description shown once/g)).toHaveLength(1);
+  expect(container.textContent).not.toContain("Repeated flattened text");
+  expect(container.textContent).not.toContain("First unique comment");
+  expect(container.querySelector("strong")?.textContent).toBe("comment");
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label="Show all issue comments"]')!
+      .click(),
+  );
+  expect(container.textContent?.match(/First unique comment/g)).toHaveLength(1);
+  expect(container.textContent?.match(/Latest comment/g)).toHaveLength(1);
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label="Show latest comment only"]')!
+      .click(),
+  );
+  expect(container.textContent).not.toContain("First unique comment");
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label="Show all issue comments"]')!
+      .click(),
+  );
+  expect(load).toHaveBeenCalledTimes(1);
+});
+
+it("keeps Linear content on a failed history request and retries without losing it", async () => {
+  const comment = {
+    id: "c",
+    body: "Latest comment stays visible",
+    author: "Maya",
+    occurredAt: "2026-10-22T10:00:00Z",
+  };
+  const issue = {
+    id: "issue",
+    title: "Review",
+    description: "Issue remains visible",
+    comments: [comment],
+    commentsComplete: false,
+  };
+  const load = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Connection offline"))
+    .mockResolvedValueOnce({ ...issue, commentsComplete: true });
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{ ...notification, source: "linear", linearIssue: issue }}
+        onLoadPrevious={load}
+      />,
+    ),
+  );
+  const button = () =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Show all issue comments"]')!;
+  await act(async () => button().click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Connection offline");
+  expect(container.textContent).toContain("Issue remains visible");
+  expect(container.textContent).toContain("Latest comment stays visible");
+  await act(async () => button().click());
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});

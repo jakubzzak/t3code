@@ -1,5 +1,5 @@
 import { expect, it } from "vite-plus/test";
-import { readLinearInbox } from "./linear.ts";
+import { readLinearInbox, readLinearIssue } from "./linear.ts";
 it("retains non-issue notifications and the targeted comment plus its issue context", async () => {
   const base = {
     id: "n",
@@ -27,8 +27,19 @@ it("retains non-issue notifications and the targeted comment plus its issue cont
                 title: "Launch",
                 description: "Launch context",
               },
-              comment: { body: "Please approve the date" },
-              parentComment: { body: "Friday launch" },
+              comment: {
+                id: "c2",
+                body: "Please approve the date",
+                createdAt: base.createdAt,
+                user: { name: "Maya" },
+              },
+              parentComment: {
+                id: "c1",
+                body: "Friday launch",
+                createdAt: "2026-10-21T10:00:00Z",
+                user: null,
+                botActor: { name: "Release bot" },
+              },
             },
             {
               ...base,
@@ -49,6 +60,21 @@ it("retains non-issue notifications and the targeted comment plus its issue cont
   expect(items[0]).toMatchObject({ groupId: "issue", location: "ENG-1" });
   expect(items[0]?.content).toContain("Please approve the date");
   expect(items[0]?.content).toContain("Launch context");
+  expect(items[0]?.linearIssue).toEqual({
+    id: "issue",
+    title: "Launch",
+    description: "Launch context",
+    commentsComplete: false,
+    comments: [
+      {
+        id: "c1",
+        body: "Friday launch",
+        author: "Release bot",
+        occurredAt: "2026-10-21T10:00:00Z",
+      },
+      { id: "c2", body: "Please approve the date", author: "Maya", occurredAt: base.createdAt },
+    ],
+  });
   expect(items[1]?.title).toBe("Workspace announcement");
 });
 
@@ -90,4 +116,85 @@ it("sends the cutoff on each page and excludes older notifications even if retur
     { after: "next", since },
   ]);
   expect(items.map((item) => item.id)).toEqual(["new"]);
+});
+
+it("loads all issue comments only on request, deduplicates pages, and uses comment authors/timestamps", async () => {
+  const calls: Array<string | null> = [];
+  const comment = (id: string, day: string) => ({
+    id,
+    body: `**${id}**`,
+    createdAt: `2026-10-${day}T10:00:00Z`,
+    user: { name: "Maya" },
+  });
+  const detail = await readLinearIssue(
+    async (query, { after }) => {
+      expect(query).toContain("comments(first: 50");
+      calls.push(after);
+      return {
+        data: {
+          issue: {
+            id: "issue",
+            title: "Review",
+            description: "## Original Markdown",
+            comments: {
+              nodes: after
+                ? [comment("new", "23"), comment("old", "21")]
+                : [comment("middle", "22"), comment("old", "21")],
+              pageInfo: { hasNextPage: !after, endCursor: after ? null : "next" },
+            },
+          },
+        },
+      };
+    },
+    "issue",
+    true,
+  );
+  expect(calls).toEqual([null, "next"]);
+  expect(detail?.comments.map((c) => c.id)).toEqual(["old", "middle", "new"]);
+  expect(detail?.description).toBe("## Original Markdown");
+  expect(detail?.commentsComplete).toBe(true);
+  expect(detail?.comments[2]?.author).toBe("Maya");
+});
+
+it.each([null, "repeat"])(
+  "rejects an incomplete or repeated comment cursor (%s)",
+  async (cursor) => {
+    await expect(
+      readLinearIssue(
+        async () => ({
+          data: {
+            issue: {
+              id: "issue",
+              title: "Review",
+              description: null,
+              comments: {
+                nodes: [],
+                pageInfo: { hasNextPage: true, endCursor: cursor },
+              },
+            },
+          },
+        }),
+        "issue",
+        true,
+      ),
+    ).rejects.toThrow(/cursor|paginated/);
+  },
+);
+
+it("can hydrate only the description without a comments query, and handles removed or wrong issues", async () => {
+  const issue = { id: "issue", title: "Review", description: null };
+  expect(
+    await readLinearIssue(
+      async (query) => {
+        expect(query).not.toContain("comments(");
+        return { data: { issue } };
+      },
+      "issue",
+      false,
+    ),
+  ).toMatchObject({ comments: [], commentsComplete: false });
+  expect(await readLinearIssue(async () => ({ data: { issue: null } }), "issue", true)).toBeNull();
+  await expect(
+    readLinearIssue(async () => ({ data: { issue: { ...issue, id: "other" } } }), "issue", false),
+  ).rejects.toThrow("different issue");
 });

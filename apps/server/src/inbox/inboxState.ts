@@ -70,6 +70,12 @@ export function ingestInboxItem(
   const items = [...(previous?.items ?? []).filter((candidate) => candidate.id !== item.id), body]
     .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
     .slice(-50);
+  if (existing?.source === "linear" && body.linearIssue) {
+    const { linearIssue: _oldIssue, ...oldContent } = existing;
+    const { linearIssue: _newIssue, ...newContent } = body;
+    if (NodeUtil.isDeepStrictEqual(oldContent, newContent))
+      return { ...previous!, items, revision: previous!.revision + 1 };
+  }
   const formattingOnly =
     existing?.source === "slack" &&
     existing.sourceContentHash &&

@@ -15,7 +15,10 @@ export function useLoadInboxThread() {
         environmentId,
         input: { projectId, id, loadPreviousComments: true },
       });
-      if (result._tag === "Success" && result.value?.slackThread) return result.value.slackThread;
+      if (result._tag === "Success") {
+        const comments = result.value?.slackThread ?? result.value?.linearIssue;
+        if (comments) return comments;
+      }
       if (isAtomCommandInterrupted(result))
         throw new Error("Loading thread comments was cancelled.");
       if (result._tag === "Failure") throw squashAtomCommandFailure(result);

@@ -390,6 +390,32 @@ export const make = Effect.gen(function* () {
   const get = (input: InboxGetInput) =>
     Effect.gen(function* () {
       const item = yield* inbox.get(input);
+      if (item?.source === "linear") {
+        const issue =
+          item.linearIssue ?? item.items.findLast((entry) => entry.linearIssue)?.linearIssue;
+        const isLegacyIssue =
+          !issue &&
+          item.items.some((entry) => /^https:\/\/linear\.app\/[^/]+\/issue\//.test(entry.url));
+        if ((!input.loadPreviousComments && !isLegacyIssue) || issue?.commentsComplete) return item;
+        if (!issue && !isLegacyIssue) return item;
+        return yield* lock({ projectId: input.projectId, source: "linear" })(
+          Effect.gen(function* () {
+            const current = yield* inbox.get(input);
+            if (!current || current.linearIssue?.commentsComplete) return current;
+            const detail = yield* linear.readIssue(
+              input.projectId,
+              current.groupId,
+              !!input.loadPreviousComments || isLegacyIssue,
+            );
+            if (!detail) return current;
+            return yield* inbox.cacheLinearIssue({
+              ...input,
+              issue: detail,
+              expectedAnalysisVersion: current.analysisVersion,
+            });
+          }),
+        );
+      }
       if (!item || item.source !== "slack" || !/^[CDG][A-Z0-9]+:\d+(?:\.\d+)?$/.test(item.groupId))
         return item;
       if (

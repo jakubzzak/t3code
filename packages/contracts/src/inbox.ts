@@ -45,6 +45,21 @@ export const InboxSlackThread = Schema.Struct({
   nextCursor: Schema.NullOr(Schema.String),
 });
 export type InboxSlackThread = typeof InboxSlackThread.Type;
+export const InboxLinearComment = Schema.Struct({
+  id: Schema.String,
+  author: Schema.String,
+  body: Schema.String,
+  occurredAt: IsoDateTime,
+});
+export type InboxLinearComment = typeof InboxLinearComment.Type;
+export const InboxLinearIssue = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  comments: Schema.Array(InboxLinearComment),
+  commentsComplete: Schema.Boolean,
+});
+export type InboxLinearIssue = typeof InboxLinearIssue.Type;
 export const InboxSourceItem = Schema.Struct({
   ...slackPresentation,
   id: TrimmedNonEmptyString,
@@ -59,6 +74,7 @@ export const InboxSourceItem = Schema.Struct({
   formattedContent: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32000))),
   sourceContentHash: Schema.optionalKey(Schema.String),
   slackThread: Schema.optionalKey(InboxSlackThread),
+  linearIssue: Schema.optionalKey(InboxLinearIssue),
   url: Schema.String,
   occurredAt: IsoDateTime,
 });
@@ -94,6 +110,7 @@ export const InboxNotification = Schema.Struct({
   connectionId: TrimmedNonEmptyString,
   groupId: TrimmedNonEmptyString,
   slackThread: Schema.optionalKey(InboxSlackThread),
+  linearIssue: Schema.optionalKey(InboxLinearIssue),
   revision: NonNegativeInt,
   state: InboxState,
   items: Schema.Array(InboxSourceItem),

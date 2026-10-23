@@ -628,3 +628,74 @@ it.effect(
       }).pipe(Effect.provide(fixture.layer));
     }).pipe(Effect.scoped),
 );
+
+it.effect(
+  "caches Linear detail without changing triage/analysis, bounds previews, and rejects stale or foreign issue data",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const repository = yield* Repository.InboxRepository;
+        const issue = {
+          id: item.groupId,
+          title: "Review",
+          description: "Long description. ".repeat(200),
+          comments: [
+            {
+              id: "c",
+              author: "Maya",
+              body: "Long comment. ".repeat(200),
+              occurredAt: item.occurredAt,
+            },
+          ],
+          commentsComplete: true,
+        };
+        const original = {
+          ...ingestInboxItem(projectId, {
+            ...item,
+            linearIssue: { ...issue, commentsComplete: false },
+          }),
+          state: { read: true, placement: "resolved" as const, snoozedUntil: null, threadId: null },
+        };
+        yield* repository.put(original);
+        const cached = yield* service.cacheLinearIssue({
+          projectId,
+          id: original.id,
+          issue,
+          expectedAnalysisVersion: original.analysisVersion,
+        });
+        assert.deepEqual(cached?.state, original.state);
+        assert.equal(cached?.analysisVersion, original.analysisVersion);
+        assert.deepEqual(cached?.linearIssue, issue);
+        const [preview] = yield* service.list({ projectId });
+        assert.equal(preview?.linearIssue, undefined);
+        assert.equal(preview?.items[0]?.linearIssue, undefined);
+        assert.deepEqual((yield* service.get({ projectId, id: original.id }))?.linearIssue, issue);
+        const next = ingestInboxItem(
+          projectId,
+          { ...item, id: "new", content: "New source activity" },
+          cached!,
+        );
+        yield* repository.put(next);
+        const raced = yield* service.cacheLinearIssue({
+          projectId,
+          id: original.id,
+          issue,
+          expectedAnalysisVersion: original.analysisVersion,
+        });
+        assert.equal(raced?.linearIssue, undefined);
+        assert.equal(
+          (yield* Effect.result(
+            service.cacheLinearIssue({
+              projectId,
+              id: original.id,
+              issue: { ...issue, id: "foreign" },
+              expectedAnalysisVersion: next.analysisVersion,
+            }),
+          ))._tag,
+          "Failure",
+        );
+      }).pipe(Effect.provide(fixture.layer));
+    }).pipe(Effect.scoped),
+);

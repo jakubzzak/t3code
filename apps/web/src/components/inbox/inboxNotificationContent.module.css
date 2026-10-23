@@ -78,6 +78,33 @@
 .linearMarkdown hr {
   border-color: var(--border);
 }
+.contentPreview {
+  --preview-lines: 4;
+}
+.contentPreview[data-lines="8"] {
+  --preview-lines: 8;
+}
+.contentPreview[data-expanded="false"] {
+  max-height: calc(var(--preview-lines) * 1lh);
+  overflow: hidden;
+}
+.contentPreviewInner {
+  display: flow-root;
+}
+.readMore {
+  margin-top: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+.readMore:hover {
+  color: var(--foreground);
+}
+.readMore:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
 .slackContent {
   padding-block: 0.5rem;
   font-size: 0.75rem;

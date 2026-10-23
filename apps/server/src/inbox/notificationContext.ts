@@ -15,6 +15,7 @@ export function inboxContext(notification: InboxNotification) {
           formattedTitle: _formattedTitle,
           slackMentions: _mentions,
           slackThread: _thread,
+          linearIssue: _issue,
           ...item
         }) => ({
           ...item,
@@ -40,6 +41,20 @@ export function inboxContext(notification: InboxNotification) {
               author: message.author,
               occurredAt: message.occurredAt,
               content: message.content.slice(0, 4000),
+            })),
+          },
+        }
+      : {}),
+    ...(notification.linearIssue
+      ? {
+          linearIssue: {
+            title: notification.linearIssue.title,
+            description: notification.linearIssue.description?.slice(0, 4000),
+            omittedEarlierComments: Math.max(0, notification.linearIssue.comments.length - 10),
+            comments: notification.linearIssue.comments.slice(-10).map((comment) => ({
+              author: comment.author,
+              occurredAt: comment.occurredAt,
+              body: comment.body.slice(0, 4000),
             })),
           },
         }

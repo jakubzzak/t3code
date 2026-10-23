@@ -16,6 +16,7 @@ import {
   type InboxNotification,
   type InboxSourceItem,
   type InboxSlackThread,
+  type InboxLinearIssue,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -50,6 +51,12 @@ export class InboxService extends Context.Service<
       projectId: ProjectId;
       id: string;
       thread: InboxSlackThread;
+    }) => Effect.Effect<InboxNotification | null, InboxError>;
+    readonly cacheLinearIssue: (input: {
+      projectId: ProjectId;
+      id: string;
+      issue: InboxLinearIssue;
+      expectedAnalysisVersion: number;
     }) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly ingest: (
       projectId: ProjectId,
@@ -515,24 +522,31 @@ const make = Effect.gen(function* () {
             const next = yield* reconcile(item);
             if (config.inboxSummaryEnabled && !next.analysis && !next.processingError) continue;
             // List responses are bounded previews. Expanded rows fetch their full detail separately.
-            const { slackThread: _thread, ...preview } = next;
+            const { slackThread: _thread, linearIssue: _issue, ...preview } = next;
             result.push({
               ...preview,
               items: next.items
                 .slice(-1)
-                .map(({ formattedContent: _formattedContent, slackThread: _thread, ...entry }) => ({
-                  ...entry,
-                  content: entry.content.slice(0, 320),
-                  ...(entry.slackMentions
-                    ? {
-                        slackMentions: entry.slackMentions.filter((mention) =>
-                          entry.formattedTitle?.includes(
-                            `slack-mention:${mention.kind}:${mention.id}`,
+                .map(
+                  ({
+                    formattedContent: _formattedContent,
+                    slackThread: _thread,
+                    linearIssue: _issue,
+                    ...entry
+                  }) => ({
+                    ...entry,
+                    content: entry.content.slice(0, 320),
+                    ...(entry.slackMentions
+                      ? {
+                          slackMentions: entry.slackMentions.filter((mention) =>
+                            entry.formattedTitle?.includes(
+                              `slack-mention:${mention.kind}:${mention.id}`,
+                            ),
                           ),
-                        ),
-                      }
-                    : {}),
-                })),
+                        }
+                      : {}),
+                  }),
+                ),
               analysis: next.analysis
                 ? {
                     ...next.analysis,
@@ -554,6 +568,22 @@ const make = Effect.gen(function* () {
           Effect.andThen(repository.get(input.projectId, input.id)),
           Effect.flatMap((item) => (item ? reconcile(item) : Effect.succeed(null))),
         ),
+      ),
+    cacheLinearIssue: (input) =>
+      mutex.withPermits(1)(
+        Effect.gen(function* () {
+          yield* requireEnabled(input.projectId);
+          const current = yield* repository.get(input.projectId, input.id);
+          if (!current || current.source !== "linear") return current;
+          if (current.groupId !== input.issue.id)
+            return yield* new InboxError({
+              detail: "This issue does not belong to this notification.",
+            });
+          if (current.analysisVersion !== input.expectedAnalysisVersion) return current;
+          const next = { ...current, linearIssue: input.issue };
+          yield* repository.put(next);
+          return next;
+        }),
       ),
     cacheSlackThread: (input) =>
       mutex.withPermits(1)(

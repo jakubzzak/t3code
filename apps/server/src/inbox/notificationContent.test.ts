@@ -117,3 +117,32 @@ it("repairs cached Slack links and tags once without changing read, triage or li
   expect(clean.state).toBe(stored.state);
   expect(readableNotification(clean)).toBe(clean);
 });
+
+it("bounds cached Linear history for model context instead of copying full presentation fields", () => {
+  const issue = {
+    id: "issue",
+    title: "Review",
+    description: "d".repeat(12000),
+    commentsComplete: true,
+    comments: Array.from({ length: 12 }, (_, index) => ({
+      id: String(index),
+      author: "Maya",
+      occurredAt: notification.updatedAt,
+      body: String(index) + "x".repeat(12000),
+    })),
+  };
+  const context = JSON.parse(
+    inboxContext({
+      ...notification,
+      source: "linear",
+      linearIssue: issue,
+      items: notification.items.map((item) => ({ ...item, linearIssue: issue })),
+    }),
+  );
+  expect(context.items[0].linearIssue).toBeUndefined();
+  expect(context.linearIssue.description).toHaveLength(4000);
+  expect(context.linearIssue.omittedEarlierComments).toBe(2);
+  expect(context.linearIssue.comments).toHaveLength(10);
+  expect(context.linearIssue.comments[0].body).toHaveLength(4000);
+  expect(context.linearIssue.comments[0].body).toMatch(/^2x/);
+});

@@ -123,3 +123,42 @@ it("keeps cached history and its page cursor when intake repeats the same Slack 
   expect(ingestInboxItem(project, incoming, cached)).toBe(cached);
   expect(cached.slackThread.nextCursor).toBe("second");
 });
+
+it("enriches Linear presentation without reopening settled work, but invalidates cached history for new activity", () => {
+  const item = { ...message, source: "linear" as const, groupId: "issue" };
+  const issue = {
+    id: "issue",
+    title: "Review",
+    description: "Context",
+    comments: [],
+    commentsComplete: true,
+  };
+  const before = {
+    ...ingestInboxItem(project, item),
+    linearIssue: issue,
+    state: {
+      read: true,
+      placement: "resolved" as const,
+      snoozedUntil: null,
+      threadId: ThreadId.make("chat"),
+    },
+    processingError: "AI summary not available",
+    analysisAttempts: 3,
+  };
+  const formatted = ingestInboxItem(
+    project,
+    { ...item, linearIssue: { ...issue, commentsComplete: false } },
+    before,
+  );
+  expect(formatted.state).toEqual(before.state);
+  expect(formatted.analysisVersion).toBe(before.analysisVersion);
+  expect(formatted.processingError).toBe(before.processingError);
+  expect(formatted.linearIssue).toEqual(issue);
+  const next = ingestInboxItem(
+    project,
+    { ...item, id: "new", content: "A new request" },
+    formatted,
+  );
+  expect(next.linearIssue).toBeUndefined();
+  expect(next.state.read).toBe(false);
+});

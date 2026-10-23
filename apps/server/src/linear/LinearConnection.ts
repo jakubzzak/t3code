@@ -18,7 +18,7 @@ import { openLinearConnection } from "@t3tools/shared/linearConnectionTransfer";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Settings from "../serverSettings.ts";
 import * as Secrets from "../auth/ServerSecretStore.ts";
-import { readLinearInbox } from "../inbox/connectors/linear.ts";
+import { readLinearInbox, readLinearIssue } from "../inbox/connectors/linear.ts";
 
 declare const __T3CODE_BUILD_LINEAR_CLIENT_ID__: string | undefined;
 export const LINEAR_CALLBACK_PATH = "/oauth/linear/callback";
@@ -47,6 +47,11 @@ export class LinearConnection extends Context.Service<
       categories: ReadonlyArray<string>,
       since: string,
     ) => Effect.Effect<Awaited<ReturnType<typeof readLinearInbox>>, InboxError>;
+    readonly readIssue: (
+      projectId: ProjectId,
+      issueId: string,
+      includeComments: boolean,
+    ) => Effect.Effect<Awaited<ReturnType<typeof readLinearIssue>>, InboxError>;
   }
 >()("t3/linear/LinearConnection") {}
 export const layer = Layer.effect(
@@ -312,6 +317,20 @@ export const layer = Layer.effect(
             catch: wrap,
           });
           errors.delete(projectId);
+        }),
+      readIssue: (projectId, issueId, includeComments) =>
+        Effect.gen(function* () {
+          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
+          return yield* Effect.tryPromise({
+            try: () =>
+              readLinearIssue(
+                (query, variables) =>
+                  getClient(projectId, linearClientId).query(projectId, slug, query, variables),
+                issueId,
+                includeComments,
+              ),
+            catch: wrap,
+          });
         }),
       read: (projectId, categories, since) =>
         Effect.gen(function* () {

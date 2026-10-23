@@ -12,12 +12,14 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { slackLinkUrl, slackMentionHref } from "@t3tools/shared/slackText";
 import { InboxTimestampLabel } from "./InboxTimestampLabel";
+import { InboxContentPreview } from "./InboxContentPreview";
 import type {
   InboxNotification,
   ScopedThreadRef,
   InboxSlackThread,
   InboxSlackMessage,
   InboxSlackMention,
+  InboxLinearIssue,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
 import {
@@ -188,6 +190,157 @@ const linearMarkdownComponents: Components = {
   ...inboxMarkdownComponents,
   img: InboxMarkdownImage,
 };
+function LinearMarkdown({ content }: { content: string }) {
+  return (
+    <div className={styles.linearMarkdown}>
+      <ReactMarkdown
+        skipHtml
+        remarkPlugins={inboxMarkdownPlugins}
+        allowedElements={[
+          "p",
+          "a",
+          "strong",
+          "em",
+          "del",
+          "code",
+          "pre",
+          "blockquote",
+          "ul",
+          "ol",
+          "li",
+          "br",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6",
+          "hr",
+          "table",
+          "thead",
+          "tbody",
+          "tr",
+          "th",
+          "td",
+          "input",
+          "img",
+        ]}
+        unwrapDisallowed
+        urlTransform={(url) => slackLinkUrl(url) ?? ""}
+        components={linearMarkdownComponents}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+type LoadComments = () => Promise<InboxSlackThread | InboxLinearIssue>;
+
+function LinearIssueContent({
+  issue: initial,
+  onLoadPrevious,
+}: {
+  issue: InboxLinearIssue;
+  onLoadPrevious?: LoadComments | undefined;
+}) {
+  const [loaded, setLoaded] = useState<InboxLinearIssue | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const historyId = useId();
+  const issue = loaded ?? initial;
+  const comments = issue.comments;
+  async function toggle() {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    if (issue.commentsComplete || !onLoadPrevious) {
+      setExpanded(true);
+      return;
+    }
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      const result = await onLoadPrevious();
+      if (!("description" in result)) throw new Error("Issue comments could not be loaded.");
+      setLoaded(result);
+      setExpanded(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load issue comments.");
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <div className={styles.slackContent}>
+      <div className="mb-3 font-medium">{issue.title}</div>
+      {issue.description && (
+        <section className={styles.slackSection} aria-label="Issue description">
+          <div className={styles.slackLabel}>Issue description</div>
+          <InboxContentPreview lines={8}>
+            <LinearMarkdown content={issue.description} />
+          </InboxContentPreview>
+        </section>
+      )}
+      <section className={styles.slackSection} aria-label="Comments">
+        <div className={styles.slackLabel}>
+          <span className={styles.slackThreadTitle}>
+            Comments{issue.commentsComplete && <span>· {comments.length}</span>}
+          </span>
+          {(!issue.commentsComplete || comments.length > 1) && (
+            <button
+              type="button"
+              className={styles.previousComments}
+              disabled={pending}
+              aria-expanded={expanded}
+              aria-controls={historyId}
+              aria-busy={pending}
+              aria-label={expanded ? "Show latest comment only" : "Show all issue comments"}
+              onClick={(event) => {
+                event.stopPropagation();
+                void toggle();
+              }}
+            >
+              {pending ? "Loading…" : error ? "Retry" : expanded ? "Latest only" : "Show all"}
+              <ChevronDownIcon aria-hidden />
+            </button>
+          )}
+        </div>
+        {error && (
+          <p role="alert" className="mb-3 text-2xs text-destructive">
+            {error}
+          </p>
+        )}
+        <ol id={historyId} className={styles.slackTimeline}>
+          {(expanded ? comments : comments.slice(-1)).map((comment) => (
+            <li key={comment.id} className={styles.slackReply} data-linear-comment={comment.id}>
+              <span aria-hidden className={styles.slackAvatar}>
+                {comment.author
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((name) => name[0])
+                  .join("")}
+              </span>
+              <div className={styles.slackAuthor}>
+                <span>{comment.author}</span>
+                <InboxTimestampLabel timestamp={comment.occurredAt} />
+              </div>
+              <InboxContentPreview lines={4}>
+                <LinearMarkdown content={comment.body} />
+              </InboxContentPreview>
+            </li>
+          ))}
+        </ol>
+        {issue.commentsComplete && comments.length === 0 && (
+          <p className="text-2xs text-muted-foreground">No comments yet.</p>
+        )}
+      </section>
+    </div>
+  );
+}
 
 export function InboxOpenOriginalAction({
   notification,
@@ -306,7 +459,7 @@ function SlackThreadContent({
 }: {
   sourceAuthor?: string | undefined;
   thread: InboxSlackThread;
-  onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
+  onLoadPrevious?: LoadComments | undefined;
 }) {
   const [loaded, setLoaded] = useState<InboxSlackThread | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -334,7 +487,9 @@ function SlackThreadContent({
     setPending(true);
     setError(null);
     try {
-      setLoaded(await onLoadPrevious());
+      const result = await onLoadPrevious();
+      if (!("channelId" in result)) throw new Error("Thread comments could not be loaded.");
+      setLoaded(result);
       setExpanded(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load previous comments.");
@@ -422,9 +577,45 @@ export function InboxSourceContent({
 }: {
   notification: InboxNotification;
   threadRef?: ScopedThreadRef | null | undefined;
-  onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
+  onLoadPrevious?: LoadComments | undefined;
 }) {
   const openLink = useInboxLink(threadRef);
+  if (notification.source === "linear") {
+    const issue =
+      notification.linearIssue ??
+      notification.items.findLast((item) => item.linearIssue)?.linearIssue;
+    if (issue) {
+      const comments = notification.linearIssue?.commentsComplete
+        ? notification.linearIssue.comments
+        : [
+            ...new Map(
+              notification.items
+                .flatMap((item) => item.linearIssue?.comments ?? [])
+                .concat(issue.comments)
+                .map((comment) => [comment.id, comment]),
+            ).values(),
+          ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
+      return (
+        <InboxLinkContext value={openLink}>
+          <LinearIssueContent
+            key={`${notification.id}:${notification.analysisVersion}`}
+            issue={{ ...issue, comments }}
+            onLoadPrevious={onLoadPrevious}
+          />
+        </InboxLinkContext>
+      );
+    }
+    return (
+      <InboxLinkContext value={openLink}>
+        <div className={styles.slackContent}>
+          <div className={styles.slackLabel}>Original message</div>
+          <InboxContentPreview lines={8}>
+            <LinearMarkdown content={notification.items.map((item) => item.content).join("\n\n")} />
+          </InboxContentPreview>
+        </div>
+      </InboxLinkContext>
+    );
+  }
   if (notification.source === "slack" && notification.slackThread) {
     const thread = notification.slackThread;
     return (

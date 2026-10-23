@@ -67,6 +67,17 @@ it.effect(
       });
       let threadNotification: InboxNotification | null = null;
       const threadReads: string[] = [];
+      const linearDetailReads: Array<{ id: string; comments: boolean }> = [];
+      let failLinearDetail = false;
+      const linearIssue = {
+        id: "issue",
+        title: "Review release",
+        description: "Separated issue context",
+        comments: [
+          { id: "comment", author: "Maya", body: "Review", occurredAt: "2026-10-22T10:00:00Z" },
+        ],
+        commentsComplete: true,
+      };
       let failThread = true;
       const msg = (ts: string) => ({
         ts,
@@ -120,6 +131,13 @@ it.effect(
           }),
       });
       const inbox = Inbox.InboxService.of({
+        cacheLinearIssue: (input) =>
+          Effect.sync(() => {
+            threadNotification = threadNotification
+              ? { ...threadNotification, linearIssue: input.issue }
+              : null;
+            return threadNotification;
+          }),
         cacheSlackThread: (input) =>
           Effect.sync(() => {
             threadNotification = threadNotification
@@ -151,6 +169,13 @@ it.effect(
         ),
         Layer.provide(
           Layer.succeed(Linear.LinearConnection, {
+            readIssue: (_projectId, id, comments) =>
+              Effect.gen(function* () {
+                linearDetailReads.push({ id, comments });
+                if (failLinearDetail)
+                  return yield* new InboxError({ detail: "Linear is temporarily unavailable" });
+                return linearIssue;
+              }),
             request: () =>
               Ref.get(linearConnected).pipe(
                 Effect.map((connected) => ({
@@ -305,6 +330,45 @@ it.effect(
         const readsAfterUpgrade = threadReads.length;
         yield* service.get({ projectId, id: threadId });
         assert.equal(threadReads.length, readsAfterUpgrade);
+        threadNotification = ingestInboxItem(projectId, {
+          id: "linear-notification",
+          source: "linear",
+          connectionId: "team",
+          groupId: "issue",
+          location: "ENG-1",
+          title: "Maya commented",
+          author: "Maya",
+          content: "Old flattened body",
+          url: "https://linear.app/fixture/issue/ENG-1",
+          occurredAt: "2026-10-22T10:00:00Z",
+        });
+        const linearNotificationId = threadNotification.id;
+        yield* service.get({ projectId, id: linearNotificationId });
+        yield* service.get({ projectId, id: linearNotificationId });
+        assert.deepEqual(linearDetailReads, [{ id: "issue", comments: true }]);
+        const { linearIssue: _cachedIssue, ...withoutCachedIssue } = threadNotification;
+        threadNotification = {
+          ...withoutCachedIssue,
+          items: threadNotification.items.map((item) => ({
+            ...item,
+            linearIssue: { ...linearIssue, commentsComplete: false },
+          })),
+        };
+        yield* service.get({ projectId, id: linearNotificationId });
+        assert.equal(linearDetailReads.length, 1);
+        failLinearDetail = true;
+        assert.equal(
+          (yield* Effect.result(
+            service.get({ projectId, id: linearNotificationId, loadPreviousComments: true }),
+          ))._tag,
+          "Failure",
+        );
+        assert.equal(threadNotification.linearIssue, undefined);
+        failLinearDetail = false;
+        yield* service.get({ projectId, id: linearNotificationId, loadPreviousComments: true });
+        yield* service.get({ projectId, id: linearNotificationId, loadPreviousComments: true });
+        assert.equal(linearDetailReads.length, 3);
+        assert.equal(threadNotification.linearIssue?.commentsComplete, true);
         threadNotification = null;
         assert.equal(yield* Ref.get(calls), 1);
         yield* settings.updateSettings({

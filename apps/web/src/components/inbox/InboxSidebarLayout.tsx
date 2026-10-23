@@ -14,6 +14,7 @@ import {
   type ScopedProjectRef,
   type ScopedThreadRef,
   type InboxSlackThread,
+  type InboxLinearIssue,
   type EnvironmentId,
 } from "@t3tools/contracts";
 import { Atom, AsyncResult } from "effect/reactivity";
@@ -124,7 +125,7 @@ export function InboxRow({
   hints: boolean;
   pending: boolean;
   threadRef?: ScopedThreadRef | null | undefined;
-  onLoadPrevious?: (() => Promise<InboxSlackThread>) | undefined;
+  onLoadPrevious?: (() => Promise<InboxSlackThread | InboxLinearIssue>) | undefined;
   onFocus: () => void;
   onAction: (action: InboxMutation | "snooze-menu") => void;
 }) {
