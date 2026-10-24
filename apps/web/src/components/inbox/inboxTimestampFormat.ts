@@ -29,3 +29,15 @@ export function formatInboxTimestampTooltip(isoDate: string, nowMs = Date.now())
   const date = parseTimestampDate(isoDate);
   return date ? formatDateTime(date, new Date(nowMs), true) : "";
 }
+
+/** Sync labels use elapsed minutes for the past hour, then the normal Inbox clock/date. */
+export function formatInboxSyncTimestamp(isoDate: string, nowMs = Date.now()) {
+  const date = parseTimestampDate(isoDate);
+  if (!date) return "";
+  const elapsed = nowMs - date.getTime();
+  if (elapsed >= 0 && elapsed < 3_600_000) {
+    const minutes = Math.floor(elapsed / 60_000);
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  }
+  return formatInboxTimestamp(isoDate, nowMs);
+}

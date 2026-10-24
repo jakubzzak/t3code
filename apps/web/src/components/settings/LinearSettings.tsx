@@ -17,7 +17,13 @@ import {
   useUpdateScopedSettings,
 } from "./useScopedSettings";
 
-export function LinearSettings({ children }: { children?: ReactNode }) {
+export function LinearSettings({
+  children,
+  lastSyncAt,
+}: {
+  children?: ReactNode;
+  lastSyncAt?: string | null;
+}) {
   const { scope, search } = useSettingsScope();
   const configs = useServerConfigs();
   const workspace = useScopedSettings((settings) => settings.linearWorkspace);
@@ -92,6 +98,7 @@ export function LinearSettings({ children }: { children?: ReactNode }) {
               environmentId={projects[0]!.environmentId}
               projectId={projects[0]!.projectId}
               workspace={mixed ? "" : workspace}
+              lastSyncAt={lastSyncAt ?? null}
             />
           ) : (
             isElectron && (

@@ -7,14 +7,17 @@ import { ensureLocalApi } from "~/localApi";
 import { Button } from "../ui/button";
 import { SettingsRow } from "../settings/settingsLayout";
 import { requestLinear } from "./requestLinear";
+import { IntegrationConnectionTitle } from "../inbox/IntegrationConnectionTitle";
 export function EnvironmentLinearSettings({
   environmentId,
   projectId,
   workspace,
+  lastSyncAt,
 }: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
   workspace: string;
+  lastSyncAt?: string | null;
 }) {
   const connectionKey = JSON.stringify([environmentId, projectId]);
   const [status, setStatus] = useState<LinearDesktopResult | null>(null);
@@ -112,7 +115,9 @@ export function EnvironmentLinearSettings({
   }
   return (
     <SettingsRow
-      title="Connection"
+      title={
+        <IntegrationConnectionTitle lastSyncAt={status?.connection ? (lastSyncAt ?? null) : null} />
+      }
       description={
         status?.connection
           ? `${status.connection.name} · ${status.connection.email} · ${status.connection.workspace}`

@@ -14,6 +14,7 @@ import { useSettingsScope } from "../settings/SettingsScopeContext";
 import { LinearSettings } from "../settings/LinearSettings";
 import { integrationDisabledReason } from "./integrationAvailability";
 import { DisabledIntegrationConnectButton } from "./DisabledIntegrationConnectButton";
+import { IntegrationConnectionTitle } from "./IntegrationConnectionTitle";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -131,7 +132,11 @@ function SlackConnection({
   return (
     <>
       <SettingsRow
-        title="Connection"
+        title={
+          <IntegrationConnectionTitle
+            lastSyncAt={connection.connected ? connection.lastSyncAt : null}
+          />
+        }
         description={
           connection.connected
             ? `Connected${connection.account ? ` · ${connection.account}` : ""}`
@@ -185,11 +190,6 @@ function SlackConnection({
             <a href={authorizationUrl} target="_blank" rel="noreferrer" className="underline">
               Open sign-in
             </a>
-          </p>
-        )}
-        {connection.lastSyncAt && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Last synced {new Date(connection.lastSyncAt).toLocaleString()}
           </p>
         )}
         {connection.error && (
@@ -313,7 +313,11 @@ function SuperhumanConnection({
   return (
     <>
       <SettingsRow
-        title="Connection"
+        title={
+          <IntegrationConnectionTitle
+            lastSyncAt={connection.connected ? connection.lastSyncAt : null}
+          />
+        }
         description={
           connection.connected
             ? "Connected to Superhuman Mail for this project."
@@ -608,7 +612,16 @@ export function ProjectIntegrationSettings() {
   };
   return (
     <>
-      <LinearSettings>
+      <LinearSettings
+        lastSyncAt={
+          result.data?.find(
+            (connection) =>
+              connection.source === "linear" &&
+              connection.projectId === project?.id &&
+              connection.connected,
+          )?.lastSyncAt ?? null
+        }
+      >
         <fieldset disabled={!connectionReady} className="contents">
           <div className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none">
             {renderSource("linear")}

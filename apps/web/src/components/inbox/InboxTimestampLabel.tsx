@@ -1,8 +1,18 @@
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import type { ReactNode } from "react";
 import { formatInboxTimestamp, formatInboxTimestampTooltip } from "./inboxTimestampFormat";
 
-export function InboxTimestampLabel({ timestamp }: { timestamp: string }) {
-  const fullTimestamp = formatInboxTimestampTooltip(timestamp);
+export function InboxTimestampLabel({
+  timestamp,
+  children,
+  label,
+}: {
+  timestamp: string;
+  children?: ReactNode;
+  label?: string;
+}) {
+  const dateTime = formatInboxTimestampTooltip(timestamp);
+  const fullTimestamp = label ? `${label} ${dateTime}` : dateTime;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -14,7 +24,7 @@ export function InboxTimestampLabel({ timestamp }: { timestamp: string }) {
           />
         }
       >
-        {formatInboxTimestamp(timestamp)}
+        {children ?? formatInboxTimestamp(timestamp)}
       </TooltipTrigger>
       <TooltipPopup>{fullTimestamp}</TooltipPopup>
     </Tooltip>

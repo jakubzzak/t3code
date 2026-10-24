@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { formatInboxTimestamp, formatInboxTimestampTooltip } from "./inboxTimestampFormat";
+import {
+  formatInboxSyncTimestamp,
+  formatInboxTimestamp,
+  formatInboxTimestampTooltip,
+} from "./inboxTimestampFormat";
 
 const now = new Date(2026, 9, 23, 18).getTime();
 const local = (year: number, month: number, day: number, hour = 10, minute = 52) =>
@@ -33,5 +37,25 @@ describe("Inbox timestamps", () => {
   it("handles invalid timestamps without rendering Invalid Date", () => {
     expect(formatInboxTimestamp("invalid", now)).toBe("");
     expect(formatInboxTimestampTooltip("invalid", now)).toBe("");
+  });
+});
+
+describe("integration sync timestamps", () => {
+  it.each([
+    [0, "0 minutes ago"],
+    [59_999, "0 minutes ago"],
+    [60_000, "1 minute ago"],
+    [5 * 60_000, "5 minutes ago"],
+    [3_599_999, "59 minutes ago"],
+    [3_600_000, "17:00"],
+    [2 * 3_600_000, "16:00"],
+    [-60_000, "18:01"],
+  ])("formats elapsed %s ms as %s", (elapsed, expected) => {
+    expect(formatInboxSyncTimestamp(new Date(now - elapsed).toISOString(), now)).toBe(expected);
+  });
+  it("uses the notification date/year rules for older syncs", () => {
+    expect(formatInboxSyncTimestamp(local(2026, 10, 22), now)).toBe("10:52 · 22 Oct");
+    expect(formatInboxSyncTimestamp(local(2025, 10, 22), now)).toBe("10:52 · 22 Oct 2025");
+    expect(formatInboxSyncTimestamp("invalid", now)).toBe("");
   });
 });
