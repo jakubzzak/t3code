@@ -49,3 +49,14 @@ Manual browsing includes ignored files, tests, and symbolic links regardless of 
 ## Open questions
 
 No blocking questions. Client-reload reset and native mobile presentation are labeled assumptions above.
+
+## Accepted security risks
+
+### SEC-001 — Filesystem path replacement between validation and I/O (P2 / Medium)
+
+- **Accepted scope:** the pre-existing read/write race in `apps/server/src/workspace/WorkspaceFileSystem.ts`, at reviewed head `03e4f1cb8651c574afba1f6d8f7b8c3225e3b55e` (PR [#39](https://github.com/jakubzzak/t3code/pull/39)); acceptance covers both text reads and writes.
+- **Prerequisites and impact:** a local process able to replace a workspace file during an authorized read/save can swap it for a symlink after canonical containment validation but before the path-based open/write. A read can return unintended outside contents; a write can overwrite an outside file. The target must be accessible to the server process. This is not an unauthenticated network exploit or an expansion of the caller's RPC permission.
+- **Evidence:** an isolated deterministic regression test swapped the checked file at the boundary before `writeFileString`; the outside fixture changed from `original` to `changed`. A companion test swapped the file before text open and returned `outside private contents` rather than `inside`. Both tests failed against both the reviewed head and the base implementation at `d55e672611b57ecad0e8611fd2fe8dd628c1573a`, establishing pre-existing provenance.
+- **Residual risk and mitigations:** static external file and parent links are rejected for writes by the new canonical containment check; normal relative reads without link opt-in also reject static external links; filesystem-write authorization and host OS permissions still apply. Those controls do not close concurrent path-replacement races. Race-resistant descriptor-based I/O and regression coverage would be the corrective direction.
+- **Decision:** Jakub explicitly replied “Explicitly accept SEC-001” on 2026-10-24 to this thread's question describing the save/write race, then explicitly replied “Also accept the read race” to the follow-up describing text-read redirection. No rationale, owner, expiry, or follow-up commitment was provided. This records acceptance, not a fix or merge approval.
+- **Disposition:** accepted and recorded for both paths, with no implementation remediation requested in this review. Expanded exposure or changed mitigations require reconsidering this scoped acceptance.
