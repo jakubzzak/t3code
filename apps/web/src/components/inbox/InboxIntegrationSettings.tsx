@@ -109,8 +109,6 @@ function SlackConnection({
   const [pending, setPending] = useState(false);
   const canWrite = useAtomValue(inboxEnvironment.configureSource.permissionAtom(environmentId));
   const disconnect = useAtomCommand(inboxEnvironment.disconnectSource, { reportFailure: true });
-  const sync = useAtomCommand(inboxEnvironment.refreshSource, { reportFailure: true });
-  const canSync = useAtomValue(inboxEnvironment.refreshSource.permissionAtom(environmentId));
   async function connect() {
     const popup = !window.desktopBridge ? window.open("", "_blank") : null;
     if (popup) popup.opener = null;
@@ -147,23 +145,8 @@ function SlackConnection({
               disabled={!canWrite || pending || saving || !clientId}
               onClick={() => void connect()}
             >
-              {connection.connected ? "Reconnect Slack" : "Connect Slack"}
+              {connection.connected ? "Reconnect" : "Connect Slack"}
             </Button>
-            {connection.connected && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={!canSync || pending || saving || !categories.length}
-                onClick={() =>
-                  void sync({
-                    environmentId,
-                    input: { projectId: connection.projectId, source: "slack" },
-                  }).then(refresh)
-                }
-              >
-                Refresh
-              </Button>
-            )}
             {authorizationUrl && (
               <Button
                 size="sm"
@@ -344,7 +327,7 @@ function SuperhumanConnection({
               disabled={!canWrite || pending || saving}
               onClick={() => void connect()}
             >
-              {connection.connected ? "Reconnect Superhuman" : "Connect Superhuman"}
+              {connection.connected ? "Reconnect" : "Connect Superhuman"}
             </Button>
             {connection.connected && (
               <Button

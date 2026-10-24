@@ -131,7 +131,7 @@ export function EnvironmentLinearSettings({
             disabled={!canWrite || pending || !workspace || !status?.configured}
             onClick={() => void connect()}
           >
-            {status?.connection ? "Reconnect Linear" : "Connect Linear"}
+            {status?.connection ? "Reconnect" : "Connect Linear"}
           </Button>
           {status?.connection && (
             <Button
