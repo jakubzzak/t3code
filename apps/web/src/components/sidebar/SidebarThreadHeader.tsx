@@ -25,6 +25,8 @@ import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarThreadHeaderProps {
+  actions?: ReactNode;
+  searchLabel?: string;
   /** Lands on the search field so a popup can anchor to its width. */
   searchFieldRef?: RefObject<HTMLDivElement | null>;
   /** Without projects there is nothing to scope, so those controls stay out. */
@@ -50,6 +52,8 @@ export interface SidebarThreadHeaderProps {
 }
 
 export function SidebarThreadHeader({
+  actions,
+  searchLabel = "Search threads",
   searchFieldRef,
   hasProjects,
   projectScope,
@@ -92,7 +96,7 @@ export function SidebarThreadHeader({
           onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
           onKeyDown={onSearchKeyDown}
           placeholder="Search"
-          aria-label="Search threads"
+          aria-label={searchLabel}
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={resultsVisible}
@@ -124,34 +128,40 @@ export function SidebarThreadHeader({
           hover states, and a background well reads far louder on themed
           palettes than on the base light and dark ones. */}
       <div className="flex shrink-0 items-center">
-        {hasProjects ? (
+        {actions ?? (
           <>
-            {projectScope}
-            <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
-              <FolderPlusIcon />
+            {hasProjects ? (
+              <>
+                {projectScope}
+                <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
+                  <FolderPlusIcon />
+                </SidebarHeaderIconButton>
+              </>
+            ) : null}
+            <SidebarHeaderIconButton
+              label="New thread"
+              tooltip={
+                showNewThreadInProjectHint ? (
+                  <span className="flex flex-col gap-0.5">
+                    <span>{newThreadLabel}</span>
+                    <span className="text-muted-foreground">
+                      New thread in current project: Shift+click
+                      {newThreadInProjectShortcutLabel
+                        ? ` (${newThreadInProjectShortcutLabel})`
+                        : ""}
+                    </span>
+                  </span>
+                ) : (
+                  newThreadLabel
+                )
+              }
+              disabled={newThreadDisabled}
+              onClick={onNewThread}
+            >
+              <SquarePenIcon />
             </SidebarHeaderIconButton>
           </>
-        ) : null}
-        <SidebarHeaderIconButton
-          label="New thread"
-          tooltip={
-            showNewThreadInProjectHint ? (
-              <span className="flex flex-col gap-0.5">
-                <span>{newThreadLabel}</span>
-                <span className="text-muted-foreground">
-                  New thread in current project: Shift+click
-                  {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
-                </span>
-              </span>
-            ) : (
-              newThreadLabel
-            )
-          }
-          disabled={newThreadDisabled}
-          onClick={onNewThread}
-        >
-          <SquarePenIcon />
-        </SidebarHeaderIconButton>
+        )}
       </div>
     </div>
   );

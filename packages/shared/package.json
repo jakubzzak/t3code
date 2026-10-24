@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./inboxSuggestions": {
+      "types": "./src/inboxSuggestions.ts",
+      "import": "./src/inboxSuggestions.ts"
+    },
     "./githubMarkdownLinks": {
       "types": "./src/githubMarkdownLinks.ts",
       "import": "./src/githubMarkdownLinks.ts"
@@ -498,6 +502,22 @@
     "./mermaid": {
       "types": "./src/mermaid.ts",
       "import": "./src/mermaid.ts"
+    },
+    "./linearConnection": {
+      "types": "./src/linearConnection.ts",
+      "import": "./src/linearConnection.ts"
+    },
+    "./linearConnectionTransfer": {
+      "types": "./src/linearConnectionTransfer.ts",
+      "import": "./src/linearConnectionTransfer.ts"
+    },
+    "./slackText": {
+      "types": "./src/slackText.ts",
+      "import": "./src/slackText.ts"
+    },
+    "./emailText": {
+      "types": "./src/emailText.ts",
+      "import": "./src/emailText.ts"
     }
   },
   "scripts": {

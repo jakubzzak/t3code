@@ -1,3 +1,4 @@
+import * as InboxContext from "../../inbox/InboxContextService.ts";
 import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 import * as NodeCrypto from "node:crypto";
@@ -211,6 +212,15 @@ await Effect.runPromise(
         });
       }
     }
-  }).pipe(Effect.provide(Start.layer.pipe(Layer.provide(dependencies)))),
+  }).pipe(
+    Effect.provide(
+      Start.layer.pipe(
+        Layer.provide(
+          Layer.succeed(InboxContext.InboxContext, { forThread: () => Effect.succeed("") }),
+        ),
+        Layer.provide(dependencies),
+      ),
+    ),
+  ),
 );
 console.log(JSON.stringify({ checkpoints }));

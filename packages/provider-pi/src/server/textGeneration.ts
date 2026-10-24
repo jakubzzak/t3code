@@ -5,6 +5,7 @@
  * auth, custom providers) still applies.
  */
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -26,10 +27,15 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const fs = yield* FileSystem.FileSystem;
 
   const runPiJson: TextGenerationOperations.Runner = (request) => {
-    const { operation, cwd, prompt, modelSelection } = request;
+    const { operation, cwd: requestedCwd, prompt, modelSelection } = request;
     return Effect.gen(function* () {
+      const cwd =
+        operation === "generateInboxAnalysis"
+          ? yield* fs.makeTempDirectoryScoped({ prefix: "t3-pi-inbox-" })
+          : requestedCwd;
       const resolvedLaunchArgs = resolvePiLaunchArgs(piSettings.launchArgs);
       if (!resolvedLaunchArgs.ok) {
         return yield* new TextGenerationError({
@@ -122,5 +128,6 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
   return TextGenerationOperations.fromRunner(
     "PiTextGeneration",
     TextGenerationOperations.withoutInvestigation("Pi", runPiJson),
+    { toolFreeInboxAnalysis: true },
   );
 });

@@ -1,3 +1,4 @@
+import { InboxThreadDetails } from "../inbox/InboxThreadDetails";
 import type {
   EditorId,
   EnvironmentId,
@@ -104,6 +105,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     >
       {(density) => (
         <>
+          <InboxThreadDetails
+            key={`${props.environmentId}:${props.threadId}`}
+            environmentId={props.environmentId}
+            threadId={props.threadId}
+          />
           <ThreadDetailsSection
             headingId="thread-details-workspace-heading"
             title="Workspace"

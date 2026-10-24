@@ -156,6 +156,36 @@ export function formatShortTimestamp(isoDate: string, timestampFormat: Timestamp
   return getTimestampFormatter(timestampFormat, false).format(date);
 }
 
+const compactDateFormatter = new Intl.DateTimeFormat(timestampLocale, {
+  month: "short",
+  day: "numeric",
+});
+const compactDateWithYearFormatter = new Intl.DateTimeFormat(timestampLocale, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+/** Compact list metadata uses the local time today and a date on other calendar days. */
+export function formatCompactTimestamp(
+  isoDate: string,
+  timestampFormat: TimestampFormat,
+  nowMs: number = Date.now(),
+): string {
+  const date = parseTimestampDate(isoDate);
+  if (!date) return "";
+  const now = new Date(nowMs);
+  if (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  )
+    return formatShortTimestamp(isoDate, timestampFormat);
+  return (
+    date.getFullYear() === now.getFullYear() ? compactDateFormatter : compactDateWithYearFormatter
+  ).format(date);
+}
+
 const numericDateFormatter = new Intl.DateTimeFormat(timestampLocale, {
   month: "numeric",
   day: "numeric",

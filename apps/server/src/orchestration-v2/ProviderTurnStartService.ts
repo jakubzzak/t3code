@@ -1,3 +1,4 @@
+import * as InboxContext from "../inbox/InboxContextService.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
@@ -88,6 +89,7 @@ export class ProviderTurnStartServiceV2 extends Context.Service<
 export const layer: Layer.Layer<
   ProviderTurnStartServiceV2,
   never,
+  | InboxContext.InboxContext
   | EventSink.EventSinkV2
   | ContextHandoffService.ContextHandoffServiceV2
   | IdAllocator.IdAllocatorV2
@@ -103,6 +105,7 @@ export const layer: Layer.Layer<
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
+    const inboxContext = yield* InboxContext.InboxContext;
     const eventSink = yield* EventSink.EventSinkV2;
     const contextHandoffService = yield* ContextHandoffService.ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -938,6 +941,10 @@ export const layer: Layer.Layer<
           payload: runningRootNode,
         },
       ];
+      const notificationContext = yield* inboxContext.forThread(
+        projection.thread.projectId,
+        projection.thread.id,
+      );
       const runningWrite = yield* eventSink.writeIfRunCurrent({
         threadId: projection.thread.id,
         runId: run.id,
@@ -951,10 +958,13 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      const userText = projectComposerContextForProvider({
+      const composerText = projectComposerContextForProvider({
         text: message.text,
         records: message.context?.records ?? [],
       });
+      const userText = notificationContext
+        ? `${notificationContext}\n\nUser message:\n${composerText}`
+        : composerText;
       // Delivered once: this run's provider turn marks the work as told. A
       // restart continuation is prompted by its own text or resumes natively.
       const noteContinuation = isRestartNoteContinuation(

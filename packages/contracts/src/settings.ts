@@ -14,6 +14,7 @@ import {
   ForwardCompatibleOptional,
   OmittedWhenNull,
   ProjectId,
+  IsoDateTime,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
@@ -991,7 +992,21 @@ const LinearWorkspace = TrimmedString.check(
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "gitEnabled",
+  "inboxEnabled",
+  "inboxInitialHistoryDays",
+  "inboxRefreshIntervalMinutes",
+  "inboxAgentModelSelection",
+  "inboxSummaryModelSelection",
+  "inboxAgentPrompt",
+  "inboxAgentEnabled",
+  "inboxSummaryPrompt",
+  "inboxSummaryEnabled",
+  "inboxMemoryEnabled",
+  "inboxPreResolution",
+  "linearViewEnabled",
   "linearWorkspace",
+  "linearClientId",
+  "slackClientId",
   "worktreeCleanup",
   "defaultModelSelection",
   "defaultRuntimeMode",
@@ -1041,7 +1056,26 @@ export type ProjectProviderInstanceOverride = typeof ProjectProviderInstanceOver
  */
 export const ProjectSettingsOverrides = Schema.Struct({
   gitEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxInitialHistoryDays: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
+  ),
+  inboxRefreshIntervalMinutes: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })),
+  ),
+  inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxAgentEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxSummaryPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxSummaryEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxMemoryEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxPreResolution: Schema.optionalKey(Schema.Boolean),
+
+  linearViewEnabled: Schema.optionalKey(Schema.Boolean),
   linearWorkspace: Schema.optionalKey(LinearWorkspace),
+  linearClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
+  slackClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
@@ -1134,8 +1168,49 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+export const DEFAULT_INBOX_SUMMARY_PROMPT =
+  "Summarize the message itself in one to five sentences, preferably one. Lead with what the recipient needs to do, preserving the subject, requested deliverable and any deadline. If no action is requested, state the key update. Omit sender, app, read status, importance labels, greetings and signatures unless essential to meaning. Do not invent tasks or deadlines.";
+
 export const ServerSettings = Schema.Struct({
+  inboxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxInitialHistoryDays: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(7)),
+  ),
+  inboxRefreshIntervalMinutes: Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(2)),
+  ),
+  /** Server-owned activation times keep zero-history collection stable across restarts. */
+  inboxEnabledAtByProject: Schema.Record(ProjectId, IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  inboxAgentModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  inboxSummaryModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  inboxAgentEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxSummaryPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_INBOX_SUMMARY_PROMPT)),
+  ),
+  inboxSummaryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxMemoryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxAgentPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(
+        "Address this notification using its context. Explain what you found and what remains to do. Ask before sending messages or changing the source system.",
+      ),
+    ),
+  ),
+  inboxPreResolution: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  linearViewEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   linearWorkspace: LinearWorkspace.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  linearClientId: TrimmedString.check(Schema.isMaxLength(256)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  slackClientId: TrimmedString.check(Schema.isMaxLength(256)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
   // Null means no client has migrated this preference yet; an empty value is
   // authoritative so another device cannot resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -1529,7 +1604,26 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  inboxEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxInitialHistoryDays: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
+  ),
+  inboxRefreshIntervalMinutes: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })),
+  ),
+  inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  inboxAgentPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxAgentEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxSummaryPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8000))),
+  inboxSummaryEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxMemoryEnabled: Schema.optionalKey(Schema.Boolean),
+  inboxPreResolution: Schema.optionalKey(Schema.Boolean),
+
+  linearViewEnabled: Schema.optionalKey(Schema.Boolean),
   linearWorkspace: Schema.optionalKey(LinearWorkspace),
+  linearClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
+  slackClientId: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(256))),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
   ),

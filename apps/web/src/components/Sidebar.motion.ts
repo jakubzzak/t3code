@@ -20,8 +20,9 @@ function progress(animation: Animation) {
 
 /** Animate rows between their layout positions. The list must be
  * positioned so every direct child's offsetTop has the same origin. */
-export function createSidebarListMotion(parent: HTMLUListElement) {
+export function createSidebarListMotion(parent: HTMLElement) {
   let positions: Map<HTMLElement, RowPosition> | null = null;
+  let parentTop = parent.offsetTop;
   let disposed = false;
   const reducedMotion = parent.ownerDocument.defaultView?.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -56,6 +57,7 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
         if (
           (attribute.name === "id" && element.namespaceURI !== "http://www.w3.org/2000/svg") ||
           attribute.name === "data-thread-item" ||
+          attribute.name === "data-inbox-row" ||
           attribute.name === "data-thread-selection-safe" ||
           attribute.name === "data-testid"
         ) {
@@ -132,6 +134,18 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
   return {
     update(animate: boolean) {
       if (disposed) return;
+      // Bottom-anchored shelves move their container as rows leave. Compare in
+      // one coordinate space so that displacement is not animated a second time.
+      const originDelta = parentTop - parent.offsetTop;
+      parentTop = parent.offsetTop;
+      if (positions !== null && originDelta !== 0) {
+        positions = new Map(
+          [...positions].map(([node, position]) => [
+            node,
+            { ...position, top: position.top + originDelta },
+          ]),
+        );
+      }
       const next = new Map(
         Array.from(parent.children)
           .filter((node): node is HTMLElement => node instanceof HTMLElement && !exiting.has(node))

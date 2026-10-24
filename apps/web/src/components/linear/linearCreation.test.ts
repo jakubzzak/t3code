@@ -26,7 +26,7 @@ const start = () =>
   beginLinearCreation({
     key,
     workspace: "acme",
-    connectionKey: "env/project",
+    connectionKey: '["env","project"]',
     open: async () => "runtime-origin",
     onCreated: created,
   });
@@ -93,7 +93,7 @@ it("keeps tracking after human input interrupts completion reads without replayi
   expect(request).toHaveBeenCalledExactlyOnceWith({
     operation: "issue",
     workspace: "acme",
-    connectionKey: "env/project",
+    connectionKey: '["env","project"]',
     issueId: issue.id,
   });
   expect(bridge.press).toHaveBeenCalledTimes(1);

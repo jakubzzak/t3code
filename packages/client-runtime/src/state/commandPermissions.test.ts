@@ -106,6 +106,29 @@ describe("command permissions", () => {
     ),
   );
 
+  it.effect("requires destination settings permission to start or cancel Slack authorization", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        for (const method of [WS_METHODS.inboxBeginSlack, WS_METHODS.inboxCancelSlack]) {
+          const command = createCommandPermissions(runtime, method);
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          expect(registry.get(command.permissionAtom(env))).toBe(false);
+          expect((yield* Effect.result(command.authorize(registry, env)))._tag).toBe("Failure");
+          registry.set(
+            sessions(env),
+            AsyncResult.success({
+              ...grant(true),
+              scopes: [AuthSettingsWriteScope],
+              permissions: [AuthSettingsWriteScope],
+            }),
+          );
+          expect(registry.get(command.permissionAtom(env))).toBe(true);
+          yield* command.authorize(registry, env);
+        }
+      }),
+    ),
+  );
   it.effect("uses the target grant for both availability and execution", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -308,4 +331,39 @@ it.effect("rejects protected unary and streamed RPCs outside a guarded command",
     expect(streamed._tag).toBe("EnvironmentAuthorizationError");
     expect(writes).toBe(0);
   }),
+);
+
+it.effect(
+  "requires destination settings access for source connections and operate access for triage",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        for (const method of [
+          WS_METHODS.inboxConfigureSource,
+          WS_METHODS.inboxDisconnectSource,
+          WS_METHODS.inboxBeginSuperhuman,
+          WS_METHODS.linearBegin,
+          WS_METHODS.linearCancel,
+          WS_METHODS.linearDisconnect,
+          WS_METHODS.linearPrepareMigration,
+          WS_METHODS.linearImportMigration,
+        ]) {
+          const permission = createCommandPermissions(runtime, method);
+          expect(registry.get(permission.permissionAtom(env))).toBe(false);
+          expect((yield* permission.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+        }
+        for (const method of [WS_METHODS.inboxMutate, WS_METHODS.inboxRefreshSource]) {
+          const permission = createCommandPermissions(runtime, method);
+          yield* permission.authorize(registry, env);
+          registry.set(sessions(other), AsyncResult.success(grant(false)));
+          expect((yield* permission.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+        }
+      }),
+    ),
 );

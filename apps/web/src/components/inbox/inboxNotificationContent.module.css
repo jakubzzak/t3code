@@ -1,0 +1,221 @@
+.slackMention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #7bbcf2;
+  color: #092e50;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.45;
+  vertical-align: baseline;
+}
+.slackMention[data-personal="true"] {
+  background: #f1ce5e;
+  color: #342a0f;
+}
+.slackMention svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+}
+.slackMention > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.linearMarkdown {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.linearMarkdown > * + * {
+  margin-top: 0.5rem;
+}
+.linearMarkdown :where(h1, h2, h3, h4, h5, h6, th) {
+  font-weight: 600;
+}
+.linearMarkdown :where(ul, ol) {
+  padding-inline-start: 1.25rem;
+}
+.linearMarkdown ul {
+  list-style: disc;
+}
+.linearMarkdown ol {
+  list-style: decimal;
+}
+.linearMarkdown li + li {
+  margin-top: 0.25rem;
+}
+.linearMarkdown :global(.contains-task-list) {
+  list-style: none;
+  padding-inline-start: 0;
+}
+.linearMarkdown input[type="checkbox"] {
+  margin-inline-end: 0.375rem;
+}
+.linearMarkdown blockquote {
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 0.625rem;
+  color: var(--muted-foreground);
+}
+.linearMarkdown pre {
+  overflow-x: auto;
+  white-space: pre;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  background: var(--muted);
+}
+.linearMarkdown table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.linearMarkdown :where(th, td) {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+}
+.linearMarkdown hr {
+  border-color: var(--border);
+}
+.contentPreview {
+  --preview-lines: 4;
+}
+.contentPreview[data-lines="8"] {
+  --preview-lines: 8;
+}
+.contentPreview[data-expanded="false"] {
+  max-height: calc(var(--preview-lines) * 1lh);
+  overflow: hidden;
+}
+.contentPreviewInner {
+  display: flow-root;
+}
+.readMore {
+  margin-top: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+.readMore:hover {
+  color: var(--foreground);
+}
+.readMore:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+.slackContent {
+  padding-block: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.65;
+}
+.slackSection {
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  padding-top: 0.75rem;
+}
+.slackSection + .slackSection {
+  margin-top: 1rem;
+}
+.slackLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.625rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+.slackLabel > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slackThreadTitle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.375rem;
+}
+.previousComments {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.previousComments svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  transition: transform 180ms ease;
+}
+.previousComments[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .previousComments svg {
+    transition: none;
+  }
+}
+.previousComments:hover {
+  color: var(--foreground);
+}
+.previousComments:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.previousComments:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+.slackTimeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.slackReply {
+  position: relative;
+  padding-inline-start: 1.625rem;
+  padding-bottom: 0.875rem;
+}
+.slackReply:last-child {
+  padding-bottom: 0;
+}
+.slackReply:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0.5rem;
+  top: 1.25rem;
+  bottom: 0.125rem;
+  width: 1px;
+  background: var(--border);
+}
+.slackAvatar {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.125rem;
+  display: grid;
+  place-items: center;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  border-radius: 50%;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.5rem;
+  font-weight: 600;
+}
+.slackAuthor {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  margin-bottom: 0.1875rem;
+}
+.slackAuthor > span {
+  font-weight: 600;
+}
+.slackAuthor time {
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+}

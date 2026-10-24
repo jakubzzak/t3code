@@ -74,3 +74,7 @@ it("falls back to the T3 email when there is no Linear connection", async () => 
   await render();
   expect(panel.querySelector("input")?.value).toBe("t3@example.com");
 });
+
+vi.mock("./requestLinear", () => ({
+  requestLinear: (input: unknown) => window.desktopBridge!.linearRequest!(input as never),
+}));

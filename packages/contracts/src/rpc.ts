@@ -1,3 +1,23 @@
+import {
+  LinearEnvironmentKey,
+  LinearEnvironmentRequest,
+  LinearDesktopResult,
+  LinearMigrationTicket,
+  LinearMigrationInput,
+} from "./linear.ts";
+import { ProjectId } from "./baseSchemas.ts";
+import {
+  InboxSourceCatalog,
+  InboxSourceConnection,
+  InboxSourceKey,
+  InboxSourceConfigureInput,
+  InboxError,
+  InboxListInput,
+  InboxMutateInput,
+  InboxMutationResult,
+  InboxNotification,
+  InboxGetInput,
+} from "./inbox.ts";
 import { LinearIssueSetupInput, LinearIssueSetupResult, LinearIssueSetupError } from "./linear.ts";
 import { ThreadCleanupInput, ThreadCleanupSnapshot, ThreadCleanupError } from "./threadCleanup.ts";
 import {
@@ -548,6 +568,23 @@ export const WS_METHODS = {
   pullRequestsPreview: "pullRequests.preview",
   pullRequestsChecks: "pullRequests.checks",
   pullRequestsActivity: "pullRequests.activity",
+  linearRequest: "linear.request",
+  linearBegin: "linear.begin",
+  linearCancel: "linear.cancel",
+  linearDisconnect: "linear.disconnect",
+  linearPrepareMigration: "linear.prepareMigration",
+  linearImportMigration: "linear.importMigration",
+  inboxBeginSlack: "inbox.beginSlack",
+  inboxCancelSlack: "inbox.cancelSlack",
+  inboxBeginSuperhuman: "inbox.beginSuperhuman",
+  inboxSuperhumanCatalog: "inbox.superhumanCatalog",
+  inboxSources: "inbox.sources",
+  inboxConfigureSource: "inbox.configureSource",
+  inboxDisconnectSource: "inbox.disconnectSource",
+  inboxRefreshSource: "inbox.refreshSource",
+  inboxList: "inbox.list",
+  inboxGet: "inbox.get",
+  inboxMutate: "inbox.mutate",
   pullRequestsReviewGuide: "pullRequests.reviewGuide",
   pullRequestsGenerateReviewGuide: "pullRequests.generateReviewGuide",
   pullRequestsThreadComments: "pullRequests.threadComments",
@@ -1034,6 +1071,92 @@ const WsPullRequestsActivityRpc = Rpc.make(WS_METHODS.pullRequestsActivity, {
   payload: PullRequestRef,
   success: PullRequestActivity,
   error: PullRequestRpcError,
+});
+
+const WsLinearRequestRpc = Rpc.make(WS_METHODS.linearRequest, {
+  payload: LinearEnvironmentRequest,
+  success: LinearDesktopResult,
+  error: InboxError,
+});
+const WsLinearBeginRpc = Rpc.make(WS_METHODS.linearBegin, {
+  payload: LinearEnvironmentKey,
+  success: Schema.String,
+  error: InboxError,
+});
+const WsLinearCancelRpc = Rpc.make(WS_METHODS.linearCancel, {
+  payload: LinearEnvironmentKey,
+  success: Schema.Void,
+  error: InboxError,
+});
+const WsLinearDisconnectRpc = Rpc.make(WS_METHODS.linearDisconnect, {
+  payload: LinearEnvironmentKey,
+  success: Schema.Void,
+  error: InboxError,
+});
+const WsLinearPrepareMigrationRpc = Rpc.make(WS_METHODS.linearPrepareMigration, {
+  payload: LinearEnvironmentKey,
+  success: LinearMigrationTicket,
+  error: InboxError,
+});
+const WsLinearImportMigrationRpc = Rpc.make(WS_METHODS.linearImportMigration, {
+  payload: LinearMigrationInput,
+  success: Schema.Void,
+  error: InboxError,
+});
+const WsInboxBeginSlackRpc = Rpc.make(WS_METHODS.inboxBeginSlack, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: Schema.String,
+  error: InboxError,
+});
+const WsInboxCancelSlackRpc = Rpc.make(WS_METHODS.inboxCancelSlack, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: Schema.Void,
+  error: InboxError,
+});
+const WsInboxBeginSuperhumanRpc = Rpc.make(WS_METHODS.inboxBeginSuperhuman, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: Schema.String,
+  error: InboxError,
+});
+const WsInboxSuperhumanCatalogRpc = Rpc.make(WS_METHODS.inboxSuperhumanCatalog, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: InboxSourceCatalog,
+  error: InboxError,
+});
+const WsInboxSourcesRpc = Rpc.make(WS_METHODS.inboxSources, {
+  payload: Schema.Struct({ projectId: ProjectId }),
+  success: Schema.Array(InboxSourceConnection),
+  error: InboxError,
+});
+const WsInboxConfigureSourceRpc = Rpc.make(WS_METHODS.inboxConfigureSource, {
+  payload: InboxSourceConfigureInput,
+  success: InboxSourceConnection,
+  error: InboxError,
+});
+const WsInboxDisconnectSourceRpc = Rpc.make(WS_METHODS.inboxDisconnectSource, {
+  payload: InboxSourceKey,
+  success: Schema.Void,
+  error: InboxError,
+});
+const WsInboxRefreshSourceRpc = Rpc.make(WS_METHODS.inboxRefreshSource, {
+  payload: InboxSourceKey,
+  success: InboxSourceConnection,
+  error: InboxError,
+});
+const WsInboxListRpc = Rpc.make(WS_METHODS.inboxList, {
+  payload: InboxListInput,
+  success: Schema.Array(InboxNotification),
+  error: InboxError,
+});
+const WsInboxGetRpc = Rpc.make(WS_METHODS.inboxGet, {
+  payload: InboxGetInput,
+  success: Schema.NullOr(InboxNotification),
+  error: InboxError,
+});
+const WsInboxMutateRpc = Rpc.make(WS_METHODS.inboxMutate, {
+  payload: InboxMutateInput,
+  success: InboxMutationResult,
+  error: InboxError,
 });
 
 const WsPullRequestsReviewGuideRpc = Rpc.make(WS_METHODS.pullRequestsReviewGuide, {
@@ -1907,7 +2030,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+export const WsCoreRpcGroup = RpcGroup.make(
   WsThreadCleanupStart,
   WsThreadCleanupSubscribe,
   WsServerProbeRpc,
@@ -2106,3 +2229,24 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
 ).middleware(RpcScopeAuthorization);
+
+export const WsInboxRpcGroup = RpcGroup.make(
+  WsLinearRequestRpc,
+  WsLinearBeginRpc,
+  WsLinearCancelRpc,
+  WsLinearDisconnectRpc,
+  WsLinearPrepareMigrationRpc,
+  WsLinearImportMigrationRpc,
+  WsInboxBeginSlackRpc,
+  WsInboxCancelSlackRpc,
+  WsInboxBeginSuperhumanRpc,
+  WsInboxSuperhumanCatalogRpc,
+  WsInboxListRpc,
+  WsInboxGetRpc,
+  WsInboxMutateRpc,
+  WsInboxSourcesRpc,
+  WsInboxConfigureSourceRpc,
+  WsInboxDisconnectSourceRpc,
+  WsInboxRefreshSourceRpc,
+).middleware(RpcScopeAuthorization);
+export const WsRpcGroup = WsCoreRpcGroup.merge(WsInboxRpcGroup);

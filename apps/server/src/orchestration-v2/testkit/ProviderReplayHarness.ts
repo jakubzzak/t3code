@@ -1,3 +1,4 @@
+import * as InboxContext from "../../inbox/InboxContextService.ts";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -384,6 +385,7 @@ export function layerWithRegistry<Error>(
     ),
   );
   const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
+    Layer.provide(InboxContext.layer.pipe(Layer.provide(layerDatabase))),
     Layer.provide(
       Layer.mergeAll(
         layerContextHandoffServiceProvided,

@@ -14,7 +14,7 @@ import {
 import { linearInitialUrl } from "~/browser/linear";
 import type { OpenPreviewMutation } from "~/browser/openFileInPreview";
 import { isElectron } from "~/env";
-import { ensureClientSettingsHydrated, getClientSettings } from "~/hooks/useSettings";
+import { readLinearViewEnabled } from "./linearViewEnabled";
 import {
   readThreadPreviewState,
   beginPreviewSessionClose,
@@ -39,9 +39,10 @@ export async function openLinearSurface<E>(input: {
     input: PreviewCloseInput;
   }) => Promise<unknown>;
 }) {
-  await ensureClientSettingsHydrated();
-  if (!isElectron || !getClientSettings().linearViewEnabled) {
-    throw new Error("Enable Linear view in Settings → Features in the desktop app.");
+  if (!isElectron || !readLinearViewEnabled(input.threadRef)) {
+    throw new Error(
+      "Enable Linear view for this project in Settings → Features in the desktop app.",
+    );
   }
   const existing = Object.values(readThreadPreviewState(input.threadRef).sessions).find(
     (session) => session.surface === "linear",
@@ -81,7 +82,7 @@ export async function openLinearSurface<E>(input: {
     ...(url ? { url } : {}),
   });
   if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-  if (result.value.surface !== "linear" || !getClientSettings().linearViewEnabled) {
+  if (result.value.surface !== "linear" || !readLinearViewEnabled(input.threadRef)) {
     beginPreviewSessionClose(input.threadRef, result.value.tabId);
     await input.closePreview({
       environmentId: input.threadRef.environmentId,

@@ -16,6 +16,7 @@ import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import type { ProviderTextGeneration } from "./textGeneration.ts";
 import {
   buildFileFilterPrompt,
+  buildInboxAnalysisPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -95,7 +96,11 @@ export const decodeJsonReply = <S extends Schema.Top>(
 };
 
 /** The text generation service over `run`. `name` prefixes each operation's span. */
-export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
+export function fromRunner(
+  name: string,
+  run: Runner,
+  capabilities?: { readonly toolFreeInboxAnalysis: true },
+): ProviderTextGeneration {
   const generateCommitMessage: ProviderTextGeneration["generateCommitMessage"] = Effect.fn(
     `${name}.generateCommitMessage`,
   )(function* (input) {
@@ -191,6 +196,20 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
   });
 
   return {
+    generateInboxAnalysis: (input) =>
+      capabilities?.toolFreeInboxAnalysis
+        ? run({
+            operation: "generateInboxAnalysis",
+            cwd: input.cwd,
+            modelSelection: input.modelSelection,
+            ...buildInboxAnalysisPrompt(input),
+          })
+        : Effect.fail(
+            new TextGenerationError({
+              operation: "generateInboxAnalysis",
+              detail: `${name} cannot guarantee tool-free Inbox summaries. Choose a provider with a tool-free summary runner.`,
+            }),
+          ),
     generateFileFilter: (input) =>
       run({
         operation: "generateFileFilter",

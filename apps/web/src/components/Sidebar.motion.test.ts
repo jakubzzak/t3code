@@ -68,6 +68,7 @@ class TestRow {
 function fixture(rows: TestRow[]) {
   const media = { matches: false };
   const parent = {
+    offsetTop: 0,
     children: rows,
     ownerDocument: { defaultView: { matchMedia: () => media } },
     getBoundingClientRect: () => ({ top: 0 }),
@@ -127,6 +128,18 @@ describe("sidebar list motion", () => {
     expectMove(settled, 83);
     expect(pinned.animate).not.toHaveBeenCalled();
     expect(divider.animate).not.toHaveBeenCalled();
+  });
+
+  it("keeps bottom-anchored rows still when their container moves into the removed row's space", () => {
+    const a = new TestRow("a");
+    const b = new TestRow("b");
+    const { motion, layout, parent } = fixture([a, b]);
+    motion.update(true);
+    parent.offsetTop = 83;
+    layout([b]);
+    motion.update(true);
+    expect(b.animate).not.toHaveBeenCalled();
+    expect(a.clones[0]?.style.top).toBe("-75px");
   });
 
   it("refreshes the drop baseline without replay and animates the next ordinary move", () => {
@@ -264,6 +277,7 @@ describe("sidebar list motion", () => {
     const b = new TestRow("b");
     const fresh = new TestRow("new");
     a.setAttribute("data-thread-item", "a");
+    a.setAttribute("data-inbox-row", "env:a");
     a.children = [new TestRow("button")];
     a.children[0]!.setAttribute("id", "thread-control");
     a.children[0]!.setAttribute("data-testid", "thread-control");

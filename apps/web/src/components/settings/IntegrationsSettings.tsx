@@ -1,4 +1,4 @@
-import { LinearSettings } from "./LinearSettings";
+import { ProjectIntegrationSettings } from "../inbox/InboxIntegrationSettings";
 import { DeviceHostUpdates } from "../device/DeviceHostUpdates";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -1578,7 +1578,7 @@ export function IntegrationsSettingsPanel() {
         <PullRequestLinksOpenInAppSetting />
       </SettingsSection>
       <DeviceIntegrationSettings />
-      <LinearSettings />
+      <ProjectIntegrationSettings />
     </SettingsPageContainer>
   );
 }
