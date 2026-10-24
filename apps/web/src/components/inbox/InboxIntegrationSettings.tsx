@@ -13,6 +13,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useSettingsScope } from "../settings/SettingsScopeContext";
 import { LinearSettings } from "../settings/LinearSettings";
 import { integrationDisabledReason } from "./integrationAvailability";
+import { DisabledIntegrationConnectButton } from "./DisabledIntegrationConnectButton";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -521,19 +522,14 @@ function LinearNotifications({
   );
 }
 
-function InactiveSource({ source }: { source: InboxSource }) {
-  const name = source === "linear" ? "Linear" : source === "slack" ? "Slack" : "Superhuman";
+function InactiveSource({ source, reason }: { source: InboxSource; reason: string }) {
   return (
     <>
       {source !== "linear" && (
         <SettingsRow
           title="Connection"
           description={`Connect an account only for the selected project.`}
-          control={
-            <Button size="sm" variant="outline" disabled>
-              Connect {name}
-            </Button>
-          }
+          control={<DisabledIntegrationConnectButton source={source} reason={reason} />}
         />
       )}
       {source === "slack" && (
@@ -568,15 +564,14 @@ function InactiveSource({ source }: { source: InboxSource }) {
 
 export function ProjectIntegrationSettings() {
   const { scope } = useSettingsScope();
-  const settings = useScopedSettings((settings) => settings);
   const configs = useServerConfigs();
   const selected = scope.kind === "project" || scope.kind === "checkout";
   const members = selected ? scope.members : [];
   const project = members.length === 1 ? members[0] : undefined;
   const supported = project && configs.get(project.environmentId)?.notificationInbox;
-  const inboxReady = !!project && !!supported && settings.inboxEnabled;
+  const connectionReady = !!project && !!supported;
   const result = useEnvironmentQuery(
-    inboxReady
+    connectionReady
       ? inboxEnvironment.sources({
           environmentId: project.environmentId,
           input: { projectId: project.id },
@@ -585,15 +580,15 @@ export function ProjectIntegrationSettings() {
   );
   const refreshSources = result.refresh;
   useEffect(() => {
-    if (!inboxReady) return;
+    if (!connectionReady) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") refreshSources();
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [inboxReady, refreshSources]);
+  }, [connectionReady, refreshSources]);
   const renderSource = (source: InboxSource) => {
-    const reason = integrationDisabledReason(source, selected, members.length, settings);
-    if (reason || !settings.inboxEnabled) return <InactiveSource source={source} />;
+    const reason = integrationDisabledReason(selected, members.length);
+    if (reason) return <InactiveSource source={source} reason={reason} />;
     if (!supported)
       return (
         <SettingsRow
@@ -631,14 +626,14 @@ export function ProjectIntegrationSettings() {
   return (
     <>
       <LinearSettings>
-        <fieldset disabled={!inboxReady} className="contents">
+        <fieldset disabled={!connectionReady} className="contents">
           <div className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none">
             {renderSource("linear")}
           </div>
         </fieldset>
       </LinearSettings>
       {(["slack", "superhuman"] as const).map((source) => {
-        const reason = integrationDisabledReason(source, selected, members.length, settings);
+        const reason = integrationDisabledReason(selected, members.length);
         return (
           <SettingsSection
             key={source}
@@ -648,7 +643,6 @@ export function ProjectIntegrationSettings() {
           >
             <fieldset disabled={!!reason || !supported} className="contents">
               <div className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none">
-                {reason && <SettingsRow title="Project setup" description={reason} />}
                 {source === "slack" && (
                   <OAuthClientIdSetting source="slack" disabled={!!reason || !supported} />
                 )}

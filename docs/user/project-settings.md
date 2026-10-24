@@ -143,9 +143,9 @@ applies when the project and environment are both on **Inherit**.
 Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
 **Settings → Integrations**. Connections and relevance filters are configured explicitly for
 each project. Linear, Slack and Superhuman have separate integration groups. The general view
-shows them disabled; select one project checkout/environment to edit a connection. Enable
-Linear view or Inbox for Linear setup, and Inbox for Slack or Superhuman. Linear notification
-collection requires Inbox even when Linear view is enabled. Feature switches retain connection
+shows them disabled; select one project checkout/environment to edit a connection. Connections
+can be configured while Inbox and Linear view are off. Notification collection requires Inbox,
+including for Linear when Linear view is enabled. Feature switches retain connection
 settings when off. Inbox and Linear view are independent. The inbox is available on web and desktop;
 mobile keeps the same project data but does not yet have a native inbox screen.
 

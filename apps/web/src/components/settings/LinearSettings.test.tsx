@@ -122,16 +122,11 @@ describe("Linear project settings editing", () => {
     expect(input("Linear OAuth client ID").type).toBe("password");
   });
 
-  it("blocks edits without a project feature and allows either Inbox or Linear view", async () => {
+  it("allows connection setup with both Inbox and Linear view off", async () => {
     state.inboxEnabled = false;
     await render();
-    expect(input("Linear workspace").disabled).toBe(true);
-    expect(input("Linear OAuth client ID").disabled).toBe(true);
-    await edit(input("Linear workspace"), "must-not-save");
-    expect(state.update).not.toHaveBeenCalled();
-    state.linearViewEnabled = true;
-    await render();
     expect(input("Linear workspace").disabled).toBe(false);
+    expect(input("Linear OAuth client ID").disabled).toBe(false);
     await edit(input("Linear workspace"), "view-only-workspace");
     expect(state.update).toHaveBeenCalledExactlyOnceWith({
       linearWorkspace: "view-only-workspace",
@@ -168,6 +163,13 @@ describe("Linear project settings editing", () => {
     state.scope = { kind: "all", members: [] };
     await render();
     expect(input("Linear workspace").disabled).toBe(true);
+    expect(container.textContent).not.toContain("Project setup");
+    const explanation = container.querySelector<HTMLElement>('span[data-slot="tooltip-trigger"]')!;
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+      explanation.focus();
+    });
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Select a project above.");
     state.scope = { kind: "project", members: [{ environmentId: "env", id: "one" }] };
     await render();
     await edit(input("Linear workspace"), "new-workspace");

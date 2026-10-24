@@ -1,7 +1,7 @@
 import { LinearConnectionSettings } from "../linear/LinearConnectionSettings";
 import { integrationDisabledReason } from "../inbox/integrationAvailability";
 import { InboxSourceLogo } from "../inbox/InboxSourceLogo";
-import { Button } from "../ui/button";
+import { DisabledIntegrationConnectButton } from "../inbox/DisabledIntegrationConnectButton";
 import { OAuthClientIdSetting } from "../inbox/OAuthClientIdSetting";
 import { useRef, type ReactNode } from "react";
 import { isElectron } from "~/env";
@@ -20,7 +20,6 @@ import {
 export function LinearSettings({ children }: { children?: ReactNode }) {
   const { scope, search } = useSettingsScope();
   const configs = useServerConfigs();
-  const settings = useScopedSettings((settings) => settings);
   const workspace = useScopedSettings((settings) => settings.linearWorkspace);
   const clientId = useScopedSettings((settings) => settings.linearClientId);
   const mixed = useScopedSettingsMixed(["linearWorkspace"]);
@@ -30,7 +29,7 @@ export function LinearSettings({ children }: { children?: ReactNode }) {
   const projects = projectSelected
     ? scope.members.map((member) => ({ environmentId: member.environmentId, projectId: member.id }))
     : [];
-  const reason = integrationDisabledReason("linear", projectSelected, projects.length, settings);
+  const reason = integrationDisabledReason(projectSelected, projects.length);
   const workspaceKey = JSON.stringify([search, workspace, mixed]);
 
   return (
@@ -38,7 +37,6 @@ export function LinearSettings({ children }: { children?: ReactNode }) {
       {/* A native fieldset layout box can collapse container-query rows after save. */}
       <fieldset disabled={!!reason} className="contents">
         <div className="min-w-0 divide-y divide-border/50 [&>[data-slot=settings-row]]:rounded-none">
-          {reason && <SettingsRow title="Project setup" description={reason} />}
           <OAuthClientIdSetting source="linear" disabled={!!reason} />
           <SettingsRow
             id="linear-workspace"
@@ -85,11 +83,7 @@ export function LinearSettings({ children }: { children?: ReactNode }) {
             <SettingsRow
               title="Connection"
               description="Connect an account only for the selected project."
-              control={
-                <Button size="sm" variant="outline" disabled>
-                  Connect Linear
-                </Button>
-              }
+              control={<DisabledIntegrationConnectButton source="linear" reason={reason} />}
             />
           ) : projects.length === 1 &&
             configs.get(projects[0]!.environmentId)?.notificationInbox ? (

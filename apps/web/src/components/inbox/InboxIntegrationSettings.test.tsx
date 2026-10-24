@@ -14,6 +14,9 @@ const state = vi.hoisted(() => ({
   configure: vi.fn(),
   refresh: vi.fn(),
   sources: [] as InboxSourceConnection[],
+  scope: { kind: "project", members: [{ environmentId: "env", id: "one" }] },
+  inboxEnabled: true,
+  connected: true,
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
 vi.mock("~/state/entities", () => ({
@@ -21,12 +24,16 @@ vi.mock("~/state/entities", () => ({
 }));
 vi.mock("../settings/SettingsScopeContext", () => ({
   useSettingsScope: () => ({
-    scope: { kind: "project", members: [{ environmentId: "env", id: "one" }] },
+    scope: state.scope,
   }),
 }));
 vi.mock("../settings/useScopedSettings", () => ({
   useScopedSettings: (select: (settings: typeof DEFAULT_SERVER_SETTINGS) => unknown) =>
-    select({ ...DEFAULT_SERVER_SETTINGS, inboxEnabled: true }),
+    select({
+      ...DEFAULT_SERVER_SETTINGS,
+      inboxEnabled: state.inboxEnabled,
+      slackClientId: "fixture-client",
+    }),
 }));
 vi.mock("../settings/LinearSettings", () => ({
   LinearSettings: ({ children }: { children: ReactNode }) => (
@@ -82,9 +89,10 @@ vi.mock("~/state/inbox", () => {
 });
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => state.configure }));
 vi.mock("~/state/query", () => ({
-  useEnvironmentQuery: (query: { kind: string }) => ({
-    data:
-      query.kind === "sources"
+  useEnvironmentQuery: (query: { kind: string } | null) => ({
+    data: !query
+      ? undefined
+      : query.kind === "sources"
         ? state.sources
         : {
             accounts: ["one@example.test", "two@example.test"],
@@ -103,7 +111,7 @@ const render = async () => {
     projectId: ProjectId.make("one"),
     source,
     enabled: false,
-    connected: true,
+    connected: state.connected,
     categories:
       source === "slack"
         ? ["dms", "mentions", "group-mentions"]
@@ -141,7 +149,53 @@ const edit = async (label: string, value: string) => {
 afterEach(async () => {
   await act(async () => root.unmount());
   root = createRoot(container);
+  state.scope = { kind: "project", members: [{ environmentId: "env", id: "one" }] };
+  state.inboxEnabled = true;
+  state.connected = true;
+  vi.restoreAllMocks();
   vi.clearAllMocks();
+});
+
+it("connects Superhuman and configures Slack while Inbox is off", async () => {
+  state.inboxEnabled = false;
+  state.connected = false;
+  const popup = { opener: null, location: { href: "" } };
+  vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+  await render();
+  state.configure.mockResolvedValue({
+    _tag: "Success",
+    value: "https://auth.example.test/connect",
+  });
+  expect(container.textContent).not.toContain("Project setup");
+  const connect = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Connect Superhuman",
+  )!;
+  expect(connect.disabled).toBe(false);
+  await click(connect);
+  expect(state.configure).toHaveBeenCalledWith({
+    environmentId: "env",
+    input: { projectId: "one" },
+  });
+  expect(popup.location.href).toBe("https://auth.example.test/connect");
+  const slack = [...container.querySelectorAll<HTMLButtonElement>("#slack button")].find(
+    (button) => button.textContent === "Connect Slack",
+  )!;
+  expect(slack.disabled).toBe(false);
+});
+
+it("explains disabled Connect buttons on focus without adding setup message rows", async () => {
+  state.scope = { kind: "all", members: [] };
+  await render();
+  expect(container.textContent).not.toMatch(/Project setup|enable Inbox/);
+  for (const source of ["slack", "superhuman"]) {
+    const section = container.querySelector(`#${source}`)!;
+    expect(section.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
+    await act(async () =>
+      section.querySelector<HTMLElement>('span[data-slot="tooltip-trigger"]')!.focus(),
+    );
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Select a project above.");
+  }
+  expect(state.configure).not.toHaveBeenCalled();
 });
 
 it("automatically includes configured sources without a separate notification switch", async () => {
