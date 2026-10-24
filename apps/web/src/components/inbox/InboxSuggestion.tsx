@@ -55,7 +55,14 @@ function ResearchProgress() {
         stroke={`url(#${gradient})`}
       >
         <defs>
-          <linearGradient id={gradient} x1="0%" x2="100%" spreadMethod="reflect">
+          {/* Horizontal base strokes have zero-height bounds, so objectBoundingBox cannot paint them. */}
+          <linearGradient
+            id={gradient}
+            gradientUnits="userSpaceOnUse"
+            x1="0%"
+            x2="100%"
+            spreadMethod="reflect"
+          >
             <stop offset="0%" className={styles.gradientStart} />
             <stop offset="45%" className={styles.gradientMiddle} />
             <stop offset="75%" className={styles.gradientEnd} />
