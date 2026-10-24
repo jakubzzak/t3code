@@ -53,7 +53,8 @@ const FileTreeRow = memo(function FileTreeRow(props: {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={node.path}
+      accessibilityLabel={`${node.path}${node.link ? ", symbolic link" : ""}${node.link?.unavailable ? ", target unavailable" : ""}`}
+      accessibilityHint={node.link?.target}
       accessibilityState={{ selected: props.selected }}
       onPressIn={() => {
         if (node.kind === "file") {
@@ -62,7 +63,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       }}
       onPress={() => {
         if (node.kind === "directory") {
-          props.onPressDirectory(node.path, !props.expanded);
+          if (!node.link?.unavailable) props.onPressDirectory(node.path, !props.expanded);
           return;
         }
         props.onPressFile(node.path);
@@ -83,7 +84,19 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       ) : (
         <View className="w-3" />
       )}
-      <PierreEntryIcon path={node.path} kind={node.kind} size={17} />
+      <View>
+        <PierreEntryIcon path={node.path} kind={node.kind} size={17} />
+        {node.link ? (
+          <View className="absolute -bottom-1 -right-1">
+            <SymbolView
+              name="arrow.turn.up.right"
+              size={11}
+              tintColorClassName="accent-icon-muted"
+              type="monochrome"
+            />
+          </View>
+        ) : null}
+      </View>
       <Text
         className={cn(
           "min-w-0 flex-1 text-sm leading-normal",
@@ -97,6 +110,9 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       >
         {node.name}
       </Text>
+      {node.link?.unavailable ? (
+        <Text className="text-xs text-foreground-muted">Unavailable</Text>
+      ) : null}
       {node.kind === "directory" && props.expanded && props.loading ? (
         <AppActivityIndicator size="small" accessibilityLabel={`Loading ${node.name}`} />
       ) : null}
@@ -272,7 +288,7 @@ export function FileTreeBrowser(props: {
           ) : null}
           {props.searchTruncated ? (
             <Text className="mx-4 my-2 text-xs text-foreground-muted">
-              More search results available. Refine your search to see them.
+              Search results are incomplete. Refine your search or browse folders.
             </Text>
           ) : null}
         </>

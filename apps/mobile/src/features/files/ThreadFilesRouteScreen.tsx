@@ -45,6 +45,7 @@ import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { ThreadInspectorContentStack } from "../threads/thread-inspector-content-stack";
 import { FileTreeBrowser } from "./FileTreeBrowser";
+import { useFileSearchOptions } from "./FileSearchOptions";
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
@@ -66,6 +67,7 @@ import {
 import { useWorkspaceFileAssetUrlState } from "./workspaceFileAssetUrl";
 
 function FilesBrowserHeader(props: {
+  readonly settings: ReturnType<typeof useFileSearchOptions>;
   readonly projectName: string;
   readonly searchQuery: string;
   readonly onSearchQueryChange: (query: string) => void;
@@ -86,17 +88,20 @@ function FilesBrowserHeader(props: {
         closeAccessibilityLabel: "Close file search",
         clearAccessibilityLabel: "Clear file search",
       }}
-      menus={
-        Platform.OS === "android"
-          ? [
-              {
-                title: "File options",
-                icon: "ellipsis",
-                items: [{ id: "refresh", title: "Refresh files", onPress: props.onRefresh }],
-              },
-            ]
-          : undefined
-      }
+      menus={[
+        {
+          title: "File search options",
+          icon: props.settings.active
+            ? "line.3.horizontal.decrease.circle.fill"
+            : "slider.horizontal.3",
+          items: props.settings.items,
+        },
+        {
+          title: "File options",
+          icon: "ellipsis",
+          items: [{ id: "refresh", title: "Refresh files", onPress: props.onRefresh }],
+        },
+      ]}
     />
   );
 }
@@ -226,6 +231,7 @@ function FileContent(props: {
   readonly threadId: ThreadId | null;
   readonly initialLine: number | null;
   readonly truncated: boolean;
+  readonly readOnly: boolean;
   readonly onRefresh?: () => Promise<void> | void;
 }) {
   // Reopening a mutable host file must not reuse a poster from an earlier visit.
@@ -313,7 +319,7 @@ function FileContent(props: {
       ) : null}
       {props.activeMode === "preview" && isMarkdown ? (
         <FileMarkdownPreview
-          readOnly={props.truncated}
+          readOnly={props.truncated || props.readOnly}
           cwd={props.cwd}
           environmentId={props.environmentId}
           markdown={props.fileContents}
@@ -444,10 +450,12 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     sessionError: fileAccessSession.error,
   });
   const { canReadFiles } = fileAccess;
+  const settings = useFileSearchOptions(`${environmentId}:${threadId}`);
   const entriesQuery = useFileTreeEntries({
     environmentId,
     cwd: !canReadFiles || fileInspector.supported ? null : cwd,
     searchQuery,
+    files: settings.options,
   });
   const handleReturnToThread = useCallback(() => {
     if (navigation.canGoBack()) {
@@ -489,6 +497,8 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     (headerInset: number) =>
       environmentId !== null && cwd !== null ? (
         <ThreadFileNavigatorPane
+          key={`${environmentId}:${threadId}`}
+          chatKey={`${environmentId}:${threadId}`}
           cwd={cwd}
           environmentId={environmentId}
           headerInset={headerInset}
@@ -497,7 +507,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
           onSelectFile={handleSelectFile}
         />
       ) : null,
-    [cwd, environmentId, handleSelectFile, projectName],
+    [cwd, environmentId, handleSelectFile, projectName, threadId],
   );
   const handlePreviewFile = useCallback(
     (relativePath: string) => {
@@ -558,6 +568,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
   const content = (
     <>
       <FilesBrowserHeader
+        settings={settings}
         projectName={projectName}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
@@ -708,11 +719,12 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
       needsFileContents
       ? projectEnvironment.readFile({
           environmentId,
-          input: { cwd, relativePath },
+          input: { cwd, relativePath, followLinks: true },
         })
       : null,
   );
-  const fileData = fileQuery.data as ProjectReadFileResult | null;
+  const lastFileData = fileQuery.data as ProjectReadFileResult | null;
+  const fileData = lastFileData?.readOnly && fileQuery.error ? null : lastFileData;
 
   const handleSelectFile = useCallback(
     (path: string) => {
@@ -742,6 +754,8 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     (headerInset: number) =>
       fileInspector.supported && environmentId !== null && cwd !== null ? (
         <ThreadFileNavigatorPane
+          key={`${environmentId}:${threadId}`}
+          chatKey={`${environmentId}:${threadId}`}
           cwd={cwd}
           environmentId={environmentId}
           headerInset={headerInset}
@@ -750,7 +764,15 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           onSelectFile={handleSelectFile}
         />
       ) : undefined,
-    [cwd, environmentId, fileInspector.supported, handleSelectFile, projectName, relativePath],
+    [
+      cwd,
+      environmentId,
+      fileInspector.supported,
+      handleSelectFile,
+      projectName,
+      relativePath,
+      threadId,
+    ],
   );
   // The workspace inspector column spans the full window height. On iOS the
   // pane brings its own nested native header; elsewhere it pads itself below
@@ -968,6 +990,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           relativePath={relativePath}
           threadId={threadId}
           truncated={fileData?.truncated ?? false}
+          readOnly={fileData?.readOnly ?? false}
           onRefresh={() => fileQuery.refresh()}
         />
       </MaterialScreenContent>

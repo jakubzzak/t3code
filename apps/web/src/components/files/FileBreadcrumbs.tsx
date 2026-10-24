@@ -1,7 +1,7 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { ArrowLeftIcon, ChevronRightIcon } from "lucide-react";
+import { ArrowLeftIcon, ChevronRightIcon, CornerUpRightIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { PierreEntryIcon } from "~/components/chat/PierreEntryIcon";
@@ -153,7 +153,19 @@ function BreadcrumbMenuContent(props: {
               const isCurrentFile = entry.kind === "file" && entry.path === props.currentFilePath;
               const row = (
                 <>
-                  <PierreEntryIcon pathValue={entry.path} kind={entry.kind} theme={resolvedTheme} />
+                  <span className="relative shrink-0">
+                    <PierreEntryIcon
+                      pathValue={entry.path}
+                      kind={entry.kind}
+                      theme={resolvedTheme}
+                    />
+                    {entry.link ? (
+                      <CornerUpRightIcon
+                        aria-hidden="true"
+                        className="absolute -bottom-1 -right-1 size-2.5"
+                      />
+                    ) : null}
+                  </span>
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -167,7 +179,7 @@ function BreadcrumbMenuContent(props: {
                     >
                       {entry.label}
                     </TooltipTrigger>
-                    <TooltipPopup side="right">{entry.path}</TooltipPopup>
+                    <TooltipPopup side="right">{entry.link?.target ?? entry.path}</TooltipPopup>
                   </Tooltip>
                 </>
               );
@@ -175,6 +187,12 @@ function BreadcrumbMenuContent(props: {
                 <MenuItem
                   key={entry.path}
                   closeOnClick={false}
+                  disabled={entry.link?.unavailable}
+                  aria-label={
+                    entry.link
+                      ? `${entry.label}, symbolic link${entry.link.unavailable ? ", target unavailable" : ""}`
+                      : undefined
+                  }
                   onClick={() => props.onDirectoryChange(entry.path)}
                 >
                   {row}
@@ -186,6 +204,11 @@ function BreadcrumbMenuContent(props: {
                   value={entry.path}
                   closeOnClick
                   aria-current={isCurrentFile ? "page" : undefined}
+                  aria-label={
+                    entry.link
+                      ? `${entry.label}, symbolic link${entry.link.unavailable ? ", target unavailable" : ""}`
+                      : undefined
+                  }
                 >
                   <span className="flex min-w-0 items-center gap-2">{row}</span>
                 </MenuRadioItem>

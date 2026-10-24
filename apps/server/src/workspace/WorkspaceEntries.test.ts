@@ -95,6 +95,156 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
     vi.restoreAllMocks();
   });
 
+  describe("Files discovery", () => {
+    it.effect("applies independent ignored and test switches before the result limit", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ git: true });
+        yield* writeTextFile(cwd, ".gitignore", ".env\nignored/\n");
+        for (const name of [
+          ".env",
+          ".env.example",
+          "button.test.ts",
+          "button.spec.tsx",
+          "button.ts",
+          "contest.ts",
+          "buttonXspecYts",
+          "uppercase.TEST.ts",
+          "src/node_modules/hidden.ts",
+          "ignored/button.test.ts",
+          "tests.spec.data/button.ts",
+          "node_modules/button.ts",
+        ]) {
+          yield* writeTextFile(cwd, name);
+        }
+        const service = yield* WorkspaceEntries.WorkspaceEntries;
+        for (const includeIgnored of [false, true]) {
+          for (const includeTests of [false, true]) {
+            const result = yield* service.search({
+              cwd,
+              query: "",
+              limit: 100,
+              files: { includeIgnored, includeTests },
+            });
+            const names = result.entries.map((entry) => entry.path);
+            expect(names.includes(".env")).toBe(includeIgnored);
+            expect(names.includes("button.test.ts")).toBe(includeTests);
+            expect(names.includes("button.spec.tsx")).toBe(includeTests);
+            expect(names.includes("ignored/button.test.ts")).toBe(includeIgnored && includeTests);
+            expect(names).toContain("tests.spec.data/button.ts");
+            expect(names).toEqual(
+              expect.arrayContaining(["contest.ts", "buttonXspecYts", "uppercase.TEST.ts"]),
+            );
+            expect(names.some((name) => name.includes("node_modules"))).toBe(false);
+          }
+        }
+        expect(
+          (yield* service.search({
+            cwd,
+            query: "button",
+            limit: 1,
+            kind: "file",
+            files: { includeIgnored: false, includeTests: false },
+          })).entries[0]?.path,
+        ).toBe("button.ts");
+        yield* writeTextFile(cwd, "new.ts");
+        expect(
+          (yield* service.search({
+            cwd,
+            query: "new.ts",
+            filesRevision: "after-refresh",
+            limit: 10,
+            files: { includeIgnored: true, includeTests: true },
+          })).entries.map((entry) => entry.path),
+        ).toContain("new.ts");
+      }),
+    );
+
+    it.effect(
+      "shows external, broken and cyclic links and prunes dependency aliases before traversal",
+      () =>
+        Effect.gen(function* () {
+          if ((yield* HostProcess.Platform) === "win32") return;
+          const cwd = yield* makeTempDir({ git: true });
+          const outside = yield* makeTempDir();
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          yield* writeTextFile(outside, "linked.ts", "external");
+          yield* writeTextFile(cwd, "node_modules/pkg/dependency.ts");
+          yield* fs.symlink(outside, path.join(cwd, "shared"));
+          yield* fs.symlink(path.join(outside, "linked.ts"), path.join(cwd, "linked.ts"));
+          yield* fs.symlink(path.join(outside, "missing"), path.join(cwd, "broken"));
+          yield* fs.symlink(cwd, path.join(cwd, "cycle"));
+          yield* fs.symlink(path.join(cwd, "node_modules"), path.join(cwd, "dependencies"));
+          const service = yield* WorkspaceEntries.WorkspaceEntries;
+          const root = yield* service.list({ cwd, directoryPath: "", followLinks: true });
+          expect(root.entries).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                path: "shared",
+                kind: "directory",
+                link: expect.objectContaining({ target: outside }),
+              }),
+              expect.objectContaining({
+                path: "broken",
+                link: expect.objectContaining({ unavailable: true }),
+              }),
+              expect.objectContaining({
+                path: "cycle",
+                link: expect.objectContaining({ unavailable: true }),
+              }),
+            ]),
+          );
+          expect(
+            (yield* service.list({ cwd, directoryPath: "shared", followLinks: true })).entries,
+          ).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ path: "shared/linked.ts", readOnly: true }),
+            ]),
+          );
+          vi.mocked(NodeFSP.readdir).mockClear();
+          const result = yield* service.search({
+            cwd,
+            query: "",
+            limit: 100,
+            files: { includeIgnored: true, includeTests: true },
+          });
+          expect(result.entries.map((entry) => entry.path)).toContain("shared/linked.ts");
+          expect(result.entries.map((entry) => entry.path)).not.toContain("dependencies");
+          expect(
+            (yield* service.search({
+              cwd: path.join(cwd, "dependencies"),
+              query: "",
+              limit: 100,
+              files: { includeIgnored: true, includeTests: true },
+            })).entries,
+          ).toEqual([]);
+          expect(
+            vi
+              .mocked(NodeFSP.readdir)
+              .mock.calls.some(
+                ([directory]) =>
+                  String(directory).includes("node_modules") ||
+                  String(directory).endsWith("/dependencies"),
+              ),
+          ).toBe(false);
+          expect(
+            (yield* service.list({ cwd, directoryPath: "node_modules", followLinks: true }))
+              .entries,
+          ).toEqual(
+            expect.arrayContaining([expect.objectContaining({ path: "node_modules/pkg" })]),
+          );
+          yield* fs.remove(path.join(cwd, "broken"));
+          yield* fs.symlink(path.join(outside, "linked.ts"), path.join(cwd, "broken"));
+          yield* service.refresh(cwd);
+          expect(
+            (yield* service.list({ cwd, directoryPath: "", followLinks: true })).entries.find(
+              (entry) => entry.path === "broken",
+            )?.link?.unavailable,
+          ).not.toBe(true);
+        }),
+    );
+  });
+
   describe("list", () => {
     it.effect("lists immediate children including ignored and empty directories", () =>
       Effect.gen(function* () {

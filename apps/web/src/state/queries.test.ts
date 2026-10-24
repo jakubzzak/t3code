@@ -22,5 +22,25 @@ describe("areProjectPathSearchTargetsEqual", () => {
     expect(areProjectPathSearchTargetsEqual(target, { ...target, query: "readme" })).toBe(false);
     expect(areProjectPathSearchTargetsEqual(target, { ...target, kind: "file" })).toBe(false);
     expect(areProjectPathSearchTargetsEqual(target, { ...target, imageOnly: true })).toBe(false);
+    const files = { ...target, files: { includeIgnored: false, includeTests: false } };
+    expect(areProjectPathSearchTargetsEqual(files, { ...files, files: { ...files.files } })).toBe(
+      true,
+    );
+    expect(
+      areProjectPathSearchTargetsEqual(files, {
+        ...files,
+        files: { includeIgnored: true, includeTests: false },
+      }),
+    ).toBe(false);
+    expect(
+      areProjectPathSearchTargetsEqual(files, {
+        ...files,
+        files: { includeIgnored: false, includeTests: true },
+      }),
+    ).toBe(false);
+    expect(areProjectPathSearchTargetsEqual(files, { ...files, filesRevision: "refresh" })).toBe(
+      false,
+    );
+    expect(areProjectPathSearchTargetsEqual(target, files)).toBe(false);
   });
 });

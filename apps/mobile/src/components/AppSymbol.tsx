@@ -151,6 +151,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "arrow.triangle.pull": IconGitPullRequest,
   "square.3.layers.3d": IconStack2,
   "arrow.turn.left.up": IconArrowBackUp,
+  "arrow.turn.up.right": IconArrowForwardUp,
   "arrow.up": IconArrowUp,
   "arrow.up.circle": IconArrowUpCircle,
   "arrow.up.left.and.arrow.down.right": IconArrowsDiagonal2,

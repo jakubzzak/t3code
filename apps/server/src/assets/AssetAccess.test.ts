@@ -717,6 +717,41 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect.skipIf(!symlinksSupported)(
+    "previews an external Files link with an exact-file URL only on opt-in",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped();
+        const outside = yield* fs.makeTempDirectoryScoped();
+        yield* fs.writeFileString(path.join(outside, "report.html"), "<p>linked</p>");
+        yield* fs.writeFileString(path.join(outside, "private.html"), "<p>private</p>");
+        yield* fs.symlink(path.join(outside, "report.html"), path.join(root, "alias.html"));
+        const resource = {
+          _tag: "workspace-file" as const,
+          threadId: ThreadId.make("thread-1"),
+          path: "alias.html",
+        };
+        expect(
+          (yield* issueAssetUrl({ resource, workspaceRoot: root }).pipe(Effect.flip))._tag,
+        ).toBe("AssetWorkspaceAssetNotFoundError");
+        const result = yield* issueAssetUrl({
+          resource: { ...resource, followLinks: true },
+          workspaceRoot: root,
+        });
+        const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const separatorIndex = suffix.indexOf("/");
+        const token = suffix.slice(0, separatorIndex);
+        const entryPath = decodeURIComponent(suffix.slice(separatorIndex + 1));
+        expect(yield* resolveAsset(token, entryPath)).toMatchObject({
+          kind: "file",
+          path: yield* fs.realPath(path.join(outside, "report.html")),
+        });
+        expect(yield* resolveAsset(token, "private.html")).toBeNull();
+      }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("rejects workspace files outside the authorized root", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

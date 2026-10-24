@@ -28,7 +28,10 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
       if (!refresh && loaded.current.has(directoryPath)) return Promise.resolve();
       loaded.current.add(directoryPath);
       requested.current.add(directoryPath);
-      const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
+      const atom = projectEnvironment.listEntries({
+        environmentId,
+        input: { cwd, directoryPath, followLinks: true },
+      });
       setPending((count) => count + 1);
       if (!refresh) setLoadingDirectories((previous) => new Set(previous).add(directoryPath));
       const request = (async () => {

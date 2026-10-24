@@ -206,6 +206,8 @@ export function usePaginatedBranches(target: VcsRefTarget) {
 type ProjectPathSearchTarget = ComposerPathSearchTarget & {
   readonly kind?: ProjectEntryKind | undefined;
   readonly imageOnly?: boolean | undefined;
+  readonly filesRevision?: string | undefined;
+  readonly files?: { readonly includeIgnored: boolean; readonly includeTests: boolean } | undefined;
 };
 
 export function areProjectPathSearchTargetsEqual(
@@ -217,7 +219,10 @@ export function areProjectPathSearchTargetsEqual(
     left.cwd === right.cwd &&
     left.query === right.query &&
     left.kind === right.kind &&
-    left.imageOnly === right.imageOnly
+    left.imageOnly === right.imageOnly &&
+    left.filesRevision === right.filesRevision &&
+    left.files?.includeIgnored === right.files?.includeIgnored &&
+    left.files?.includeTests === right.files?.includeTests
   );
 }
 
@@ -227,6 +232,8 @@ export function useProjectPathSearch(
   options?: { readonly allowEmptyQuery?: boolean },
 ) {
   const allowEmptyQuery = options?.allowEmptyQuery === true;
+  const includeIgnored = target.files?.includeIgnored;
+  const includeTests = target.files?.includeTests;
   const normalizedTarget = useMemo(
     () => ({
       environmentId: target.environmentId,
@@ -234,8 +241,22 @@ export function useProjectPathSearch(
       query: target.query == null ? null : target.query.trim(),
       kind: target.kind,
       imageOnly: target.imageOnly,
+      files:
+        includeIgnored === undefined || includeTests === undefined
+          ? undefined
+          : { includeIgnored, includeTests },
+      filesRevision: target.filesRevision,
     }),
-    [target.cwd, target.environmentId, target.imageOnly, target.kind, target.query],
+    [
+      target.cwd,
+      target.environmentId,
+      target.imageOnly,
+      target.kind,
+      target.query,
+      includeIgnored,
+      includeTests,
+      target.filesRevision,
+    ],
   );
   const debouncedTarget = useDebouncedValue(normalizedTarget, PROJECT_PATH_SEARCH_DEBOUNCE_MS);
   const fileAccess = useFilesystemReadAccess(debouncedTarget.environmentId);
@@ -253,6 +274,9 @@ export function useProjectPathSearch(
             limit,
             ...(debouncedTarget.kind ? { kind: debouncedTarget.kind } : {}),
             ...(debouncedTarget.imageOnly ? { imageOnly: true } : {}),
+            ...(debouncedTarget.files
+              ? { files: debouncedTarget.files, filesRevision: debouncedTarget.filesRevision }
+              : {}),
           },
         }
       : null;
@@ -263,6 +287,7 @@ export function useProjectPathSearch(
 
   return {
     entries: result.data?.entries ?? EMPTY_PROJECT_ENTRIES,
+    ancestors: result.data?.ancestors ?? EMPTY_PROJECT_ENTRIES,
     error:
       !hasTarget || fileAccess.isPending
         ? null

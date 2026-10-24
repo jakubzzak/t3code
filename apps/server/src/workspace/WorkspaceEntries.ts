@@ -26,6 +26,7 @@ import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
+import * as WorkspaceFiles from "./WorkspaceFiles.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
 
 export class WorkspaceEntriesWindowsPathUnsupportedError extends Schema.TaggedError<WorkspaceEntriesWindowsPathUnsupportedError>()(
@@ -140,6 +141,14 @@ export const make = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
   const vcsProcess = yield* VcsProcess.VcsProcess;
+  const files = yield* WorkspaceFiles.WorkspaceFiles;
+  const filesError = (error: WorkspaceFiles.WorkspaceFilesReadError) =>
+    new WorkspaceEntriesReadDirectoryError({
+      cwd: error.cwd,
+      partialPath: error.directoryPath,
+      parentPath: path.resolve(error.cwd, error.directoryPath),
+      cause: error,
+    });
 
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
     cwd: string,
@@ -152,6 +161,7 @@ export const make = Effect.gen(function* () {
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
         Effect.orElseSucceed(() => cwd),
       );
+      yield* files.refresh(normalizedCwd);
       for (const variant of WorkspaceSearchIndex.WORKSPACE_SEARCH_INDEX_VARIANTS) {
         const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, variant);
         if (!(yield* RcMap.has(workspaceSearchIndexes.rcMap, indexKey))) {
@@ -238,6 +248,10 @@ export const make = Effect.gen(function* () {
   const search: WorkspaceEntries["Service"]["search"] = Effect.fn("WorkspaceEntries.search")(
     function* (input) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+      if (input.files)
+        return yield* files
+          .search({ ...input, cwd: normalizedCwd })
+          .pipe(Effect.mapError(filesError));
       const normalizedQuery = normalizeSearchQuery(input.query, {
         trimLeadingPattern: /^[@./]+/,
       });
@@ -273,6 +287,10 @@ export const make = Effect.gen(function* () {
   const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(
     function* (input) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+      if (input.directoryPath !== undefined && input.followLinks)
+        return yield* files
+          .list(normalizedCwd, input.directoryPath)
+          .pipe(Effect.mapError(filesError));
       if (input.directoryPath !== undefined) {
         const directoryPath = input.directoryPath;
         const toError = (cause: unknown) =>
@@ -364,4 +382,5 @@ export const make = Effect.gen(function* () {
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(
   Layer.provide(WorkspaceSearchIndex.WorkspaceSearchIndexMap.layer),
   Layer.provide(VcsProcess.layer),
+  Layer.provide(WorkspaceFiles.layer),
 );

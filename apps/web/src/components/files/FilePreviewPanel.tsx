@@ -1465,7 +1465,7 @@ export default function FilePreviewPanel({
                 relativePath={relativePath}
                 threadRef={threadRef}
                 contents={file.data.contents}
-                readOnly={isHostFile || !canWriteFiles}
+                readOnly={isHostFile || file.data.readOnly === true || !canWriteFiles}
                 onPendingChange={onPendingChange}
               />
             ) : tableDelimiter && renderTable ? (
@@ -1475,7 +1475,7 @@ export default function FilePreviewPanel({
                 text={file.data.contents}
                 delimiter={tableDelimiter}
               />
-            ) : file.data.truncated || isHostFile || !canWriteFiles ? (
+            ) : file.data.truncated || file.data.readOnly || isHostFile || !canWriteFiles ? (
               <SourceFilePreview
                 name={relativePath}
                 text={file.data.contents}
@@ -1511,8 +1511,9 @@ export default function FilePreviewPanel({
             )}
           >
             <FileBrowserPanel
-              key={`${environmentId}:${cwd}`}
+              key={`${environmentId}:${cwd}:${typeof composerDraftTarget === "string" ? composerDraftTarget : composerDraftTarget.threadId}`}
               environmentId={environmentId}
+              chatKey={`${environmentId}:${typeof composerDraftTarget === "string" ? composerDraftTarget : composerDraftTarget.threadId}`}
               cwd={cwd}
               projectName={projectName}
               selectedPath={relativePath}

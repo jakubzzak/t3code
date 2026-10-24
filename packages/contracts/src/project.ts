@@ -251,6 +251,12 @@ export class ProjectMutationError extends Schema.TaggedError<ProjectMutationErro
 export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;
 
+export const FilesSearchOptions = Schema.Struct({
+  includeIgnored: Schema.Boolean,
+  includeTests: Schema.Boolean,
+});
+export type FilesSearchOptions = typeof FilesSearchOptions.Type;
+
 export const ProjectSearchEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // An empty query is a bounded browse: the index returns frecency-ordered
@@ -259,6 +265,9 @@ export const ProjectSearchEntriesInput = Schema.Struct({
   limit: PositiveInt.check(Schema.isLessThanOrEqualTo(PROJECT_SEARCH_ENTRIES_MAX_LIMIT)),
   kind: Schema.optional(ProjectEntryKind),
   imageOnly: Schema.optional(Schema.Boolean),
+  // Opt-in Files view policy; omitted preserves composer and legacy search behavior.
+  files: Schema.optional(FilesSearchOptions),
+  filesRevision: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
 });
 export type ProjectSearchEntriesInput = typeof ProjectSearchEntriesInput.Type;
 
@@ -266,11 +275,19 @@ export const ProjectEntry = Schema.Struct({
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,
   ignored: Schema.optional(Schema.Boolean),
+  readOnly: Schema.optional(Schema.Boolean),
+  link: Schema.optional(
+    Schema.Struct({
+      target: Schema.String,
+      unavailable: Schema.optional(Schema.Boolean),
+    }),
+  ),
 });
 export type ProjectEntry = typeof ProjectEntry.Type;
 
 export const ProjectSearchEntriesResult = Schema.Struct({
   entries: Schema.Array(ProjectEntry),
+  ancestors: Schema.optional(Schema.Array(ProjectEntry)),
   truncated: Schema.Boolean,
 });
 export type ProjectSearchEntriesResult = typeof ProjectSearchEntriesResult.Type;
@@ -313,6 +330,7 @@ export const ProjectListEntriesInput = Schema.Struct({
   // Present for immediate filesystem children, including ignored entries; empty means root.
   // Omitted preserves the indexed recursive listing used by older clients.
   directoryPath: Schema.optional(TrimmedString),
+  followLinks: Schema.optional(Schema.Boolean),
 });
 export type ProjectListEntriesInput = typeof ProjectListEntriesInput.Type;
 
@@ -438,10 +456,12 @@ export const ProjectReadFileInput = Schema.Struct({
   // Workspace-relative, or an absolute host path for a file outside the
   // workspace. Only workspace-relative paths can be written back.
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  followLinks: Schema.optional(Schema.Boolean),
 });
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
 
 export const ProjectReadFileResult = Schema.Struct({
+  readOnly: Schema.optional(Schema.Boolean),
   relativePath: TrimmedNonEmptyString,
   contents: Schema.String,
   byteLength: NonNegativeInt,

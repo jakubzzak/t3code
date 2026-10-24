@@ -62,7 +62,7 @@ function getProjectEntriesQueryAtom(
 ) {
   return projectEnvironment.listEntries({
     environmentId,
-    input: { cwd, ...(directoryPath !== undefined ? { directoryPath } : {}) },
+    input: { cwd, ...(directoryPath !== undefined ? { directoryPath, followLinks: true } : {}) },
   });
 }
 
@@ -73,7 +73,7 @@ export function getProjectFileQueryAtom(
 ) {
   return projectEnvironment.readFile({
     environmentId,
-    input: { cwd, relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH },
+    input: { cwd, relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH, followLinks: true },
   });
 }
 
@@ -162,7 +162,7 @@ export function resolveProjectFileQueryData(
   relativePath: string | null,
   data: ProjectReadFileResult | null,
 ): ProjectReadFileResult | null {
-  if (relativePath === null) return data;
+  if (relativePath === null || data?.readOnly) return data;
   return appAtomRegistry.get(optimisticFileAtom(environmentId, cwd, relativePath))?.data ?? data;
 }
 
@@ -274,7 +274,13 @@ export function useProjectFileQuery(
   const readError = isProjectReadFileError(cause) ? cause : null;
 
   return {
-    data: canReadFiles ? (optimisticFile?.data ?? data) : null,
+    data: canReadFiles
+      ? data?.readOnly
+        ? cause === null
+          ? data
+          : null
+        : (optimisticFile?.data ?? data)
+      : null,
     error:
       !isQueryEnabled || fileAccess.isPending
         ? null
