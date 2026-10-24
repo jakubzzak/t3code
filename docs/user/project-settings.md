@@ -211,7 +211,7 @@ resolutions so patterns can inform suggestions for similar work in the same proj
 and chat context remains available with this option off; memory adds reuse of past resolutions.
 With memory enabled, record an outcome in the linked chat's Details to make it available to future
 processing. Turning memory off retains outcomes but stops history lookup.
-Suggested resolutions remain proposals; they are not sent or executed automatically.
+Suggested resolutions research relevant project files, retained project chats, collected Inbox messages, and supported source-control links after the summary appears. Research does not delay notification delivery. If research fails after three attempts, retry it from the notification without regenerating the summary. Suggestions remain proposals; they are not sent or executed automatically.
 
 Integration credentials are encrypted using the hosting machine's OS credential store. Allow
 access on that machine when prompted; remote clients cannot answer its OS prompt. A locked or

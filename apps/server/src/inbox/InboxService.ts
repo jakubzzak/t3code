@@ -24,6 +24,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as ServerSettings from "../serverSettings.ts";
 import * as InboxRepository from "./InboxRepository.ts";
 import * as InboxAnalysis from "./InboxAnalysis.ts";
+import * as InboxResearch from "./InboxResearch.ts";
 import * as InboxAgent from "./InboxAgent.ts";
 import { readableInboxItem, readableNotification } from "./notificationContent.ts";
 import {
@@ -69,12 +70,16 @@ export class InboxService extends Context.Service<
     /** Durable pending work is also drained explicitly by tests, without timers. */
     readonly drain: Effect.Effect<void, InboxError>;
     readonly drainAnalysis: Effect.Effect<void, InboxError>;
+    readonly drainResearch: Effect.Effect<void, InboxError>;
   }
 >()("t3/inbox/InboxService") {}
 const make = Effect.gen(function* () {
   const repository = yield* InboxRepository.InboxRepository;
   const agent = yield* InboxAgent.InboxAgent;
   const analyzer = yield* InboxAnalysis.InboxAnalysis;
+  const researcher = yield* InboxResearch.InboxResearch;
+  const researchPermits = yield* Semaphore.make(2);
+  const researchDrainPermit = yield* Semaphore.make(1);
   const analysisPermits = yield* Semaphore.make(2);
   const analysisDrainPermit = yield* Semaphore.make(1);
   const settings = yield* ServerSettings.ServerSettingsService;
@@ -99,6 +104,26 @@ const make = Effect.gen(function* () {
     );
   const save = (notification: InboxNotification) =>
     repository.put({ ...notification, revision: notification.revision + 1 });
+  // Queue research only once a client asks to display a completed summary, including old records.
+  const prepareResearch = (notification: InboxNotification) =>
+    Effect.gen(function* () {
+      if (!notification.analysis || notification.suggestionResearch) return notification;
+      const config = yield* readProjectSettings(notification.projectId);
+      if (!config.inboxSummaryEnabled || !config.inboxPreResolution) return notification;
+      const next: InboxNotification = {
+        ...notification,
+        suggestionResearch: {
+          status: notification.analysis.suggestions.some((text) => text.trim())
+            ? "ready"
+            : "researching",
+          attempts: 0,
+          version: 0,
+          retryAt: null,
+        },
+      };
+      yield* repository.put(next);
+      return next;
+    });
   const reconcile = (item: InboxNotification) =>
     Effect.gen(function* () {
       let next = readableNotification(item);
@@ -347,8 +372,36 @@ const make = Effect.gen(function* () {
                 analysisRetryAt: null,
                 analysisVersion: current.analysisVersion + 1,
               };
+              {
+                const { suggestionResearch: _research, ...reset } = next;
+                next = reset;
+              }
               undoable = false;
               break;
+            case "retry-suggestion": {
+              const config = yield* readProjectSettings(input.projectId);
+              if (
+                !config.inboxSummaryEnabled ||
+                !config.inboxPreResolution ||
+                !current.analysis ||
+                current.suggestionResearch?.status !== "unavailable"
+              )
+                return yield* new InboxError({
+                  detail: "There is no unavailable suggestion to retry.",
+                });
+              next = {
+                ...current,
+                analysis: { ...current.analysis, suggestions: [] },
+                suggestionResearch: {
+                  status: "researching",
+                  attempts: 0,
+                  version: current.suggestionResearch.version + 1,
+                  retryAt: null,
+                },
+              };
+              undoable = false;
+              break;
+            }
             case "outcome":
               next = { ...current, confirmedOutcome: action.text.trim() || null };
               undoable = false;
@@ -380,6 +433,7 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.tap(() => kick),
         Effect.tap(() => kickAnalysis),
+        Effect.tap(() => kickResearch),
       );
   const analyzing = new Map<string, Deferred.Deferred<void>>();
   const analyze = (notification: InboxNotification): Effect.Effect<void> =>
@@ -502,73 +556,223 @@ const make = Effect.gen(function* () {
     Effect.forkIn(scope),
     Effect.asVoid,
   );
-  yield* Effect.all([drain, drainAnalysis], { concurrency: 2 }).pipe(
+  const researching = new Map<string, Deferred.Deferred<void>>();
+  const research = (notification: InboxNotification): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      const key = `${notification.id}:${notification.analysisVersion}:${notification.suggestionResearch?.version}`;
+      const inFlight = researching.get(key);
+      if (inFlight) return Deferred.await(inFlight);
+      const done = Deferred.makeUnsafe<void>();
+      researching.set(key, done);
+      return Effect.gen(function* () {
+        const config = yield* readProjectSettings(notification.projectId);
+        if (!config.inboxEnabled || !config.inboxSummaryEnabled || !config.inboxPreResolution)
+          return;
+        const claimed = yield* mutex.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* repository.get(notification.projectId, notification.id);
+            const state = current?.suggestionResearch;
+            const now = yield* Clock.currentTimeMillis;
+            if (
+              !current?.analysis ||
+              current.analysisVersion !== notification.analysisVersion ||
+              !state ||
+              state.version !== notification.suggestionResearch?.version ||
+              state.status !== "researching" ||
+              (state.retryAt && Date.parse(state.retryAt) > now)
+            )
+              return null;
+            if (state.attempts >= 3) {
+              yield* repository.put({
+                ...current,
+                suggestionResearch: { ...state, status: "unavailable", retryAt: null },
+              });
+              return null;
+            }
+            const next = {
+              ...current,
+              suggestionResearch: {
+                ...state,
+                attempts: state.attempts + 1,
+                retryAt: DateTime.formatIso(DateTime.makeUnsafe(now + 5 * 60_000)),
+              },
+            };
+            yield* repository.put(next);
+            return next;
+          }),
+        );
+        if (!claimed) return;
+        const result = yield* researcher
+          .research(claimed)
+          .pipe(Effect.timeout("4 minutes"), Effect.result);
+        const delay = yield* mutex.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* repository.get(notification.projectId, notification.id);
+            const state = current?.suggestionResearch;
+            if (
+              !current?.analysis ||
+              current.analysisVersion !== claimed.analysisVersion ||
+              !state ||
+              state.version !== claimed.suggestionResearch.version ||
+              state.attempts !== claimed.suggestionResearch.attempts ||
+              state.status !== "researching"
+            )
+              return null;
+            const exhausted = state.attempts >= 3;
+            const delay = state.attempts * 5000;
+            const suggestions =
+              result._tag === "Success"
+                ? result.success.map((text) => text.trim()).filter(Boolean)
+                : [];
+            // Research annotates the current content; it must not invalidate a pending triage action.
+            yield* repository.put({
+              ...current,
+              analysis: { ...current.analysis, suggestions },
+              suggestionResearch: {
+                ...state,
+                status:
+                  result._tag === "Success"
+                    ? suggestions.length
+                      ? "ready"
+                      : "empty"
+                    : exhausted
+                      ? "unavailable"
+                      : "researching",
+                retryAt:
+                  result._tag === "Failure" && !exhausted
+                    ? DateTime.formatIso(
+                        DateTime.makeUnsafe((yield* Clock.currentTimeMillis) + delay),
+                      )
+                    : null,
+              },
+            });
+            return result._tag === "Failure" && !exhausted ? delay : null;
+          }),
+        );
+        if (delay !== null)
+          yield* Effect.sleep(delay).pipe(
+            Effect.andThen(drainResearch),
+            Effect.catch(() => Effect.void),
+            Effect.forkIn(scope),
+          );
+      }).pipe(
+        researchPermits.withPermits(1),
+        Effect.catch(() => Effect.logWarning("Inbox suggestion research failed")),
+        Effect.ensuring(
+          Effect.sync(() => researching.delete(key)).pipe(
+            Effect.andThen(Deferred.succeed(done, undefined)),
+          ),
+        ),
+      );
+    });
+  const drainResearch = researchDrainPermit.withPermits(1)(
+    Effect.gen(function* () {
+      const config = yield* settings.getSettings.pipe(
+        Effect.mapError(
+          (cause) => new InboxError({ detail: "Could not read project settings.", cause }),
+        ),
+      );
+      const projects = Object.keys(config.projectSettingsOverrides)
+        .map((id) => ProjectId.make(id))
+        .filter((id) => {
+          const project = resolveProjectSettings(config, id).settings;
+          return project.inboxEnabled && project.inboxSummaryEnabled && project.inboxPreResolution;
+        });
+      yield* Effect.forEach(yield* repository.pendingResearch(projects), research, {
+        concurrency: 2,
+        discard: true,
+      });
+      yield* Effect.forEach([...researching.values()], Deferred.await, { discard: true });
+    }),
+  );
+  let researchDraining = false;
+  const kickResearch = Effect.suspend(() => {
+    if (researchDraining) return Effect.void;
+    researchDraining = true;
+    return drainResearch.pipe(
+      Effect.catch(() => Effect.logWarning("Inbox research queue failed")),
+      Effect.ensuring(
+        Effect.sync(() => {
+          researchDraining = false;
+        }),
+      ),
+      Effect.forkIn(scope),
+      Effect.asVoid,
+    );
+  });
+  yield* Effect.all([drain, drainAnalysis, drainResearch], { concurrency: 3 }).pipe(
     Effect.catch((error) => Effect.logWarning("Inbox recovery failed", { detail: error.detail })),
     Effect.repeat(Schedule.spaced("30 seconds")),
     Effect.forkIn(scope),
   );
   return InboxService.of({
     list: (input) =>
-      mutex.withPermits(1)(
-        Effect.gen(function* () {
-          yield* requireEnabled(input.projectId);
-          const config = yield* readProjectSettings(input.projectId);
-          const items = yield* repository.list(input.projectId, {
-            ...input,
-            summaryReady: config.inboxSummaryEnabled,
-          });
-          const result: InboxNotification[] = [];
-          for (const item of items) {
-            const next = yield* reconcile(item);
-            if (config.inboxSummaryEnabled && !next.analysis && !next.processingError) continue;
-            // List responses are bounded previews. Expanded rows fetch their full detail separately.
-            const { slackThread: _thread, linearIssue: _issue, ...preview } = next;
-            result.push({
-              ...preview,
-              items: next.items
-                .slice(-1)
-                .map(
-                  ({
-                    formattedContent: _formattedContent,
-                    slackThread: _thread,
-                    linearIssue: _issue,
-                    ...entry
-                  }) => ({
-                    ...entry,
-                    content: entry.content.slice(0, 320),
-                    ...(entry.slackMentions
-                      ? {
-                          slackMentions: entry.slackMentions.filter((mention) =>
-                            entry.formattedTitle?.includes(
-                              `slack-mention:${mention.kind}:${mention.id}`,
-                            ),
-                          ),
-                        }
-                      : {}),
-                  }),
-                ),
-              analysis: next.analysis
-                ? {
-                    ...next.analysis,
-                    summary:
-                      next.analysis.summary.length > 600
-                        ? `${next.analysis.summary.slice(0, 600)}…`
-                        : next.analysis.summary,
-                    suggestions: [],
-                  }
-                : null,
+      mutex
+        .withPermits(1)(
+          Effect.gen(function* () {
+            yield* requireEnabled(input.projectId);
+            const config = yield* readProjectSettings(input.projectId);
+            const items = yield* repository.list(input.projectId, {
+              ...input,
+              summaryReady: config.inboxSummaryEnabled,
             });
-          }
-          return result;
-        }),
-      ),
+            const result: InboxNotification[] = [];
+            for (const item of items) {
+              const next = yield* reconcile(item).pipe(Effect.flatMap(prepareResearch));
+              if (config.inboxSummaryEnabled && !next.analysis && !next.processingError) continue;
+              // List responses are bounded previews. Expanded rows fetch their full detail separately.
+              const { slackThread: _thread, linearIssue: _issue, ...preview } = next;
+              result.push({
+                ...preview,
+                items: next.items
+                  .slice(-1)
+                  .map(
+                    ({
+                      formattedContent: _formattedContent,
+                      slackThread: _thread,
+                      linearIssue: _issue,
+                      ...entry
+                    }) => ({
+                      ...entry,
+                      content: entry.content.slice(0, 320),
+                      ...(entry.slackMentions
+                        ? {
+                            slackMentions: entry.slackMentions.filter((mention) =>
+                              entry.formattedTitle?.includes(
+                                `slack-mention:${mention.kind}:${mention.id}`,
+                              ),
+                            ),
+                          }
+                        : {}),
+                    }),
+                  ),
+                analysis: next.analysis
+                  ? {
+                      ...next.analysis,
+                      summary:
+                        next.analysis.summary.length > 600
+                          ? `${next.analysis.summary.slice(0, 600)}…`
+                          : next.analysis.summary,
+                      suggestions: [],
+                    }
+                  : null,
+              });
+            }
+            return result;
+          }),
+        )
+        .pipe(Effect.tap(() => kickResearch)),
     get: (input) =>
-      mutex.withPermits(1)(
-        requireEnabled(input.projectId).pipe(
-          Effect.andThen(repository.get(input.projectId, input.id)),
-          Effect.flatMap((item) => (item ? reconcile(item) : Effect.succeed(null))),
-        ),
-      ),
+      mutex
+        .withPermits(1)(
+          requireEnabled(input.projectId).pipe(
+            Effect.andThen(repository.get(input.projectId, input.id)),
+            Effect.flatMap((item) =>
+              item ? reconcile(item).pipe(Effect.flatMap(prepareResearch)) : Effect.succeed(null),
+            ),
+          ),
+        )
+        .pipe(Effect.tap(() => kickResearch)),
     cacheLinearIssue: (input) =>
       mutex.withPermits(1)(
         Effect.gen(function* () {
@@ -648,6 +852,7 @@ const make = Effect.gen(function* () {
     mutate,
     drain,
     drainAnalysis,
+    drainResearch,
   });
 });
 export const layer = Layer.effect(InboxService, make);

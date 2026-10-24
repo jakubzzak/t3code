@@ -97,6 +97,30 @@ export const InboxAnalysis = Schema.Struct({
   modelSelection: ModelSelection,
   generatedAt: IsoDateTime,
 });
+export const InboxResearchStep = Schema.Struct({
+  request: Schema.NullOr(
+    Schema.Struct({
+      tool: Schema.Literals([
+        "search_project",
+        "read_project_file",
+        "search_chats",
+        "search_notifications",
+        "inspect_links",
+      ]),
+      query: Schema.String.check(Schema.isMaxLength(200)),
+    }),
+  ),
+  suggestions: Schema.Array(Schema.String.check(Schema.isMaxLength(4000))).check(
+    Schema.isMaxLength(10),
+  ),
+});
+export type InboxResearchStep = typeof InboxResearchStep.Type;
+export const InboxSuggestionResearch = Schema.Struct({
+  status: Schema.Literals(["researching", "ready", "empty", "unavailable"]),
+  version: NonNegativeInt,
+  attempts: NonNegativeInt,
+  retryAt: Schema.NullOr(IsoDateTime),
+});
 export const InboxState = Schema.Struct({
   read: Schema.Boolean,
   placement: InboxPlacement,
@@ -116,6 +140,7 @@ export const InboxNotification = Schema.Struct({
   state: InboxState,
   items: Schema.Array(InboxSourceItem),
   analysis: Schema.NullOr(InboxAnalysis),
+  suggestionResearch: Schema.optionalKey(InboxSuggestionResearch),
   processingError: Schema.NullOr(Schema.String),
   analysisAttempts: Schema.optionalKey(NonNegativeInt),
   analysisRetryAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
@@ -153,6 +178,7 @@ export const InboxMutation = Schema.Union([
   Schema.Struct({ type: Schema.Literal("undo"), commandId: CommandId }),
   Schema.Struct({ type: Schema.Literal("retry") }),
   Schema.Struct({ type: Schema.Literal("reprocess") }),
+  Schema.Struct({ type: Schema.Literal("retry-suggestion") }),
   Schema.Struct({
     type: Schema.Literal("outcome"),
     text: Schema.String.check(Schema.isMaxLength(8000)),

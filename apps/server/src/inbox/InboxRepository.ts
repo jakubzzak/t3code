@@ -55,6 +55,9 @@ export class InboxRepository extends Context.Service<
     readonly pendingAnalysis: (
       projects: ReadonlyArray<ProjectId>,
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
+    readonly pendingResearch: (
+      projects: ReadonlyArray<ProjectId>,
+    ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly put: (notification: InboxNotification) => Effect.Effect<void, InboxError>;
     readonly receipt: (commandId: CommandId) => Effect.Effect<Receipt | null, InboxError>;
     readonly commit: (
@@ -126,6 +129,17 @@ const make = Effect.gen(function* () {
         AND json_extract(payload_json, '$.analysis') IS NULL AND json_extract(payload_json, '$.processingError') IS NULL
         AND (json_extract(payload_json, '$.analysisRetryAt') IS NULL OR julianday(json_extract(payload_json, '$.analysisRetryAt')) <= julianday(${now}))
         ORDER BY updated_at ASC, id LIMIT 500`);
+          })
+        : Effect.succeed([]),
+    pendingResearch: (projects) =>
+      projects.length
+        ? Effect.gen(function* () {
+            const now = DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis));
+            return yield* rows(sql`SELECT payload_json FROM inbox_notifications WHERE ${sql.in("project_id", projects)}
+        AND json_extract(payload_json, '$.analysis') IS NOT NULL
+        AND json_extract(payload_json, '$.suggestionResearch.status')='researching'
+        AND (json_extract(payload_json, '$.suggestionResearch.retryAt') IS NULL OR julianday(json_extract(payload_json, '$.suggestionResearch.retryAt')) <= julianday(${now}))
+        ORDER BY updated_at DESC, id LIMIT 100`);
           })
         : Effect.succeed([]),
     put,

@@ -306,7 +306,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     );
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
-      const inboxAnalysis = operation === "generateInboxAnalysis";
+      const inboxAnalysis =
+        operation === "generateInboxAnalysis" || operation === "generateInboxResearch";
       const workingDirectory = inboxAnalysis
         ? yield* fileSystem
             .makeTempDirectoryScoped({ prefix: "t3code-codex-inbox-" })

@@ -33,7 +33,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
     const { operation, cwd: requestedCwd, prompt, modelSelection } = request;
     return Effect.gen(function* () {
       const cwd =
-        operation === "generateInboxAnalysis"
+        operation === "generateInboxAnalysis" || operation === "generateInboxResearch"
           ? yield* fs.makeTempDirectoryScoped({ prefix: "t3-pi-inbox-" })
           : requestedCwd;
       const resolvedLaunchArgs = resolvePiLaunchArgs(piSettings.launchArgs);

@@ -99,7 +99,8 @@ it.effect(
         [past.id],
       );
       assert.deepEqual(enabled.precedentIds, [past.id]);
-      assert.deepEqual(enabled.suggestions, ["Verify one reconnect retry."]);
+      assert.deepEqual(enabled.suggestions, []);
+      assert.equal(inputs[1]?.suggest, false);
       yield* settings.updateSettings({
         projectSettingsOverrides: {
           [projectId]: {

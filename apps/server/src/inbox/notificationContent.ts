@@ -34,8 +34,9 @@ export function readableNotification(notification: InboxNotification): InboxNoti
   const items = notification.items.map(readableInboxItem);
   if (items.every((item, index) => item === notification.items[index])) return notification;
   const changed = items.some((item, index) => item.content !== notification.items[index]?.content);
+  const { suggestionResearch: _research, ...withoutResearch } = notification;
   return {
-    ...notification,
+    ...(changed ? withoutResearch : notification),
     items,
     ...(changed
       ? {

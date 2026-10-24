@@ -146,7 +146,14 @@ export function InboxRow({
   );
   useEffect(() => {
     if (opened || focused) detail.refresh();
-  }, [opened, focused, n.revision, detail.refresh]);
+  }, [
+    opened,
+    focused,
+    n.revision,
+    n.suggestionResearch?.status,
+    n.suggestionResearch?.version,
+    detail.refresh,
+  ]);
   const item = n.items.at(-1);
   const fullDetail = isInboxDetailCurrent(n, detail.data) ? detail.data : null;
   const content = fullDetail ?? n;
@@ -240,6 +247,9 @@ export function InboxRow({
           expanded={focused}
           enabled={settings?.inboxSummaryEnabled ?? false}
           suggestionsEnabled={settings?.inboxPreResolution ?? false}
+          onRetrySuggestion={
+            canWrite && !pending ? () => onAction({ type: "retry-suggestion" }) : undefined
+          }
         />
       </div>
       <div className={styles.details} data-open={focused} inert={!focused} aria-hidden={!focused}>

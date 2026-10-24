@@ -1,5 +1,6 @@
 import { ingestInboxItem } from "./inboxState.ts";
 import * as Analysis from "./InboxAnalysis.ts";
+import * as Research from "./InboxResearch.ts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -34,6 +35,7 @@ const item: InboxSourceItem = {
   occurredAt: "2026-10-22T10:00:00Z",
 };
 const dependencies = Layer.mergeAll(
+  Layer.succeed(Research.InboxResearch, { research: () => Effect.succeed([]) }),
   Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)),
   Settings.layerTest({
     projectSettingsOverrides: {

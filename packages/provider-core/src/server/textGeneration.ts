@@ -1,5 +1,6 @@
 import type {
   InboxAnalysisContent,
+  InboxResearchStep,
   FileFilterGenerationInput,
   FileFilterGenerationResult,
   BranchNamingOptions,
@@ -128,6 +129,10 @@ export interface InboxAnalysisInput {
   instructions?: string;
 }
 export interface ProviderTextGeneration {
+  /** Tool requests are validated and executed by the server; the model itself remains tool-free. */
+  readonly generateInboxResearch?: (
+    input: InboxAnalysisInput,
+  ) => Effect.Effect<InboxResearchStep, TextGenerationError>;
   readonly generateInboxAnalysis?: (
     input: InboxAnalysisInput,
   ) => Effect.Effect<InboxAnalysisContent, TextGenerationError>;

@@ -15,6 +15,7 @@ import {
 import * as Inbox from "./InboxService.ts";
 import * as Repository from "./InboxRepository.ts";
 import * as Analysis from "./InboxAnalysis.ts";
+import * as Research from "./InboxResearch.ts";
 import * as Agent from "./InboxAgent.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
@@ -38,6 +39,7 @@ const fixture = (succeedAt = 0, hang = false, blockFirst = false) =>
     const entered = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
     const deps = Layer.mergeAll(
+      Layer.succeed(Research.InboxResearch, { research: () => Effect.succeed([]) }),
       Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)),
       Settings.layerTest({
         projectSettingsOverrides: {

@@ -203,7 +203,9 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
       // Titles and external summaries need only supplied data, not checkout configuration.
       const workingDirectory =
-        operation === "generateThreadTitle" || operation === "generateInboxAnalysis"
+        operation === "generateThreadTitle" ||
+        operation === "generateInboxAnalysis" ||
+        operation === "generateInboxResearch"
           ? yield* fileSystem
               .makeTempDirectoryScoped({ prefix: "t3code-claude-title-" })
               .pipe(
@@ -213,7 +215,10 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
               )
           : cwd;
       const managedMcpConfig = yield* hasClaudeManagedMcpConfig();
-      if (operation === "generateInboxAnalysis" && managedMcpConfig)
+      if (
+        (operation === "generateInboxAnalysis" || operation === "generateInboxResearch") &&
+        managedMcpConfig
+      )
         return yield* new TextGenerationError({
           operation,
           detail: "Tool-free Inbox summaries cannot run with managed Claude MCP servers.",

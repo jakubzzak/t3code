@@ -151,6 +151,7 @@ it.effect(
         mutate: () => Effect.die("Not used"),
         drain: Effect.void,
         drainAnalysis: Effect.void,
+        drainResearch: Effect.void,
         ingest: (_project, items) =>
           Effect.sync(() => {
             imported.push(...items);

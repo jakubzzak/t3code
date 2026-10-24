@@ -19,6 +19,7 @@ type ContentVersion = Pick<
   "id" | "projectId" | "analysisVersion" | "updatedAt"
 > & {
   analysis: { readonly generatedAt: string } | null;
+  suggestionResearch?: InboxNotification["suggestionResearch"];
 };
 
 /** Read/triage revisions do not invalidate full source context or a full-length summary. */
@@ -29,6 +30,8 @@ export function isInboxDetailCurrent(preview: ContentVersion, detail: ContentVer
     detail.projectId === preview.projectId &&
     detail.analysisVersion === preview.analysisVersion &&
     detail.updatedAt === preview.updatedAt &&
+    detail.suggestionResearch?.status === preview.suggestionResearch?.status &&
+    detail.suggestionResearch?.version === preview.suggestionResearch?.version &&
     detail.analysis?.generatedAt === preview.analysis?.generatedAt
   );
 }

@@ -52,13 +52,13 @@ const make = Effect.gen(function* () {
           modelSelection,
           context: inboxContext({ ...notification, analysis: null }).slice(0, 64000),
           precedents,
-          suggest: config.inboxPreResolution,
+          suggest: false,
           instructions:
             config.inboxSummaryPrompt.trim() || DEFAULT_SERVER_SETTINGS.inboxSummaryPrompt,
         });
         return {
           ...result,
-          suggestions: config.inboxPreResolution ? result.suggestions : [],
+          suggestions: [],
           precedentIds: result.precedentIds.filter((id) =>
             precedents.some((item) => item.id === id),
           ),

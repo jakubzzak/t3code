@@ -227,8 +227,8 @@ export function InboxFeatureSettings() {
         settingKeys={["inboxPreResolution"]}
         description={
           canSuggest
-            ? "Generate suggested steps or a draft response together with AI summary. Suggestions do not send messages or settle notifications."
-            : "Enable AI summary to generate suggested steps or a draft response together with it."
+            ? "Research suggested steps or a draft response after the summary appears. Suggestions do not send messages or settle notifications."
+            : "Enable AI summary to research suggested steps or a draft response."
         }
         control={
           <Switch

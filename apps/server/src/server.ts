@@ -6,6 +6,7 @@ import * as SuperhumanOAuthHttp from "./inbox/superhumanOAuthHttp.ts";
 import * as InboxSources from "./inbox/InboxSources.ts";
 import * as InboxSourceTransport from "./inbox/InboxSourceTransport.ts";
 import * as InboxAnalysis from "./inbox/InboxAnalysis.ts";
+import * as InboxResearch from "./inbox/InboxResearch.ts";
 import * as InboxService from "./inbox/InboxService.ts";
 import * as InboxRepository from "./inbox/InboxRepository.ts";
 import * as InboxAgent from "./inbox/InboxAgent.ts";
@@ -728,6 +729,7 @@ const layerInbox = InboxSources.layer.pipe(
   Layer.provide(InboxSourceTransport.layer.pipe(Layer.provide(FetchHttpClient.layer))),
   Layer.provideMerge(
     InboxService.layer.pipe(
+      Layer.provide(InboxResearch.layer),
       Layer.provide(InboxRepository.layer),
       Layer.provide(InboxAgent.layer.pipe(Layer.provide(T3ProjectFileLoader.layer))),
       Layer.provide(InboxAnalysis.layer),

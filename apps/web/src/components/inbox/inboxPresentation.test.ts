@@ -50,4 +50,28 @@ describe("Inbox refresh presentation", () => {
     ).toBe(false);
     expect(isInboxDetailCurrent(version, null)).toBe(false);
   });
+  it("refreshes full suggestion detail after research completion or a retry without invalidating triage", () => {
+    const researching = {
+      ...version,
+      suggestionResearch: {
+        status: "researching" as const,
+        version: 0,
+        attempts: 1,
+        retryAt: null,
+      },
+    };
+    const ready = {
+      ...researching,
+      suggestionResearch: { ...researching.suggestionResearch, status: "ready" as const },
+    };
+    expect(isInboxDetailCurrent(ready, researching)).toBe(false);
+    const triaged = { ...ready, revision: 42 };
+    expect(isInboxDetailCurrent(ready, triaged)).toBe(true);
+    expect(
+      isInboxDetailCurrent(
+        { ...researching, suggestionResearch: { ...researching.suggestionResearch, version: 1 } },
+        researching,
+      ),
+    ).toBe(false);
+  });
 });

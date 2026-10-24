@@ -32,6 +32,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
+import { InboxSuggestionCallout, InboxSuggestionStatus } from "./InboxSuggestion";
 
 import styles from "./inboxNotificationContent.module.css";
 
@@ -413,6 +414,7 @@ export function InboxSummary({
   enabled,
   expanded = false,
   suggestionsEnabled = false,
+  onRetrySuggestion,
   threadRef,
 }: {
   notification: InboxNotification;
@@ -420,42 +422,51 @@ export function InboxSummary({
   enabled: boolean;
   expanded?: boolean;
   suggestionsEnabled?: boolean;
+  onRetrySuggestion?: (() => void) | undefined;
 }) {
   const openLink = useInboxLink(threadRef);
+  const suggestions = useMemo(
+    () => notification.analysis?.suggestions.filter((text) => text.trim()) ?? [],
+    [notification.analysis?.suggestions],
+  );
+  const suggestionStatus =
+    notification.suggestionResearch?.status ?? (suggestions.length ? "ready" : undefined);
   return (
     <InboxLinkContext value={openLink}>
       <div className="min-w-0 flex-1 text-xs leading-relaxed">
         {enabled && notification.analysis?.summary ? (
           <div className="border-l-2 border-primary/30 pl-2.5">
-            <div className="mb-1 flex items-center gap-1 text-2xs font-normal text-muted-foreground">
-              <SparklesIcon className="size-3" />
-              AI summary
+            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs font-normal text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <SparklesIcon className="size-3" />
+                AI summary
+              </span>
+              {suggestionsEnabled && (
+                <InboxSuggestionStatus status={suggestionStatus} onRetry={onRetrySuggestion} />
+              )}
             </div>
             <p className={`whitespace-pre-wrap break-words ${expanded ? "" : "line-clamp-3"}`}>
               <InboxLinkedText text={notification.analysis.summary} />
             </p>
-            {expanded &&
-              suggestionsEnabled &&
-              notification.analysis.suggestions.some((text) => text.trim()) && (
-                <section
-                  aria-label="Suggested resolution"
-                  className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 font-normal"
-                >
-                  <p className="mb-1 flex items-center gap-1 text-2xs text-muted-foreground">
-                    <SparklesIcon aria-hidden="true" className="size-3" />
-                    Suggested resolution
-                  </p>
-                  <ul className="space-y-2">
-                    {notification.analysis.suggestions
-                      .filter((text) => text.trim())
-                      .map((suggestion) => (
-                        <li key={suggestion}>
-                          <InboxLinkedText text={suggestion} />
-                        </li>
-                      ))}
-                  </ul>
-                </section>
+            <InboxSuggestionCallout
+              visible={
+                expanded &&
+                suggestionsEnabled &&
+                suggestionStatus === "ready" &&
+                suggestions.length > 0
+              }
+              suggestions={suggestions}
+            >
+              {(content) => (
+                <ul className="space-y-2">
+                  {content.map((suggestion) => (
+                    <li key={suggestion}>
+                      <InboxLinkedText text={suggestion} />
+                    </li>
+                  ))}
+                </ul>
               )}
+            </InboxSuggestionCallout>
           </div>
         ) : (
           <>

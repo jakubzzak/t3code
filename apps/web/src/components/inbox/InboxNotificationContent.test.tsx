@@ -284,7 +284,7 @@ it("links URLs in AI summaries, suggested next steps, and raw notification title
     "github.com",
     "docs.example.com",
   ]);
-  const callout = container.querySelector('section[aria-label="Suggested resolution"]');
+  const callout = container.querySelector('section[aria-label="Suggestion"]');
   expect(callout?.textContent).toContain("Check docs.example.com");
   expect(callout?.querySelector("button")).toBeNull();
   await act(async () =>
@@ -308,7 +308,12 @@ it("links URLs in AI summaries, suggested next steps, and raw notification title
     ),
   );
   expect(container.textContent).toContain("Review report");
-  expect(container.querySelector('section[aria-label="Suggested resolution"]')).toBeNull();
+  expect(
+    container
+      .querySelector('section[aria-label="Suggestion"]')
+      ?.closest("[aria-hidden]")
+      ?.getAttribute("aria-hidden"),
+  ).toBe("true");
   await act(async () =>
     root.render(
       <InboxSummary

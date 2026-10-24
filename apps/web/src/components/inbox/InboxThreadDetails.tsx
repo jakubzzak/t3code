@@ -77,6 +77,25 @@ export function InboxThreadDetails({
             threadRef={threadRef}
             notification={n}
             expanded
+            onRetrySuggestion={
+              canWrite
+                ? () => {
+                    void command({
+                      environmentId,
+                      input: {
+                        projectId: n.projectId,
+                        id: n.id,
+                        expectedRevision: n.revision,
+                        commandId: CommandId.make(randomUUID()),
+                        action: { type: "retry-suggestion" },
+                      },
+                    }).then(() => {
+                      detail.refresh();
+                      list.refresh();
+                    });
+                  }
+                : undefined
+            }
             suggestionsEnabled={
               !!(
                 thread &&

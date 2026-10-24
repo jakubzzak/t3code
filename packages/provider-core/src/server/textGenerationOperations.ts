@@ -17,6 +17,7 @@ import type { ProviderTextGeneration } from "./textGeneration.ts";
 import {
   buildFileFilterPrompt,
   buildInboxAnalysisPrompt,
+  buildInboxResearchPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -196,6 +197,20 @@ export function fromRunner(
   });
 
   return {
+    generateInboxResearch: (input) =>
+      capabilities?.toolFreeInboxAnalysis
+        ? run({
+            operation: "generateInboxResearch",
+            cwd: input.cwd,
+            modelSelection: input.modelSelection,
+            ...buildInboxResearchPrompt(input),
+          })
+        : Effect.fail(
+            new TextGenerationError({
+              operation: "generateInboxResearch",
+              detail: `${name} cannot safely research Inbox notifications with server-controlled tools.`,
+            }),
+          ),
     generateInboxAnalysis: (input) =>
       capabilities?.toolFreeInboxAnalysis
         ? run({
