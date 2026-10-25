@@ -761,9 +761,17 @@ export function InboxSidebarLayout({
       event.stopPropagation();
       const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])];
       const index = rows.findIndex((row) => row.dataset.inboxRow === focusedKey);
-      rows[
-        Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))
-      ]?.focus({ preventScroll: true });
+      const adjacent =
+        rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
+      const sectionRows = modifier
+        ? rows[index]
+            ?.closest("[data-inbox-section]")
+            ?.querySelectorAll<HTMLElement>("[data-inbox-row]")
+        : undefined;
+      const edge =
+        event.key === "ArrowDown" ? sectionRows?.[sectionRows.length - 1] : sectionRows?.[0];
+      // At the section edge, cross by one item before allowing another section jump.
+      (edge && edge !== rows[index] ? edge : adjacent)?.focus({ preventScroll: true });
       return;
     }
     if (!modifier) return;
@@ -1006,6 +1014,7 @@ export function InboxSidebarLayout({
                     return (
                       <section
                         key={placement}
+                        data-inbox-section={placement}
                         className={placement === firstShelf ? "mt-auto shrink-0" : "shrink-0"}
                       >
                         {placement !== "active" && (
