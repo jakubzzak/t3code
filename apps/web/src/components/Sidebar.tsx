@@ -1,3 +1,4 @@
+import { InboxSidebarLayout } from "./inbox/InboxSidebarLayout";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { useProjectGitEnabled } from "../hooks/useProjectGitEnabled";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -284,7 +285,7 @@ import {
   ComboboxTrigger,
   useComboboxFilter,
 } from "./ui/combobox";
-import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import { SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
@@ -803,6 +804,7 @@ function SidebarDragBoundary(props: {
 function SidebarSectionHeader(props: {
   marker: "working-header" | "snoozed-header" | "settled-header";
   label: string;
+  count: number;
   className?: string;
   // While dragging, the settled header reads at full strength and takes the
   // accent while the lifted row is over it.
@@ -826,6 +828,7 @@ function SidebarSectionHeader(props: {
       <CollapsibleSectionHeader
         onClick={props.toggle.onToggle}
         expanded={props.toggle.expanded}
+        count={props.count}
         tone={
           props.isDropTarget ? "accent" : props.dragging ? "emphasized" : snoozed ? "info" : "muted"
         }
@@ -4997,6 +5000,21 @@ export default function Sidebar() {
   // setups both commands create directly, so chat.newLocal is a valid
   // fallback. The second tooltip line (multi-project only) advertises
   // shift+click and its keyboard twin chat.newLocal for direct create.
+  const inboxProjects = useMemo(() => {
+    const members = scopedProjectGroup
+      ? scopedProjectGroup.memberProjectRefs
+      : projects.map((project) => ({
+          environmentId: project.environmentId,
+          projectId: project.id,
+        }));
+    return members.filter((ref) => {
+      const config = serverConfigs.get(ref.environmentId);
+      return (
+        config?.notificationInbox === true &&
+        resolveProjectSettings(config.settings, ref.projectId).settings.inboxEnabled
+      );
+    });
+  }, [projects, scopedProjectGroup, serverConfigs]);
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
@@ -5005,9 +5023,11 @@ export default function Sidebar() {
     <>
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
-      <SidebarContent
-        className="min-h-full"
-        fixedHeader={
+      <InboxSidebarLayout
+        threadRef={routeThreadRef}
+        projects={inboxProjects}
+        chatCount={pinnedThreads.length + activeThreads.length + workingThreads.length}
+        chatHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="z-[1]">
@@ -5482,11 +5502,8 @@ export default function Sidebar() {
                                 key="working-shelf-header"
                                 marker="working-header"
                                 className="mt-auto"
-                                label={
-                                  workingShelfExpanded
-                                    ? "Working"
-                                    : `Working (${workingThreads.length})`
-                                }
+                                label="Working"
+                                count={workingThreads.length}
                                 toggle={{
                                   expanded: workingShelfExpanded,
                                   onToggle: toggleWorkingShelf,
@@ -5500,11 +5517,8 @@ export default function Sidebar() {
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
                                 className={cn(workingThreads.length === 0 && "mt-auto")}
-                                label={
-                                  snoozedShelfExpanded
-                                    ? "Snoozed"
-                                    : `Snoozed (${snoozedThreads.length})`
-                                }
+                                label="Snoozed"
+                                count={snoozedThreads.length}
                                 toggle={{
                                   expanded: snoozedShelfExpanded,
                                   onToggle: toggleSnoozedShelf,
@@ -5520,11 +5534,8 @@ export default function Sidebar() {
                                 className={cn(
                                   workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
                                 )}
-                                label={
-                                  settledShelfExpanded
-                                    ? "Settled"
-                                    : `Settled (${settledThreads.length})`
-                                }
+                                label="Settled"
+                                count={settledThreads.length}
                                 dragging={from !== null}
                                 isDropTarget={dragTargetSection === "settled"}
                                 toggle={{
@@ -5602,7 +5613,7 @@ export default function Sidebar() {
             </div>
           ) : null}
         </SidebarGroup>
-      </SidebarContent>
+      </InboxSidebarLayout>
       <SidebarChromeFooter />
     </>
   );

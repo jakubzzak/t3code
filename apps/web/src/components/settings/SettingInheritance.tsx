@@ -58,6 +58,8 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
       : String(value);
   }
   if (typeof value === "string") {
+    if (key === "linearClientId" || key === "slackClientId")
+      return value ? "Configured" : "Not set";
     if (key === "defaultThreadEnvMode" && (value === "local" || value === "worktree")) {
       return resolveEnvModeLabel(value);
     }

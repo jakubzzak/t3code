@@ -1,3 +1,4 @@
+import { requestLinear } from "./requestLinear";
 import { randomUUID } from "~/lib/utils";
 import type { LinearIssue, LinearIssueSetupResult } from "@t3tools/contracts";
 import { create } from "zustand";
@@ -28,9 +29,9 @@ function put(key: string, entry: Creation) {
 }
 export async function verifyLinearCreation(key: string) {
   const entry = useLinearCreations.getState().entries[key];
-  if (!entry?.issueId || !window.desktopBridge?.linearRequest) return;
+  if (!entry?.issueId) return;
   try {
-    const result = await window.desktopBridge.linearRequest({
+    const result = await requestLinear({
       operation: "issue",
       workspace: entry.workspace,
       connectionKey: entry.connectionKey,

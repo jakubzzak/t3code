@@ -1,4 +1,6 @@
 import type {
+  InboxAnalysisContent,
+  InboxResearchStep,
   FileFilterGenerationInput,
   FileFilterGenerationResult,
   BranchNamingOptions,
@@ -118,7 +120,23 @@ export type ReviewGuideGenerationResult = Omit<
 >;
 
 /** Commit, change request, branch, and title generation backed by one provider instance. */
+export interface InboxAnalysisInput {
+  cwd: string;
+  modelSelection: ModelSelection;
+  context: string;
+  precedents: ReadonlyArray<{ id: string; context: string; outcome: string }>;
+  suggest: boolean;
+  instructions?: string;
+}
 export interface ProviderTextGeneration {
+  /** Tool requests are validated and executed by the server; the model itself remains tool-free. */
+  readonly generateInboxResearch?: (
+    input: InboxAnalysisInput,
+  ) => Effect.Effect<InboxResearchStep, TextGenerationError>;
+  readonly generateInboxAnalysis?: (
+    input: InboxAnalysisInput,
+  ) => Effect.Effect<InboxAnalysisContent, TextGenerationError>;
+
   readonly generateFileFilter: (
     input: FileFilterGenerationInput & { cwd: string; modelSelection: ModelSelection },
   ) => Effect.Effect<FileFilterGenerationResult, TextGenerationError>;

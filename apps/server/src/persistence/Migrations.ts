@@ -76,6 +76,8 @@ import Migration0059 from "./Migrations/059_McpAppModelContext.ts";
 import Migration0060 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 import Migration0061 from "./Migrations/061_PullRequestReviewGuides.ts";
 import Migration0062 from "./Migrations/062_ThreadFailureLookupIndex.ts";
+import Migration0065 from "./Migrations/065_InboxSources.ts";
+import Migration0064 from "./Migrations/064_NotificationInbox.ts";
 import Migration0063 from "./Migrations/063_ProjectionThreadLinearIssue.ts";
 import { reconcileBlackbirdLinearMigration } from "./reconcileBlackbirdLinearMigration.ts";
 
@@ -155,6 +157,8 @@ export const migrationEntries = [
   [61, "PullRequestReviewGuides", Migration0061],
   [62, "ThreadFailureLookupIndex", Migration0062],
   [63, "ProjectionThreadLinearIssue", Migration0063],
+  [64, "NotificationInbox", Migration0064],
+  [65, "InboxSources", Migration0065],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

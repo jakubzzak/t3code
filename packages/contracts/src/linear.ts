@@ -53,8 +53,16 @@ export type LinearIssueSort = typeof LinearIssueSort.Type;
 
 export const LinearIssueView = Schema.Literals(["assigned", "triage", "all"]);
 export type LinearIssueView = typeof LinearIssueView.Type;
+export const LinearConnectionEnvelope = Schema.Struct({
+  publicKey: Schema.String.check(Schema.isMaxLength(1000)),
+  iv: Schema.String.check(Schema.isMaxLength(100)),
+  tag: Schema.String.check(Schema.isMaxLength(100)),
+  ciphertext: Schema.String.check(Schema.isMaxLength(32000)),
+});
+export type LinearConnectionEnvelope = typeof LinearConnectionEnvelope.Type;
 export const LinearDesktopRequest = Schema.Struct({
   operation: Schema.Literals([
+    "export",
     "status",
     "connect",
     "cancel",
@@ -66,6 +74,7 @@ export const LinearDesktopRequest = Schema.Struct({
   ]),
   workspace: TrimmedNonEmptyString,
   connectionKey: TrimmedNonEmptyString,
+  migrationPublicKey: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(1000))),
   query: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
   view: Schema.optional(LinearIssueView),
   teamId: Schema.optional(TrimmedNonEmptyString),
@@ -77,6 +86,7 @@ export const LinearDesktopRequest = Schema.Struct({
 });
 export type LinearDesktopRequest = typeof LinearDesktopRequest.Type;
 export const LinearDesktopResult = Schema.Struct({
+  migration: Schema.optionalKey(LinearConnectionEnvelope),
   configured: Schema.Boolean,
   connection: Schema.NullOr(LinearConnectionInfo),
   issues: Schema.optional(Schema.Array(LinearIssue)),
@@ -117,3 +127,19 @@ export const LinearIssueSetupResult = Schema.Struct({
   ),
 });
 export type LinearIssueSetupResult = typeof LinearIssueSetupResult.Type;
+
+export const LinearEnvironmentKey = Schema.Struct({ projectId: ProjectId });
+export const LinearEnvironmentRequest = Schema.Struct({
+  ...LinearDesktopRequest.fields,
+  projectId: ProjectId,
+  operation: Schema.Literals(["status", "issues", "issue", "teams", "states"]),
+});
+export const LinearMigrationTicket = Schema.Struct({
+  ticket: Schema.String,
+  publicKey: Schema.String,
+});
+export const LinearMigrationInput = Schema.Struct({
+  projectId: ProjectId,
+  ticket: Schema.String,
+  envelope: LinearConnectionEnvelope,
+});

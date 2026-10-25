@@ -545,4 +545,37 @@ it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
         }),
     ),
   );
+  it.effect(
+    "summarizes external notifications with no tools outside the project and keeps the configured prompt",
+    () =>
+      withFakeClaudeEnv(
+        {
+          output: JSON.stringify({
+            structured_output: {
+              summary: "Review the release by Friday.",
+              description: "Review the release by Friday.",
+              suggestions: [],
+              precedentIds: [],
+            },
+          }),
+          cwdMustNotBe: process.cwd(),
+          stdinMustContain: "Use one short sentence.",
+        },
+        (generation) =>
+          Effect.gen(function* () {
+            const result = yield* generation.generateInboxAnalysis!({
+              cwd: process.cwd(),
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+              },
+              context: "Please review the release by Friday.",
+              instructions: "Use one short sentence.",
+              precedents: [],
+              suggest: false,
+            });
+            expect(result.summary).toBe("Review the release by Friday.");
+          }),
+      ),
+  );
 });

@@ -229,16 +229,23 @@ Add `--signed` after configuring the platform credentials in the
 
 ### Linear OAuth for a fork
 
-Register a Linear OAuth application with the exact callback
-`http://127.0.0.1:47289/linear/callback`. Set its public client ID as
-`T3CODE_LINEAR_CLIENT_ID` in the root `.env.local` or build environment, then rebuild the desktop
-app. The ID is included in the desktop build; do not supply a client secret. The app uses PKCE
-and requests read access. Desktop runtime environment values can override the client ID and
-`T3CODE_LINEAR_REDIRECT_URI`; a callback override must also be registered with Linear and use an
-explicit port on `http://127.0.0.1`.
+Register a Linear OAuth application with each environment's externally reachable
+`/oauth/linear/callback` URL. Set its public client ID as `T3CODE_LINEAR_CLIENT_ID` in
+that environment or the build configuration, then rebuild the server and desktop app.
+Do not supply a client secret: the connection uses PKCE and requests read access. The
+callback uses the origin of the client connection, so local development and remote
+connections may need separate registered URLs.
 
-Enable Linear view in Features, choose a project in Integrations, set its workspace slug, and
-connect Linear. The browser must return to the same desktop machine; the environment hosting
-the repository may be remote. The embedded Linear panel signs in separately. Test cancellation,
-assigned issues, workspace search, and disconnect before distributing the build. Credentials
-require an available OS credential store; Linux's plaintext fallback is rejected.
+In project Integrations, set the workspace slug and connect Linear. Inbox and Linear
+view share this environment-owned connection; enable either feature independently in
+Features. The desktop's embedded Linear panel still signs in separately. Test connection
+cancellation, notification intake, assigned issues, workspace search, and disconnect
+before distributing the build.
+
+Existing desktop connections can be migrated from project Integrations. Keep the legacy
+OAuth callback registered while older clients remain in use. Migration preserves the
+legacy encrypted desktop document, but updated clients use the environment copy. Avoid
+running an older client against that legacy copy after migration: both copies would
+otherwise rotate the same refresh token. Prefer a forward upgrade; reauthorization is
+the recovery path if rotation invalidates an old copy. Inbox tables are additive and must
+be retained during a rollback.

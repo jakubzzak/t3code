@@ -201,9 +201,11 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     );
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
-      // Titles need only the supplied prompt, not configuration from the checkout.
+      // Titles and external summaries need only supplied data, not checkout configuration.
       const workingDirectory =
-        operation === "generateThreadTitle"
+        operation === "generateThreadTitle" ||
+        operation === "generateInboxAnalysis" ||
+        operation === "generateInboxResearch"
           ? yield* fileSystem
               .makeTempDirectoryScoped({ prefix: "t3code-claude-title-" })
               .pipe(
@@ -213,6 +215,14 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
               )
           : cwd;
       const managedMcpConfig = yield* hasClaudeManagedMcpConfig();
+      if (
+        (operation === "generateInboxAnalysis" || operation === "generateInboxResearch") &&
+        managedMcpConfig
+      )
+        return yield* new TextGenerationError({
+          operation,
+          detail: "Tool-free Inbox summaries cannot run with managed Claude MCP servers.",
+        });
       const spawnCommand = yield* resolveSpawnCommand(
         claudeSettings.binaryPath || "claude",
         [
@@ -341,5 +351,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     );
   });
 
-  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson);
+  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson, {
+    toolFreeInboxAnalysis: true,
+  });
 });

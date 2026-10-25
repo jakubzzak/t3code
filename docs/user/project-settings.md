@@ -138,10 +138,96 @@ itself, or **Skip** to leave them for a setup script. It resolves in the same or
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
 
+## Notification inbox
+
+Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
+**Settings → Integrations**. Connections and relevance filters are configured explicitly for
+each project. Linear, Slack and Superhuman have separate integration groups. The general view
+shows them disabled; select one project checkout/environment to edit a connection. Connections
+can be configured while Inbox and Linear view are off. Notification collection requires Inbox,
+including for Linear when Linear view is enabled. Feature switches retain connection
+settings when off. Inbox and Linear view are independent. The inbox is available on web and desktop;
+mobile keeps the same project data but does not yet have a native inbox screen.
+
+Set **Initial history** inside **Features → Inbox** for all connected sources. Choose 0–30 days
+(default 7). Zero imports no older notifications: collection starts at the time Inbox is enabled,
+even if a source is connected later or the server restarts. Re-enabling Inbox starts a new window.
+Notifications already imported are retained.
+
+When **AI summary** is enabled, notifications appear after their summary is ready. Failed
+summaries retry twice, after 5 and 10 seconds; each attempt has a one-minute timeout. After
+three failed attempts, the notification appears with **AI summary not available** and its
+original content. Turning AI summary off shows raw notifications immediately.
+
+For Linear, enter your OAuth application's public client ID, then connect your account.
+Client IDs are masked; use the eye button to show or hide them. For Slack, enter the app's
+public client ID, enable PKCE in Slack's OAuth settings, register the environment's callback URL,
+then choose **Connect Slack**. Both use browser authorization without a client secret. Existing
+Slack user tokens can still be entered manually. Slack supports DMs and personal/group mentions.
+Saved and To-dos remain unavailable. Slack needs `users:read` to show people's names and
+`usergroups:read` for group names. After adding a scope to an existing app, reconnect Slack;
+older connections retain their links and show unresolved identities as IDs.
+Linear
+uses the same environment connection as the issue picker. On desktop, **Move existing connection
+to environment** preserves your account and workspace without enabling Inbox or Linear view.
+Superhuman uses its official Mail MCP and registers its OAuth client automatically; no client ID
+or secret is required. Sign in, select accounts, then select Important or other
+splits and labels. Sign-in requires access to Superhuman Mail MCP and its Chrome extension.
+Selections save automatically; text and number fields save when you leave the field or press Enter.
+
+Set **Refresh interval** inside **Features → Inbox** to check connected sources every 2–60
+minutes (default 2). Each source resumes from its last successful fetch; failed fetches retain
+that checkpoint for the next attempt. Slack mention searches return date-based result pages,
+but older matches are skipped before downloading message or thread details.
+
+Connected sources feed Inbox automatically while the project’s Inbox feature is enabled.
+Clear a source’s selections or disconnect it to stop its intake, or disable Inbox for the project to pause all sources.
+
+Use the sidebar's **Inbox** tab to triage without leaving your current chat. Arrow keys focus and
+expand an item. **Agent** starts the project's configured agent; **Agent chat** opens a linked chat
+and waits for your message. Either action opens an existing linked chat. Its notification context
+is also available in the chat's Details.
+
+Read state, snoozing and settlement belong to Blackbird; they do not change the source. Undo restores
+notification state. Undoing a running delegation requests a stop and keeps the chat and completed
+work. A stop can remain pending or fail, so check its status before assuming the agent has stopped.
+
+Enable Inbox in project Features settings to expand its processing controls within the feature.
+**AI summary** and **Agent Delegation** are separate subgroups, both off by default. Enable one to
+choose its model and edit its prefilled default prompt. There are no separate prompt switches.
+Turning a subgroup off hides its controls and keeps your model and prompt choices. AI summary off
+stops AI processing; Agent Delegation off prevents direct runs while Agent chat remains available.
+Raw notification content stays usable without AI. An empty prompt uses the default instructions.
+Summaries lead with the message's request or key update, including any explicit deadline.
+Automatic summaries currently support Codex, Claude without managed MCP, and Pi. Codex summaries
+use an isolated runner without custom CLI configuration or tools. Other providers retain
+your selection but report summary unavailable until a tool-free summary runner is supported.
+After automatic summary retries are exhausted, the original content stays available. Email originals appear as readable text with paragraphs
+and links. Use the **Open original** icon, or **⌘⇧O** while a notification is focused, to open its
+source. On other platforms, use **Ctrl⇧O**.
+
+**Inbox memory** is also off by default. It builds a database of recurring tasks and confirmed
+resolutions so patterns can inform suggestions for similar work in the same project. Notification
+and chat context remains available with this option off; memory adds reuse of past resolutions.
+With memory enabled, record an outcome in the linked chat's Details to make it available to future
+processing. Turning memory off retains outcomes but stops history lookup.
+Suggested resolutions research relevant project files, retained project chats, collected Inbox messages, and supported source-control links after the summary appears. Research does not delay notification delivery. If research fails after three attempts, retry it from the notification without regenerating the summary. Suggestions remain proposals; they are not sent or executed automatically.
+
+Integration credentials are encrypted using the hosting machine's OS credential store. Allow
+access on that machine when prompted; remote clients cannot answer its OS prompt. A locked or
+unavailable credential store blocks the connection rather than saving unprotected credentials.
+Keep the OS key with your encrypted data when moving or restoring an environment. If the key is
+lost, disconnect the affected integrations and connect them again.
+
+On macOS, some web browsers reserve ⌘⇧H before the page can receive it. Use Ctrl⇧H or the
+Snooze action there; the desktop shortcut remains ⌘⇧H.
+
 ## Linear view
 
-In the desktop app, enable **Settings → Features → Linear view**, then select a project in
-**Settings → Integrations → Linear** and enter its workspace slug from `linear.app/<workspace>`.
+In the desktop app, select a project in **Settings → Features** and enable **Linear view**.
+In **Settings → Integrations → Linear**, enter its workspace slug from `linear.app/<workspace>`.
+If Linear view was enabled on this device before project settings were introduced, choose the
+projects that should keep it enabled; other projects remain off.
 Open **Linear** from the thread's surface picker, or press **L** while that picker is active.
 The first open uses the issue identifier in the branch, or My Issues when there is none. An open
 view keeps its current page unless you explicitly select an issue for the chat. Close and reopen

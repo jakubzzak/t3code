@@ -45,6 +45,28 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 ];
 
 describe("searchSettings", () => {
+  it("routes source-connection searches to their project integration groups", () => {
+    expect(searchSettings("Slack connection").map((item) => item.id)).toContain("slack");
+    expect(searchSettings("Superhuman accounts").map((item) => item.id)).toContain("superhuman");
+  });
+
+  it("finds Inbox customization through prompt and processing searches", () => {
+    for (const query of [
+      "summary prompt",
+      "delegation prompt",
+      "inbox memory",
+      "inbox processing",
+      "AI summary",
+      "recurring tasks",
+      "patterns",
+      "initial history",
+      "refresh interval",
+      "refetch frequency",
+      "minutes",
+    ])
+      expect(searchSettings(query).map((item) => item.id)).toContain("notification-inbox");
+  });
+
   it("hides Git-dependent search results while keeping the integration toggle reachable", () => {
     const availability = {
       hasCloudPublicConfig: false,

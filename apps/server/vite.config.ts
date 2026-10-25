@@ -111,6 +111,9 @@ export default mergeConfig(
         js: "#!/usr/bin/env node\n",
       },
       define: {
+        __T3CODE_BUILD_LINEAR_CLIENT_ID__: JSON.stringify(
+          repoEnv.T3CODE_LINEAR_CLIENT_ID?.trim() ?? "",
+        ),
         __T3CODE_BUILD_CHANNEL__: JSON.stringify(cliBuildChannel),
         __T3CODE_BUILD_RELAY_URL__: JSON.stringify(repoEnv.T3CODE_RELAY_URL?.trim() ?? ""),
         __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(

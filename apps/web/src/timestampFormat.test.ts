@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import {
   formatDayAwareTimestamp,
+  formatCompactTimestamp,
   formatElapsedDurationLabel,
   formatExpiresInLabel,
   formatRelativeTime,
@@ -14,6 +15,32 @@ import {
   getRelativeTimeState,
   resolveTimestampLocale,
 } from "./timestampFormat";
+
+describe("formatCompactTimestamp", () => {
+  const now = new Date(2026, 9, 22, 12, 0).getTime();
+  it("shows hours and minutes today using the selected clock format", () => {
+    const timestamp = new Date(2026, 9, 22, 9, 7, 33).toISOString();
+    expect(formatCompactTimestamp(timestamp, "24-hour", now)).toBe("09:07");
+    expect(formatCompactTimestamp(timestamp, "12-hour", now)).toBe("9:07 AM");
+  });
+  it("uses a date for previous local calendar days, even across midnight", () => {
+    const timestamp = new Date(2026, 9, 21, 23, 59).toISOString();
+    expect(
+      formatCompactTimestamp(timestamp, "24-hour", new Date(2026, 9, 22, 0, 1).getTime()),
+    ).toBe("Oct 21");
+  });
+  it("includes the year for older years and does not treat a future day as today", () => {
+    expect(formatCompactTimestamp(new Date(2025, 9, 22, 9).toISOString(), "24-hour", now)).toBe(
+      "Oct 22, 2025",
+    );
+    expect(formatCompactTimestamp(new Date(2026, 9, 23, 9).toISOString(), "24-hour", now)).toBe(
+      "Oct 23",
+    );
+  });
+  it("handles an invalid timestamp without throwing", () => {
+    expect(formatCompactTimestamp("invalid", "24-hour", now)).toBe("");
+  });
+});
 
 describe("resolveTimestampLocale", () => {
   it("defers to the runtime default when the host reports no locale", () => {

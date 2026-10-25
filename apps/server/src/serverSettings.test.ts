@@ -2206,3 +2206,59 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 });
+
+it.effect("persists Inbox enable time at the settings commit and resets it only on re-enable", () =>
+  Effect.gen(function* () {
+    const settings = yield* ServerSettingsModule.ServerSettingsService;
+    const fs = yield* FileSystem.FileSystem;
+    const config = yield* ServerConfig.ServerConfig;
+    yield* TestClock.adjust("10 seconds");
+    const enabled = yield* settings.updateSettings({
+      projectSettingsOverrides: {
+        [ProjectId.make("project")]: { inboxEnabled: true, inboxInitialHistoryDays: 0 },
+      },
+    });
+    assert.equal(
+      enabled.inboxEnabledAtByProject[ProjectId.make("project")],
+      "1970-01-01T00:00:10.000Z",
+    );
+    yield* TestClock.adjust("1 minute");
+    const changed = yield* settings.updateSettings({
+      projectSettingsOverrides: {
+        [ProjectId.make("project")]: { inboxEnabled: true, inboxInitialHistoryDays: 30 },
+      },
+    });
+    assert.equal(
+      changed.inboxEnabledAtByProject[ProjectId.make("project")],
+      enabled.inboxEnabledAtByProject[ProjectId.make("project")],
+    );
+    const stored = yield* decodeServerSettingsJson(yield* fs.readFileString(config.settingsPath));
+    assert.equal(
+      stored.inboxEnabledAtByProject[ProjectId.make("project")],
+      enabled.inboxEnabledAtByProject[ProjectId.make("project")],
+    );
+    const reloaded = yield* Effect.gen(function* () {
+      const fresh = yield* ServerSettingsModule.ServerSettingsService;
+      return yield* fresh.getSettings;
+    }).pipe(
+      Effect.provide(
+        Layer.fresh(ServerSettingsModule.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+      ),
+    );
+    assert.equal(
+      reloaded.inboxEnabledAtByProject[ProjectId.make("project")],
+      enabled.inboxEnabledAtByProject[ProjectId.make("project")],
+    );
+    yield* settings.updateSettings({
+      projectSettingsOverrides: { [ProjectId.make("project")]: { inboxEnabled: false } },
+    });
+    yield* TestClock.adjust("10 seconds");
+    const again = yield* settings.updateSettings({
+      projectSettingsOverrides: { [ProjectId.make("project")]: { inboxEnabled: true } },
+    });
+    assert.equal(
+      again.inboxEnabledAtByProject[ProjectId.make("project")],
+      "1970-01-01T00:01:20.000Z",
+    );
+  }).pipe(Effect.provide(layerServerSettings().pipe(Layer.provideMerge(NodeServices.layer)))),
+);

@@ -1,4 +1,5 @@
-"use client";
+import { useClientSettingsHydrated } from "~/hooks/useSettings";
+("use client");
 
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { AuthPreviewOperateScope, FILL_PREVIEW_VIEWPORT } from "@t3tools/contracts";
@@ -14,7 +15,8 @@ import { useActivePreviewSessions, beginPreviewSessionClose } from "~/previewSta
 import { previewEnvironment } from "~/state/preview";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { useClientSettings, useClientSettingsHydrated } from "~/hooks/useSettings";
+import { useServerConfigs, useThreadShells } from "~/state/entities";
+import { readLinearViewEnabled } from "~/components/linear/linearViewEnabled";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 
@@ -29,8 +31,8 @@ import { previewRuntimeTabId } from "./previewRuntimeTabId";
 export function ElectronBrowserHost() {
   const { resolvedTheme } = useTheme();
   const closePreview = useAtomCommand(previewEnvironment.close, "close Linear view");
-  const linearEnabled = useClientSettings((settings) => settings.linearViewEnabled);
-  const settingsHydrated = useClientSettingsHydrated();
+  const configs = useServerConfigs();
+  const threads = useThreadShells();
   const previewByThreadKey = useActivePreviewSessions();
   const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
   const sessions = useMemo(
@@ -65,9 +67,16 @@ export function ElectronBrowserHost() {
   );
 
   useEffect(() => {
-    if (!settingsHydrated || (isElectron && linearEnabled)) return;
     for (const { threadRef, snapshot, runtimeTabId, hasWebContents } of sessions) {
-      if (snapshot.surface !== "linear") continue;
+      if (snapshot.surface !== "linear" || !configs.has(threadRef.environmentId)) continue;
+      if (
+        !threads.some(
+          (thread) =>
+            thread.environmentId === threadRef.environmentId && thread.id === threadRef.threadId,
+        )
+      )
+        continue;
+      if (isElectron && readLinearViewEnabled(threadRef)) continue;
       useRightPanelStore.getState().closeSurface(threadRef, `browser:${snapshot.tabId}`);
       const miniPlayer = usePreviewMiniPlayerStore.getState();
       const source = miniPlayer.byThreadKey[scopedThreadKey(threadRef)]?.source;
@@ -82,7 +91,7 @@ export function ElectronBrowserHost() {
           input: { threadId: threadRef.threadId, tabId: snapshot.tabId },
         });
     }
-  }, [closePreview, linearEnabled, sessions, settingsHydrated]);
+  }, [closePreview, configs, sessions, threads]);
 
   useEffect(() => {
     const preview = window.desktopBridge?.preview;
@@ -156,7 +165,8 @@ export function ElectronBrowserHost() {
     <div className="contents" data-electron-browser-host>
       {sessions
         .filter(
-          ({ snapshot }) => snapshot.surface !== "linear" || (settingsHydrated && linearEnabled),
+          ({ snapshot, threadRef }) =>
+            snapshot.surface !== "linear" || readLinearViewEnabled(threadRef),
         )
         .map(({ threadRef, snapshot, runtimeTabId, pictureInPicture, zoomFactor }) => {
           const url = snapshot.navStatus._tag === "Idle" ? null : snapshot.navStatus.url;

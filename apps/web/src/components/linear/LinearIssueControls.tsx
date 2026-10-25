@@ -1,3 +1,4 @@
+import { requestLinear } from "./requestLinear";
 import type { LinearWorkflowState } from "@t3tools/contracts";
 import { ArrowDownIcon, ArrowDownWideNarrowIcon, ClockIcon, FilterIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -62,7 +63,7 @@ export function LinearIssueControls({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const generation = useRef(0);
-  const request = window.desktopBridge?.linearRequest;
+  const request = requestLinear;
   const filtered = value.stateIds.length > 0 || value.priorities.length > 0;
   useEffect(
     () => () => {

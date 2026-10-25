@@ -183,10 +183,35 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["shell launcher PATH cli t3 . install remove command"],
   },
   {
+    id: "notification-inbox",
+    title: "Inbox",
+    to: "/settings/features",
+    scope: "project",
+    searchTerms: [
+      "notifications delegate delegation Slack Superhuman AI summary inbox memory custom prompt processing database recurring repeated tasks patterns resolutions initial history days lookback refresh refetch frequency interval minutes",
+    ],
+  },
+  {
     id: "linear-view",
     title: "Linear view",
     to: "/settings/features",
     searchTerms: ["feature flag optional desktop issue"],
+  },
+  {
+    id: "slack",
+    title: "Slack integration",
+    to: "/settings/integrations",
+    scope: "project",
+    searchTerms: [
+      "connection oauth client id notifications mentions direct messages history token",
+    ],
+  },
+  {
+    id: "superhuman",
+    title: "Superhuman integration",
+    to: "/settings/integrations",
+    scope: "project",
+    searchTerms: ["connection oauth email accounts splits labels important mail"],
   },
   {
     id: "linear-workspace",
@@ -1080,7 +1105,7 @@ export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const));
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
-  "/settings/features": null,
+  "/settings/features": "project-defaults",
   "/settings/diagnostics": "environment",
   "/settings/projects": "project",
   "/settings/general": null,

@@ -1058,6 +1058,50 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
 });
 
 describe("Linear settings", () => {
+  it("keeps Summary, Agent Delegation and Inbox memory off until enabled per project", () => {
+    expect(
+      decodeServerSettings({
+        inboxAgentPrompt: "Saved custom delegation",
+        inboxAgentPromptEnabled: true,
+        inboxSummaryPromptEnabled: true,
+      }),
+    ).toMatchObject({
+      inboxMemoryEnabled: false,
+      inboxSummaryEnabled: false,
+      inboxAgentEnabled: false,
+      inboxSummaryPrompt: expect.stringContaining("one to five sentences"),
+      inboxAgentPrompt: "Saved custom delegation",
+    });
+    const patch = {
+      projectSettingsOverrides: {
+        one: {
+          inboxMemoryEnabled: true,
+          inboxSummaryEnabled: true,
+          inboxSummaryPrompt: "Focus on the request and deadline.",
+          inboxAgentEnabled: true,
+          inboxAgentPrompt: "Investigate and propose next steps.",
+        },
+      },
+    };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
+  });
+
+  it("keeps project features independent and round-trips selected project opt-ins", () => {
+    expect(decodeServerSettings({})).toMatchObject({
+      inboxEnabled: false,
+      linearViewEnabled: false,
+    });
+    const patch = {
+      projectSettingsOverrides: {
+        one: { inboxEnabled: true, linearViewEnabled: false, linearWorkspace: "one" },
+        two: { inboxEnabled: false, linearViewEnabled: true, linearWorkspace: "two" },
+      },
+    };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
+  });
+
   it("keeps the view off for existing clients and stores a local login override", () => {
     expect(decodeClientSettings({})).toMatchObject({
       linearViewEnabled: false,
@@ -1252,5 +1296,54 @@ describe("server model preferences", () => {
     expect(decodeServerSettingsPatch({ migrateModelPreferences: input })).toEqual({
       migrateModelPreferences: input,
     });
+  });
+});
+
+describe("Inbox initial history", () => {
+  it("defaults to seven days and accepts zero and thirty at project scope", () => {
+    expect(decodeServerSettings({}).inboxInitialHistoryDays).toBe(7);
+    for (const days of [0, 30]) {
+      const patch = { projectSettingsOverrides: { project: { inboxInitialHistoryDays: days } } };
+      expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+      expect(decodeServerSettings(patch)).toMatchObject(patch);
+    }
+  });
+  it("keeps activation timestamps server-owned", () => {
+    expect(
+      decodeServerSettingsPatch({
+        inboxEnabledAtByProject: { project: "2000-01-01T00:00:00.000Z" },
+      }),
+    ).toEqual({});
+  });
+  it("rejects negative, fractional, and more than thirty days", () => {
+    for (const days of [-1, 0.5, 31, 90]) {
+      expect(() => decodeServerSettingsPatch({ inboxInitialHistoryDays: days })).toThrow();
+      expect(() =>
+        decodeServerSettingsPatch({
+          projectSettingsOverrides: { project: { inboxInitialHistoryDays: days } },
+        }),
+      ).toThrow();
+    }
+  });
+});
+
+describe("Inbox refresh interval", () => {
+  it("defaults to two minutes and validates global and project values", () => {
+    expect(decodeServerSettings({}).inboxRefreshIntervalMinutes).toBe(2);
+    for (const minutes of [2, 15, 60]) {
+      const patch = {
+        projectSettingsOverrides: { project: { inboxRefreshIntervalMinutes: minutes } },
+      };
+      expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+      expect(decodeServerSettings(patch)).toMatchObject(patch);
+    }
+    for (const minutes of [0, 1, 2.5, 61]) {
+      expect(() => decodeServerSettingsPatch({ inboxRefreshIntervalMinutes: minutes })).toThrow();
+      expect(() =>
+        decodeServerSettingsPatch({
+          projectSettingsOverrides: { project: { inboxRefreshIntervalMinutes: minutes } },
+        }),
+      ).toThrow();
+    }
   });
 });

@@ -28,6 +28,9 @@ import {
   ServerSettingsError,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
+import { stampInboxEnabledAt } from "./inbox/inboxHistory.ts";
+import * as DateTime from "effect/DateTime";
+import * as Clock from "effect/Clock";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -233,7 +236,7 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
     const { automaticGitFetchInterval, providerHealthRefreshInterval, ...overridesForMerge } =
       overrides;
     const merged = deepMerge(DEFAULT_SERVER_SETTINGS, overridesForMerge);
-    const initialSettings = yield* normalizeServerSettings({
+    const normalizedInitialSettings = yield* normalizeServerSettings({
       ...merged,
       ...(automaticGitFetchInterval !== undefined
         ? { automaticGitFetchInterval: automaticGitFetchInterval as Duration.Duration }
@@ -242,6 +245,11 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
         ? { providerHealthRefreshInterval: providerHealthRefreshInterval as Duration.Duration }
         : {}),
     });
+    const initialSettings = stampInboxEnabledAt(
+      undefined,
+      normalizedInitialSettings,
+      DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis)),
+    );
     const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
     const writeSemaphore = yield* Semaphore.make(1);
     const getSettings = Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider));
@@ -251,7 +259,16 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
     ): Effect.Effect<ServerSettings, ServerSettingsError> =>
       writeSemaphore.withPermits(1)(
         Ref.get(currentSettingsRef).pipe(
-          Effect.flatMap(update),
+          Effect.flatMap((current) =>
+            Effect.gen(function* () {
+              const next = yield* update(current);
+              return stampInboxEnabledAt(
+                current,
+                next,
+                DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis)),
+              );
+            }),
+          ),
           Effect.flatMap(normalizeServerSettings),
           Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
           Effect.map(resolveTextGenerationProvider),
@@ -838,8 +855,15 @@ const make = Effect.gen(function* () {
       ? migrateLegacySourceControlSettings(folded, legacySourceControl)
       : { settings: folded, secretMoves: [] };
     // Only rewrite a file that decoded cleanly; an untrusted one stays for the user to repair.
+    const activationSettings = settingsFileTrusted
+      ? stampInboxEnabledAt(
+          undefined,
+          sourceControlMigration.settings,
+          DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis)),
+        )
+      : folded;
     const migrated = settingsFileTrusted
-      ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings)
+      ? yield* moveInlineSettingsSecrets(activationSettings)
       : folded;
     // A file still carrying the retired `providers`, `bitbucket`, or `github` keys is rewritten
     // once so the migrated values persist and the old keys disappear.
@@ -1070,7 +1094,11 @@ const make = Effect.gen(function* () {
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* getSettingsFromCache;
-        const updated = yield* update(current);
+        const updated = stampInboxEnabledAt(
+          current,
+          yield* update(current),
+          DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis)),
+        );
         const persisted = yield* persistSettingsSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>

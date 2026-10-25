@@ -1,3 +1,15 @@
+import * as LinearConnection from "./linear/LinearConnection.ts";
+import * as LinearOAuthHttp from "./linear/linearOAuthHttp.ts";
+import * as SuperhumanConnection from "./inbox/SuperhumanConnection.ts";
+import * as SlackConnection from "./inbox/SlackConnection.ts";
+import * as SuperhumanOAuthHttp from "./inbox/superhumanOAuthHttp.ts";
+import * as InboxSources from "./inbox/InboxSources.ts";
+import * as InboxSourceTransport from "./inbox/InboxSourceTransport.ts";
+import * as InboxAnalysis from "./inbox/InboxAnalysis.ts";
+import * as InboxResearch from "./inbox/InboxResearch.ts";
+import * as InboxService from "./inbox/InboxService.ts";
+import * as InboxRepository from "./inbox/InboxRepository.ts";
+import * as InboxAgent from "./inbox/InboxAgent.ts";
 import * as CleanupEffectOutbox from "./orchestration-v2/EffectOutbox.ts";
 import * as ThreadLinearIssues from "./orchestration-v2/ThreadLinearIssues.ts";
 import * as ThreadCleanup from "./orchestration-v2/ThreadCleanup.ts";
@@ -713,6 +725,21 @@ const layerCommandReadiness = HttpRouter.middleware(
   { global: true },
 );
 
+const layerInbox = InboxSources.layer.pipe(
+  Layer.provide(InboxSourceTransport.layer.pipe(Layer.provide(FetchHttpClient.layer))),
+  Layer.provideMerge(
+    InboxService.layer.pipe(
+      Layer.provide(InboxResearch.layer),
+      Layer.provide(InboxRepository.layer),
+      Layer.provide(InboxAgent.layer.pipe(Layer.provide(T3ProjectFileLoader.layer))),
+      Layer.provide(InboxAnalysis.layer),
+    ),
+  ),
+  Layer.provide(SuperhumanConnection.layer),
+  Layer.provide(SlackConnection.layer.pipe(Layer.provide(FetchHttpClient.layer))),
+  Layer.provideMerge(LinearConnection.layer),
+);
+
 const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
@@ -729,6 +756,8 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerOtlpTracesProxyRoute,
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
+    SuperhumanOAuthHttp.layer,
+    LinearOAuthHttp.layer,
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
@@ -744,6 +773,7 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
 ).pipe(
+  Layer.provide(layerInbox),
   // Guides read through the same pull request service as every other surface.
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
