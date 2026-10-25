@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { InboxIcon } from "lucide-react";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { CommandId } from "@t3tools/contracts";
 import { randomUUID } from "~/lib/utils";
@@ -15,10 +16,10 @@ import {
   InboxSummary,
 } from "./InboxNotificationContent";
 import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
+import { InboxFeedbackNotes } from "./InboxFeedbackNotes";
 import { useLoadInboxThread } from "./useLoadInboxThread";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { Button } from "../ui/button";
-import { Textarea } from "../ui/textarea";
 
 export function InboxThreadDetails({
   environmentId,
@@ -65,135 +66,117 @@ export function InboxThreadDetails({
   }, [enabled, list.refresh, detail.refresh]);
   const canWrite = useAtomValue(inboxEnvironment.mutate.permissionAtom(environmentId));
   const command = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
-  const [outcome, setOutcome] = useState<string | null>(null);
+  const refresh = useCallback(() => {
+    detail.refresh();
+    list.refresh();
+  }, [detail, list]);
   const n = detail.data ?? notification;
   if (!n) return null;
   return (
-    <ThreadDetailsSection headingId="thread-notification-heading" title="Notification" separated>
-      <div className="px-2.5 py-2">
-        <InboxNotificationMetadata notification={n} />
-        <div className="mt-2">
-          <InboxSummary
-            threadRef={threadRef}
-            notification={n}
-            expanded
-            onRetrySuggestion={
-              canWrite
-                ? () => {
-                    void command({
-                      environmentId,
-                      input: {
-                        projectId: n.projectId,
-                        id: n.id,
-                        expectedRevision: n.revision,
-                        commandId: CommandId.make(randomUUID()),
-                        action: { type: "retry-suggestion" },
-                      },
-                    }).then(() => {
-                      detail.refresh();
-                      list.refresh();
-                    });
-                  }
-                : undefined
-            }
-            suggestionsEnabled={
-              !!(
-                thread &&
-                config &&
-                resolveProjectSettings(config.settings, thread.projectId).settings
-                  .inboxPreResolution
-              )
-            }
-            enabled={
-              !!(
-                thread &&
-                config &&
-                resolveProjectSettings(config.settings, thread.projectId).settings
-                  .inboxSummaryEnabled
-              )
-            }
-          />
-        </div>
-        <details className="mt-2 text-xs">
-          <summary className="cursor-pointer text-muted-foreground">
-            Original message and context
-          </summary>
-          {detail.data ? (
-            <InboxSourceContent
-              notification={detail.data}
+    <div className="border-b border-border/65">
+      <ThreadDetailsSection
+        headingId="thread-notification-heading"
+        title="Notification"
+        separated
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Show in Inbox"
+              title="Show in Inbox"
+              onClick={() =>
+                useInboxNavigation.setState({
+                  tab: "inbox",
+                  revealId: n.id,
+                  revealed: { environmentId, notification: n },
+                })
+              }
+            >
+              <InboxIcon className="size-3.5" />
+            </Button>
+            <InboxOpenOriginalAction notification={n} threadRef={threadRef} />
+          </>
+        }
+      >
+        <div className="px-2.5 py-2">
+          <InboxNotificationMetadata notification={n} />
+          <div className="mt-2">
+            <InboxSummary
               threadRef={threadRef}
-              onLoadPrevious={() =>
-                loadThread(environmentId, detail.data!.projectId, detail.data!.id)
+              notification={n}
+              expanded
+              onRetrySuggestion={
+                canWrite
+                  ? () => {
+                      void command({
+                        environmentId,
+                        input: {
+                          projectId: n.projectId,
+                          id: n.id,
+                          expectedRevision: n.revision,
+                          commandId: CommandId.make(randomUUID()),
+                          action: { type: "retry-suggestion" },
+                        },
+                      }).then(() => {
+                        detail.refresh();
+                        list.refresh();
+                      });
+                    }
+                  : undefined
+              }
+              suggestionsEnabled={
+                !!(
+                  thread &&
+                  config &&
+                  resolveProjectSettings(config.settings, thread.projectId).settings
+                    .inboxPreResolution
+                )
+              }
+              enabled={
+                !!(
+                  thread &&
+                  config &&
+                  resolveProjectSettings(config.settings, thread.projectId).settings
+                    .inboxSummaryEnabled
+                )
               }
             />
-          ) : (
-            <p className="py-2 text-muted-foreground">{detail.error ?? "Loading context…"}</p>
-          )}
-        </details>
-        {detail.error && (
-          <p role="alert" className="text-xs text-destructive">
-            {detail.error}
-            <button type="button" onClick={detail.refresh} className="ml-1 underline">
-              Retry
-            </button>
-          </p>
-        )}
-        <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              useInboxNavigation.setState({
-                tab: "inbox",
-                revealId: n.id,
-                revealed: { environmentId, notification: n },
-              })
-            }
-          >
-            Show in Inbox
-          </Button>
-          <InboxOpenOriginalAction notification={n} threadRef={threadRef} />
-        </div>
-        {memoryEnabled && (
+          </div>
           <details className="mt-2 text-xs">
             <summary className="cursor-pointer text-muted-foreground">
-              Record confirmed outcome
+              Original message and context
             </summary>
-            <div className="mt-2 space-y-2">
-              <Textarea
-                aria-label="Confirmed outcome"
-                rows={3}
-                maxLength={8000}
-                value={outcome ?? n.confirmedOutcome ?? ""}
-                onChange={(event) => setOutcome(event.target.value)}
-                placeholder="What actually resolved this request?"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canWrite}
-                onClick={() =>
-                  void command({
-                    environmentId,
-                    input: {
-                      projectId: n.projectId,
-                      id: n.id,
-                      expectedRevision: n.revision,
-                      commandId: CommandId.make(randomUUID()),
-                      action: { type: "outcome", text: outcome ?? n.confirmedOutcome ?? "" },
-                    },
-                  }).then(() => {
-                    detail.refresh();
-                    list.refresh();
-                  })
+            {detail.data ? (
+              <InboxSourceContent
+                notification={detail.data}
+                threadRef={threadRef}
+                onLoadPrevious={() =>
+                  loadThread(environmentId, detail.data!.projectId, detail.data!.id)
                 }
-              >
-                Save outcome
-              </Button>
-            </div>
+              />
+            ) : (
+              <p className="py-2 text-muted-foreground">{detail.error ?? "Loading context…"}</p>
+            )}
           </details>
-        )}
-      </div>
-    </ThreadDetailsSection>
+          {detail.error && (
+            <p role="alert" className="text-xs text-destructive">
+              {detail.error}
+              <button type="button" onClick={detail.refresh} className="ml-1 underline">
+                Retry
+              </button>
+            </p>
+          )}
+          {memoryEnabled && (
+            <InboxFeedbackNotes
+              key={`${environmentId}:${n.id}`}
+              environmentId={environmentId}
+              notification={n}
+              onSaved={refresh}
+            />
+          )}
+        </div>
+      </ThreadDetailsSection>
+    </div>
   );
 }
