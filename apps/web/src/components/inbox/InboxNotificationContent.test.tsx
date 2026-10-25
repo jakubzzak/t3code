@@ -258,6 +258,115 @@ it("shortens bare Markdown URLs but leaves already labeled links and code unchan
     ),
   ).toBe(true);
 });
+it.each(["slack", "superhuman"] as const)(
+  "renders plain %s quotations without treating the rest of the body as Markdown",
+  async (source) => {
+    await act(async () =>
+      root.render(
+        <InboxSourceContent
+          threadRef={threadRef}
+          notification={{
+            ...notification,
+            source,
+            items: [
+              {
+                ...notification.items[0]!,
+                source,
+                content:
+                  "Before\n> Review https://example.test/report\n> Keep this context\nReply *literally*, a > b.\n<script>unsafe()</script>",
+              },
+            ],
+          }}
+        />,
+      ),
+    );
+    const quotes = container.querySelectorAll("blockquote");
+    expect(quotes).toHaveLength(1);
+    expect(quotes[0]!.textContent).toBe("Review example.test\nKeep this context");
+    expect(quotes[0]!.querySelector("a")?.getAttribute("href")).toBe("https://example.test/report");
+    expect(quotes[0]!.textContent).not.toContain("Reply");
+    expect(container.textContent).toContain("Reply *literally*, a > b.");
+    expect(container.querySelector("script, em")).toBeNull();
+  },
+);
+
+it("renders escaped Slack quotes in both the original and reply without quoting replies or code", async () => {
+  const message = (ts: string, content: string) => ({
+    ts,
+    occurredAt: notification.updatedAt,
+    author: "Joel",
+    content,
+    formattedContent: slackText(content),
+  });
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{
+          ...notification,
+          slackThread: {
+            channelId: "C1",
+            ts: "1",
+            nextCursor: null,
+            replyCount: 1,
+            latestReplyTs: "2",
+            root: message("1", "Before\n&gt; Original quote\nOriginal response"),
+            messages: [
+              message(
+                "2",
+                "> Review <https://example.test/report|the report>\n> Second quoted line\nWe could add a label.\n```\n> code stays literal\n```\nInline `> literal` and a > b.",
+              ),
+            ],
+          },
+        }}
+      />,
+    ),
+  );
+  const quotes = [...container.querySelectorAll("blockquote")];
+  expect(quotes).toHaveLength(2);
+  expect(quotes[0]!.textContent).toContain("Original quote");
+  expect(quotes[0]!.textContent).not.toContain("Original response");
+  expect(quotes[1]!.textContent).toContain("Review the report");
+  expect(quotes[1]!.textContent).toContain("Second quoted line");
+  expect(quotes[1]!.textContent).not.toContain("We could");
+  expect(quotes[1]!.querySelector("a")?.getAttribute("href")).toBe("https://example.test/report");
+  expect(container.querySelector("pre code")?.textContent).toBe("> code stays literal\n");
+  expect(container.textContent).toContain("Inline > literal and a > b.");
+});
+
+it("renders Markdown quotations in Linear issue descriptions and comments", async () => {
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{
+          ...notification,
+          source: "linear",
+          linearIssue: {
+            id: "issue",
+            title: "Review release",
+            description: "> **Requested change**\n\nDescription response",
+            commentCount: 1,
+            commentsComplete: true,
+            comments: [
+              {
+                id: "comment",
+                author: "Joel",
+                occurredAt: notification.updatedAt,
+                body: "> Can we separate issues?\n\nWe could add a label.\n\n```\n> literal code\n```",
+              },
+            ],
+          },
+        }}
+      />,
+    ),
+  );
+  const quotes = [...container.querySelectorAll("blockquote")];
+  expect(quotes).toHaveLength(2);
+  expect(quotes[0]!.querySelector("strong")?.textContent).toBe("Requested change");
+  expect(quotes[0]!.textContent).not.toContain("Description response");
+  expect(quotes[1]!.textContent).toContain("Can we separate issues?");
+  expect(quotes[1]!.textContent).not.toContain("We could");
+  expect(container.querySelector("pre code")?.textContent).toBe("> literal code\n");
+});
 it("links URLs in AI summaries, suggested next steps, and raw notification titles", async () => {
   await act(async () =>
     root.render(

@@ -153,7 +153,58 @@ function InboxLinkedText({ text }: { text: string }) {
   }, [text]);
 }
 
-const inboxMarkdownComponents: Components = { a: InboxMarkdownLink };
+function InboxBlockquote({ children }: { children?: ReactNode }) {
+  return <blockquote className={styles.blockquote}>{children}</blockquote>;
+}
+
+/** Plain bodies keep their literal text and links, with line-prefixed email-style quotations. */
+function InboxQuotedText({ text }: { text: string }) {
+  const blocks: { start: number; quoted: boolean; lines: string[] }[] = [];
+  let offset = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const quote = line.match(/^ {0,3}>[ \t]?(.*)$/);
+    const quoted = quote !== null;
+    let block = blocks.at(-1);
+    if (!block || block.quoted !== quoted) {
+      block = { start: offset, quoted, lines: [] };
+      blocks.push(block);
+    }
+    block.lines.push(quote?.[1] ?? line);
+    offset += line.length + 1;
+  }
+  return blocks.map((block) =>
+    block.quoted ? (
+      <InboxBlockquote key={block.start}>
+        <InboxLinkedText text={block.lines.join("\n")} />
+      </InboxBlockquote>
+    ) : (
+      <InboxLinkedText key={block.start} text={block.lines.join("\n")} />
+    ),
+  );
+}
+
+/** Stored Slack Markdown escapes >; restore quote runs without touching fenced code. */
+function slackBlockquotes(content: string) {
+  const lines: string[] = [];
+  let inCode = false;
+  let quoting = false;
+  for (const line of content.split(/\r?\n/)) {
+    const quote = !inCode && line.match(/^( {0,3})((?:\\?>)+)([ \t]?)(.*)$/);
+    if (quote) {
+      if (!quoting && lines.at(-1)?.trim()) lines.push("");
+      lines.push(`${quote[1]}${quote[2]!.replaceAll("\\", "")}${quote[3]}${quote[4]}`);
+    } else {
+      // Slack quotes only marked lines; an unmarked reply must not become a lazy continuation.
+      if (quoting && line.trim()) lines.push("");
+      lines.push(line);
+    }
+    quoting = !!quote;
+    if ((line.match(/(?<!\\)```/g)?.length ?? 0) % 2 === 1) inCode = !inCode;
+  }
+  return lines.join("\n");
+}
+
+const inboxMarkdownComponents: Components = { a: InboxMarkdownLink, blockquote: InboxBlockquote };
 const inlineSlackMarkdownComponents: Components = {
   ...inboxMarkdownComponents,
   p: ({ children }) => <span>{children}</span>,
@@ -194,7 +245,7 @@ function SlackMarkdown({
         }
         components={inline ? inlineSlackMarkdownComponents : inboxMarkdownComponents}
       >
-        {content}
+        {slackBlockquotes(content)}
       </ReactMarkdown>
     </SlackMentionsContext>
   );
@@ -445,9 +496,9 @@ export function InboxSummary({
                 <InboxSuggestionStatus status={suggestionStatus} onRetry={onRetrySuggestion} />
               )}
             </div>
-            <p className={`whitespace-pre-wrap break-words ${expanded ? "" : "line-clamp-3"}`}>
-              <InboxLinkedText text={notification.analysis.summary} />
-            </p>
+            <div className={`whitespace-pre-wrap break-words ${expanded ? "" : "line-clamp-3"}`}>
+              <InboxQuotedText text={notification.analysis.summary} />
+            </div>
             <InboxSuggestionCallout
               visible={
                 expanded &&
@@ -461,7 +512,7 @@ export function InboxSummary({
                 <ul className="space-y-2">
                   {content.map((suggestion) => (
                     <li key={suggestion}>
-                      <InboxLinkedText text={suggestion} />
+                      <InboxQuotedText text={suggestion} />
                     </li>
                   ))}
                 </ul>
@@ -642,9 +693,9 @@ export function InboxSourceContent({
                 <strong>{item.title}</strong>
               </p>
               <InboxContentPreview lines={8}>
-                <p className="whitespace-pre-wrap break-words">
-                  <InboxLinkedText text={emailDisplayBody(item.content)} />
-                </p>
+                <div className="whitespace-pre-wrap break-words">
+                  <InboxQuotedText text={emailDisplayBody(item.content)} />
+                </div>
               </InboxContentPreview>
             </section>
           ))}
@@ -771,9 +822,9 @@ export function InboxSourceContent({
                   </ReactMarkdown>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap break-words">
-                  <InboxLinkedText text={item.content} />
-                </p>
+                <div className="whitespace-pre-wrap break-words">
+                  <InboxQuotedText text={item.content} />
+                </div>
               )}
             </div>
           ))}

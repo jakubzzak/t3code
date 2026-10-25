@@ -152,10 +152,13 @@
 .linearMarkdown input[type="checkbox"] {
   margin-inline-end: 0.375rem;
 }
-.linearMarkdown blockquote {
-  border-inline-start: 2px solid var(--border);
+.blockquote {
+  margin-block: 0.5rem;
+  border-inline-start: 2px solid color-mix(in srgb, var(--primary) 45%, var(--border));
   padding-inline-start: 0.625rem;
-  color: var(--muted-foreground);
+}
+.blockquote > * + * {
+  margin-top: 0.5rem;
 }
 .linearMarkdown pre {
   overflow-x: auto;
