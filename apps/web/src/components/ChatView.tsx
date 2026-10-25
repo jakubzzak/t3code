@@ -8023,6 +8023,7 @@ export default function ChatView(props: ChatViewProps) {
     previewFocus: isPreviewFocused(),
     previewOpen: previewPanelOpen,
     editableFocus: isEditableFocused(eventTarget),
+    inboxFocus: eventTarget instanceof Element && eventTarget.closest("[data-inbox-list]") !== null,
     modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
     composerFocus: document.activeElement?.getAttribute("data-testid") === "composer-editor",
     draftThreadRoute: routeKind === "draft",

@@ -8,6 +8,7 @@ import { useServerConfigs } from "~/state/entities";
 import { waitForThreadShell } from "~/state/entities";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { randomUUID } from "~/lib/utils";
+import { isInboxSnoozeShortcut } from "~/keybindings";
 import { Tabs } from "@base-ui/react/tabs";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -774,7 +775,7 @@ export function InboxSidebarLayout({
       return;
     }
     if (event.key === "Enter") value = { type: "delegate", startAgent: !event.shiftKey };
-    if (event.shiftKey && event.key.toLowerCase() === "h") value = "snooze-menu";
+    if (isInboxSnoozeShortcut(event)) value = "snooze-menu";
     if (event.shiftKey && event.key.toLowerCase() === "u")
       value = { type: "read", read: !entry.notification.state.read };
     if (!event.shiftKey && event.key.toLowerCase() === "e")
@@ -782,7 +783,7 @@ export function InboxSidebarLayout({
     if (value) {
       event.preventDefault();
       event.stopPropagation();
-      void action(entry, value);
+      if (value !== "snooze-menu" || !event.repeat) void action(entry, value);
     }
   }
   const enabled = projects.length > 0;

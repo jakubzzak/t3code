@@ -35,6 +35,7 @@ import {
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
   type ShortcutEventLike,
+  type ShortcutMatchContext,
 } from "./keybindings";
 
 function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
@@ -950,6 +951,30 @@ describe("cross-command precedence", () => {
 });
 
 describe("resolveChatShortcutCommand", () => {
+  it.each([
+    { platform: "MacIntel", metaKey: true, ctrlKey: false },
+    { platform: "Linux", metaKey: false, ctrlKey: true },
+  ])(
+    "leaves Snooze to a focused notification without stealing the host picker elsewhere (%s)",
+    ({ platform, metaKey, ctrlKey }) => {
+      const input = event({ key: "H", shiftKey: true, metaKey, ctrlKey });
+      const resolve = (context: Partial<ShortcutMatchContext>) =>
+        resolveChatShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, [], { platform, context });
+      assert.strictEqual(resolve({ inboxFocus: false }), "composer.host");
+      assert.isNull(resolve({ inboxFocus: true }));
+      assert.strictEqual(resolve({ inboxFocus: true, editableFocus: true }), "composer.host");
+      assert.strictEqual(
+        resolveChatShortcutCommand(
+          event({ key: "E", shiftKey: true, metaKey, ctrlKey }),
+          DEFAULT_RESOLVED_KEYBINDINGS,
+          [],
+          { platform, context: { inboxFocus: true } },
+        ),
+        "composer.effort",
+      );
+    },
+  );
+
   it("runs the active environment's script shortcut instead of the primary environment's", () => {
     const primary = compile([{ shortcut: modShortcut("r"), command: "script.setup.run" }]);
     const active = compile([{ shortcut: modShortcut("t"), command: "script.setup.run" }]);

@@ -34,6 +34,8 @@ export interface ShortcutMatchContext {
   /** A text field, textarea, select or rich-text editor owns the keyboard.
       Optional: only chords that collide with native editing consult it. */
   editableFocus?: boolean;
+  /** Notification-list actions take priority over matching global shortcuts. */
+  inboxFocus?: boolean;
   [key: string]: boolean;
 }
 
@@ -153,6 +155,15 @@ function matchesCommandShortcut(
   return resolveShortcutCommand(event, keybindings, options) === command;
 }
 
+export function isInboxSnoozeShortcut(event: ShortcutEventLike): boolean {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === "h"
+  );
+}
+
 export function resolveShortcutCommand(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
@@ -160,6 +171,10 @@ export function resolveShortcutCommand(
 ): KeybindingCommand | null {
   const platform = resolvePlatform(options);
   const context = resolveContext(options);
+
+  // Chat's window capture handler runs before the Inbox list's React handler.
+  // Leave Snooze to the focused notification instead of opening composer.host.
+  if (context.inboxFocus && !context.editableFocus && isInboxSnoozeShortcut(event)) return null;
 
   // Window capture handlers run before the browser toolbar's React handler.
   // Let the focused desktop browser consume its chords without firing a thread command.

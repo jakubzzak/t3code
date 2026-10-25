@@ -14,6 +14,7 @@ import { installSectionNavigation } from "~/sectionNavigation";
 import { useInboxNavigation } from "./inboxNavigation";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { subscribeSnapShotComposerFocus } from "~/lib/desktopSnapShot";
+import { dismissContextMenu } from "~/contextMenuFallback";
 
 const state = vi.hoisted(() => ({
   items: [] as InboxNotification[],
@@ -145,6 +146,7 @@ const container = document.createElement("div");
 document.body.append(container);
 let root = createRoot(container);
 afterEach(async () => {
+  dismissContextMenu();
   await act(async () => root.unmount());
   root = createRoot(container);
   vi.clearAllMocks();
@@ -152,6 +154,60 @@ afterEach(async () => {
   state.resolutions = false;
   useComposerDraftStore.getState().setPrompt({ environmentId, threadId }, "");
 });
+
+it.each(["Meta", "Control"])(
+  "opens Snooze for a focused notification with %s+Shift+H and applies the chosen preset",
+  async (modifier) => {
+    state.items = [notification];
+    state.mutate.mockResolvedValue({
+      _tag: "Success",
+      value: { notification, openThread: false, undoCommandId: null },
+    });
+    useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+    await act(async () =>
+      root.render(
+        <InboxSidebarLayout
+          projects={[{ environmentId, projectId }]}
+          threadRef={null}
+          chatCount={0}
+          chatHeader={null}
+        >
+          <div>Current chat</div>
+        </InboxSidebarLayout>,
+      ),
+    );
+    const row = container.querySelector<HTMLElement>("[data-inbox-row]")!;
+    await act(async () => row.focus());
+    const press = (repeat = false) => {
+      const event = new KeyboardEvent("keydown", {
+        key: "H",
+        code: "KeyH",
+        metaKey: modifier === "Meta",
+        ctrlKey: modifier === "Control",
+        shiftKey: true,
+        repeat,
+        bubbles: true,
+        cancelable: true,
+      });
+      row.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    };
+    await act(async () => press());
+    const menu = document.body.querySelector<HTMLElement>('[data-level="0"]')!;
+    expect(menu.textContent).toContain("Choose date and time");
+    expect(state.mutate).not.toHaveBeenCalled();
+    await act(async () => press(true));
+    expect(document.body.querySelector('[data-level="0"]')).toBe(menu);
+    // The menu becomes pointer-interactive on its first animation frame.
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    await act(async () => menu.querySelector<HTMLButtonElement>("button")!.click());
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate.mock.calls[0]![0].input).toMatchObject({
+      id: notification.id,
+      action: { type: "snooze", until: expect.any(String) },
+    });
+  },
+);
 
 it.each([
   { linked: false, savedDraft: "", summary: true, resolutions: true },
