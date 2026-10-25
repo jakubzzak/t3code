@@ -546,7 +546,9 @@ export function InboxSummary({
 
 function SlackMessageBody({ message }: { message: InboxSlackMessage }) {
   return (
-    <div className="space-y-2 whitespace-pre-wrap break-words [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
+    <div
+      className={`${styles.messageMarkdown} [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4`}
+    >
       <SlackMarkdown content={message.formattedContent} mentions={message.slackMentions} />
     </div>
   );
@@ -773,7 +775,7 @@ export function InboxSourceContent({
                   className={
                     item.source === "linear"
                       ? styles.linearMarkdown
-                      : "space-y-2 whitespace-pre-wrap break-words [&_a]:text-primary [&_a]:underline [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
+                      : `${styles.messageMarkdown} [&_a]:text-primary [&_a]:underline [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4`
                   }
                 >
                   <ReactMarkdown
