@@ -86,16 +86,19 @@ Repeated activation, retries, or concurrent clients must not create duplicate ch
 
 These shortcuts apply when the inbox list owns focus, not while typing in search, a composer, an editor, or a terminal. Reuse the application's platform modifier convention outside macOS.
 
-| Shortcut        | Action                                                                  |
-| --------------- | ----------------------------------------------------------------------- |
-| Up / Down       | Move notification focus; expand the new item and collapse the old one.  |
-| Cmd+Enter       | Direct Agent delegation; open the existing chat when already linked.    |
-| Cmd+Shift+Enter | Open Agent chat to compose; open the existing chat when already linked. |
-| Cmd+Shift+H     | Snooze / unsnooze.                                                      |
-| Cmd+Shift+U     | Toggle read / unread.                                                   |
-| Cmd+Shift+O     | Open the focused notification's original source.                        |
-| Cmd+E           | Settle.                                                                 |
-| Cmd+Z           | Undo notification actions in order, including delegation.               |
+| Shortcut        | Action                                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Up / Down       | Move notification focus; expand the new item and collapse the old one.                                                      |
+| Cmd+Up / Down   | Jump to the current section's first / last notification; at that edge, move just one notification in the arrow's direction. |
+| Cmd+Enter       | Direct Agent delegation; open the existing chat when already linked.                                                        |
+| Cmd+Shift+Enter | Open Agent chat to compose; open the existing chat when already linked.                                                     |
+| Cmd+Shift+H     | Snooze / unsnooze.                                                                                                          |
+| Cmd+Shift+U     | Toggle read / unread.                                                                                                       |
+| Cmd+Shift+O     | Open the focused notification's original source.                                                                            |
+| Cmd+E           | Settle.                                                                                                                     |
+| Cmd+Z           | Undo notification actions in order, including delegation.                                                                   |
+
+For Cmd+Up / Down, a group means a sidebar section: active intake, Delegated, Snoozed, or Settled, rather than a source-native message thread. Within a section, jump to its first or last available notification. If already at that edge, handle the press exactly like an unmodified arrow: move only to the adjacent notification in rendered navigation order, entering the next section at its near edge without jumping through it. The next press can then jump to the far edge of that section. For example, Cmd+Down from the middle of Delegated moves to its last item; another Cmd+Down moves only to the first navigable item in the following section; a third moves to that section's last item. Cmd+Up mirrors this behavior. Empty or collapsed sections and the beginning/end of the whole list follow ordinary arrow navigation. Each destination receives keyboard focus, expands, and is smoothly scrolled into view when needed.
 
 Holding Command shows mild shortcut hints over the focused row's action icons without changing layout. Command-number chat jumps do not navigate notifications or unexpectedly switch chats while the inbox list owns focus. Existing shortcuts retain their behavior outside that focus scope, including composer bindings that overlap these keys. Merely opening an existing chat is navigation, not a new delegation to undo.
 
@@ -119,7 +122,7 @@ Keep **Initial history** inside the expanded project Features → Inbox componen
 
 1. With Inbox off, the ordinary chat sidebar remains unchanged. Enable Inbox for project A and configure Slack; project B remains unconfigured even when it can reuse the same credentials. Enabling Inbox with Linear as a source does not turn on Linear view. Feature customizations and integration selections stay in their respective settings sections.
 2. Switch Chats/Inbox while composing in an existing chat: the main panel and draft stay intact. Search and filter notifications with the reused controls. Delegated, Snoozed, and Settled have the same collapsed-section behavior as chats.
-3. Move through Slack, Linear, and email notifications with arrows. Each has the required logo, source location, AI summary, and expandable original content. Only the focused item expands and becomes read. Mark it unread without moving focus; it remains unread until a later visit. Grouped comments retain their exact triggering context.
+3. Move through Slack, Linear, and email notifications with arrows. Verify Cmd+Up / Down jumps within the current sidebar section, crosses its boundary by exactly one notification on the next press, then jumps within the newly entered section on the following press. Cover both directions, one-item sections, empty/collapsed sections and the ends of the list; each newly focused item remains visible. Each has the required logo, source location, AI summary, and expandable original content. Only the focused item expands and becomes read. Mark it unread without moving focus; it remains unread until a later visit. Grouped comments retain their exact triggering context.
 4. Direct delegation starts one agent with the project prompt; Agent chat starts no turn until the user submits. Repeated activation of either action opens the existing linked chat. Both sides expose the link, and the chat preview lives in its top-right Details bubble. Failed startup is visible and recoverable.
 5. Snooze/unsnooze and settle/un-settle preserve read state and chat links. Settle and reopen the linked chat and observe the corresponding notification placement. Restart or reconnect a second client without losing these states or creating duplicate tasks.
 6. Exercise every shortcut through keyboard focus and Command hints. No numbered chat jump fires from the inbox list, and overlapping composer/editor shortcuts still work elsewhere. Undo restores state, including an explicitly unread focused item. Undo direct delegation after the agent starts: the notification returns to active intake, a stop is requested, and the linked chat and completed work remain. Pending or failed cancellation is visible; later delegation opens the retained chat without starting another turn.
