@@ -515,9 +515,110 @@ it.each(["Meta", "Control"])(
     await act(async () => sectionButton("Snoozed").click());
     await act(async () => row("delegated-3").focus());
     await press("ArrowDown");
-    expectFocused("resolved-0");
+    expectFocused("snoozed-0");
   },
 );
+
+it.each(["none", "Meta", "Control"])(
+  "opens collapsed sections on boundary crossing with %s arrows in both directions",
+  async (modifier) => {
+    state.items = (["active", "delegated", "snoozed", "resolved"] as const).flatMap((placement) =>
+      Array.from({ length: placement === "snoozed" ? 1 : 3 }, (_, i) => ({
+        ...notification,
+        id: `${placement}-${i}`,
+        state: { ...notification.state, placement },
+      })),
+    );
+    useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+    await act(async () =>
+      root.render(
+        <InboxSidebarLayout
+          projects={[{ environmentId, projectId }]}
+          threadRef={null}
+          chatCount={0}
+          chatHeader={null}
+        >
+          <span>Chats</span>
+        </InboxSidebarLayout>,
+      ),
+    );
+    const row = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-inbox-row="env:${id}"]`);
+    const focus = (id: string) => act(async () => row(id)!.focus());
+    const press = (key: string) =>
+      act(async () => {
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+            metaKey: modifier === "Meta",
+            ctrlKey: modifier === "Control",
+          }),
+        );
+      });
+    const expectFocused = (id: string) => {
+      expect(row(id)).not.toBeNull();
+      expect(document.activeElement).toBe(row(id));
+      expect(row(id)!.getAttribute("aria-expanded")).toBe("true");
+    };
+    expect(row("delegated-0")).toBeNull();
+    await focus("active-2");
+    await press("ArrowDown");
+    expectFocused("delegated-0");
+    expect(row("snoozed-0")).toBeNull();
+    await focus("delegated-2");
+    await press("ArrowDown");
+    expectFocused("snoozed-0");
+    await press("ArrowDown");
+    expectFocused("resolved-0");
+    for (const section of ["delegated", "snoozed"]) {
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(`[data-inbox-section="${section}"] button`)!
+          .click(),
+      );
+    }
+    await focus("resolved-0");
+    await press("ArrowUp");
+    expectFocused("snoozed-0");
+    expect(row("delegated-0")).toBeNull();
+    await press("ArrowUp");
+    expectFocused("delegated-2");
+    await focus("delegated-0");
+    await press("ArrowUp");
+    expectFocused("active-2");
+  },
+);
+
+it("enters a collapsed group from an empty active list and skips empty groups", async () => {
+  state.items = [{ ...notification, state: { ...notification.state, placement: "snoozed" } }];
+  useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+  await act(async () =>
+    root.render(
+      <InboxSidebarLayout
+        projects={[{ environmentId, projectId }]}
+        threadRef={null}
+        chatCount={0}
+        chatHeader={null}
+      >
+        <span>Chats</span>
+      </InboxSidebarLayout>,
+    ),
+  );
+  expect(container.querySelector("[data-inbox-row]")).toBeNull();
+  await act(async () => container.querySelector<HTMLElement>("[data-inbox-list]")!.focus());
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    ),
+  );
+  const row = container.querySelector<HTMLElement>("[data-inbox-row]")!;
+  expect(row).not.toBeNull();
+  expect(document.activeElement).toBe(row);
+  expect(row.getAttribute("aria-expanded")).toBe("true");
+  expect(row.closest("[data-inbox-section]")?.getAttribute("data-inbox-section")).toBe("snoozed");
+});
 
 it.each(["Enter", "Tab"])(
   "enters Inbox rows from panel navigation with %s, then keeps arrows in the list",

@@ -50,6 +50,7 @@ import {
   type ReactNode,
   type KeyboardEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { createSidebarListMotion } from "../Sidebar.motion";
 import { useRouter } from "@tanstack/react-router";
 import { useInboxNavigation } from "./inboxNavigation";
@@ -759,19 +760,32 @@ export function InboxSidebarLayout({
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
-      const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])];
-      const index = rows.findIndex((row) => row.dataset.inboxRow === focusedKey);
-      const adjacent =
-        rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
-      const sectionRows = modifier
-        ? rows[index]
-            ?.closest("[data-inbox-section]")
-            ?.querySelectorAll<HTMLElement>("[data-inbox-row]")
-        : undefined;
-      const edge =
-        event.key === "ArrowDown" ? sectionRows?.[sectionRows.length - 1] : sectionRows?.[0];
+      const ordered = (["active", "delegated", "snoozed", "resolved"] as const).flatMap(
+        (placement) =>
+          filtered.filter(({ notification }) => notification.state.placement === placement),
+      );
+      const index = ordered.findIndex((candidate) => keyOf(candidate) === focusedKey);
+      const down = event.key === "ArrowDown";
+      const adjacent = ordered[Math.max(0, Math.min(ordered.length - 1, index + (down ? 1 : -1)))];
+      const group =
+        modifier && ordered[index]
+          ? ordered.filter(
+              ({ notification }) =>
+                notification.state.placement === ordered[index]!.notification.state.placement,
+            )
+          : [];
+      const edge = down ? group.at(-1) : group[0];
       // At the section edge, cross by one item before allowing another section jump.
-      (edge && edge !== rows[index] ? edge : adjacent)?.focus({ preventScroll: true });
+      const destination = edge && edge !== ordered[index] ? edge : adjacent;
+      if (!destination) return;
+      const placement = destination.notification.state.placement;
+      if (placement !== "active" && !sections.has(placement)) {
+        // Mount the destination before focusing it so normal read/expansion/scroll behavior runs.
+        flushSync(() => setSections((current) => new Set(current).add(placement)));
+      }
+      [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])]
+        .find((row) => row.dataset.inboxRow === keyOf(destination))
+        ?.focus({ preventScroll: true });
       return;
     }
     if (!modifier) return;
