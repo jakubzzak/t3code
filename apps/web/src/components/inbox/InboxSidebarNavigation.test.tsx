@@ -210,6 +210,69 @@ it.each(["Meta", "Control"])(
 );
 
 it.each([
+  { label: "Snooze", id: "notification", nextId: "second" },
+  { label: "Snooze", id: "second", nextId: "notification" },
+  { label: "Settle", id: "notification", nextId: "second" },
+  { label: "Settle", id: "second", nextId: "notification" },
+])(
+  "moves focus to $nextId after $label of $id, including focus returning from its menu",
+  async ({ label, id, nextId }) => {
+    state.items = [
+      notification,
+      { ...notification, id: "second", updatedAt: "2026-10-23T09:00:00Z" },
+    ];
+    state.mutate.mockImplementation(async ({ input }) => ({
+      _tag: "Success",
+      value: {
+        notification: {
+          ...state.items.find((item) => item.id === input.id)!,
+          revision: 1,
+          state: {
+            ...notification.state,
+            placement: input.action.type === "snooze" ? "snoozed" : "resolved",
+            snoozedUntil: input.action.until ?? null,
+          },
+        },
+        openThread: false,
+        undoCommandId: null,
+      },
+    }));
+    useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+    await act(async () =>
+      root.render(
+        <InboxSidebarLayout
+          projects={[{ environmentId, projectId }]}
+          threadRef={null}
+          chatCount={0}
+          chatHeader={null}
+        >
+          <div>Current chat</div>
+        </InboxSidebarLayout>,
+      ),
+    );
+    const first = container.querySelector<HTMLElement>(`[data-inbox-row="env:${id}"]`)!;
+    await act(async () => first.focus());
+    const action = first.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+    await act(async () => {
+      action.focus();
+      action.click();
+    });
+    if (label === "Snooze") {
+      const preset = document.body.querySelector<HTMLButtonElement>('[data-level="0"] button')!;
+      await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      await act(async () => {
+        preset.focus();
+        preset.click();
+      });
+    }
+    const next = container.querySelector<HTMLElement>(`[data-inbox-row="env:${nextId}"]`)!;
+    expect(document.activeElement).toBe(next);
+    expect(next.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(`[data-inbox-row="env:${id}"]`)).toBeNull();
+  },
+);
+
+it.each([
   { linked: false, savedDraft: "", summary: true, resolutions: true },
   { linked: true, savedDraft: "", summary: true, resolutions: true },
   { linked: true, savedDraft: "My own instructions", summary: true, resolutions: true },

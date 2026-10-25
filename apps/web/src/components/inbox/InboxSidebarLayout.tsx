@@ -581,13 +581,19 @@ export function InboxSidebarLayout({
         entry.notification;
       const own = overridesRef.current[key];
       const n = own && own.revision > latest.revision ? own : latest;
-      const settling =
-        action.type === "resolve" && action.resolved && n.state.placement !== "resolved";
-      const focusOrder = settling
-        ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])].map(
-            (row) => row.dataset.inboxRow!,
-          )
+      const advancing =
+        (action.type === "resolve" && action.resolved && n.state.placement !== "resolved") ||
+        (action.type === "snooze" && action.until !== null && n.state.placement !== "snoozed");
+      const priorRows = advancing
+        ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])]
         : [];
+      const focusOrder = priorRows.map((row) => row.dataset.inboxRow!);
+      const activeElement = document.activeElement;
+      // A preset menu can return focus to the row's button rather than the row itself.
+      const hadFocus =
+        focusedRef.current === key ||
+        (focusedKey === key &&
+          priorRows.some((row) => row.dataset.inboxRow === key && row.contains(activeElement)));
       const result = await command({
         environmentId: entry.environmentId,
         input: {
@@ -615,15 +621,22 @@ export function InboxSidebarLayout({
             action.type === "delegate" && !action.startAgent,
           );
         }
-        if (focusedRef.current === key) {
-          if (settling && next.state.placement === "resolved") {
+        if (
+          focusedRef.current === key ||
+          (advancing && hadFocus && document.activeElement === activeElement)
+        ) {
+          if (advancing && next.state.placement !== n.state.placement) {
             const rows = [
               ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
             ];
             const visibleKeys = new Set(rows.map((row) => row.dataset.inboxRow));
             const candidates = new Map(
               entriesRef.current
-                .filter((candidate) => candidate.notification.state.placement !== "resolved")
+                .filter(
+                  (candidate) =>
+                    candidate.notification.state.placement !== "resolved" &&
+                    candidate.notification.state.placement !== next.state.placement,
+                )
                 .map((candidate) => [keyOf(candidate), candidate]),
             );
             const remainingOrder = focusOrder.filter(
@@ -634,7 +647,7 @@ export function InboxSidebarLayout({
             const nextEntry = nextKey ? candidates.get(nextKey) : undefined;
             const row = rows.find((candidate) => candidate.dataset.inboxRow === nextKey);
             if (nextEntry && row) {
-              // The automatic read must leave settling as the next action undone by Cmd+Z.
+              // The automatic read must leave the triage action next in the Undo stack.
               focus(nextEntry, false);
               row.focus({ preventScroll: true });
             } else {
