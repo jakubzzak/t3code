@@ -19,7 +19,6 @@ import {
   useUpdateScopedSettings,
 } from "~/components/settings/useScopedSettings";
 import { Switch } from "~/components/ui/switch";
-import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 
 export const Route = createFileRoute("/settings/features")({ component: FeaturesSettings });
@@ -32,7 +31,6 @@ function FeaturesSettings() {
   const settings = useScopedSettings((settings) => settings);
   const mixed = useScopedSettingsMixed(["linearViewEnabled"]);
   const inboxMixed = useScopedSettingsMixed(["inboxEnabled"]);
-  const legacyEnabled = useClientSettings((settings) => settings.linearViewEnabled);
   const update = useUpdateScopedSettings();
   const projectSelected = scope.kind === "project" || scope.kind === "checkout";
   const supported =
@@ -45,20 +43,6 @@ function FeaturesSettings() {
           <p className="text-xs text-muted-foreground">
             Update the selected environment to configure project features.
           </p>
-        )}
-        {legacyEnabled && !settings.linearViewEnabled && (
-          <SettingsRow
-            title="Move your Linear preference to projects"
-            description="Linear view was enabled on this device. Select each project above, then enable it here. Your connections and workspace settings are preserved."
-          >
-            <Button
-              variant="outline"
-              disabled={!supported || !isElectron}
-              onClick={() => update({ linearViewEnabled: true })}
-            >
-              Enable for selected project
-            </Button>
-          </SettingsRow>
         )}
         <SettingsRow
           id="agentic-search"

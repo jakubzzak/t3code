@@ -226,8 +226,6 @@ Snooze action there; the desktop shortcut remains ⌘⇧H.
 
 In the desktop app, select a project in **Settings → Features** and enable **Linear view**.
 In **Settings → Integrations → Linear**, enter its workspace slug from `linear.app/<workspace>`.
-If Linear view was enabled on this device before project settings were introduced, choose the
-projects that should keep it enabled; other projects remain off.
 Open **Linear** from the thread's surface picker, or press **L** while that picker is active.
 The first open uses the issue identifier in the branch, or My Issues when there is none. An open
 view keeps its current page unless you explicitly select an issue for the chat. Close and reopen
