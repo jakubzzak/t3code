@@ -32,10 +32,16 @@ export function keepInboxRowVisible(row: HTMLElement) {
   const adjust = () => {
     const box = row.getBoundingClientRect();
     const view = viewport.getBoundingClientRect();
-    const delta = inboxFocusScrollDelta(box.top, box.bottom, view.top, view.bottom);
+    const headerHeight =
+      row
+        .closest("[data-inbox-section]")
+        ?.querySelector<HTMLElement>("[data-inbox-section-header]")
+        ?.getBoundingClientRect().height ?? 0;
+    const viewTop = view.top + headerHeight;
+    const delta = inboxFocusScrollDelta(box.top, box.bottom, viewTop, view.bottom);
     if (!delta && target === undefined) return;
     // Keep one destination through native scroll frames, retargeting only when layout moves it.
-    const next = Math.max(0, Math.round(viewport.scrollTop + box.top - view.top - 8));
+    const next = Math.max(0, Math.round(viewport.scrollTop + box.top - viewTop - 8));
     if (target !== undefined && Math.abs(next - target) < 1) return;
     target = next;
     scrolling = !reducedMotion;

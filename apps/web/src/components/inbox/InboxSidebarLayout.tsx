@@ -366,7 +366,7 @@ export function InboxSidebarLayout({
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const focusedRef = useRef<string | null>(null);
   const [hints, setHints] = useState(false);
-  const [sections, setSections] = useState<ReadonlySet<string>>(new Set());
+  const [openSection, setOpenSection] = useState<keyof typeof shelfLabels | null>(null);
   const [overrides, setOverrides] = useState<Record<string, InboxNotification>>({});
   const overridesRef = useRef(overrides);
   const [undo, setUndo] = useState<Array<{ entry: Entry; commandId: CommandId }>>([]);
@@ -556,11 +556,8 @@ export function InboxSidebarLayout({
     setSources(sources);
     setUnreadOnly(false);
     setQuery("");
-    setSections((current) =>
-      current.has(entry.notification.state.placement)
-        ? current
-        : new Set(current).add(entry.notification.state.placement),
-    );
+    const placement = entry.notification.state.placement;
+    setOpenSection(placement === "active" ? null : placement);
     const row = [
       ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
     ].find((element) => element.dataset.inboxRow === keyOf(entry));
@@ -568,7 +565,7 @@ export function InboxSidebarLayout({
       row.focus({ preventScroll: true });
       useInboxNavigation.setState({ revealId: null });
     }
-  }, [revealId, entries]);
+  }, [revealId, entries, openSection]);
   async function mutate(entry: Entry, action: InboxMutation, recordUndo = true) {
     if (!appAtomRegistry.get(inboxEnvironment.mutate.permissionAtom(entry.environmentId)))
       return false;
@@ -658,7 +655,8 @@ export function InboxSidebarLayout({
             }
           } else if (
             next.state.placement !== n.state.placement &&
-            !sections.has(next.state.placement)
+            next.state.placement !== "active" &&
+            openSection !== next.state.placement
           ) {
             focusedRef.current = null;
             setFocusedKey(null);
@@ -682,6 +680,8 @@ export function InboxSidebarLayout({
     return work;
   }
   function focus(entry: Entry, recordReadUndo = true) {
+    const placement = entry.notification.state.placement;
+    setOpenSection(placement === "active" ? null : placement);
     const key = keyOf(entry);
     if (focusedRef.current === key) return;
     focusedRef.current = key;
@@ -741,7 +741,7 @@ export function InboxSidebarLayout({
       (!unreadOnly || !entry.notification.state.read || keyOf(entry) === focusedKey),
   );
   const visible = filtered.filter(
-    ({ notification: n }) => n.state.placement === "active" || sections.has(n.state.placement),
+    ({ notification: n }) => n.state.placement === "active" || openSection === n.state.placement,
   );
   const firstShelf = (["delegated", "snoozed", "resolved"] as const).find(
     (placement) =>
@@ -779,9 +779,10 @@ export function InboxSidebarLayout({
       const destination = edge && edge !== ordered[index] ? edge : adjacent;
       if (!destination) return;
       const placement = destination.notification.state.placement;
-      if (placement !== "active" && !sections.has(placement)) {
+      const destinationSection = placement === "active" ? null : placement;
+      if (openSection !== destinationSection) {
         // Mount the destination before focusing it so normal read/expansion/scroll behavior runs.
-        flushSync(() => setSections((current) => new Set(current).add(placement)));
+        flushSync(() => setOpenSection(destinationSection));
       }
       [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])]
         .find((row) => row.dataset.inboxRow === keyOf(destination))
@@ -1024,7 +1025,7 @@ export function InboxSidebarLayout({
                     );
                     if (placement !== "active" && placement !== "resolved" && group.length === 0)
                       return null;
-                    const expanded = placement === "active" || sections.has(placement);
+                    const expanded = placement === "active" || openSection === placement;
                     return (
                       <section
                         key={placement}
@@ -1032,18 +1033,15 @@ export function InboxSidebarLayout({
                         className={placement === firstShelf ? "mt-auto shrink-0" : "shrink-0"}
                       >
                         {placement !== "active" && (
-                          <div className="mx-0.5 h-8">
+                          <div data-inbox-section-header className={styles.sectionHeader}>
                             <CollapsibleSectionHeader
                               expanded={expanded}
                               count={group.length}
                               tone={placement === "snoozed" ? "info" : "muted"}
                               onClick={() =>
-                                setSections((current) => {
-                                  const next = new Set(current);
-                                  if (next.has(placement)) next.delete(placement);
-                                  else next.add(placement);
-                                  return next;
-                                })
+                                setOpenSection((current) =>
+                                  current === placement ? null : placement,
+                                )
                               }
                             >
                               {shelfLabels[placement]}

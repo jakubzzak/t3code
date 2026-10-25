@@ -18,6 +18,33 @@ it("does not move an already visible notification", () => {
   expect(inboxFocusScrollDelta(12, 240, 0, 300)).toBe(0);
 });
 
+it("brings a focused notification out from behind its sticky section heading", async () => {
+  const { keepInboxRowVisible } = await import("./inboxFocusScroll");
+  vi.useFakeTimers();
+  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  const viewport = document.createElement("div");
+  viewport.dataset.slot = "scroll-area-viewport";
+  viewport.scrollTop = 100;
+  viewport.scrollTo = vi.fn();
+  const list = document.createElement("div");
+  list.dataset.inboxList = "";
+  const section = document.createElement("section");
+  section.dataset.inboxSection = "delegated";
+  const header = document.createElement("div");
+  header.dataset.inboxSectionHeader = "";
+  const row = document.createElement("article");
+  section.append(header, row);
+  list.append(section);
+  viewport.append(list);
+  document.body.append(viewport);
+  vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 300 } as DOMRect);
+  vi.spyOn(header, "getBoundingClientRect").mockReturnValue({ height: 32 } as DOMRect);
+  vi.spyOn(row, "getBoundingClientRect").mockReturnValue({ top: 16, bottom: 96 } as DOMRect);
+  const stop = keepInboxRowVisible(row);
+  expect(viewport.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 76, behavior: "instant" });
+  stop();
+});
+
 it("rechecks the selected row when accordion layout finishes and releases observers", async () => {
   const { keepInboxRowVisible } = await import("./inboxFocusScroll");
   const { vi } = await import("vite-plus/test");

@@ -463,9 +463,7 @@ it.each(["Meta", "Control"])(
       [...container.querySelectorAll("button")].find((button) =>
         button.textContent?.startsWith(label),
       )!;
-    for (const label of ["Delegated", "Snoozed", "Settled"]) {
-      await act(async () => sectionButton(label).click());
-    }
+    await act(async () => sectionButton("Delegated").click());
     const row = (id: string) =>
       container.querySelector<HTMLElement>(`[data-inbox-row="env:${id}"]`)!;
     const press = (key: string, modified = true) =>
@@ -484,6 +482,9 @@ it.each(["Meta", "Control"])(
       expect(document.activeElement).toBe(row(id));
       expect(row(id).getAttribute("aria-expanded")).toBe("true");
       expect(container.querySelectorAll('[data-inbox-row][aria-expanded="true"]')).toHaveLength(1);
+      expect(
+        container.querySelectorAll('[data-inbox-section-header] button[aria-expanded="true"]'),
+      ).toHaveLength(id.startsWith("active-") ? 0 : 1);
     };
     await act(async () => row("delegated-0").focus());
     await press("ArrowDown");
@@ -512,7 +513,7 @@ it.each(["Meta", "Control"])(
     expectFocused("active-0");
     await press("ArrowDown", false);
     expectFocused("active-1");
-    await act(async () => sectionButton("Snoozed").click());
+    await act(async () => sectionButton("Delegated").click());
     await act(async () => row("delegated-3").focus());
     await press("ArrowDown");
     expectFocused("snoozed-0");
@@ -572,13 +573,8 @@ it.each(["none", "Meta", "Control"])(
     expectFocused("snoozed-0");
     await press("ArrowDown");
     expectFocused("resolved-0");
-    for (const section of ["delegated", "snoozed"]) {
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>(`[data-inbox-section="${section}"] button`)!
-          .click(),
-      );
-    }
+    expect(row("delegated-0")).toBeNull();
+    expect(row("snoozed-0")).toBeNull();
     await focus("resolved-0");
     await press("ArrowUp");
     expectFocused("snoozed-0");
@@ -590,6 +586,50 @@ it.each(["none", "Meta", "Control"])(
     expectFocused("active-2");
   },
 );
+
+it("opens only one shelf at a time through header clicks and Show in Inbox", async () => {
+  state.items = (["delegated", "snoozed", "resolved"] as const).map((placement) => ({
+    ...notification,
+    id: placement,
+    state: { ...notification.state, placement },
+  }));
+  useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+  await act(async () =>
+    root.render(
+      <InboxSidebarLayout
+        projects={[{ environmentId, projectId }]}
+        threadRef={null}
+        chatCount={0}
+        chatHeader={null}
+      >
+        <span>Chats</span>
+      </InboxSidebarLayout>,
+    ),
+  );
+  const button = (section: string) =>
+    container.querySelector<HTMLButtonElement>(
+      `[data-inbox-section="${section}"] [data-inbox-section-header] button`,
+    )!;
+  const expectOpen = (section: string | null) => {
+    expect([
+      ...container.querySelectorAll('[data-inbox-section-header] button[aria-expanded="true"]'),
+    ]).toEqual(section ? [button(section)] : []);
+    expect(
+      [...container.querySelectorAll<HTMLElement>("[data-inbox-row]")].map(
+        (row) => row.dataset.inboxRow,
+      ),
+    ).toEqual(section ? [`env:${section}`] : []);
+  };
+  for (const section of ["delegated", "snoozed", "resolved"]) {
+    await act(async () => button(section).click());
+    expectOpen(section);
+  }
+  await act(async () => useInboxNavigation.setState({ revealId: "delegated" }));
+  expectOpen("delegated");
+  expect(document.activeElement).toBe(container.querySelector("[data-inbox-row]"));
+  await act(async () => button("delegated").click());
+  expectOpen(null);
+});
 
 it("enters a collapsed group from an empty active list and skips empty groups", async () => {
   state.items = [{ ...notification, state: { ...notification.state, placement: "snoozed" } }];

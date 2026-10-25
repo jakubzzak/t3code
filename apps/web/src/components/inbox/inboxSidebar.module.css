@@ -43,6 +43,14 @@
   min-height: 0;
   overflow: hidden;
 }
+.sectionHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 2rem;
+  margin-inline: 0.125rem;
+  background: var(--sidebar);
+}
 @media (prefers-reduced-motion: reduce) {
   .track,
   .details {
