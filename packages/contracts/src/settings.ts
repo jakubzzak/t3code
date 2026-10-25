@@ -327,7 +327,6 @@ export const ClientSettingsSchema = Schema.Struct({
   agenticSearchEverywherePrompt: Schema.String.check(Schema.isMaxLength(16000)).pipe(
     Schema.withDecodingDefault(Effect.succeed("")),
   ),
-  linearViewEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   linearProjectLoginEmails: Schema.Record(Schema.String, TrimmedString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1826,7 +1825,6 @@ export const ClientSettingsPatch = Schema.Struct({
   agenticSearchEnabled: Schema.optionalKey(Schema.Boolean),
   agenticSearchChatsPrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(16000))),
   agenticSearchEverywherePrompt: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(16000))),
-  linearViewEnabled: Schema.optionalKey(Schema.Boolean),
   linearProjectLoginEmails: Schema.optionalKey(Schema.Record(Schema.String, TrimmedString)),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),

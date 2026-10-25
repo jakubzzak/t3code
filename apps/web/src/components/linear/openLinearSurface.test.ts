@@ -30,7 +30,7 @@ const snapshot = (input: PreviewOpenInput): PreviewSessionSnapshot => ({
   updatedAt: "2026-10-05T00:00:00Z",
 });
 beforeEach(() => {
-  __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, linearViewEnabled: true });
+  __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
   projectGate.enabled = true;
   resetPreviewStateForTests();
   useRightPanelStore.setState({ byThreadKey: {} });
@@ -90,12 +90,6 @@ describe("opening Linear", () => {
       navStatus: { url },
     });
     expect(input.navigatePreview).not.toHaveBeenCalled();
-  });
-  it("does not inherit the legacy device preference in an unselected project", async () => {
-    projectGate.enabled = false;
-    const input = fixture();
-    await expect(openLinearSurface(input)).rejects.toThrow("Enable Linear view");
-    expect(input.openPreview).not.toHaveBeenCalled();
   });
   it("does not create a session when disabled", async () => {
     projectGate.enabled = false;
