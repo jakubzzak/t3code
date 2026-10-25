@@ -1035,9 +1035,12 @@ export function InboxSidebarLayout({
                         {placement !== "active" && (
                           <div data-inbox-section-header className={styles.sectionHeader}>
                             <CollapsibleSectionHeader
+                              variant="plain"
                               expanded={expanded}
                               count={group.length}
-                              tone={placement === "snoozed" ? "info" : "muted"}
+                              tone={
+                                placement === "snoozed" ? "info" : expanded ? "emphasized" : "muted"
+                              }
                               onClick={() =>
                                 setOpenSection((current) =>
                                   current === placement ? null : placement,

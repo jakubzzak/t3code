@@ -49,8 +49,9 @@
   z-index: 2;
   height: 2rem;
   margin-inline: 0.125rem;
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--sidebar) var(--glass-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
 }
 @media (prefers-reduced-motion: reduce) {
   .track,
