@@ -4736,6 +4736,42 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect("reads only decodable images inside the browser artifact directory", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const artifactPath = "/tmp/t3/dev/browser-artifacts/browser-screenshot-test.png";
+        createFromPath.mockReturnValueOnce({
+          isEmpty: () => false,
+          toPNG: () => Buffer.from([1, 2, 3]),
+        });
+
+        expect(yield* manager.readArtifactImage(artifactPath)).toBe("data:image/png;base64,AQID");
+        expect(createFromPath).toHaveBeenCalledWith(artifactPath);
+
+        const outsideExit = yield* Effect.exit(
+          manager.readArtifactImage("/tmp/t3/dev/browser-artifacts/../settings.json"),
+        );
+        expect(Exit.isFailure(outsideExit)).toBe(true);
+        if (Exit.isSuccess(outsideExit)) return;
+        expect(Option.getOrThrow(Cause.findErrorOption(outsideExit.cause))).toMatchObject({
+          _tag: "PreviewArtifactPathOutsideDirectoryError",
+        });
+
+        createFromPath.mockReturnValueOnce({
+          isEmpty: () => true,
+          toPNG: () => Buffer.from("invalid"),
+        });
+        const invalidExit = yield* Effect.exit(manager.readArtifactImage(artifactPath));
+        expect(Exit.isFailure(invalidExit)).toBe(true);
+        if (Exit.isSuccess(invalidExit)) return;
+        expect(Option.getOrThrow(Cause.findErrorOption(invalidExit.cause))).toMatchObject({
+          _tag: "PreviewArtifactImageLoadError",
+          artifactPath,
+        });
+      }),
+    ),
+  );
+
   effectIt.effect("copies screenshot artifacts to the system clipboard", () =>
     withManager((manager) =>
       Effect.gen(function* () {

@@ -1,6 +1,9 @@
+import { FolderOpenIcon } from "lucide-react";
 import { describe, expect, it } from "vite-plus/test";
 
+import { FileExplorerIcon, FinderIcon } from "~/components/Icons";
 import {
+  revealInFileExplorerIcon,
   revealInFileExplorerLabel,
   revealInFileExplorerLabelForKind,
   revealInFileExplorerLabelForOs,
@@ -13,6 +16,16 @@ describe("revealInFileExplorerLabel", () => {
     ["Linux x86_64", "Reveal in Files"],
   ])("maps %s to %s", (platform, expected) => {
     expect(revealInFileExplorerLabel(platform)).toBe(expected);
+  });
+});
+
+describe("revealInFileExplorerIcon", () => {
+  it.each([
+    ["MacIntel", FinderIcon],
+    ["Win32", FileExplorerIcon],
+    ["Linux x86_64", FolderOpenIcon],
+  ] as const)("uses the matching file manager icon on %s", (platform, Icon) => {
+    expect(revealInFileExplorerIcon(platform)).toBe(Icon);
   });
 });
 

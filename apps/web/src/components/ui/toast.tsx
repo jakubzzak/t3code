@@ -39,8 +39,10 @@ export type ThreadToastData = {
   onClose?: (() => void) | undefined;
   dismissAfterVisibleMs?: number;
   hideCopyButton?: boolean;
+  /** With `label`, the action renders as an icon-only button (children is the icon) with the label as tooltip. */
   additionalActions?: ReadonlyArray<{
     id: string;
+    label?: string;
     props: ComponentPropsWithoutRef<"button">;
   }>;
   secondaryActionProps?: ComponentPropsWithoutRef<"button">;
@@ -367,20 +369,42 @@ function ToastBodyContent({
         <div
           className={cn(
             "flex items-center gap-1.5",
-            stackedActionLayout ? "w-full justify-end" : "shrink-0",
+            stackedActionLayout ? "w-full flex-wrap justify-end" : "shrink-0",
           )}
         >
           {copyErrorText !== null ? <CopyErrorButton text={copyErrorText} /> : null}
-          {additionalActions.map(({ id, props: { className, ...props } }) => (
-            <Button
-              {...props}
-              className={className}
-              key={id}
-              size="xs"
-              type="button"
-              variant={secondaryActionVariant}
-            />
-          ))}
+          {additionalActions.map(({ id, label, props: { className, children, ...props } }) =>
+            label ? (
+              <Tooltip key={id}>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      {...props}
+                      aria-label={label}
+                      className={className}
+                      size="icon-xs"
+                      type="button"
+                      variant={secondaryActionVariant}
+                    />
+                  }
+                >
+                  {children}
+                </TooltipTrigger>
+                <TooltipPopup side="top">{label}</TooltipPopup>
+              </Tooltip>
+            ) : (
+              <Button
+                {...props}
+                className={className}
+                key={id}
+                size="xs"
+                type="button"
+                variant={secondaryActionVariant}
+              >
+                {children}
+              </Button>
+            ),
+          )}
           {secondaryActionProps ? (
             <Button
               {...secondaryActionRest}

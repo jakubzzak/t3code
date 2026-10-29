@@ -421,6 +421,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.invoke(IpcChannels.PREVIEW_REVEAL_ARTIFACT_CHANNEL, { path }),
     copyArtifactToClipboard: (path) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_COPY_ARTIFACT_CHANNEL, { path }),
+    readArtifactImage: (path) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_READ_ARTIFACT_IMAGE_CHANNEL, { path }),
     pictureInPicture: {
       open: (tabId) =>
         ipcRenderer.invoke(IpcChannels.PREVIEW_PICTURE_IN_PICTURE_OPEN_CHANNEL, { tabId }),
