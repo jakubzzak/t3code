@@ -19,6 +19,8 @@ import * as Research from "./InboxResearch.ts";
 import * as Agent from "./InboxAgent.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import { readSuperhumanInbox } from "./connectors/superhuman.ts";
+import { inboxContext } from "./notificationContext.ts";
 import { ingestInboxItem } from "./inboxState.ts";
 const projectId = ProjectId.make("delivery");
 const item: InboxSourceItem = {
@@ -33,7 +35,7 @@ const item: InboxSourceItem = {
   url: "https://example.com",
   occurredAt: "2026-10-22T10:00:00Z",
 };
-const fixture = (succeedAt = 0, hang = false, blockFirst = false) =>
+const fixture = (succeedAt = 0, hang = false, blockFirst = false, summarizeContext = false) =>
   Effect.gen(function* () {
     const calls = yield* Ref.make<number[]>([]);
     const entered = yield* Deferred.make<void>();
@@ -66,7 +68,9 @@ const fixture = (succeedAt = 0, hang = false, blockFirst = false) =>
               return yield* new InboxError({ detail: "Provider unavailable" });
             return {
               description: "Report",
-              summary: `${notification.items.at(-1)?.content}.`,
+              summary: summarizeContext
+                ? inboxContext(notification).slice(0, 1000)
+                : `${notification.items.at(-1)?.content}.`,
               suggestions: [],
               precedentIds: [],
               modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "fixture" },
@@ -269,4 +273,63 @@ it.effect(
         assert.equal((yield* Ref.get(f.calls)).length, 0);
       }).pipe(Effect.provide(f.layer));
     }).pipe(Effect.scoped),
+);
+
+it.effect.each([5000, 33000])(
+  "preserves the latest mail reply through persistence and summary context after %i earlier characters",
+  (earlierLength) =>
+    Effect.gen(function* () {
+      const f = yield* fixture(1, false, false, true);
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const items = yield* Effect.promise(() =>
+          readSuperhumanInbox(
+            async (name) => {
+              if (name === "list_accounts")
+                return { accounts: [{ accountEmail: "me@example.com", isPrimary: true }] };
+              const thread = {
+                thread_id: "long-mail",
+                subject: "Review",
+                snippet: "Latest reply",
+                last_message_at: "2026-10-22T12:00:00Z",
+                last_message_id: "new",
+                labels: [],
+                splits: ["Important"],
+              };
+              if (name === "list_threads") return { threads: [thread] };
+              return {
+                ...thread,
+                messages: [
+                  {
+                    message_id: "old",
+                    from: "alex@example.com",
+                    sent_at: "2026-10-22T10:00:00Z",
+                    body: "A".repeat(earlierLength),
+                    snippet: "Old context",
+                  },
+                  {
+                    message_id: "new",
+                    from: "me@example.com",
+                    sent_at: "2026-10-22T12:00:00Z",
+                    body: "LATEST: Friday is confirmed.",
+                    snippet: "Latest reply",
+                  },
+                ],
+              };
+            },
+            ["me@example.com"],
+            ["split:Important"],
+            "2026-10-22T00:00:00Z",
+          ),
+        );
+        yield* service.ingest(projectId, items);
+        yield* service.drainAnalysis;
+        const [saved] = yield* service.list({ projectId });
+        assert.isDefined(saved);
+        assert.include(saved!.items[0]!.content, "LATEST: Friday is confirmed.");
+        assert.include(inboxContext(saved!), "LATEST: Friday is confirmed.");
+        assert.include(saved!.analysis!.summary, "LATEST: Friday is confirmed.");
+        assert.isAtMost(saved!.items[0]!.content.length, 32000);
+      }).pipe(Effect.provide(f.layer));
+    }),
 );

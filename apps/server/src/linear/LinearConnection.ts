@@ -57,7 +57,9 @@ export class LinearConnection extends Context.Service<
       projectId: ProjectId,
       categories: ReadonlyArray<string>,
       since: string,
-      tracked?: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">>,
+      tracked?: ReadonlyArray<
+        Pick<InboxSourceItem, "connectionId" | "groupId" | "linearCommentTarget">
+      >,
     ) => Effect.Effect<Awaited<ReturnType<typeof readLinearInbox>>, InboxError>;
     readonly readIssue: (
       projectId: ProjectId,

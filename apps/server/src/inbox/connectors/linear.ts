@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
 import type { InboxSourceItem, InboxLinearComment, InboxLinearIssue } from "@t3tools/contracts";
+const NativeId = Schema.NullOr(Schema.Struct({ id: Schema.String }));
 const CommentFields = Schema.Struct({
+  parent: Schema.optionalKey(NativeId),
   id: Schema.String,
   body: Schema.String,
   createdAt: Schema.String,
@@ -20,7 +22,11 @@ function formatComment(comment: typeof CommentFields.Type): InboxLinearComment {
     occurredAt: comment.createdAt,
   };
 }
-const commentFields = "id body createdAt user { id name } botActor { name }";
+const commentFields = "id body createdAt user { id name } botActor { name } parent { id }";
+/** Non-issue replies belong to their native parent thread, not every discussion on a project. */
+function commentTarget(comment: typeof CommentFields.Type) {
+  return `comment:${comment.parent?.id ?? comment.id}`;
+}
 const CommentIndex = Schema.Struct({
   nodes: Schema.Array(Schema.Struct({ id: Schema.String })),
   pageInfo: Schema.Struct({
@@ -112,12 +118,13 @@ const Page = Schema.Struct({
   }),
 });
 const decodePage = Schema.decodeUnknownSync(Page);
-export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: DateTimeOrDuration!) {
+export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: DateTimeOrDuration!, $notificationIds: [ID!]!) {
   viewer { id } organization { id }
-  notifications(first: 50, after: $after, orderBy: updatedAt, filter: { createdAt: { gte: $since } }) {
+  notifications(first: 50, after: $after, orderBy: updatedAt, filter: { or: [{ createdAt: { gte: $since } }, { id: { in: $notificationIds } }] }) {
     nodes { id type category title subtitle url groupingKey createdAt actor { name }
       ... on IssueNotification { issue { id identifier title description ${commentPreviewFields} } comment { ${commentFields} } parentComment { ${commentFields} } }
       ... on ProjectNotification { project { id name description } comment { ${commentFields} } parentComment { ${commentFields} } }
+      ... on InitiativeNotification { comment { ${commentFields} } parentComment { ${commentFields} } }
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -126,23 +133,41 @@ export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: 
 export async function readLinearInbox(
   query: (
     query: string,
-    variables: { after: string | null; since: string; id?: string; issueIds?: string[] },
+    variables: {
+      after: string | null;
+      since: string;
+      id?: string;
+      notificationIds?: string[];
+      issueIds?: string[];
+      commentIds?: string[];
+    },
   ) => Promise<unknown>,
   categories: ReadonlyArray<string>,
   since: string,
-  tracked: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> = [],
+  tracked: ReadonlyArray<
+    Pick<InboxSourceItem, "connectionId" | "groupId" | "linearCommentTarget">
+  > = [],
 ): Promise<ReadonlyArray<InboxSourceItem>> {
   const items: InboxSourceItem[] = [];
   const seen = new Set<string>();
   const issueCounts = new Map<string, number | undefined>();
   let after: string | null = null;
+  // Pre-upgrade non-issue items retained the notification ID, but not the comment root.
+  const resolvedTargets = new Map<string, string>();
+  const notificationIds = tracked.flatMap((entry) =>
+    entry.linearCommentTarget?.startsWith("notification:")
+      ? [entry.linearCommentTarget.slice("notification:".length)]
+      : [],
+  );
   let viewer = "";
   let connectionId = "";
   do {
-    const page = decodePage(await query(LINEAR_INBOX_QUERY, { after, since }));
+    const page = decodePage(await query(LINEAR_INBOX_QUERY, { after, since, notificationIds }));
     viewer = page.data.viewer.id;
     connectionId = `${page.data.organization.id}:${viewer}`;
     for (const notification of page.data.notifications.nodes) {
+      if (notification.comment && !notification.issue)
+        resolvedTargets.set(`notification:${notification.id}`, commentTarget(notification.comment));
       if (Date.parse(notification.createdAt) < Date.parse(since)) continue;
       if (
         categories.length &&
@@ -191,6 +216,9 @@ export async function readLinearInbox(
         title: notification.title,
         author: notification.actor?.name ?? "Linear",
         content: context.slice(0, 32000),
+        ...(!issue && notification.comment
+          ? { linearCommentTarget: commentTarget(notification.comment) }
+          : {}),
         ...(notification.issue
           ? {
               replyTarget: {
@@ -230,53 +258,75 @@ export async function readLinearInbox(
       throw new Error("Linear returned a repeated notification cursor.");
     if (after) seen.add(after);
   } while (after);
-  const issueIds = [
-    ...new Set(
-      tracked.filter((entry) => entry.connectionId === connectionId).map((entry) => entry.groupId),
-    ),
+  const conversations = tracked
+    .filter((entry) => entry.connectionId === connectionId)
+    .flatMap((entry) => {
+      if (!entry.linearCommentTarget?.startsWith("notification:")) return [entry];
+      const target = resolvedTargets.get(entry.linearCommentTarget);
+      return target ? [{ ...entry, linearCommentTarget: target }] : [];
+    });
+  const targets = [
+    ...new Set(conversations.map((entry) => entry.linearCommentTarget ?? `issue:${entry.groupId}`)),
   ];
-  for (let start = 0; start < issueIds.length; start += 50) {
+  for (let start = 0; start < targets.length; start += 50) {
+    const batch = targets.slice(start, start + 50);
+    const ids = (kind: string) =>
+      batch
+        .filter((target) => target.startsWith(`${kind}:`))
+        .map((target) => target.slice(kind.length + 1));
     let after: string | null = null;
     const cursors = new Set<string>();
     do {
       const response: unknown = await query(LINEAR_REPLIES_QUERY, {
         since,
         after,
-        issueIds: issueIds.slice(start, start + 50),
+        issueIds: ids("issue"),
+        commentIds: ids("comment"),
       });
       const page = decodeReplies(response).data.comments;
       for (const comment of page.nodes) {
-        if (
-          !comment.issue ||
-          !issueIds.includes(comment.issue.id) ||
-          Date.parse(comment.createdAt) < Date.parse(since)
-        )
-          continue;
-        items.push({
-          id: `comment:${comment.id}`,
-          source: "linear",
-          connectionId,
-          groupId: comment.issue.id,
-          location: comment.issue.identifier,
-          title: comment.issue.title,
-          author: comment.user?.name || comment.botActor?.name || "Linear",
-          content: [comment.body, comment.issue.description]
-            .filter(Boolean)
-            .join("\n\n")
-            .slice(0, 32000),
-          url: comment.issue.url,
-          occurredAt: comment.createdAt,
-          linearIssue: {
-            id: comment.issue.id,
-            title: comment.issue.title,
-            description: comment.issue.description,
-            comments: [formatComment(comment)],
-            commentsComplete: false,
-          },
-          replyActivity: [
-            { id: comment.id, occurredAt: comment.createdAt, isSelf: comment.user?.id === viewer },
-          ],
-        });
+        if (Date.parse(comment.createdAt) < Date.parse(since)) continue;
+        const target = comment.issue ? `issue:${comment.issue.id}` : commentTarget(comment);
+        if (!batch.includes(target)) continue;
+        for (const groupId of new Set(
+          conversations
+            .filter((entry) => (entry.linearCommentTarget ?? `issue:${entry.groupId}`) === target)
+            .map((entry) => entry.groupId),
+        )) {
+          items.push({
+            id: `comment:${comment.id}`,
+            source: "linear",
+            connectionId,
+            groupId,
+            location: comment.issue?.identifier ?? "Linear comment",
+            title: comment.issue?.title ?? "New comment",
+            author: comment.user?.name || comment.botActor?.name || "Linear",
+            content: [comment.body, comment.issue?.description]
+              .filter(Boolean)
+              .join("\n\n")
+              .slice(0, 32000),
+            url: comment.url ?? comment.issue?.url ?? "https://linear.app",
+            occurredAt: comment.createdAt,
+            ...(comment.issue
+              ? {
+                  linearIssue: {
+                    id: comment.issue.id,
+                    title: comment.issue.title,
+                    description: comment.issue.description,
+                    comments: [formatComment(comment)],
+                    commentsComplete: false,
+                  },
+                }
+              : { linearCommentTarget: target }),
+            replyActivity: [
+              {
+                id: comment.id,
+                occurredAt: comment.createdAt,
+                isSelf: comment.user?.id === viewer,
+              },
+            ],
+          });
+        }
       }
       after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
       if (
@@ -297,6 +347,7 @@ const decodeReplies = Schema.decodeUnknownSync(
         nodes: Schema.Array(
           Schema.Struct({
             ...CommentFields.fields,
+            url: Schema.optionalKey(Schema.String),
             issue: Schema.NullOr(
               Schema.Struct({
                 id: Schema.String,
@@ -316,9 +367,9 @@ const decodeReplies = Schema.decodeUnknownSync(
     }),
   }),
 );
-const LINEAR_REPLIES_QUERY = `query BlackbirdInboxReplies($issueIds: [ID!]!, $since: DateTimeOrDuration!, $after: String) {
-  comments(first: 50, after: $after, orderBy: createdAt, filter: { issue: { id: { in: $issueIds } }, createdAt: { gte: $since } }) {
-    nodes { ${commentFields} issue { id identifier title description url } }
+const LINEAR_REPLIES_QUERY = `query BlackbirdInboxReplies($issueIds: [ID!]!, $commentIds: [ID!]!, $since: DateTimeOrDuration!, $after: String) {
+  comments(first: 50, after: $after, orderBy: createdAt, filter: { or: [{ issue: { id: { in: $issueIds } } }, { parent: { id: { in: $commentIds } } }, { id: { in: $commentIds } }], createdAt: { gte: $since } }) {
+    nodes { ${commentFields} url issue { id identifier title description url } }
     pageInfo { hasNextPage endCursor }
   }
 }`;

@@ -137,6 +137,8 @@ export const InboxSourceItem = Schema.Struct({
   sourceContentHash: Schema.optionalKey(Schema.String),
   replyActivity: Schema.optionalKey(Schema.Array(InboxReplyActivity)),
   slackThread: Schema.optionalKey(InboxSlackThread),
+  /** Native non-issue comment thread, encoded as comment:<root comment ID>. */
+  linearCommentTarget: Schema.optionalKey(Schema.String),
   linearIssue: Schema.optionalKey(InboxLinearIssue),
   url: Schema.String,
   occurredAt: IsoDateTime,

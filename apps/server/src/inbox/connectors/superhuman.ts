@@ -148,10 +148,13 @@ export async function readSuperhumanInbox(
       );
       const content =
         [
-          ...messages.map(
-            (message) =>
-              `${message.from} · ${message.sent_at}\n${emailText(message.body ?? "").trim() || emailText(message.snippet)}`,
-          ),
+          ...(messages.length ? ["Messages, newest first:"] : []),
+          ...messages
+            .toReversed()
+            .map(
+              (message) =>
+                `${message.from} · ${message.sent_at}\n${emailText(message.body ?? "").trim() || emailText(message.snippet)}`,
+            ),
           ...(full.comments ?? []).map(
             (comment) =>
               `${comment.author_name ?? comment.author ?? "Comment"} · ${comment.created_at ?? ""}\n${emailText(comment.body)}${comment.reactions?.length ? `\nReactions: ${comment.reactions.map((reaction) => `${reaction.emoji} ${reaction.reaction_count}${reaction.by_me ? " (including you)" : ""}`).join(", ")}` : ""}`,

@@ -87,7 +87,7 @@ it("sends the cutoff on each page and excludes older notifications even if retur
   const requests: Array<{ after: string | null; since: string }> = [];
   const items = await readLinearInbox(
     async (query, variables) => {
-      expect(query).toContain("filter: { createdAt: { gte: $since } }");
+      expect(query).toContain("{ createdAt: { gte: $since } }");
       requests.push(variables);
       return {
         data: {
@@ -116,8 +116,8 @@ it("sends the cutoff on each page and excludes older notifications even if retur
     since,
   );
   expect(requests).toEqual([
-    { after: null, since },
-    { after: "next", since },
+    { after: null, since, notificationIds: [] },
+    { after: "next", since, notificationIds: [] },
   ]);
   expect(items.map((item) => item.id)).toEqual(["new"]);
 });
@@ -387,5 +387,58 @@ it.each([null, "repeat"])(
         [{ connectionId: "org:me", groupId: "issue" }],
       ),
     ).rejects.toThrow("reply history");
+  },
+);
+
+it.each(["projectUpdate", "project"])(
+  "discovers self replies for tracked %s comments without a notification",
+  async (kind) => {
+    const items = await readLinearInbox(
+      async (query) => {
+        if (query.includes("BlackbirdInboxReplies"))
+          return {
+            data: {
+              comments: {
+                nodes: [
+                  {
+                    id: "own-project-comment",
+                    body: "Project review completed",
+                    createdAt: "2026-10-22T12:00:00Z",
+                    user: { id: "me", name: "Me" },
+                    issue: null,
+                    [kind]: { id: "native-project" },
+                    parent: { id: "native-target" },
+                    url: "https://linear.app/project/update#comment",
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          };
+        return {
+          data: {
+            viewer: { id: "me" },
+            organization: { id: "org" },
+            notifications: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        };
+      },
+      ["all"],
+      "2026-10-22T00:00:00Z",
+      [
+        {
+          connectionId: "org:me",
+          groupId: "opaque-native-group",
+          linearCommentTarget: "comment:native-target",
+        },
+      ],
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      groupId: "opaque-native-group",
+      linearCommentTarget: "comment:native-target",
+      content: "Project review completed",
+      replyActivity: [{ id: "own-project-comment", isSelf: true }],
+    });
   },
 );

@@ -19,7 +19,6 @@ import {
   InboxSourceConnection,
   type InboxSourceConfigureInput,
   type InboxSource,
-  type InboxSourceItem,
   type InboxGetInput,
   type InboxNotification,
   type InboxSlackThread,
@@ -229,15 +228,32 @@ export const make = Effect.gen(function* () {
           policyMatches ? connection.lastSyncAt : null,
         );
         // Only native identities leave storage; source connectors read new activity since the checkpoint.
-        const tracked = yield* sql<Pick<InboxSourceItem, "connectionId" | "groupId">>`
-          SELECT json_extract(payload_json, '$.connectionId') AS connectionId,
-            json_extract(payload_json, '$.groupId') AS groupId
-          FROM inbox_notifications WHERE project_id=${input.projectId}
-            AND json_extract(payload_json, '$.source')=${input.source}
-            AND (${input.source}<>'linear' OR EXISTS (
-              SELECT 1 FROM json_each(inbox_notifications.payload_json, '$.items') AS item
-              WHERE json_extract(item.value, '$.linearIssue.id')=json_extract(inbox_notifications.payload_json, '$.groupId')
-            ))`.pipe(Effect.mapError(error));
+        const tracked = yield* sql<{
+          connectionId: string;
+          groupId: string;
+          linearCommentTarget: string | null;
+        }>`
+          SELECT DISTINCT json_extract(n.payload_json, '$.connectionId') AS connectionId,
+            json_extract(n.payload_json, '$.groupId') AS groupId,
+            CASE WHEN ${input.source}='linear' THEN
+              COALESCE(json_extract(item.value, '$.linearCommentTarget'),
+                CASE WHEN json_extract(item.value, '$.linearIssue.id') IS NULL
+                  THEN 'notification:' || json_extract(item.value, '$.id') END)
+            END AS linearCommentTarget
+          FROM inbox_notifications AS n, json_each(
+            CASE WHEN ${input.source}='linear' THEN json_extract(n.payload_json, '$.items')
+              ELSE '[{}]' END
+          ) AS item
+          WHERE n.project_id=${input.projectId}
+            AND json_extract(n.payload_json, '$.source')=${input.source}`.pipe(
+          Effect.map((rows) =>
+            rows.map(({ linearCommentTarget, ...row }) => ({
+              ...row,
+              ...(linearCommentTarget ? { linearCommentTarget } : {}),
+            })),
+          ),
+          Effect.mapError(error),
+        );
         const result = yield* (
           connection.source === "slack" ? slack.accessToken(input.projectId) : Effect.succeed("")
         ).pipe(

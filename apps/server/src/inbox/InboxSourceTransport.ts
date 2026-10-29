@@ -13,7 +13,12 @@ import {
   type InboxSlackThread,
 } from "@t3tools/contracts";
 import { readSlackThread } from "./connectors/slackThread.ts";
-import { readSlackInbox, SLACK_READ_METHODS, type SlackRead } from "./connectors/slack.ts";
+import {
+  readSlackInbox,
+  SlackReadError,
+  SLACK_READ_METHODS,
+  type SlackRead,
+} from "./connectors/slack.ts";
 const SlackResponse = Schema.Struct({
   ok: Schema.Boolean,
   error: Schema.optionalKey(Schema.String),
@@ -32,7 +37,9 @@ export class InboxSourceTransport extends Context.Service<
       connection: InboxSourceConnection,
       token: string,
       since: string,
-      tracked?: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">>,
+      tracked?: ReadonlyArray<
+        Pick<InboxSourceItem, "connectionId" | "groupId" | "linearCommentTarget">
+      >,
     ) => Effect.Effect<ReadonlyArray<InboxSourceItem>, InboxError>;
   }
 >()("t3/inbox/InboxSourceTransport") {}
@@ -69,10 +76,7 @@ export const layer: Layer.Layer<
               throw new Error(`Slack connection failed (${response.status}).`);
             const data: unknown = await runPromise(response.json, { signal });
             const result = decodeSlackResponse(data);
-            if (!result.ok)
-              throw new Error(
-                `Slack ${method} failed (${result.error ?? "unknown_error"}). Check the connection permissions.`,
-              );
+            if (!result.ok) throw new SlackReadError(method, result.error ?? "unknown_error");
             return data;
           }),
         catch: (cause) =>
