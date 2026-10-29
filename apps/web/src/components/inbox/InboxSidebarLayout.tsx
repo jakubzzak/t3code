@@ -289,6 +289,7 @@ export function InboxRow({
         <div>
           {fullDetail ? (
             <InboxSourceContent
+              environmentId={environmentId}
               notification={fullDetail}
               threadRef={threadRef}
               onLoadPrevious={onLoadPrevious}

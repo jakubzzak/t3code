@@ -54,6 +54,11 @@ const iso = (millis: number) => DateTime.formatIso(DateTime.makeUnsafe(millis));
 export class InboxSources extends Context.Service<
   InboxSources,
   {
+    readonly image: (input: {
+      projectId: ProjectId;
+      notificationId: string;
+      fileId: string;
+    }) => Effect.Effect<{ bytes: Uint8Array; mimeType: string }, InboxError>;
     readonly get: (input: InboxGetInput) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly beginSlack: (
       projectId: ProjectId,
@@ -490,6 +495,7 @@ export const make = Effect.gen(function* () {
         return item;
       if (
         item.slackThread?.formatVersion === 2 &&
+        item.slackThread.root.images !== undefined &&
         (!input.loadPreviousComments || !item.slackThread.nextCursor)
       )
         return item;
@@ -499,6 +505,7 @@ export const make = Effect.gen(function* () {
           if (!current) return null;
           if (
             current.slackThread?.formatVersion === 2 &&
+            current.slackThread.root.images !== undefined &&
             (!input.loadPreviousComments || !current.slackThread.nextCursor)
           )
             return current;
@@ -508,6 +515,7 @@ export const make = Effect.gen(function* () {
           let pages = 0;
           while (
             current.slackThread?.formatVersion !== 2 ||
+            current.slackThread.root.images === undefined ||
             (input.loadPreviousComments && current.slackThread.nextCursor)
           ) {
             const cursor = current.slackThread?.nextCursor;
@@ -536,6 +544,23 @@ export const make = Effect.gen(function* () {
       );
     });
   return InboxSources.of({
+    image: (input) =>
+      Effect.gen(function* () {
+        const notification = yield* inbox.get({
+          projectId: input.projectId,
+          id: input.notificationId,
+        });
+        const thread = notification?.slackThread;
+        const image =
+          thread &&
+          [thread.root, ...thread.messages, ...(thread.pendingMessages ?? [])]
+            .flatMap((message) => message.images ?? [])
+            .find((image) => image.id === input.fileId);
+        if (!image?.url || notification?.source !== "slack")
+          return yield* new InboxError({ detail: "Image unavailable." });
+        const token = yield* slack.accessToken(input.projectId);
+        return yield* transport.readImage(token, image.url, notification.connectionId);
+      }),
     get,
     list,
     configure,

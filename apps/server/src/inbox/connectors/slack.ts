@@ -1,6 +1,6 @@
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-import { Message, History, messageText } from "./slackMessages.ts";
+import { Message, History, messageText, messageImages } from "./slackMessages.ts";
 import { readSlackThread } from "./slackThread.ts";
 import { readableSlackItem } from "../notificationContent.ts";
 import type { InboxSourceItem, InboxSourceConnection } from "@t3tools/contracts";
@@ -247,6 +247,7 @@ export async function readSlackInbox(
         channelId: channel,
         ts: message.ts,
         root: {
+          images: messageImages(message),
           ts: message.ts,
           author: formatted.author,
           content: formatted.content,

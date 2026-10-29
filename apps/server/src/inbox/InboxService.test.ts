@@ -1000,3 +1000,242 @@ it.effect(
       }).pipe(Effect.provide(fixture.layer));
     }).pipe(Effect.scoped),
 );
+
+it.effect.each(["slack", "linear"] as const)(
+  "%s: confirmed replies stay read through source echoes and older activity, but later incoming replies resurface",
+  (source) =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      const target =
+        source === "slack"
+          ? { source, channelId: "C1", threadTs: "1792663200.000001" }
+          : { source, issueId: "issue", parentId: null };
+      const at = "2026-10-29T08:00:00.000Z";
+      const messageId = source === "slack" ? "1793260800.000001" : "posted-comment";
+      const nativeId = source === "slack" ? `C1:${messageId}` : messageId;
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const original = {
+          ...item,
+          source,
+          replyTarget: target,
+          replyActivity: [{ id: item.id, occurredAt: item.occurredAt, isSelf: false }],
+        };
+        yield* service.ingest(projectId, [original]);
+        const [first] = yield* service.list({ projectId });
+        assert.ok(first);
+        yield* service.mutate({
+          projectId,
+          id: first.id,
+          commandId: CommandId.make("settle-before-reply"),
+          expectedRevision: first.revision,
+          action: { type: "resolve", resolved: true },
+        });
+        const result = yield* service.reply({
+          projectId,
+          id: first.id,
+          itemId: item.id,
+          target,
+          commandId: CommandId.make("send-and-sync"),
+          text: "Done",
+        });
+        assert.equal(result.status, "sent");
+        const sent = (yield* service.get({ projectId, id: first.id }))!;
+        assert.equal(sent.state.read, true);
+        assert.equal(sent.state.placement, "resolved");
+        assert.deepEqual(sent.replyCursor, { id: nativeId, occurredAt: at, isSelf: true });
+        const echo = {
+          ...original,
+          id: nativeId,
+          content: "Done",
+          occurredAt: at,
+          replyActivity: [
+            { id: "delayed-old-reply", occurredAt: "2026-10-29T07:59:00Z", isSelf: false },
+            { id: nativeId, occurredAt: at, isSelf: true },
+          ],
+        };
+        yield* service.ingest(projectId, [echo]);
+        assert.deepEqual((yield* service.get({ projectId, id: first.id }))!.state, sent.state);
+        yield* service.ingest(projectId, [
+          {
+            ...original,
+            id: "new-incoming",
+            content: "Another question",
+            occurredAt: "2026-10-29T08:01:00Z",
+            replyActivity: [
+              { id: "new-incoming", occurredAt: "2026-10-29T08:01:00Z", isSelf: false },
+            ],
+          },
+        ]);
+        const incoming = (yield* service.get({ projectId, id: first.id }))!;
+        assert.equal(incoming.state.read, false);
+        assert.equal(incoming.state.placement, "active");
+        yield* service.ingest(projectId, [echo]);
+        assert.equal((yield* service.get({ projectId, id: first.id }))!.state.read, false);
+      }).pipe(
+        Effect.provide(fixture.layer),
+        Effect.provideService(ReplyTransport.InboxReplyTransport, {
+          send: () => Effect.succeed({ id: messageId, author: "Me", text: "Done", occurredAt: at }),
+        }),
+      );
+    }).pipe(Effect.scoped),
+);
+
+it.effect("does not mark a newer incoming reply read when an older send completes late", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    yield* Effect.gen(function* () {
+      const service = yield* Inbox.InboxService;
+      const target = { source: "linear" as const, issueId: "issue", parentId: null };
+      yield* service.ingest(projectId, [{ ...item, replyTarget: target }]);
+      const [first] = yield* service.list({ projectId });
+      assert.ok(first);
+      const sending = yield* service
+        .reply({
+          projectId,
+          id: first.id,
+          itemId: item.id,
+          target,
+          commandId: CommandId.make("delayed-send"),
+          text: "Earlier answer",
+        })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      yield* service.ingest(projectId, [
+        {
+          ...item,
+          id: "newer",
+          content: "New question",
+          occurredAt: "2026-10-29T08:01:00Z",
+          replyTarget: target,
+          replyActivity: [{ id: "newer", occurredAt: "2026-10-29T08:01:00Z", isSelf: false }],
+        },
+      ]);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(sending);
+      const current = (yield* service.get({ projectId, id: first.id }))!;
+      assert.equal(current.state.read, false);
+      assert.equal(current.replyCursor?.id, "newer");
+    }).pipe(
+      Effect.provide(fixture.layer),
+      Effect.provideService(ReplyTransport.InboxReplyTransport, {
+        send: () =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.as({
+              id: "earlier-answer",
+              author: "Me",
+              text: "Earlier answer",
+              occurredAt: "2026-10-29T08:00:00Z",
+            }),
+          ),
+      }),
+    );
+  }).pipe(Effect.scoped),
+);
+
+it.effect("keeps an unresolved sent image visible without hiding later source activity", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    const target = { source: "slack" as const, channelId: "C1", threadTs: "1793260800.000001" };
+    yield* Effect.gen(function* () {
+      const service = yield* Inbox.InboxService;
+      const original = {
+        ...item,
+        source: "slack" as const,
+        groupId: `C1:${target.threadTs}`,
+        replyTarget: target,
+        slackThread: {
+          formatVersion: 2 as const,
+          channelId: "C1",
+          ts: target.threadTs,
+          root: {
+            ts: target.threadTs,
+            authorId: "U2",
+            author: "Alex",
+            content: "Please check",
+            formattedContent: "Please check",
+            occurredAt: item.occurredAt,
+            images: [],
+          },
+          messages: [],
+          latestReplyTs: null,
+          replyCount: 0,
+          nextCursor: null,
+          fetchedAt: item.occurredAt,
+        },
+        replyActivity: [{ id: item.id, occurredAt: item.occurredAt, isSelf: false }],
+      };
+      yield* service.ingest(projectId, [original]);
+      const first = (yield* service.list({ projectId }))[0]!;
+      yield* service.reply({
+        projectId,
+        id: first.id,
+        itemId: item.id,
+        target,
+        commandId: CommandId.make("image-fallback"),
+        text: "",
+        images: [
+          { attachmentId: "fixture", name: "shot.png", mimeType: "image/png", sizeBytes: 68 },
+        ],
+      });
+      const sent = (yield* service.get({ projectId, id: first.id }))!;
+      assert.equal(sent.state.read, true);
+      assert.equal(sent.state.placement, "active");
+      assert.equal(sent.replyCursor?.id, item.id);
+      assert.equal(sent.slackThread?.pendingMessages?.[0]?.images?.[0]?.id, "F1");
+      yield* service.ingest(projectId, [
+        {
+          ...original,
+          id: "later-incoming",
+          content: "New question after the image",
+          occurredAt: "2026-10-29T08:01:00Z",
+          replyActivity: [
+            { id: "C1:1793260860.000001", occurredAt: "2026-10-29T08:01:00Z", isSelf: false },
+          ],
+        },
+      ]);
+      const incoming = (yield* service.get({ projectId, id: first.id }))!;
+
+      assert.equal(
+        incoming.state.read,
+        false,
+        "A reply one minute after the native send must notify even when the host clock is two minutes ahead",
+      );
+      const native = {
+        ...sent.slackThread!.pendingMessages![0]!,
+        ts: "1793260830.000001",
+        occurredAt: "2026-10-29T08:00:30Z",
+      };
+      const hydrated = yield* service.cacheSlackThread({
+        projectId,
+        id: first.id,
+        thread: {
+          ...sent.slackThread!,
+          pendingMessages: [],
+          messages: [native],
+          latestReplyTs: native.ts,
+          replyCount: 1,
+        },
+      });
+      assert.equal(hydrated?.state.read, false);
+      assert.equal(hydrated?.replyCursor?.id, "C1:1793260860.000001");
+      assert.deepEqual(hydrated?.slackThread?.pendingMessages, []);
+      assert.equal(hydrated?.slackThread?.messages.length, 1);
+    }).pipe(
+      Effect.provide(fixture.layer),
+      Effect.provideService(ReplyTransport.InboxReplyTransport, {
+        send: () =>
+          Effect.succeed({
+            id: "file:F1",
+            author: "U1",
+            text: "",
+            images: [{ id: "F1", name: "shot.png", url: "https://files.slack.com/shot.png" }],
+            occurredAt: "2026-10-29T08:02:00Z",
+          }),
+      }),
+    );
+  }).pipe(Effect.scoped),
+);

@@ -10,6 +10,15 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { inboxReplyKey, updateInboxReply, useInboxReplyDrafts } from "./inboxReplyDraft";
+import {
+  runAttachmentUploadCycle,
+  deletePendingAttachmentUpload,
+} from "@t3tools/client-runtime/state/attachments";
+import { attachmentEnvironment } from "~/state/attachments";
+import { readPreparedConnection } from "~/state/session";
+import { resolveAssetUrl } from "~/assets/assetUrls";
+import type { InboxReplyImage } from "@t3tools/contracts";
+import { InboxImage } from "./InboxImage";
 
 export function InboxReplyComposer({
   environmentId,
@@ -23,6 +32,7 @@ export function InboxReplyComposer({
   const key = inboxReplyKey(environmentId, n.id);
   const draft = useInboxReplyDrafts((state) => state.drafts[key]);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const permitted = useAtomValue(inboxEnvironment.reply.permissionAtom(environmentId));
   const send = useAtomCommand(inboxEnvironment.reply, { reportFailure: false });
   const mutate = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
@@ -39,10 +49,98 @@ export function InboxReplyComposer({
   const current = detail.data ?? n;
   const attempt = draft?.result ?? current.replyAttempt;
   const uncertain = attempt?.status === "pending" || attempt?.status === "uncertain";
+  const locked =
+    draft?.pending ||
+    draft?.uploading ||
+    uncertain ||
+    (!!draft?.error && !draft?.result) ||
+    !permitted;
   useEffect(() => {
     if (draft?.open) textarea.current?.focus();
   }, [draft?.open]);
   if (!draft?.open) return null;
+  const discardImage = (attachmentId: string) =>
+    deletePendingAttachmentUpload({
+      registry: appAtomRegistry,
+      remove: attachmentEnvironment.remove,
+      environmentId,
+      attachmentId,
+    });
+  async function attach(files: File[]) {
+    const value = useInboxReplyDrafts.getState().drafts[key];
+    if (!value || locked || n.source !== "slack") return;
+    if ((value.input.images?.length ?? 0) + files.length > 4) {
+      updateInboxReply(key, (value) => ({ ...value, uploadError: "Attach up to four images." }));
+      return;
+    }
+    updateInboxReply(key, (value) => ({ ...value, uploading: true, uploadError: undefined }));
+    try {
+      for (const file of files) {
+        const mimeType = file.type;
+        if (
+          mimeType !== "image/png" &&
+          mimeType !== "image/jpeg" &&
+          mimeType !== "image/gif" &&
+          mimeType !== "image/webp"
+        )
+          throw new Error("Choose a PNG, JPEG, GIF, or WebP image.");
+        if (!file.size || file.size > 10 * 1024 * 1024)
+          throw new Error("Each image must be under 10 MB.");
+        const result = await runAttachmentUploadCycle({
+          registry: appAtomRegistry,
+          createUploadUrl: attachmentEnvironment.createUploadUrl,
+          remove: attachmentEnvironment.remove,
+          environmentId,
+          upload: { name: file.name, mimeType, sizeBytes: file.size },
+          resolveUploadUrl: (relative) => {
+            const connection = readPreparedConnection(environmentId);
+            return connection ? resolveAssetUrl(connection.httpBaseUrl, relative) : null;
+          },
+          transport: (url) => {
+            const controller = new AbortController();
+            return {
+              abort: () => controller.abort(),
+              done: fetch(url, {
+                method: "POST",
+                body: file,
+                headers: { "Content-Type": mimeType },
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]),
+              }).then((response) => {
+                if (!response.ok) throw new Error("Image upload failed. Try again.");
+              }),
+            };
+          },
+        });
+        if (result.status !== "uploaded") {
+          if (result.attachmentId) discardImage(result.attachmentId);
+          throw new Error("Image upload failed. Try again.");
+        }
+        const image: InboxReplyImage = {
+          attachmentId: result.attachmentId,
+          name: file.name,
+          mimeType,
+          sizeBytes: file.size,
+        };
+        updateInboxReply(key, (value) => ({
+          ...value,
+          result: undefined,
+          error: undefined,
+          input: {
+            ...value.input,
+            commandId: CommandId.make(randomUUID()),
+            images: [...(value.input.images ?? []), image],
+          },
+        }));
+      }
+    } catch (cause) {
+      updateInboxReply(key, (value) => ({
+        ...value,
+        uploadError: cause instanceof Error ? cause.message : "Image upload failed.",
+      }));
+    } finally {
+      updateInboxReply(key, (value) => ({ ...value, uploading: false }));
+    }
+  }
   const close = () => {
     updateInboxReply(key, (value) => ({ ...value, open: false }));
     onClose?.();
@@ -58,8 +156,9 @@ export function InboxReplyComposer({
     if (
       !value ||
       value.pending ||
+      value.uploading ||
       !permitted ||
-      !value.input.text.trim() ||
+      (!value.input.text.trim() && !value.input.images?.length) ||
       value.result?.status === "sent"
     )
       return;
@@ -77,7 +176,10 @@ export function InboxReplyComposer({
         result: result.value,
         error: result.value.error,
       }));
-      if (result.value.status === "sent") close();
+      if (result.value.status === "sent") {
+        for (const image of input.images ?? []) discardImage(image.attachmentId);
+        close();
+      }
     } else {
       // Rechecking this command ID is safe even when the RPC response was lost.
       updateInboxReply(key, (draft) => ({
@@ -101,12 +203,14 @@ export function InboxReplyComposer({
       },
     });
     if (!AsyncResult.isSuccess(result)) return;
+    for (const image of draft?.input.images ?? []) discardImage(image.attachmentId);
     updateInboxReply(key, (value) => ({
       ...value,
       open: false,
       result: undefined,
       error: undefined,
-      input: { ...value.input, text: "", commandId: CommandId.make(randomUUID()) },
+      uploadError: undefined,
+      input: { ...value.input, text: "", images: [], commandId: CommandId.make(randomUUID()) },
     }));
     refresh();
     onClose?.();
@@ -117,6 +221,16 @@ export function InboxReplyComposer({
       aria-label="Reply to notification"
       className="mt-2 space-y-2 border-t border-border/60 pt-2"
       onClick={(event) => event.stopPropagation()}
+      onDragOver={(event) => {
+        if (n.source === "slack" && event.dataTransfer.types.includes("Files"))
+          event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (n.source !== "slack" || !event.dataTransfer.files.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void attach(Array.from(event.dataTransfer.files));
+      }}
     >
       <p className="text-2xs text-muted-foreground">Thread reply</p>
       {source?.canReply === false && (
@@ -132,7 +246,14 @@ export function InboxReplyComposer({
         placeholder="Write a reply…"
         maxLength={4000}
         value={draft.input.text}
-        disabled={draft.pending || uncertain || (!!draft.error && !draft.result) || !permitted}
+        disabled={locked}
+        onPaste={(event) => {
+          const files = Array.from(event.clipboardData.files);
+          if (n.source === "slack" && files.length) {
+            event.preventDefault();
+            void attach(files);
+          }
+        }}
         onChange={(event) =>
           updateInboxReply(key, (value) => ({
             ...value,
@@ -162,6 +283,68 @@ export function InboxReplyComposer({
           }
         }}
       />
+      {draft.input.images?.map((image) => (
+        <div key={image.attachmentId}>
+          <InboxImage
+            environmentId={environmentId}
+            name={image.name}
+            resource={{ _tag: "attachment", attachmentId: image.attachmentId }}
+          />
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={locked}
+            aria-label={`Remove ${image.name}`}
+            onClick={() => {
+              discardImage(image.attachmentId);
+              updateInboxReply(key, (value) => ({
+                ...value,
+                result: undefined,
+                error: undefined,
+                input: {
+                  ...value.input,
+                  commandId: CommandId.make(randomUUID()),
+                  images:
+                    value.input.images?.filter(
+                      (entry) => entry.attachmentId !== image.attachmentId,
+                    ) ?? [],
+                },
+              }));
+            }}
+          >
+            Remove image
+          </Button>
+        </div>
+      ))}
+      {draft.uploadError && (
+        <p role="alert" className="text-2xs text-destructive">
+          {draft.uploadError}
+        </p>
+      )}
+      {n.source === "slack" && !uncertain && (
+        <>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            hidden
+            aria-label="Attach images"
+            onChange={(event) => {
+              void attach(Array.from(event.target.files ?? []));
+              event.target.value = "";
+            }}
+          />
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={locked}
+            onClick={() => fileInput.current?.click()}
+          >
+            {draft.uploading ? "Uploading…" : "Attach images"}
+          </Button>
+        </>
+      )}
       {(draft.error || (uncertain && !draft.pending)) && (
         <p role="alert" className="text-2xs text-destructive">
           {draft.error ??
@@ -172,12 +355,22 @@ export function InboxReplyComposer({
       <div className="flex flex-wrap items-center gap-1">
         <Button
           size="xs"
-          disabled={!permitted || draft.pending || !draft.input.text.trim()}
+          disabled={
+            !permitted ||
+            draft.pending ||
+            draft.uploading ||
+            (!draft.input.text.trim() && !draft.input.images?.length)
+          }
           onClick={() => void submit()}
         >
           {draft.pending ? "Sending…" : "Send"}
         </Button>
-        <Button size="xs" variant="ghost" disabled={draft.pending} onClick={() => void cancel()}>
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={draft.pending || draft.uploading}
+          onClick={() => void cancel()}
+        >
           Cancel
         </Button>
       </div>

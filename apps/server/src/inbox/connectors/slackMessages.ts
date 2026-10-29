@@ -1,4 +1,14 @@
 import * as Schema from "effect/Schema";
+import type { InboxSlackImage } from "@t3tools/contracts";
+export const SlackFile = Schema.Struct({
+  id: Schema.String,
+  title: Schema.optionalKey(Schema.String),
+  name: Schema.optionalKey(Schema.String),
+  mimetype: Schema.optionalKey(Schema.String),
+  url_private: Schema.optionalKey(Schema.String),
+  thumb_720: Schema.optionalKey(Schema.String),
+  permalink: Schema.optionalKey(Schema.String),
+});
 export const Message = Schema.Struct({
   ts: Schema.String,
   text: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -10,7 +20,22 @@ export const Message = Schema.Struct({
   latest_reply: Schema.optionalKey(Schema.String),
   blocks: Schema.optionalKey(Schema.Array(Schema.Unknown)),
   attachments: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+  files: Schema.optionalKey(Schema.Array(SlackFile)),
 });
+/** Keep references only; image bytes are fetched on demand through the environment. */
+export function messageImages(message: typeof Message.Type): InboxSlackImage[] {
+  return (message.files ?? [])
+    .filter(
+      (file) => /^image\/(?:png|jpeg|gif|webp)$/.test(file.mimetype ?? "") && file.url_private,
+    )
+    .slice(0, 10)
+    .map((file) => ({
+      id: file.id,
+      name: file.title || file.name || "Slack image",
+      url: file.thumb_720 || file.url_private!,
+      ...(file.permalink ? { permalink: file.permalink } : {}),
+    }));
+}
 export const History = Schema.Struct({
   ok: Schema.Boolean,
   messages: Schema.optionalKey(Schema.Array(Message)),

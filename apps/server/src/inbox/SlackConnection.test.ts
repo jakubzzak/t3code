@@ -204,6 +204,9 @@ it.effect(
         assert.isFalse(url.searchParams.has("scope"));
         assert.isFalse(url.searchParams.has("client_secret"));
         assert.include(url.searchParams.get("user_scope")!, "chat:write");
+        assert.include(url.searchParams.get("user_scope")!.split(","), "im:write");
+        assert.include(url.searchParams.get("user_scope")!.split(","), "files:read");
+        assert.include(url.searchParams.get("user_scope")!.split(","), "files:write");
         assert.include(url.searchParams.get("user_scope")!, "users:read");
         assert.equal(fixture.values.size, 0);
         const state = url.searchParams.get("state")!;

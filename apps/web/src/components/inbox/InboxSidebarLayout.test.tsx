@@ -21,9 +21,22 @@ const state = vi.hoisted(() => ({
   open: vi.fn().mockResolvedValue(undefined),
   refresh: vi.fn(),
   send: vi.fn(),
+  upload: vi.fn(),
+  removeImage: vi.fn(),
   mutate: vi.fn(),
   deferDetail: false,
   details: new Map<string, InboxNotification>(),
+}));
+vi.mock("~/assets/assetUrls", () => ({
+  useAssetUrlState: () => ({ _tag: "Success", url: "/fixture-image.png" }),
+  resolveAssetUrl: (_base: string, url: string) => url,
+}));
+vi.mock("~/state/attachments", () => ({
+  attachmentEnvironment: { createUploadUrl: {}, remove: {} },
+}));
+vi.mock("@t3tools/client-runtime/state/attachments", () => ({
+  runAttachmentUploadCycle: state.upload,
+  deletePendingAttachmentUpload: state.removeImage,
 }));
 vi.mock("~/state/entities", () => ({
   useServerConfigs: () =>
@@ -81,6 +94,8 @@ afterEach(async () => {
   state.details.clear();
   useInboxReplyDrafts.setState({ drafts: {} });
   state.send.mockReset();
+  state.upload.mockReset();
+  state.removeImage.mockReset();
   state.mutate.mockReset();
   state.deferDetail = false;
   vi.clearAllMocks();
@@ -475,3 +490,55 @@ it("Cancel discards the reply without sending, while reopening starts empty", as
   await act(async () => openInboxReply(environmentId, notification));
   expect(container.querySelector("textarea")!.value).toBe("");
 });
+
+it.each(["picker", "paste", "drop"])(
+  "attaches via %s and keeps an image-only draft through a failed send",
+  async (method) => {
+    state.upload.mockResolvedValue({ status: "uploaded", attachmentId: "pending-image" });
+    state.send.mockImplementation(async ({ input }) =>
+      AsyncResult.success({ ...input, status: "failed", error: "Reconnect Slack." }),
+    );
+    await act(async () => {
+      openInboxReply(environmentId, notification);
+      root.render(<InboxReplyComposer environmentId={environmentId} notification={notification} />);
+    });
+    const file = new File(["png bytes"], "screenshot.png", { type: "image/png" });
+    await act(async () => {
+      if (method === "picker") {
+        const input = container.querySelector('input[type="file"]')!;
+        Object.defineProperty(input, "files", { value: [file] });
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        const event = new Event(method === "paste" ? "paste" : "drop", {
+          bubbles: true,
+          cancelable: true,
+        });
+        Object.defineProperty(event, method === "paste" ? "clipboardData" : "dataTransfer", {
+          value: { files: [file] },
+        });
+        container.querySelector(method === "paste" ? "textarea" : "section")!.dispatchEvent(event);
+      }
+    });
+    expect(state.upload).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('img[alt="screenshot.png"]')).not.toBeNull();
+    const send = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Send",
+    )!;
+    expect(send.disabled).toBe(false);
+    await act(async () => send.click());
+    expect(state.send.mock.calls[0]![0].input).toMatchObject({
+      text: "",
+      images: [{ name: "screenshot.png", attachmentId: "pending-image" }],
+    });
+    expect(container.querySelector('img[alt="screenshot.png"]')).not.toBeNull();
+    expect(state.removeImage).not.toHaveBeenCalled();
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[aria-label="Remove screenshot.png"]')!.click(),
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(send.disabled).toBe(true);
+    expect(state.removeImage).toHaveBeenCalledWith(
+      expect.objectContaining({ attachmentId: "pending-image" }),
+    );
+  },
+);

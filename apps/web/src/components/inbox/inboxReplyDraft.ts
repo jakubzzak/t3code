@@ -21,6 +21,8 @@ type ReplyDraft = {
   input: InboxReplyInput;
   open: boolean;
   pending: boolean;
+  uploading?: boolean;
+  uploadError?: string | undefined;
   result?: InboxReplyAttempt | undefined;
   error?: string | undefined;
 };
@@ -59,6 +61,7 @@ export function openInboxReply(environmentId: EnvironmentId, n: InboxNotificatio
                 itemId: attempt?.itemId ?? item.id,
                 target: attempt?.target ?? target,
                 commandId: attempt?.commandId ?? CommandId.make(randomUUID()),
+                ...(attempt?.images ? { images: attempt.images } : {}),
                 text: attempt?.text ?? n.analysis?.replyDraft ?? "",
               },
             },

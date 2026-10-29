@@ -6,9 +6,9 @@ Inbox users can read a conversation and receive suggested actions but must leave
 
 ## Scope
 
-Extend the existing web/desktop Inbox with text replies and optional suggested reply drafts. This adds the narrowly scoped source writes excluded by the original [Inbox spec](project-notification-inbox.md); its other source-write exclusions remain. Native mobile Inbox remains deferred. The same server behavior must work for local and remote web/desktop clients.
+Extend the existing web/desktop Inbox with text replies, Slack image attachments, and optional suggested reply drafts. This adds the narrowly scoped source writes excluded by the original [Inbox spec](project-notification-inbox.md); its other source-write exclusions remain. Native mobile Inbox remains deferred. The same server behavior must work for local and remote web/desktop clients.
 
-No destination picker, unrelated channel posts or DMs, email replies, attachments, issue edits, automatic sending, or automatic settlement. Reply-state ingestion and resurfacing are separate work; this feature must coexist with them without duplicating a sent response.
+No destination picker, unrelated channel posts or DMs, email replies, non-image attachments, Linear image uploads, issue edits, automatic sending, or automatic settlement. Reply-state ingestion and resurfacing are separate work; this feature must coexist with them without duplicating a sent response.
 
 ## Required behavior
 
@@ -18,7 +18,7 @@ No destination picker, unrelated channel posts or DMs, email replies, attachment
 - Add an icon-only reply action as the leftmost item in the CTA bar's right group, immediately before Snooze. Keep the agent buttons in the left group. Clicking it has the same behavior as Enter. Provide an accessible name and tooltip.
 - When a suggested resolution includes an actual proposed message, show a non-clickable draft icon after the Suggestion heading, separated by a dot. Do not add visible “Draft available” text or make the status icon another action.
 - Prefill the input with only the proposed message. Advice such as “check the deployment” is not a reply draft. Without a proposed message, open an empty input. A newer suggestion must not overwrite the user's edits.
-- Place the input below the conversation in both Inbox and linked-chat Details. Opening Reply in Details expands its source conversation. Label the input section simply **Thread reply**. Opening or generating a draft never sends it. Show only **Send** and **Cancel** actions; Cancel discards the draft without sending or marking the item read. Do not add separate Check result, Ignore, or Close actions.
+- Place the input below the conversation in both Inbox and linked-chat Details. Opening Reply in Details expands its source conversation. Label the input section simply **Thread reply**. Opening or generating a draft never sends it. Use **Send** and **Cancel** for the reply, with image attachment and removal controls for Slack; Cancel discards the draft without sending or marking the item read. Do not add separate Check result, Ignore, or Close actions.
 
 ### Destination
 
@@ -30,9 +30,9 @@ No destination picker, unrelated channel posts or DMs, email replies, attachment
 ### Send and recover
 
 - **Cmd+Enter** inside the composer sends the reviewed text. Use the application's platform modifier equivalent outside macOS. Plain Enter inside the input inserts a newline. Existing Cmd+Enter agent delegation remains unchanged when focus is on the notification row.
-- Disable the input and send controls and show a pending state during the request. Repeated activation must not duplicate the send. Empty or whitespace-only replies cannot send.
+- Disable the input and send controls and show a pending state during the request. Repeated activation must not duplicate the send. Empty or whitespace-only replies cannot send unless they include an image. Slack accepts up to four PNG, JPEG, GIF, or WebP images of at most 10 MB each, selected, pasted, or dropped into the reply. Display incoming images in originals and replies, including image-only messages.
 - After confirmed source success, display the returned response in the conversation, clear the sent draft and its indicator, and mark the Blackbird Inbox item read if needed. Do not settle it or claim the source application's read state changed.
-- If posting succeeds but local refresh/read-state updates fail, retain the successful send result and recover those local updates without reposting. Later source ingestion must reconcile the response by source identity.
+- If posting succeeds but local refresh/read-state updates fail, retain the successful send result and recover those local updates without reposting. Later source ingestion must reconcile the response by source identity. If Slack confirms an image upload before its message metadata is available, keep a visible sent-image placeholder and reconcile it by file ID. Do not use the host clock as a source-activity cursor or clear newer concurrent incoming activity.
 - A definite send failure preserves edited text, restores controls, and explains the next step. Missing posting permission leads to reconnection; rate limits expose the retry time. An uncertain delivery outcome must be distinguished from a definite failure and must not automatically resend. For a pending or uncertain attempt, Send checks the existing command ID without posting again; reopening restores that attempted message and command ID. Check the source conversation before canceling an uncertain attempt and composing another reply.
 
 ### Linked Linear chats
@@ -44,7 +44,7 @@ No destination picker, unrelated channel posts or DMs, email replies, attachment
 
 Use the connected user's identity. Existing read-only connections continue reading and show when a posting upgrade is needed. Request additional authorization through the existing connection flow; record granted capabilities rather than treating “Connected” as proof of write access. Canceling an upgrade preserves reading and the draft.
 
-Slack supports user-token posting with `chat:write` and thread replies with `thread_ts`. Linear provides the targeted `comments:create` scope and the `user` actor. Retain existing read permissions and avoid requesting broad write/admin access for this feature. See the [Slack posting API](https://docs.slack.dev/reference/methods/chat.postMessage/) and [Linear OAuth documentation](https://linear.app/developers/oauth-2-0-authentication).
+Slack supports user-token posting with `chat:write` and thread replies with `thread_ts`. Request `im:write` as well for direct-message access; this grant does not change the composer destination or enable top-level DM sends. Existing connections need reconnection to receive the new grant. Image previews and uploads additionally require `files:read` and `files:write`; existing connections may need reconnection. Linear provides the targeted `comments:create` scope and the `user` actor. Retain existing read permissions and avoid requesting broad write/admin access for this feature. See the [Slack posting API](https://docs.slack.dev/reference/methods/chat.postMessage/) and [Linear OAuth documentation](https://linear.app/developers/oauth-2-0-authentication).
 
 Posting belongs in a shared server service, with typed contracts and permission-guarded client commands. Any agent entry point must use the same destination and send rules and require explicit confirmation of the exact message; a suggested resolution or delegated task is not send approval. Never send test messages to real conversations without explicit authorization.
 

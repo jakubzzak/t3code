@@ -282,3 +282,77 @@ it("does not replace newer mail context with an older snapshot", () => {
     ingestInboxItem(project, { ...message, source: "superhuman", replyActivity: [] }, current),
   ).toBe(current);
 });
+
+it("reconciles confirmed uploads by file ID before classifying replayed activity", () => {
+  const root = {
+    ts: "1793260800.000001",
+    author: "Alex",
+    content: "Question",
+    formattedContent: "Question",
+    occurredAt: "2026-10-29T08:00:00Z",
+    images: [],
+  };
+  const thread = {
+    formatVersion: 2 as const,
+    channelId: "C1",
+    ts: root.ts,
+    root,
+    messages: [],
+    latestReplyTs: null,
+    replyCount: 0,
+    nextCursor: null,
+  };
+  const original = {
+    ...message,
+    groupId: `C1:${root.ts}`,
+    slackThread: thread,
+    replyActivity: [{ id: "old", occurredAt: root.occurredAt, isSelf: false }],
+  };
+  const first = ingestInboxItem(project, original);
+  const pending = {
+    ...first,
+    state: { ...first.state, read: true, placement: "resolved" as const },
+    slackThread: {
+      ...thread,
+      pendingMessages: [
+        {
+          ...root,
+          ts: "file:F1",
+          images: [{ id: "F1", name: "shot.png" }],
+          occurredAt: "2026-10-29T08:04:00Z",
+        },
+      ],
+    },
+  };
+  const native = {
+    ...root,
+    ts: "1793260920.000001",
+    occurredAt: "2026-10-29T08:02:00Z",
+    images: [{ id: "F1", name: "shot.png", url: "https://files.slack.com/shot.png" }],
+  };
+  const echo = {
+    ...original,
+    id: "echo",
+    slackThread: { ...thread, messages: [native], latestReplyTs: native.ts, replyCount: 1 },
+    replyActivity: [
+      { id: "delayed-old", occurredAt: "2026-10-29T08:01:00Z", isSelf: false },
+      { id: `C1:${native.ts}`, occurredAt: native.occurredAt, isSelf: true },
+    ],
+  };
+  const reconciled = ingestInboxItem(project, echo, pending);
+  expect(reconciled.state).toEqual(pending.state);
+  expect(reconciled.replyCursor?.id).toBe(`C1:${native.ts}`);
+  expect(reconciled.slackThread?.pendingMessages ?? []).toEqual([]);
+  expect(reconciled.slackThread?.messages.map((m) => m.ts)).toEqual([native.ts]);
+  const later = ingestInboxItem(
+    project,
+    {
+      ...echo,
+      id: "incoming",
+      replyActivity: [{ id: "later", occurredAt: "2026-10-29T08:03:00Z", isSelf: false }],
+    },
+    reconciled,
+  );
+  expect(later.state.read).toBe(false);
+  expect(later.state.placement).toBe("active");
+});
