@@ -13,6 +13,7 @@ import {
   InboxReplyError,
   type InboxReplyMessage,
   type ProjectId,
+  type InboxSourceItem,
   type LinearDesktopRequest,
   type LinearDesktopResult,
   type LinearConnectionEnvelope,
@@ -56,6 +57,7 @@ export class LinearConnection extends Context.Service<
       projectId: ProjectId,
       categories: ReadonlyArray<string>,
       since: string,
+      tracked?: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">>,
     ) => Effect.Effect<Awaited<ReturnType<typeof readLinearInbox>>, InboxError>;
     readonly readIssue: (
       projectId: ProjectId,
@@ -380,7 +382,7 @@ export const layer = Layer.effect(
             catch: wrap,
           });
         }),
-      read: (projectId, categories, since) =>
+      read: (projectId, categories, since, tracked) =>
         Effect.gen(function* () {
           const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           return yield* Effect.tryPromise({
@@ -390,6 +392,7 @@ export const layer = Layer.effect(
                   getClient(projectId, linearClientId).query(projectId, slug, query, variables),
                 categories,
                 since,
+                tracked,
               ),
             catch: wrap,
           });

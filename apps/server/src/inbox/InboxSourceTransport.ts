@@ -32,6 +32,7 @@ export class InboxSourceTransport extends Context.Service<
       connection: InboxSourceConnection,
       token: string,
       since: string,
+      tracked?: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">>,
     ) => Effect.Effect<ReadonlyArray<InboxSourceItem>, InboxError>;
   }
 >()("t3/inbox/InboxSourceTransport") {}
@@ -88,17 +89,21 @@ export const layer: Layer.Layer<
     return InboxSourceTransport.of({
       readThread: (token, channelId, ts, cached) =>
         slackRead((read) => readSlackThread(read, channelId, ts, cached), token),
-      read: (connection, token, since) =>
+      read: (connection, token, since, tracked) =>
         connection.source === "linear"
-          ? linear.read(connection.projectId, connection.categories, since)
+          ? linear.read(connection.projectId, connection.categories, since, tracked)
           : connection.source === "superhuman"
             ? superhuman.read(
                 connection.projectId,
                 connection.accounts,
                 connection.categories,
                 since,
+                tracked,
               )
-            : slackRead((read) => readSlackInbox(read, connection.categories, since), token),
+            : slackRead(
+                (read) => readSlackInbox(read, connection.categories, since, tracked),
+                token,
+              ),
     });
   }),
 );

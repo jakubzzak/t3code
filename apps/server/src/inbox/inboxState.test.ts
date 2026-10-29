@@ -198,3 +198,87 @@ it("enriches Linear presentation without reopening settled work, but invalidates
   expect(next.linearIssue).toBeUndefined();
   expect(next.state.read).toBe(false);
 });
+
+describe("reply attention", () => {
+  const reply = (id: string, at: string, isSelf: boolean) => ({
+    ...message,
+    id,
+    content: id,
+    occurredAt: at,
+    replyActivity: [{ id, occurredAt: at, isSelf }],
+  });
+  const incoming = reply("incoming", "2026-10-22T10:00:00.000Z", false);
+  const own = reply("own", "2026-10-22T11:00:00.000Z", true);
+  const later = reply("later", "2026-10-22T12:00:00.000Z", false);
+
+  it("marks self replies read without moving or promoting the notification", () => {
+    const first = ingestInboxItem(project, incoming);
+    const settled = { ...first, state: { ...first.state, placement: "resolved" as const } };
+    const next = ingestInboxItem(project, own, settled);
+    expect(next.state).toEqual({ ...settled.state, read: true });
+    expect(next.updatedAt).toBe(settled.updatedAt);
+    expect(next.items.at(-1)?.content).toBe("own");
+  });
+
+  it("reopens the same settled notification on another person's later reply, retaining its chat", () => {
+    const first = ingestInboxItem(project, incoming);
+    const settled = {
+      ...first,
+      state: {
+        ...first.state,
+        placement: "resolved" as const,
+        read: true,
+        threadId: ThreadId.make("linked"),
+      },
+      linkedChatSettled: true,
+    };
+    const next = ingestInboxItem(project, later, settled);
+    expect(next.id).toBe(first.id);
+    expect(next.state).toEqual({ ...settled.state, placement: "active", read: false });
+    expect(next.linkedChatSettled).toBe(true);
+  });
+
+  it("preserves manual triage on replay, context refresh and older deliveries", () => {
+    const first = ingestInboxItem(project, own, ingestInboxItem(project, incoming));
+    const manual = {
+      ...first,
+      state: { ...first.state, read: false, placement: "resolved" as const },
+    };
+    const refreshed = ingestInboxItem(project, { ...own, content: "Updated context" }, manual);
+    expect(refreshed.state).toEqual(manual.state);
+    expect(ingestInboxItem(project, incoming, refreshed).state).toEqual(manual.state);
+    const latest = ingestInboxItem(project, later, refreshed);
+    expect(latest.state).toMatchObject({ placement: "active", read: false });
+  });
+
+  it("uses source order for multiple replies in a mail snapshot", () => {
+    const first = ingestInboxItem(project, incoming);
+    const settled = { ...first, state: { ...first.state, placement: "resolved" as const } };
+    const newestSelf = { id: "answer", occurredAt: "2026-10-22T13:00:00.000Z", isSelf: true };
+    const next = ingestInboxItem(
+      project,
+      {
+        ...later,
+        replyActivity: [newestSelf, ...later.replyActivity],
+      },
+      settled,
+    );
+    expect(next.state).toMatchObject({ placement: "active", read: true });
+    expect(next.updatedAt).toBe(later.occurredAt);
+  });
+});
+
+it("does not replace newer mail context with an older snapshot", () => {
+  const first = ingestInboxItem(project, { ...message, source: "superhuman", replyActivity: [] });
+  const newer = {
+    ...message,
+    source: "superhuman" as const,
+    content: "Newest mail",
+    occurredAt: "2026-10-22T12:00:00Z",
+    replyActivity: [{ id: "new-mail", occurredAt: "2026-10-22T12:00:00Z", isSelf: false }],
+  };
+  const current = ingestInboxItem(project, newer, first);
+  expect(
+    ingestInboxItem(project, { ...message, source: "superhuman", replyActivity: [] }, current),
+  ).toBe(current);
+});

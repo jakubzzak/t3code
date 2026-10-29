@@ -3,6 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeUtil from "node:util";
 import type {
   InboxNotification,
+  InboxReplyActivity,
   InboxSourceItem,
   InboxState,
   InboxSlackThread,
@@ -49,6 +50,11 @@ export function mergeSlackThread(
           : incoming.nextCursor,
   };
 }
+/** Source timestamps determine attention order; IDs break ties and make replays inert. */
+function compareReplyActivity(a: InboxReplyActivity, b: InboxReplyActivity) {
+  return Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.id.localeCompare(b.id);
+}
+
 export function ingestInboxItem(
   projectId: ProjectId,
   item: InboxSourceItem,
@@ -56,13 +62,29 @@ export function ingestInboxItem(
 ): InboxNotification {
   const existing = previous?.items.find((candidate) => candidate.id === item.id);
   const incomingThread = item.slackThread;
-  const { slackThread: _incomingThread, ...body } = item;
+  const { slackThread: _incomingThread, replyActivity, ...body } = item;
+  const replies = replyActivity?.toSorted(compareReplyActivity) ?? [];
+  const fresh = replies.filter((reply) =>
+    previous?.replyCursor
+      ? compareReplyActivity(reply, previous.replyCursor) > 0
+      : !previous || Date.parse(reply.occurredAt) > Date.parse(previous.updatedAt),
+  );
+  const latestReply = fresh.at(-1);
+  if (
+    previous &&
+    existing &&
+    !latestReply &&
+    Date.parse(item.occurredAt) < Date.parse(existing.occurredAt)
+  )
+    return previous;
+  const latestIncoming = fresh.findLast((reply) => !reply.isSelf);
+  const replyCursor = latestReply ?? previous?.replyCursor;
   const thread = incomingThread
     ? mergeSlackThread(previous?.slackThread, incomingThread)
     : previous?.slackThread;
   const sameLatest =
     (previous?.slackThread?.latestReplyTs ?? null) === (thread?.latestReplyTs ?? null);
-  if (existing && NodeUtil.isDeepStrictEqual(existing, body) && sameLatest) {
+  if (!latestReply && existing && NodeUtil.isDeepStrictEqual(existing, body) && sameLatest) {
     return NodeUtil.isDeepStrictEqual(previous?.slackThread, thread)
       ? previous!
       : { ...previous!, slackThread: thread!, revision: previous!.revision + 1 };
@@ -71,11 +93,11 @@ export function ingestInboxItem(
     .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id))
     .slice(-50);
   // An older delivery can be absent because it was evicted, not because it is new.
-  if (previous && sameLatest && NodeUtil.isDeepStrictEqual(previous.items, items))
+  if (!latestReply && previous && sameLatest && NodeUtil.isDeepStrictEqual(previous.items, items))
     return NodeUtil.isDeepStrictEqual(previous.slackThread, thread)
       ? previous
       : { ...previous, slackThread: thread!, revision: previous.revision + 1 };
-  if (existing?.source === "linear" && body.linearIssue) {
+  if (!latestReply && existing?.source === "linear" && body.linearIssue) {
     const { linearIssue: _oldIssue, ...oldContent } = existing;
     const { linearIssue: _newIssue, ...newContent } = body;
     if (NodeUtil.isDeepStrictEqual(oldContent, newContent))
@@ -93,12 +115,27 @@ export function ingestInboxItem(
     connectionId: item.connectionId,
     groupId: item.groupId,
     ...(thread ? { slackThread: thread } : {}),
+    ...(replyCursor ? { replyCursor } : {}),
     revision: (previous?.revision ?? -1) + 1,
-    state: previous
-      ? formattingOnly
-        ? previous.state
-        : { ...previous.state, read: false }
-      : { read: false, placement: "active", snoozedUntil: null, threadId: null },
+    state:
+      replyActivity !== undefined
+        ? {
+            ...(previous?.state ?? {
+              read: false,
+              placement: "active",
+              snoozedUntil: null,
+              threadId: null,
+            }),
+            ...(latestReply ? { read: latestReply.isSelf } : {}),
+            ...(latestIncoming && previous?.state.placement === "resolved"
+              ? { placement: "active", snoozedUntil: null }
+              : {}),
+          }
+        : previous
+          ? formattingOnly
+            ? previous.state
+            : { ...previous.state, read: false }
+          : { read: false, placement: "active", snoozedUntil: null, threadId: null },
     items,
     analysis: null,
     analysisAttempts: 0,
@@ -110,7 +147,10 @@ export function ingestInboxItem(
     agentAttempt: previous?.agentAttempt ?? 0,
     agentIntent: previous?.agentIntent ?? null,
     linkedChatSettled: previous?.linkedChatSettled ?? false,
-    updatedAt: items.at(-1)!.occurredAt,
+    updatedAt:
+      replyActivity !== undefined
+        ? (latestIncoming?.occurredAt ?? previous?.updatedAt ?? items.at(-1)!.occurredAt)
+        : items.at(-1)!.occurredAt,
     confirmedOutcome: previous?.confirmedOutcome ?? null,
     ...(previous?.replyAttempt ? { replyAttempt: previous.replyAttempt } : {}),
   };

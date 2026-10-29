@@ -4,7 +4,9 @@ const CommentFields = Schema.Struct({
   id: Schema.String,
   body: Schema.String,
   createdAt: Schema.String,
-  user: Schema.NullOr(Schema.Struct({ name: Schema.String })),
+  user: Schema.NullOr(
+    Schema.Struct({ id: Schema.optionalKey(Schema.String), name: Schema.String }),
+  ),
   botActor: Schema.optionalKey(
     Schema.NullOr(Schema.Struct({ name: Schema.NullOr(Schema.String) })),
   ),
@@ -18,7 +20,7 @@ function formatComment(comment: typeof CommentFields.Type): InboxLinearComment {
     occurredAt: comment.createdAt,
   };
 }
-const commentFields = "id body createdAt user { name } botActor { name }";
+const commentFields = "id body createdAt user { id name } botActor { name }";
 const CommentIndex = Schema.Struct({
   nodes: Schema.Array(Schema.Struct({ id: Schema.String })),
   pageInfo: Schema.Struct({
@@ -124,17 +126,22 @@ export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: 
 export async function readLinearInbox(
   query: (
     query: string,
-    variables: { after: string | null; since: string; id?: string },
+    variables: { after: string | null; since: string; id?: string; issueIds?: string[] },
   ) => Promise<unknown>,
   categories: ReadonlyArray<string>,
   since: string,
+  tracked: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> = [],
 ): Promise<ReadonlyArray<InboxSourceItem>> {
   const items: InboxSourceItem[] = [];
   const seen = new Set<string>();
   const issueCounts = new Map<string, number | undefined>();
   let after: string | null = null;
+  let viewer = "";
+  let connectionId = "";
   do {
     const page = decodePage(await query(LINEAR_INBOX_QUERY, { after, since }));
+    viewer = page.data.viewer.id;
+    connectionId = `${page.data.organization.id}:${viewer}`;
     for (const notification of page.data.notifications.nodes) {
       if (Date.parse(notification.createdAt) < Date.parse(since)) continue;
       if (
@@ -203,6 +210,17 @@ export async function readLinearInbox(
           : {}),
         url: notification.url,
         occurredAt: notification.createdAt,
+        ...(notification.comment
+          ? {
+              replyActivity: [notification.comment, ...(issue?.latestComments?.nodes ?? [])]
+                .filter((comment) => Date.parse(comment.createdAt) >= Date.parse(since))
+                .map((comment) => ({
+                  id: comment.id,
+                  occurredAt: comment.createdAt,
+                  isSelf: comment.user?.id === viewer,
+                })),
+            }
+          : {}),
       });
     }
     after = page.data.notifications.pageInfo.hasNextPage
@@ -212,8 +230,98 @@ export async function readLinearInbox(
       throw new Error("Linear returned a repeated notification cursor.");
     if (after) seen.add(after);
   } while (after);
+  const issueIds = [
+    ...new Set(
+      tracked.filter((entry) => entry.connectionId === connectionId).map((entry) => entry.groupId),
+    ),
+  ];
+  for (let start = 0; start < issueIds.length; start += 50) {
+    let after: string | null = null;
+    const cursors = new Set<string>();
+    do {
+      const response: unknown = await query(LINEAR_REPLIES_QUERY, {
+        since,
+        after,
+        issueIds: issueIds.slice(start, start + 50),
+      });
+      const page = decodeReplies(response).data.comments;
+      for (const comment of page.nodes) {
+        if (
+          !comment.issue ||
+          !issueIds.includes(comment.issue.id) ||
+          Date.parse(comment.createdAt) < Date.parse(since)
+        )
+          continue;
+        items.push({
+          id: `comment:${comment.id}`,
+          source: "linear",
+          connectionId,
+          groupId: comment.issue.id,
+          location: comment.issue.identifier,
+          title: comment.issue.title,
+          author: comment.user?.name || comment.botActor?.name || "Linear",
+          content: [comment.body, comment.issue.description]
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, 32000),
+          url: comment.issue.url,
+          occurredAt: comment.createdAt,
+          linearIssue: {
+            id: comment.issue.id,
+            title: comment.issue.title,
+            description: comment.issue.description,
+            comments: [formatComment(comment)],
+            commentsComplete: false,
+          },
+          replyActivity: [
+            { id: comment.id, occurredAt: comment.createdAt, isSelf: comment.user?.id === viewer },
+          ],
+        });
+      }
+      after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+      if (
+        (page.pageInfo.hasNextPage && !after) ||
+        (after && (cursors.has(after) || cursors.size >= 100))
+      )
+        throw new Error("Linear returned incomplete or repeated reply history. Try syncing again.");
+      if (after) cursors.add(after);
+    } while (after);
+  }
   return items;
 }
+
+const decodeReplies = Schema.decodeUnknownSync(
+  Schema.Struct({
+    data: Schema.Struct({
+      comments: Schema.Struct({
+        nodes: Schema.Array(
+          Schema.Struct({
+            ...CommentFields.fields,
+            issue: Schema.NullOr(
+              Schema.Struct({
+                id: Schema.String,
+                identifier: Schema.String,
+                title: Schema.String,
+                description: Schema.NullOr(Schema.String),
+                url: Schema.String,
+              }),
+            ),
+          }),
+        ),
+        pageInfo: Schema.Struct({
+          hasNextPage: Schema.Boolean,
+          endCursor: Schema.NullOr(Schema.String),
+        }),
+      }),
+    }),
+  }),
+);
+const LINEAR_REPLIES_QUERY = `query BlackbirdInboxReplies($issueIds: [ID!]!, $since: DateTimeOrDuration!, $after: String) {
+  comments(first: 50, after: $after, orderBy: createdAt, filter: { issue: { id: { in: $issueIds } }, createdAt: { gte: $since } }) {
+    nodes { ${commentFields} issue { id identifier title description url } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
 
 const IssuePage = Schema.Struct({
   data: Schema.Struct({

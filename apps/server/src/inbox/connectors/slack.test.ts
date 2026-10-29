@@ -495,3 +495,56 @@ it("discovers new non-mentioned DM replies independently of an older parent hist
     "is:dm is:thread",
   );
 });
+
+it("observes self and unmentioned incoming replies on a tracked channel thread", async () => {
+  const root = {
+    ts: "1792620000.000000",
+    user: "UOTHER",
+    text: "Review",
+    reply_count: 1,
+    latest_reply: "1792623600.000000",
+  };
+  const own = { ts: "1792623600.000000", thread_ts: root.ts, user: "UME", text: "Done" };
+  const calls: Array<[string, Record<string, string>]> = [];
+  const items = await readSlackInbox(
+    async (method, params) => {
+      calls.push([method, params]);
+      if (method === "auth.test") return { ok: true, user_id: "UME", team_id: "T1" };
+      if (method === "users.info") return { user: { name: params.user } };
+      if (method === "search.messages")
+        return {
+          ok: true,
+          messages: {
+            matches: params.query?.startsWith("in:C1")
+              ? [
+                  {
+                    ...own,
+                    permalink: `https://slack.com/archives/C1/p1792623600000000?thread_ts=${root.ts}`,
+                    channel: { id: "C1", name: "launch" },
+                  },
+                ]
+              : [],
+            paging: { pages: 1 },
+          },
+        };
+      if (method === "conversations.replies")
+        return { ok: true, messages: params.oldest ? [own] : [root, own] };
+      throw new Error(`Unexpected ${method}`);
+    },
+    ["mentions"],
+    "2026-10-21T20:00:00Z",
+    [{ connectionId: "T1:UME", groupId: `C1:${root.ts}` }],
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]?.replyActivity).toEqual([
+    { id: `C1:${own.ts}`, occurredAt: items[0]?.occurredAt, isSelf: true },
+  ]);
+  expect(items[0]?.slackThread?.messages.at(-1)?.content).toBe("Done");
+  expect(
+    calls.some(
+      ([method, params]) =>
+        method === "conversations.replies" &&
+        params.oldest === String(Date.parse("2026-10-21T20:00:00Z") / 1000),
+    ),
+  ).toBe(true);
+});

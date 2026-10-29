@@ -90,6 +90,7 @@ export async function readSlackInbox(
   read: SlackRead,
   categories: ReadonlyArray<string>,
   since: string,
+  tracked: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> = [],
 ): Promise<ReadonlyArray<InboxSourceItem>> {
   const sinceMillis = Date.parse(since);
   const identity = decodeIdentity(await read("auth.test", {}));
@@ -151,7 +152,6 @@ export async function readSlackInbox(
     thread: Awaited<ReturnType<typeof readSlackThread>> | undefined,
     url?: string,
   ) => {
-    if (message.user === identity.user_id) return;
     const id = `${channel}:${message.ts}`;
     const context = (thread ? [thread.root, ...thread.messages] : [])
       .filter((entry) => entry.ts !== message.ts)
@@ -197,6 +197,22 @@ export async function readSlackInbox(
           url ??
           `https://app.slack.com/client/${identity.team_id}/${channel}/thread/${channel}-${message.thread_ts ?? message.ts}`,
         occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
+        replyActivity: [
+          {
+            id,
+            occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
+            isSelf: message.user === identity.user_id,
+          },
+          ...(thread?.messages ?? [])
+            .filter(
+              (entry) => entry.ts !== message.ts && Date.parse(entry.occurredAt) >= sinceMillis,
+            )
+            .map((entry) => ({
+              id: `${channel}:${entry.ts}`,
+              occurredAt: entry.occurredAt,
+              isSelf: entry.authorId === identity.user_id,
+            })),
+        ],
       },
       names,
     );
@@ -359,6 +375,45 @@ export async function readSlackInbox(
           "Slack search exceeds the supported batch size. Choose a shorter initial history window.",
         );
     }
+  }
+  // Search can omit adjacent matches; read every incremental reply for known conversations.
+  const conversations = new Set(
+    tracked
+      .filter((entry) => entry.connectionId === `${identity.team_id}:${identity.user_id}`)
+      .map((entry) => entry.groupId),
+  );
+  for (const groupId of conversations) {
+    const [channel, ts] = groupId.split(":");
+    if (!channel || !ts) continue;
+    let cursor = "";
+    const cursors = new Set<string>();
+    do {
+      const page = decodeHistory(
+        await read("conversations.replies", {
+          channel,
+          ts,
+          oldest: String(sinceMillis / 1000),
+          inclusive: "true",
+          limit: "100",
+          cursor,
+        }),
+      );
+      for (const message of page.messages ?? []) {
+        if (Number(message.ts) * 1000 < sinceMillis || items.has(`${channel}:${message.ts}`))
+          continue;
+        const reply = { ...message, thread_ts: ts };
+        await append(
+          channel,
+          dmLocations.get(channel) ?? `#${channel}`,
+          reply,
+          await contextFor(channel, reply),
+        );
+      }
+      cursor = page.response_metadata?.next_cursor ?? "";
+      if ((page.has_more && !cursor) || (cursor && (cursors.has(cursor) || cursors.size >= 100)))
+        throw new Error("Slack returned incomplete or repeated reply history. Try syncing again.");
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
   }
   return [...items.values()];
 }

@@ -28,6 +28,7 @@ const slackPresentation = {
 export const InboxSlackMessage = Schema.Struct({
   ...slackPresentation,
   ts: Schema.String,
+  authorId: Schema.optionalKey(Schema.String),
   author: Schema.String,
   content: Schema.String,
   formattedContent: Schema.String,
@@ -114,6 +115,12 @@ export class InboxReplyError extends Schema.TaggedError<InboxReplyError>()("Inbo
     }
   }
 }
+export const InboxReplyActivity = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  occurredAt: IsoDateTime,
+  isSelf: Schema.Boolean,
+});
+export type InboxReplyActivity = typeof InboxReplyActivity.Type;
 export const InboxSourceItem = Schema.Struct({
   ...slackPresentation,
   replyTarget: Schema.optionalKey(InboxReplyTarget),
@@ -128,6 +135,7 @@ export const InboxSourceItem = Schema.Struct({
   contentFormat: Schema.optionalKey(Schema.Literals(["text"])),
   formattedContent: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32000))),
   sourceContentHash: Schema.optionalKey(Schema.String),
+  replyActivity: Schema.optionalKey(Schema.Array(InboxReplyActivity)),
   slackThread: Schema.optionalKey(InboxSlackThread),
   linearIssue: Schema.optionalKey(InboxLinearIssue),
   url: Schema.String,
@@ -193,6 +201,7 @@ export const InboxNotification = Schema.Struct({
   groupId: TrimmedNonEmptyString,
   slackThread: Schema.optionalKey(InboxSlackThread),
   linearIssue: Schema.optionalKey(InboxLinearIssue),
+  replyCursor: Schema.optionalKey(InboxReplyActivity),
   revision: NonNegativeInt,
   state: InboxState,
   items: Schema.Array(InboxSourceItem),
