@@ -2,11 +2,46 @@ import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 
 import {
+  countMissedFixedTimeRuns,
   isMissedFixedTimeRun,
   isSameSchedule,
   nextScheduledRunAt,
   parseTimeOfDay,
 } from "./Schedule.ts";
+
+const zurich = (day: number, hour: number, minute = 0) =>
+  DateTime.makeZonedUnsafe(
+    { year: 2026, month: 10, day, hour, minute, second: 0, millisecond: 0 },
+    { timeZone: "Europe/Zurich", adjustForTimeZone: true },
+  );
+
+describe("countMissedFixedTimeRuns", () => {
+  const weekdays = { type: "fixed_time", timeOfDay: "09:00", weekdays: [1, 2, 3, 4, 5] } as const;
+
+  it("counts weekday runs missed over two weeks, including today's passed slot", () => {
+    // Thu Oct 15 through Thu Oct 29: 2 + 5 + 4 weekdays.
+    expect(countMissedFixedTimeRuns(weekdays, zurich(15, 9), zurich(29, 10, 27))).toBe(11);
+  });
+
+  it("does not count today's slot before it passes", () => {
+    expect(countMissedFixedTimeRuns(weekdays, zurich(15, 9), zurich(29, 8, 59))).toBe(10);
+  });
+
+  it("counts a single missed run", () => {
+    expect(countMissedFixedTimeRuns(weekdays, zurich(29, 9), zurich(29, 12))).toBe(1);
+  });
+
+  it("counts weekly runs", () => {
+    const mondays = { type: "fixed_time", timeOfDay: "09:00", weekdays: [1] } as const;
+    expect(countMissedFixedTimeRuns(mondays, zurich(5, 9), zurich(29, 10))).toBe(4);
+  });
+
+  it("keeps the local time across a daylight-saving change", () => {
+    const daily = { type: "fixed_time", timeOfDay: "09:00" } as const;
+    // Europe/Zurich leaves summer time on Sun Oct 25; Oct 24..29 is six runs.
+    expect(countMissedFixedTimeRuns(daily, zurich(24, 9), zurich(29, 9))).toBe(6);
+  });
+});
 
 describe("scheduled task schedule calculation", () => {
   it("parses 24-hour times", () => {

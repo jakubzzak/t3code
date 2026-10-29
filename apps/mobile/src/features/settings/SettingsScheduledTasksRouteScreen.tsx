@@ -26,6 +26,7 @@ import {
   DEFAULT_WEBHOOK_PROMPT,
   parseMaxDeliveryAge,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
+import { formatScheduledTaskCatchUp } from "@t3tools/client-runtime/scheduled-task-catch-up";
 import {
   useCallback,
   useEffect,
@@ -1256,90 +1257,98 @@ function EnvironmentTasks({
           {projectIds === null ? "No scheduled tasks yet." : "No tasks in this project."}
         </Text>
       ) : (
-        visibleTasks?.map((task, index) => (
-          <View
-            key={task.id}
-            className={
-              index === 0
-                ? "flex-row items-start gap-1 px-4 py-4"
-                : "flex-row items-start gap-1 border-t border-border-subtle px-4 py-4"
-            }
-          >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Edit ${task.title}`}
-              onPress={() => {
-                onEdit(task);
-              }}
-              className="min-w-0 flex-1 gap-1 active:opacity-70"
-            >
-              <Text className="text-lg font-t3-medium text-foreground" numberOfLines={1}>
-                {task.title}
-              </Text>
-              <Text className="text-sm text-foreground-muted" numberOfLines={2}>
-                {describeSchedule(task)}
-                {!task.enabled
-                  ? " · Paused"
-                  : task.nextRunAt
-                    ? ` · ${formatNextScheduledTaskRun(task.nextRunAt, now)}`
-                    : ""}
-              </Text>
-              {task.lastRunError ? (
-                <Text className="text-sm text-danger-foreground" numberOfLines={2}>
-                  Last run failed: {task.lastRunError}
-                </Text>
-              ) : null}
-            </Pressable>
-            <ControlPillMenu
-              actions={[
-                { id: "edit", title: "Edit" },
-                {
-                  id: "toggle",
-                  title: task.enabled ? "Pause" : "Resume",
-                  attributes: { disabled: !canOperate },
-                },
-                ...(task.schedule.type === "webhook"
-                  ? []
-                  : [{ id: "run", title: "Run now", attributes: { disabled: !canOperate } }]),
-                {
-                  id: "delete",
-                  title: "Delete",
-                  attributes: { destructive: true, disabled: !canOperate },
-                },
-              ]}
-              onPressAction={({ nativeEvent }) => {
-                const action = nativeEvent.event;
-                if (action === "edit") {
-                  onEdit(task);
-                } else if (action === "delete") {
-                  Alert.alert("Delete task?", task.title, [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Delete",
-                      style: "destructive",
-                      onPress: () => void act(task, "delete"),
-                    },
-                  ]);
-                } else if (action === "toggle" || action === "run") {
-                  void act(task, action);
-                }
-              }}
+        visibleTasks?.map((task, index) => {
+          const catchUp = formatScheduledTaskCatchUp(task, now);
+          return (
+            <View
+              key={task.id}
+              className={
+                index === 0
+                  ? "flex-row items-start gap-1 px-4 py-4"
+                  : "flex-row items-start gap-1 border-t border-border-subtle px-4 py-4"
+              }
             >
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Actions for ${task.title}`}
-                className="h-11 w-11 items-center justify-center"
+                accessibilityLabel={`Edit ${task.title}`}
+                onPress={() => {
+                  onEdit(task);
+                }}
+                className="min-w-0 flex-1 gap-1 active:opacity-70"
               >
-                <SymbolView
-                  name="ellipsis"
-                  size={18}
-                  tintColorClassName="accent-icon"
-                  type="monochrome"
-                />
+                <Text className="text-lg font-t3-medium text-foreground" numberOfLines={1}>
+                  {task.title}
+                </Text>
+                <Text className="text-sm text-foreground-muted" numberOfLines={2}>
+                  {describeSchedule(task)}
+                  {!task.enabled
+                    ? " · Paused"
+                    : task.nextRunAt
+                      ? ` · ${formatNextScheduledTaskRun(task.nextRunAt, now)}`
+                      : ""}
+                </Text>
+                {catchUp ? (
+                  <Text className="text-sm text-foreground-muted" numberOfLines={2}>
+                    {catchUp}
+                  </Text>
+                ) : null}
+                {task.lastRunError ? (
+                  <Text className="text-sm text-danger-foreground" numberOfLines={2}>
+                    Last run failed: {task.lastRunError}
+                  </Text>
+                ) : null}
               </Pressable>
-            </ControlPillMenu>
-          </View>
-        ))
+              <ControlPillMenu
+                actions={[
+                  { id: "edit", title: "Edit" },
+                  {
+                    id: "toggle",
+                    title: task.enabled ? "Pause" : "Resume",
+                    attributes: { disabled: !canOperate },
+                  },
+                  ...(task.schedule.type === "webhook"
+                    ? []
+                    : [{ id: "run", title: "Run now", attributes: { disabled: !canOperate } }]),
+                  {
+                    id: "delete",
+                    title: "Delete",
+                    attributes: { destructive: true, disabled: !canOperate },
+                  },
+                ]}
+                onPressAction={({ nativeEvent }) => {
+                  const action = nativeEvent.event;
+                  if (action === "edit") {
+                    onEdit(task);
+                  } else if (action === "delete") {
+                    Alert.alert("Delete task?", task.title, [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Delete",
+                        style: "destructive",
+                        onPress: () => void act(task, "delete"),
+                      },
+                    ]);
+                  } else if (action === "toggle" || action === "run") {
+                    void act(task, action);
+                  }
+                }}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Actions for ${task.title}`}
+                  className="h-11 w-11 items-center justify-center"
+                >
+                  <SymbolView
+                    name="ellipsis"
+                    size={18}
+                    tintColorClassName="accent-icon"
+                    type="monochrome"
+                  />
+                </Pressable>
+              </ControlPillMenu>
+            </View>
+          );
+        })
       )}
     </SettingsSection>
   );

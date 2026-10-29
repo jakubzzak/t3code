@@ -49,6 +49,19 @@ age-limit setting, and automatic retries of failed agent work.
   and failure reporting; do not automatically replay work that may already have
   started. Catch-up is for missed occurrences, not failed-run retry. Scheduler
   dispatch success must not imply that the agent completed its work.
+- Record each catch-up on its task: the first missed occurrence and how many
+  occurrences were missed, counted by the server in the environment's time zone
+  from the first missed one through the catch-up start, using the task's
+  time-of-day, weekday, and daylight-saving rules. Any later run that is not a
+  catch-up, including **Run now**, clears the record. The web, desktop, and
+  mobile task rows show it on a second line in the viewer's local time:
+  `Caught up at 10:27 · 11 missed runs since Thu, Oct 15`. A single missed
+  occurrence reads `missed today's 09:00 run` when it was today, otherwise
+  `missed the Mon, Oct 26 run`. A catch-up from an earlier day names its date
+  (`Caught up Mon, Oct 26 at 10:27`). A running catch-up reads `Catching up`
+  and a failed one `Catch-up failed at 10:27`, next to the existing failure
+  text. The agent-facing scheduled task list returns the same record. Servers
+  without it send nothing, and clients then show only the existing line.
 
 ## Acceptance criteria
 
@@ -71,6 +84,11 @@ age-limit setting, and automatic retries of failed agent work.
 6. Verify persistence, inheritance, and reset-to-inherit on web/desktop and mobile.
    A remote client sees and edits the same environment policy; disconnecting it
    does not prevent server catch-up. Interval and webhook behavior is unchanged.
+7. After a catch-up of a weekday 09:00 brief missed since Thu, Oct 15 and run on
+   Thu, Oct 29 at 10:27, its row reads
+   `Caught up at 10:27 · 11 missed runs since Thu, Oct 15` on web and mobile,
+   and the agent task list reports 11 missed runs. A following **Run now**
+   removes the line.
 
 ## Constraints and decisions
 

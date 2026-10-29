@@ -4,6 +4,7 @@ import {
   CommandId,
   ForwardCompatibleArray,
   IsoDateTime,
+  PositiveInt,
   ProjectId,
   ScheduledTaskId,
   SecretRef,
@@ -160,6 +161,13 @@ export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Typ
 export const ScheduledTaskRunStatus = Schema.Literals(["never", "running", "succeeded", "failed"]);
 export type ScheduledTaskRunStatus = typeof ScheduledTaskRunStatus.Type;
 
+/** Fixed-time occurrences the last run caught up on, counted in the environment's time zone. */
+export const ScheduledTaskRunCatchUp = Schema.Struct({
+  missedSince: IsoDateTime,
+  missedCount: PositiveInt,
+});
+export type ScheduledTaskRunCatchUp = typeof ScheduledTaskRunCatchUp.Type;
+
 /** Where a webhook task receives requests. Present only on webhook tasks. */
 export const ScheduledTaskWebhookEndpoint = Schema.Struct({
   /** Environment-relative path including the secret token; works on any origin that reaches the environment. */
@@ -191,6 +199,8 @@ export const ScheduledTask = Schema.Struct({
   lastRunStatus: ScheduledTaskRunStatus,
   lastRunError: Schema.NullOr(Schema.String),
   runCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** Present only when the last run was a catch-up of missed fixed-time occurrences. */
+  lastRunCatchUp: Schema.optional(ScheduledTaskRunCatchUp),
   webhook: Schema.optional(ScheduledTaskWebhookEndpoint),
 });
 export type ScheduledTask = typeof ScheduledTask.Type;

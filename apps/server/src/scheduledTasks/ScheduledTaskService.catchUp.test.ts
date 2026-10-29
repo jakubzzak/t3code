@@ -5,9 +5,11 @@ import {
   EventId,
   ProjectId,
   ProviderInstanceId,
+  ScheduledTaskId,
   ThreadId,
   type ServerSettings as ServerSettingsValue,
 } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -89,30 +91,31 @@ const seed = (
     })}`;
   });
 
-const poll = (
+// Building the service runs one scheduler poll.
+const build = (
   settings: Effect.Effect<ServerSettingsValue>,
   launch: ThreadLaunchService.ThreadLaunchService["Service"]["launch"],
   sendToThread?: ThreadManagementService.ThreadManagementService["Service"]["sendToThread"],
 ) =>
-  Effect.scoped(
-    Layer.build(
-      ScheduledTaskService.layer.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            NodeCrypto.layer,
-            Layer.mock(Scheduler.Scheduler)({ register: (_name, work) => work.pipe(Effect.orDie) }),
-            Layer.mock(ServerSettings.ServerSettingsService)({ getSettings: settings }),
-            Layer.mock(ThreadLaunchService.ThreadLaunchService)({ launch }),
-            Layer.mock(ThreadManagementService.ThreadManagementService)(
-              sendToThread ? { sendToThread } : {},
-            ),
-            Layer.mock(EventSink.EventSinkV2)({}),
-            Layer.mock(SecretRequests.SecretRequests)({}),
+  Layer.build(
+    ScheduledTaskService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          NodeCrypto.layer,
+          Layer.mock(Scheduler.Scheduler)({ register: (_name, work) => work.pipe(Effect.orDie) }),
+          Layer.mock(ServerSettings.ServerSettingsService)({ getSettings: settings }),
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({ launch }),
+          Layer.mock(ThreadManagementService.ThreadManagementService)(
+            sendToThread ? { sendToThread } : {},
           ),
+          Layer.mock(EventSink.EventSinkV2)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
         ),
       ),
     ),
   );
+
+const poll = (...args: Parameters<typeof build>) => Effect.scoped(build(...args));
 
 it.effect.each([
   { title: "environment opt-in", global: true, override: undefined, expected: 1 },
@@ -245,5 +248,30 @@ it.effect("queues a catch-up in its existing chat and does not retry a failed di
     expect(row?.last_run_status).toBe("failed");
     expect(row?.last_run_error).toContain("Dispatch failed");
     expect(row?.run_count).toBe(1);
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("records the runs a catch-up covered until the next run clears it", () =>
+  Effect.gen(function* () {
+    // Three days offline: the first missed slot plus three later daily slots in any time zone.
+    yield* TestClock.setTime(Date.parse("2026-07-04T07:00:00.000Z"));
+    yield* seed("brief", { due: "2026-07-01T07:00:00.000Z" });
+    const settings = Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, automationCatchUpEnabled: true });
+    const launch = () => Effect.succeed({ threadId, projection, resumed: false });
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const service = Context.get(
+          yield* build(settings, launch),
+          ScheduledTaskService.ScheduledTaskService,
+        );
+        const task = service.list().pipe(Effect.map(({ tasks }) => tasks[0]));
+        expect((yield* task)?.lastRunCatchUp).toEqual({
+          missedSince: "2026-07-01T07:00:00.000Z",
+          missedCount: 4,
+        });
+        yield* service.runNow({ id: ScheduledTaskId.make("brief") });
+        expect((yield* task)?.lastRunCatchUp).toBeUndefined();
+      }),
+    );
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

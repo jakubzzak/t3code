@@ -2027,6 +2027,33 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
     );
 
+    it.effect("reports which missed runs the last run caught up on", () =>
+      Effect.gen(function* () {
+        const lastRunCatchUp = { missedSince: "2026-10-15T07:00:00.000Z", missedCount: 11 };
+        const listed = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.flatMap((mcp) => mcp.listScheduledTasks(supervisedClient, { projectId })),
+          Effect.provide(
+            service(
+              [
+                task({
+                  schedule: { type: "fixed_time", timeOfDay: "09:00" },
+                  lastRunStatus: "succeeded",
+                  lastRunCatchUp,
+                }),
+                task({ id: ScheduledTaskId.make("scheduled-task:on-time") }),
+              ],
+              null,
+              yield* Ref.make(0),
+            ),
+          ),
+        );
+        assert.deepEqual(
+          listed.tasks.map((summary) => summary.lastRunCatchUp),
+          [lastRunCatchUp, undefined],
+        );
+      }),
+    );
+
     it.effect("hides a webhook URL from a thread whose turn has ended", () =>
       Effect.gen(function* () {
         const callerId = ThreadId.make("thread:scheduled-ended");

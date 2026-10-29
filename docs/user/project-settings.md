@@ -72,7 +72,8 @@ Turn on **Catch up missed automations** to run each overdue fixed-time task once
 when its environment starts or wakes, even after a long absence. It is off by
 default. Select a project in the settings filter to override the environment's
 choice, or reset its override to inherit again. Missed occurrences become one
-fresh run; paused tasks do not accumulate catch-up work.
+fresh run; paused tasks do not accumulate catch-up work. After a catch-up, the
+task shows when it ran and how many runs it missed, until its next run.
 
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run

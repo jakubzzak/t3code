@@ -35,6 +35,7 @@ import {
   ComboboxEmpty,
 } from "../ui/combobox";
 import { DEFAULT_WEBHOOK_PROMPT } from "@t3tools/client-runtime/scheduled-task-webhook";
+import { formatScheduledTaskCatchUp } from "@t3tools/client-runtime/scheduled-task-catch-up";
 import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   MIN_SCHEDULED_TASK_INTERVAL_MS,
@@ -48,6 +49,7 @@ import {
 
 import { formatRelativeTime } from "../../timestampFormat";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
   applyProviderInstanceSettings,
@@ -459,6 +461,9 @@ function ScheduledTaskRow({
   const [busy, setBusy] = useState(false);
   const [deliveriesOpen, setDeliveriesOpen] = useState(false);
   const isWebhook = task.schedule.type === "webhook";
+  // The minute clock (UTC "YYYY-MM-DDTHH:MM") keeps "today" current past midnight.
+  const nowMinute = useNowMinute();
+  const catchUp = formatScheduledTaskCatchUp(task, Date.parse(`${nowMinute}Z`));
   const toggle = useAtomCommand(serverEnvironment.setScheduledTaskEnabled, {
     label: "scheduled task enabled",
   });
@@ -508,6 +513,7 @@ function ScheduledTaskRow({
             <Badge variant={statusVariant(task.lastRunStatus)}>{task.lastRunStatus}</Badge>
           ) : null}
           {task.lastRunError ? <span className="text-destructive">{task.lastRunError}</span> : null}
+          {catchUp ? <span className="basis-full">{catchUp}</span> : null}
         </div>
       }
       control={
