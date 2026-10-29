@@ -21,6 +21,23 @@ export const InboxSlackMention = Schema.Struct({
   personal: Schema.Boolean,
 });
 export type InboxSlackMention = typeof InboxSlackMention.Type;
+export const InboxSlackImage = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  url: Schema.optionalKey(Schema.String),
+  permalink: Schema.optionalKey(Schema.String),
+});
+export type InboxSlackImage = typeof InboxSlackImage.Type;
+export const InboxReplyImage = Schema.Struct({
+  attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  mimeType: Schema.Literals(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  sizeBytes: NonNegativeInt.check(
+    Schema.isGreaterThanOrEqualTo(1),
+    Schema.isLessThanOrEqualTo(10 * 1024 * 1024),
+  ),
+});
+export type InboxReplyImage = typeof InboxReplyImage.Type;
 const slackPresentation = {
   formattedTitle: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(2000))),
   slackMentions: Schema.optionalKey(Schema.Array(InboxSlackMention).check(Schema.isMaxLength(100))),
@@ -33,6 +50,7 @@ export const InboxSlackMessage = Schema.Struct({
   content: Schema.String,
   formattedContent: Schema.String,
   occurredAt: IsoDateTime,
+  images: Schema.optionalKey(Schema.Array(InboxSlackImage).check(Schema.isMaxLength(10))),
 });
 export type InboxSlackMessage = typeof InboxSlackMessage.Type;
 export const InboxSlackThread = Schema.Struct({
@@ -43,6 +61,7 @@ export const InboxSlackThread = Schema.Struct({
   latestReplyTs: Schema.NullOr(Schema.String),
   replyCount: Schema.NullOr(NonNegativeInt),
   messages: Schema.Array(InboxSlackMessage),
+  pendingMessages: Schema.optionalKey(Schema.Array(InboxSlackMessage)),
   nextCursor: Schema.NullOr(Schema.String),
 });
 export type InboxSlackThread = typeof InboxSlackThread.Type;
@@ -81,7 +100,8 @@ export const InboxReplyInput = Schema.Struct({
   itemId: TrimmedNonEmptyString,
   commandId: CommandId,
   target: InboxReplyTarget,
-  text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
+  text: Schema.String.check(Schema.isMaxLength(4000)),
+  images: Schema.optionalKey(Schema.Array(InboxReplyImage).check(Schema.isMaxLength(4))),
 });
 export type InboxReplyInput = typeof InboxReplyInput.Type;
 export const InboxReplyMessage = Schema.Struct({
@@ -89,6 +109,7 @@ export const InboxReplyMessage = Schema.Struct({
   author: Schema.String,
   text: Schema.String,
   occurredAt: IsoDateTime,
+  images: Schema.optionalKey(Schema.Array(InboxSlackImage).check(Schema.isMaxLength(10))),
 });
 export type InboxReplyMessage = typeof InboxReplyMessage.Type;
 export const InboxReplyAttempt = Schema.Struct({

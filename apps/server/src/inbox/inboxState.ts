@@ -17,13 +17,11 @@ export function inboxIdentity(projectId: ProjectId, item: InboxSourceItem) {
     .digest("hex");
 }
 /** Retain already loaded history when incremental intake brings a newer thread snapshot. */
-export function mergeSlackThread(
-  previous: InboxSlackThread | undefined,
-  incoming: InboxSlackThread,
-) {
+function mergeSlackHistory(previous: InboxSlackThread | undefined, incoming: InboxSlackThread) {
   if (!previous || previous.ts !== incoming.ts || previous.channelId !== incoming.channelId)
     return incoming;
   if (incoming.formatVersion === 2 && previous.formatVersion !== 2) return incoming;
+  if (incoming.root.images !== undefined && previous.root.images === undefined) return incoming;
   if (
     previous.latestReplyTs &&
     incoming.latestReplyTs &&
@@ -50,8 +48,60 @@ export function mergeSlackThread(
           : incoming.nextCursor,
   };
 }
+/** Match a confirmed upload to native history by Slack file identity, never by host time. */
+function confirmedUploads(previous: InboxSlackThread | undefined, incoming: InboxSlackThread) {
+  if (!previous || previous.channelId !== incoming.channelId || previous.ts !== incoming.ts)
+    return [];
+  const fileIds = new Set(
+    previous.pendingMessages?.flatMap(
+      (message) => message.images?.map((image) => image.id) ?? [],
+    ) ?? [],
+  );
+  return incoming.messages.filter((message) =>
+    message.images?.some((image) => fileIds.has(image.id)),
+  );
+}
+export function confirmedSlackReplyCursor(
+  previous: InboxSlackThread | undefined,
+  incoming: InboxSlackThread,
+) {
+  return confirmedUploads(previous, incoming)
+    .map((message) => ({
+      id: `${incoming.channelId}:${message.ts}`,
+      occurredAt: message.occurredAt,
+      isSelf: true,
+    }))
+    .sort(compareReplyActivity)
+    .at(-1);
+}
+/** Keep confirmed uploads visible until their native Slack messages arrive. */
+export function mergeSlackThread(
+  previous: InboxSlackThread | undefined,
+  incoming: InboxSlackThread,
+) {
+  const merged = mergeSlackHistory(previous, incoming);
+  if (
+    !previous?.pendingMessages?.length ||
+    previous.channelId !== incoming.channelId ||
+    previous.ts !== incoming.ts
+  )
+    return merged;
+  const confirmed = confirmedUploads(previous, incoming);
+  const files = new Set(
+    confirmed.flatMap((message) => message.images?.map((image) => image.id) ?? []),
+  );
+  const messages = new Map(merged.messages.map((message) => [message.ts, message]));
+  for (const message of confirmed) messages.set(message.ts, message);
+  return {
+    ...merged,
+    messages: [...messages.values()].sort((a, b) => Number(a.ts) - Number(b.ts)),
+    pendingMessages: previous.pendingMessages.filter(
+      (message) => !message.images?.some((image) => files.has(image.id)),
+    ),
+  };
+}
 /** Source timestamps determine attention order; IDs break ties and make replays inert. */
-function compareReplyActivity(a: InboxReplyActivity, b: InboxReplyActivity) {
+export function compareReplyActivity(a: InboxReplyActivity, b: InboxReplyActivity) {
   return Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.id.localeCompare(b.id);
 }
 
@@ -63,10 +113,18 @@ export function ingestInboxItem(
   const existing = previous?.items.find((candidate) => candidate.id === item.id);
   const incomingThread = item.slackThread;
   const { slackThread: _incomingThread, replyActivity, ...body } = item;
+  const confirmed = incomingThread
+    ? confirmedSlackReplyCursor(previous?.slackThread, incomingThread)
+    : undefined;
+  const acknowledged =
+    confirmed &&
+    (!previous?.replyCursor || compareReplyActivity(confirmed, previous.replyCursor) > 0)
+      ? confirmed
+      : previous?.replyCursor;
   const replies = replyActivity?.toSorted(compareReplyActivity) ?? [];
   const fresh = replies.filter((reply) =>
-    previous?.replyCursor
-      ? compareReplyActivity(reply, previous.replyCursor) > 0
+    acknowledged
+      ? compareReplyActivity(reply, acknowledged) > 0
       : !previous || Date.parse(reply.occurredAt) > Date.parse(previous.updatedAt),
   );
   const latestReply = fresh.at(-1);
@@ -74,17 +132,24 @@ export function ingestInboxItem(
     previous &&
     existing &&
     !latestReply &&
+    !confirmed &&
     Date.parse(item.occurredAt) < Date.parse(existing.occurredAt)
   )
     return previous;
   const latestIncoming = fresh.findLast((reply) => !reply.isSelf);
-  const replyCursor = latestReply ?? previous?.replyCursor;
+  const replyCursor = latestReply ?? acknowledged;
   const thread = incomingThread
     ? mergeSlackThread(previous?.slackThread, incomingThread)
     : previous?.slackThread;
   const sameLatest =
     (previous?.slackThread?.latestReplyTs ?? null) === (thread?.latestReplyTs ?? null);
-  if (!latestReply && existing && NodeUtil.isDeepStrictEqual(existing, body) && sameLatest) {
+  if (
+    !latestReply &&
+    !confirmed &&
+    existing &&
+    NodeUtil.isDeepStrictEqual(existing, body) &&
+    sameLatest
+  ) {
     return NodeUtil.isDeepStrictEqual(previous?.slackThread, thread)
       ? previous!
       : { ...previous!, slackThread: thread!, revision: previous!.revision + 1 };
@@ -93,7 +158,13 @@ export function ingestInboxItem(
     .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id))
     .slice(-50);
   // An older delivery can be absent because it was evicted, not because it is new.
-  if (!latestReply && previous && sameLatest && NodeUtil.isDeepStrictEqual(previous.items, items))
+  if (
+    !latestReply &&
+    !confirmed &&
+    previous &&
+    sameLatest &&
+    NodeUtil.isDeepStrictEqual(previous.items, items)
+  )
     return NodeUtil.isDeepStrictEqual(previous.slackThread, thread)
       ? previous
       : { ...previous, slackThread: thread!, revision: previous.revision + 1 };

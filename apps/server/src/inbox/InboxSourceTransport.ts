@@ -6,6 +6,9 @@ import * as Layer from "effect/Layer";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import { isSlackFileUrl } from "./slackFiles.ts";
 import {
   InboxError,
   type InboxSourceConnection,
@@ -27,6 +30,11 @@ const decodeSlackResponse = Schema.decodeUnknownSync(SlackResponse);
 export class InboxSourceTransport extends Context.Service<
   InboxSourceTransport,
   {
+    readonly readImage: (
+      token: string,
+      url: string,
+      connectionId: string,
+    ) => Effect.Effect<{ bytes: Uint8Array; mimeType: string }, InboxError>;
     readonly readThread: (
       token: string,
       channelId: string,
@@ -97,6 +105,70 @@ export const layer: Layer.Layer<
         }),
       );
     return InboxSourceTransport.of({
+      readImage: (token, url, connectionId) =>
+        Effect.gen(function* () {
+          if (!isSlackFileUrl(url))
+            return yield* new InboxError({ detail: "This image is not hosted by Slack." });
+          const identityResponse = yield* client.execute(
+            HttpClientRequest.get("https://slack.com/api/auth.test").pipe(
+              HttpClientRequest.setHeader("Authorization", `Bearer ${token}`),
+            ),
+          );
+          const identity = yield* identityResponse.json.pipe(
+            Effect.flatMap(
+              Schema.decodeUnknownEffect(
+                Schema.Struct({
+                  ok: Schema.Boolean,
+                  team_id: Schema.String,
+                  user_id: Schema.String,
+                }),
+              ),
+            ),
+          );
+          if (!identity.ok || `${identity.team_id}:${identity.user_id}` !== connectionId)
+            return yield* new InboxError({ detail: "Slack account changed." });
+          const response = yield* client
+            .execute(
+              HttpClientRequest.get(url).pipe(
+                HttpClientRequest.setHeader("Authorization", `Bearer ${token}`),
+              ),
+            )
+            .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }));
+          const mimeType = response.headers["content-type"]?.split(";")[0]?.trim() ?? "";
+          if (response.status !== 200 || !/^image\/(?:png|jpeg|gif|webp)$/.test(mimeType))
+            return yield* new InboxError({
+              detail:
+                "Image unavailable. Reconnect Slack to grant file access, or open it in Slack.",
+            });
+          let size = 0;
+          const chunks = yield* Stream.runCollect(
+            response.stream.pipe(
+              Stream.mapEffect((chunk) => {
+                size += chunk.length;
+                return size > 10 * 1024 * 1024
+                  ? Effect.fail(
+                      new InboxError({ detail: "Image exceeds the 10 MB preview limit." }),
+                    )
+                  : Effect.succeed(chunk);
+              }),
+            ),
+          );
+          const bytes = new Uint8Array(size);
+          let offset = 0;
+          for (const chunk of chunks) {
+            bytes.set(chunk, offset);
+            offset += chunk.length;
+          }
+          return { bytes, mimeType };
+        }).pipe(
+          Effect.timeout("30 seconds"),
+          Effect.mapError(
+            () =>
+              new InboxError({
+                detail: "Could not load Slack image. Check file access or open it in Slack.",
+              }),
+          ),
+        ),
       readThread: (token, channelId, ts, cached) =>
         slackRead((read) => readSlackThread(read, channelId, ts, cached), token),
       read: (connection, token, since, tracked) =>

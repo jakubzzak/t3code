@@ -206,6 +206,12 @@ posting again. Check the original conversation before
 starting another reply. Reconnect the source in **Settings → Integrations** if reply permission
 is missing. Existing connections keep their read access during an upgrade.
 
+Slack notifications show attached images in the original message and replies. To send images,
+paste or drop them into the reply, or choose **Attach images**. You can send up to four PNG,
+JPEG, GIF, or WebP images, each up to 10 MB, with or without text. Reconnect Slack after granting
+`files:read` and `files:write` to enable image previews and uploads. The connection also requests
+`im:write` for DM access; replies still go into the existing thread.
+
 Read state, snoozing and settlement belong to Blackbird; they do not change the source. Undo restores
 notification state. Undoing a running delegation requests a stop and keeps the chat and completed
 work. A stop can remain pending or fail, so check its status before assuming the agent has stopped.

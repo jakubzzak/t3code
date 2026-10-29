@@ -15,6 +15,7 @@ import { InboxTimestampLabel } from "./InboxTimestampLabel";
 import { InboxContentPreview } from "./InboxContentPreview";
 import type {
   InboxNotification,
+  EnvironmentId,
   ScopedThreadRef,
   InboxSlackThread,
   InboxSlackMessage,
@@ -35,6 +36,12 @@ import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
 import { InboxSuggestionCallout, InboxSuggestionStatus } from "./InboxSuggestion";
 
 import styles from "./inboxNotificationContent.module.css";
+import { InboxImage } from "./InboxImage";
+
+const SlackImageContext = createContext<{
+  environmentId: EnvironmentId;
+  notification: InboxNotification;
+} | null>(null);
 
 const inboxMarkdownPlugins = [remarkGfm];
 
@@ -546,11 +553,35 @@ export function InboxSummary({
 }
 
 function SlackMessageBody({ message }: { message: InboxSlackMessage }) {
+  const imageContext = useContext(SlackImageContext);
   return (
     <div
       className={`${styles.messageMarkdown} [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4`}
     >
       <SlackMarkdown content={message.formattedContent} mentions={message.slackMentions} />
+      {imageContext && !!message.images?.length && (
+        <div className="grid grid-cols-[repeat(2,4rem)] gap-2">
+          {message.images.map((image) =>
+            image.url ? (
+              <InboxImage
+                key={image.id}
+                environmentId={imageContext.environmentId}
+                name={image.name}
+                resource={{
+                  _tag: "slack-image",
+                  projectId: imageContext.notification.projectId,
+                  notificationId: imageContext.notification.id,
+                  fileId: image.id,
+                }}
+              />
+            ) : (
+              <p key={image.id} role="status" className="col-span-2 text-2xs text-muted-foreground">
+                Sent image: {image.name}. Preview pending.
+              </p>
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -569,8 +600,14 @@ function SlackThreadContent({
   const [error, setError] = useState<string | null>(null);
   const historyId = useId();
   const thread = loaded ?? initial;
-  const replies = thread.messages.filter((message) => message.ts !== thread.ts);
-  const latest = replies.find((message) => message.ts === thread.latestReplyTs);
+  const replies = [...thread.messages, ...(thread.pendingMessages ?? [])].filter(
+    (message) => message.ts !== thread.ts,
+  );
+  const replyCount =
+    thread.replyCount === null ? null : thread.replyCount + (thread.pendingMessages?.length ?? 0);
+  const latest =
+    thread.pendingMessages?.at(-1) ??
+    replies.find((message) => message.ts === thread.latestReplyTs);
   const older = replies.filter((message) => message.ts !== latest?.ts);
   const hasPrevious =
     older.length > 0 ||
@@ -613,9 +650,9 @@ function SlackThreadContent({
           <div className={styles.slackLabel}>
             <span className={styles.slackThreadTitle}>
               Thread
-              {thread.replyCount !== null && (
+              {replyCount !== null && (
                 <span>
-                  · {thread.replyCount} {thread.replyCount === 1 ? "reply" : "replies"}
+                  · {replyCount} {replyCount === 1 ? "reply" : "replies"}
                 </span>
               )}
             </span>
@@ -674,14 +711,20 @@ function SlackThreadContent({
 
 export function InboxSourceContent({
   notification,
+  environmentId,
   threadRef,
   onLoadPrevious,
 }: {
   notification: InboxNotification;
+  environmentId?: EnvironmentId | undefined;
   threadRef?: ScopedThreadRef | null | undefined;
   onLoadPrevious?: LoadComments | undefined;
 }) {
   const openLink = useInboxLink(threadRef);
+  const imageContext = useMemo(
+    () => (environmentId ? { environmentId, notification } : null),
+    [environmentId, notification],
+  );
   if (notification.source === "superhuman") {
     return (
       <InboxLinkContext value={openLink}>
@@ -746,12 +789,14 @@ export function InboxSourceContent({
     const thread = notification.slackThread;
     return (
       <InboxLinkContext value={openLink}>
-        <SlackThreadContent
-          key={`${notification.id}:${thread.ts}:${thread.latestReplyTs}`}
-          thread={thread}
-          sourceAuthor={notification.items.at(-1)?.author}
-          onLoadPrevious={onLoadPrevious}
-        />
+        <SlackImageContext value={imageContext}>
+          <SlackThreadContent
+            key={`${notification.id}:${thread.ts}:${thread.latestReplyTs}`}
+            thread={thread}
+            sourceAuthor={notification.items.at(-1)?.author}
+            onLoadPrevious={onLoadPrevious}
+          />
+        </SlackImageContext>
       </InboxLinkContext>
     );
   }

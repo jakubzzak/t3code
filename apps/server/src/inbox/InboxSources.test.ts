@@ -83,13 +83,20 @@ it.effect(
       };
       let failThread = true;
       const msg = (ts: string) => ({
+        images: [],
         ts,
         author: "Alex",
         content: "Message",
         formattedContent: "Message",
         occurredAt: "2026-10-22T10:00:00Z",
       });
+      const imageReads: { url: string; account: string }[] = [];
       const transport = Transport.InboxSourceTransport.of({
+        readImage: (_token, url, account) =>
+          Effect.sync(() => {
+            imageReads.push({ url, account });
+            return { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" };
+          }),
         readThread: (_token, channelId, ts, cached) =>
           Effect.gen(function* () {
             const cursor = cached?.nextCursor ?? "initial";
@@ -151,7 +158,12 @@ it.effect(
             return threadNotification;
           }),
         list: () => Effect.succeed([]),
-        get: () => Effect.succeed(threadNotification),
+        get: (input) =>
+          Effect.succeed(
+            threadNotification?.projectId === input.projectId && threadNotification.id === input.id
+              ? threadNotification
+              : null,
+          ),
         mutate: () => Effect.die("Not used"),
         drain: Effect.void,
         drainAnalysis: Effect.void,
@@ -329,6 +341,31 @@ it.effect(
         });
         const threadId = threadNotification.id;
         yield* service.get({ projectId, id: threadId });
+        threadNotification = {
+          ...threadNotification!,
+          slackThread: {
+            ...threadNotification!.slackThread!,
+            root: {
+              ...threadNotification!.slackThread!.root,
+              images: [{ id: "F1", name: "shot.png", url: "https://files.slack.com/shot.png" }],
+            },
+          },
+        };
+        assert.deepEqual(
+          (yield* service.image({ projectId, notificationId: threadId, fileId: "F1" })).bytes,
+          new Uint8Array([1, 2, 3]),
+        );
+        assert.deepEqual(imageReads, [
+          { url: "https://files.slack.com/shot.png", account: "team" },
+        ]);
+        for (const bad of [
+          { projectId: ProjectId.make("other"), notificationId: threadId, fileId: "F1" },
+          { projectId, notificationId: "other", fileId: "F1" },
+          { projectId, notificationId: threadId, fileId: "unknown" },
+        ])
+          assert.equal((yield* service.image(bad).pipe(Effect.result))._tag, "Failure");
+        assert.equal(imageReads.length, 1);
+
         assert.deepEqual(threadReads, ["initial"]);
         assert.equal(
           (yield* Effect.result(

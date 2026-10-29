@@ -22,6 +22,9 @@ const state = vi.hoisted(() => ({
   preference: "system",
   toast: vi.fn(),
 }));
+vi.mock("~/assets/assetUrls", () => ({
+  useAssetUrlState: () => ({ _tag: "Success", url: "/fixture-image.png" }),
+}));
 vi.mock("~/hooks/useSettings", () => ({
   useClientSettings: (select: (settings: { timestampFormat: "locale" }) => unknown) =>
     select({ timestampFormat: "locale" }),
@@ -876,4 +879,107 @@ it("omits explicit legacy Email/From/Timestamp (UTC) envelope headers while pres
   expect(container.textContent).not.toContain("Timestamp (UTC)");
   expect(container.textContent).not.toContain("From: Sam");
   expect(container.textContent).toContain("Hello team,");
+});
+
+it("shows image-only Slack originals and replies through environment assets, with an unavailable-image fallback", async () => {
+  const message = {
+    ts: "1700000000",
+    author: "Alex",
+    content: "",
+    formattedContent: "",
+    occurredAt: notification.updatedAt,
+    images: [{ id: "F1", name: "Original screenshot", url: "https://files.slack.com/private.png" }],
+  };
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        environmentId={threadRef.environmentId}
+        notification={{
+          ...notification,
+          slackThread: {
+            formatVersion: 2,
+            channelId: "C1",
+            ts: message.ts,
+            root: message,
+            latestReplyTs: "1700000001",
+            replyCount: 1,
+            nextCursor: null,
+            messages: [
+              {
+                ...message,
+                ts: "1700000001",
+                images: [
+                  { id: "F2", name: "Reply screenshot", url: "https://files.slack.com/reply.png" },
+                ],
+              },
+            ],
+          },
+        }}
+      />,
+    ),
+  );
+  const images = [...container.querySelectorAll("img")];
+  expect(images.map((image) => image.alt)).toEqual(["Original screenshot", "Reply screenshot"]);
+  expect(images.every((image) => image.getAttribute("src") === "/fixture-image.png")).toBe(true);
+  await act(async () => images[1]!.dispatchEvent(new Event("error")));
+  expect(container.textContent).toContain("Image unavailable: Reply screenshot");
+  expect(container.querySelector('img[alt="Original screenshot"]')).not.toBeNull();
+});
+
+it("shows a confirmed image while its Slack preview is pending, then replaces it with native history", async () => {
+  const message = {
+    ts: "1793260800.000001",
+    author: "Alex",
+    content: "",
+    formattedContent: "",
+    occurredAt: notification.updatedAt,
+    images: [],
+  };
+  const pending = { ...message, ts: "file:F1", images: [{ id: "F1", name: "Sent screenshot" }] };
+  const thread = {
+    formatVersion: 2 as const,
+    channelId: "C1",
+    ts: message.ts,
+    root: message,
+    latestReplyTs: null,
+    replyCount: 0,
+    nextCursor: null,
+    messages: [],
+    pendingMessages: [pending],
+  };
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        environmentId={threadRef.environmentId}
+        notification={{ ...notification, slackThread: thread }}
+      />,
+    ),
+  );
+  expect(container.textContent).toContain("Sent image: Sent screenshot. Preview pending.");
+  expect(container.textContent).toContain("1 reply");
+  const native = {
+    ...pending,
+    ts: "1793260920.000001",
+    images: [{ id: "F1", name: "Sent screenshot", url: "https://files.slack.com/shot.png" }],
+  };
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        environmentId={threadRef.environmentId}
+        notification={{
+          ...notification,
+          slackThread: {
+            ...thread,
+            pendingMessages: [],
+            messages: [native],
+            latestReplyTs: native.ts,
+            replyCount: 1,
+          },
+        }}
+      />,
+    ),
+  );
+  expect(container.textContent).not.toContain("Preview pending");
+  expect(container.querySelectorAll("[data-slack-reply]")).toHaveLength(1);
+  expect(container.querySelector('img[alt="Sent screenshot"]')).not.toBeNull();
 });

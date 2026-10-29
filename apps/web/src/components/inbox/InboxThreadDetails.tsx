@@ -170,6 +170,7 @@ export function InboxThreadDetails({
             </summary>
             {detail.data ? (
               <InboxSourceContent
+                environmentId={environmentId}
                 notification={detail.data}
                 threadRef={threadRef}
                 onLoadPrevious={() =>

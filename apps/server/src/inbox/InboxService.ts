@@ -35,6 +35,8 @@ import * as InboxAgent from "./InboxAgent.ts";
 import { readableInboxItem, readableNotification } from "./notificationContent.ts";
 import {
   inboxIdentity,
+  compareReplyActivity,
+  confirmedSlackReplyCursor,
   ingestInboxItem,
   restoreInboxState,
   mergeSlackThread,
@@ -740,7 +742,10 @@ const make = Effect.gen(function* () {
   );
   // A source success is retained until the local transaction succeeds. Durable pending receipts
   // prevent automatic retransmission after process loss, including an uncertain HTTP outcome.
-  const delivered = new Map<CommandId, InboxReplyMessage>();
+  const delivered = new Map<
+    CommandId,
+    { message: InboxReplyMessage; analysisVersion: number | undefined }
+  >();
   const sameTarget = Schema.toEquivalence(InboxReplyTarget);
   const sameInput = Schema.toEquivalence(InboxReplyInput);
   const reply: InboxService["Service"]["reply"] = (input, check = Effect.void) =>
@@ -751,15 +756,19 @@ const make = Effect.gen(function* () {
           Effect.gen(function* () {
             yield* check;
             yield* requireEnabled(input.projectId);
-            if (!input.text.trim())
-              return yield* new InboxError({ detail: "Write a reply before sending." });
+            if (!input.text.trim() && !input.images?.length)
+              return yield* new InboxError({
+                detail: "Write a reply or attach an image before sending.",
+              });
+            if (input.images?.length && input.target.source !== "slack")
+              return yield* new InboxError({ detail: "Image replies are supported for Slack." });
             const previous = yield* repository.replyReceipt(input.commandId);
             if (previous) {
               if (!sameInput(previous, input))
                 return yield* new InboxError({
                   detail: "This command ID belongs to another reply.",
                 });
-              return { attempt: previous, fresh: false };
+              return { attempt: previous, fresh: false, analysisVersion: undefined };
             }
             const notification = yield* repository.get(input.projectId, input.id);
             const item = notification?.items.find((candidate) => candidate.id === input.itemId);
@@ -794,11 +803,11 @@ const make = Effect.gen(function* () {
             );
             sending.add(input.commandId);
             claimed = true;
-            return { attempt, fresh: true };
+            return { attempt, fresh: true, analysisVersion: notification.analysisVersion };
           }),
         );
         if (!prepared.fresh && !delivered.has(input.commandId)) return prepared.attempt;
-        let message = delivered.get(input.commandId);
+        let message = delivered.get(input.commandId)?.message;
         let failed: InboxReplyError | undefined;
         if (!message) {
           const transport = yield* ReplyTransport.InboxReplyTransport;
@@ -810,7 +819,7 @@ const make = Effect.gen(function* () {
             .pipe(Effect.result);
           if (result._tag === "Success") {
             message = result.success;
-            delivered.set(input.commandId, message);
+            delivered.set(input.commandId, { message, analysisVersion: prepared.analysisVersion });
           } else failed = result.failure;
         }
         const attempt: InboxReplyAttempt = {
@@ -829,20 +838,66 @@ const make = Effect.gen(function* () {
               revision: current.revision + 1,
             };
             if (message) {
+              const activity = {
+                id:
+                  input.target.source === "slack"
+                    ? `${input.target.channelId}:${message.id}`
+                    : message.id,
+                occurredAt: message.occurredAt,
+                isSelf: true,
+              };
+              // Preserve newer incoming activity committed while the send was in flight.
+              const native = input.target.source !== "slack" || /^\d+\.\d+$/.test(message.id);
+              const newest = native
+                ? !next.replyCursor || compareReplyActivity(activity, next.replyCursor) >= 0
+                : next.analysisVersion === delivered.get(input.commandId)?.analysisVersion;
               next = {
                 ...next,
-                state: { ...next.state, read: true },
+                ...(newest
+                  ? {
+                      ...(native ? { replyCursor: activity } : {}),
+                      state: { ...next.state, read: true },
+                    }
+                  : {}),
                 analysis: next.analysis ? { ...next.analysis, replyDraft: null } : null,
               };
-              if (input.target.source === "slack" && next.slackThread) {
+              if (input.target.source === "slack" && next.slackThread && !native) {
+                next = {
+                  ...next,
+                  slackThread: {
+                    ...next.slackThread,
+                    pendingMessages: [
+                      ...(next.slackThread.pendingMessages ?? []).filter(
+                        (entry) => entry.ts !== message.id,
+                      ),
+                      {
+                        ts: message.id,
+                        authorId: message.author,
+                        author: message.author,
+                        content: message.text,
+                        formattedContent: message.text,
+                        occurredAt: message.occurredAt,
+                        images: message.images ?? [],
+                      },
+                    ],
+                  },
+                };
+              }
+              if (
+                input.target.source === "slack" &&
+                next.slackThread &&
+                /^\d+\.\d+$/.test(message.id)
+              ) {
                 const thread = next.slackThread;
                 const messages = new Map(thread.messages.map((entry) => [entry.ts, entry]));
                 const newMessage = !messages.has(message.id);
                 messages.set(message.id, {
                   ts: message.id,
+                  authorId: message.author,
                   author: message.author,
                   content: message.text,
                   formattedContent: message.text,
+                  ...(message.images ? { images: message.images } : {}),
                   occurredAt: message.occurredAt,
                 });
                 next = {
@@ -850,7 +905,10 @@ const make = Effect.gen(function* () {
                   slackThread: {
                     ...thread,
                     messages: [...messages.values()].sort((a, b) => Number(a.ts) - Number(b.ts)),
-                    latestReplyTs: message.id,
+                    latestReplyTs:
+                      thread.latestReplyTs && Number(thread.latestReplyTs) > Number(message.id)
+                        ? thread.latestReplyTs
+                        : message.id,
                     replyCount:
                       thread.replyCount === null ? null : thread.replyCount + (newMessage ? 1 : 0),
                   },
@@ -1001,7 +1059,9 @@ const make = Effect.gen(function* () {
               new InboxError({ detail: "This thread does not belong to this notification." }),
             );
           // Hydration/history does not mark unread, clear analysis, or change triage state.
+          const confirmed = confirmedSlackReplyCursor(current.slackThread, input.thread);
           if (
+            !confirmed &&
             current.slackThread?.latestReplyTs &&
             input.thread.latestReplyTs &&
             Number(current.slackThread.latestReplyTs) > Number(input.thread.latestReplyTs)
@@ -1010,6 +1070,10 @@ const make = Effect.gen(function* () {
           const next = {
             ...current,
             slackThread: mergeSlackThread(current.slackThread, input.thread),
+            ...(confirmed &&
+            (!current.replyCursor || compareReplyActivity(confirmed, current.replyCursor) > 0)
+              ? { replyCursor: confirmed }
+              : {}),
             items: current.items.map((item) => {
               const message = [input.thread.root, ...input.thread.messages].find(
                 (message) => item.id === `${input.thread.channelId}:${message.ts}`,

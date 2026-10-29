@@ -114,3 +114,37 @@ it("uses the authorized identity and group membership for mention colours in roo
   expect(upgraded.formatVersion).toBe(2);
   expect(upgraded.root.slackMentions).toEqual(result.root.slackMentions);
 });
+
+it("retains images in image-only originals and replies, and upgrades pre-image caches", async () => {
+  const file = {
+    id: "F1",
+    title: "Screenshot",
+    mimetype: "image/png",
+    url_private: "https://files.slack.com/files-pri/T-F/image.png",
+    thumb_720: "https://files.slack.com/files-tmb/T-F/image.png",
+  };
+  const read = vi.fn(async () => ({
+    ok: true,
+    messages: [
+      { ts: "1700000000", text: "", files: [file], reply_count: 1, latest_reply: "1700000001" },
+      {
+        ts: "1700000001",
+        text: "",
+        files: [
+          { ...file, id: "F2" },
+          { ...file, id: "PDF", mimetype: "application/pdf" },
+        ],
+      },
+    ],
+  }));
+  const fresh = await readSlackThread(read, "C1", "1700000000");
+  expect(fresh.root.images).toEqual([{ id: "F1", name: "Screenshot", url: file.thumb_720 }]);
+  expect(fresh.messages[0]?.images).toEqual([
+    { id: "F2", name: "Screenshot", url: file.thumb_720 },
+  ]);
+  const { images: _, ...root } = fresh.root;
+  await readSlackThread(read, "C1", "1700000000", { ...fresh, root });
+  expect(read).toHaveBeenCalledTimes(2);
+  await readSlackThread(read, "C1", "1700000000", fresh);
+  expect(read).toHaveBeenCalledTimes(2);
+});

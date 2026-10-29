@@ -14,6 +14,7 @@ import {
   AssetWorkspaceResolutionError,
   AssetWorkspaceRootNormalizationError,
   ThreadId,
+  ProjectId,
   ToolActivityNativeAppReference,
   TurnItemId,
 } from "@t3tools/contracts";
@@ -100,6 +101,14 @@ const PREVIEW_ASSET_EXTENSIONS = new Set([
 const AssetClaimsSchema = Schema.Union([
   Schema.Struct({
     version: Schema.Literal(1),
+    kind: Schema.Literal("slack-image"),
+    projectId: ProjectId,
+    notificationId: Schema.String,
+    fileId: Schema.String,
+    expiresAt: Schema.Number,
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
     kind: Schema.Literal("workspace-file"),
     workspaceRoot: Schema.String,
     baseRelativePath: Schema.String,
@@ -177,6 +186,12 @@ const decodeAssetClaims = Schema.decodeUnknownOption(AssetClaimsJson);
 const encodeAssetClaims = Schema.encodeSync(AssetClaimsJson);
 
 export type ResolvedAsset =
+  | {
+      readonly kind: "slack-image";
+      readonly projectId: ProjectId;
+      readonly notificationId: string;
+      readonly fileId: string;
+    }
   | {
       readonly kind: "file";
       readonly path: string;
@@ -824,6 +839,12 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       fileName = "native-app-icon.png";
       break;
     }
+    case "slack-image": {
+      const { projectId, notificationId, fileId } = input.resource;
+      claims = { version: 1, kind: "slack-image", projectId, notificationId, fileId, expiresAt };
+      fileName = "slack-image";
+      break;
+    }
     case "github-media": {
       const fetchUrl = githubMediaFetchUrl(input.resource.url);
       if (fetchUrl === null) {
@@ -946,6 +967,13 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     return faviconPath === claims.filePath ? yield* projectFaviconAsset(faviconPath) : null;
   }
 
+  if (claims.kind === "slack-image")
+    return {
+      kind: "slack-image",
+      projectId: claims.projectId,
+      notificationId: claims.notificationId,
+      fileId: claims.fileId,
+    } satisfies ResolvedAsset;
   if (claims.kind === "github-media") {
     return {
       kind: "github-media",

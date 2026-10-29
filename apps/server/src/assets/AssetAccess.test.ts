@@ -6,6 +6,7 @@ import {
   AssetAccessError,
   AssetPreviewTypeValidationError,
   ThreadId,
+  ProjectId,
   TurnItemId,
 } from "@t3tools/contracts";
 import { PROJECT_FAVICON_FALLBACK_MARKER } from "@t3tools/shared/projectFavicon";
@@ -1556,3 +1557,30 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 });
+
+it.effect(
+  "signs Slack image references without exposing credentials and rejects tampered or expired references",
+  () =>
+    Effect.gen(function* () {
+      const resource = {
+        _tag: "slack-image" as const,
+        projectId: ProjectId.make("project"),
+        notificationId: "notice",
+        fileId: "F1",
+      };
+      const issued = yield* issueAssetUrl({ resource });
+      const suffix = issued.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      const token = suffix.slice(0, separator);
+      const file = suffix.slice(separator + 1);
+      expect(yield* resolveAsset(token, file)).toEqual({
+        kind: "slack-image",
+        projectId: resource.projectId,
+        notificationId: "notice",
+        fileId: "F1",
+      });
+      expect(yield* resolveAsset(`${token}changed`, file)).toBeNull();
+      yield* TestClock.setTime(issued.expiresAt + 1);
+      expect(yield* resolveAsset(token, file)).toBeNull();
+    }).pipe(Effect.provide(layerTest)),
+);

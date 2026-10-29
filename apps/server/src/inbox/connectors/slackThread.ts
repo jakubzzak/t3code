@@ -3,7 +3,7 @@ import * as DateTime from "effect/DateTime";
 import { slackText, slackMentions, type SlackNames } from "@t3tools/shared/slackText";
 import { slackEmojis } from "../slackEmoji.ts";
 import type { InboxSlackMessage, InboxSlackThread } from "@t3tools/contracts";
-import { History, Message, messageText } from "./slackMessages.ts";
+import { History, Message, messageText, messageImages } from "./slackMessages.ts";
 import type { SlackRead } from "./slack.ts";
 
 const decode = Schema.decodeUnknownSync(History);
@@ -46,7 +46,7 @@ export async function readSlackThread(
   names: SlackNames = { users: {}, groups: {} },
 ): Promise<InboxSlackThread> {
   // Legacy caches flattened references into names, so recover native IDs once from Slack.
-  if (cached?.formatVersion !== 2) cached = undefined;
+  if (cached?.formatVersion !== 2 || cached.root.images === undefined) cached = undefined;
   if (cached && !cached.nextCursor) return cached;
   const response = decode(
     await read("conversations.replies", {
@@ -139,6 +139,7 @@ export async function readSlackThread(
   Object.assign(names.groups ?? {}, groups);
   const options = { ...names, users, groups, emojis: slackEmojis };
   const format = (message: typeof Message.Type): InboxSlackMessage => ({
+    images: messageImages(message),
     ts: message.ts,
     ...(message.user ? { authorId: message.user } : {}),
     author:
