@@ -310,6 +310,11 @@ export async function readLinearInbox(
             occurredAt: comment.createdAt,
             ...(comment.issue
               ? {
+                  replyTarget: {
+                    source: "linear" as const,
+                    issueId: comment.issue.id,
+                    parentId: comment.parent?.id ?? comment.id,
+                  },
                   linearIssue: {
                     id: comment.issue.id,
                     title: comment.issue.title,

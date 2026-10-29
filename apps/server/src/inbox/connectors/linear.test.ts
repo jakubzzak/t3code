@@ -310,62 +310,67 @@ it("recognizes an issue with no comments on the initial detail request", async (
   expect(result).toMatchObject({ comments: [], commentCount: 0, commentsComplete: true });
 });
 
-it("observes self comments without a source notification and ignores other connections", async () => {
-  const calls: string[] = [];
-  const items = await readLinearInbox(
-    async (query, variables) => {
-      calls.push(query);
-      if (query.includes("BlackbirdInboxReplies")) {
-        expect(variables).toMatchObject({ issueIds: ["issue"], since: "2026-10-22T00:00:00Z" });
+it.each([null, { id: "parent" }])(
+  "observes self comments without a source notification and preserves their reply destination (%j)",
+  async (parent) => {
+    const calls: string[] = [];
+    const items = await readLinearInbox(
+      async (query, variables) => {
+        calls.push(query);
+        if (query.includes("BlackbirdInboxReplies")) {
+          expect(variables).toMatchObject({ issueIds: ["issue"], since: "2026-10-22T00:00:00Z" });
+          return {
+            data: {
+              comments: {
+                nodes: [
+                  {
+                    id: "own",
+                    parent,
+                    body: "Done",
+                    createdAt: "2026-10-22T12:00:00Z",
+                    user: { id: "me", name: "Me" },
+                    issue: {
+                      id: "issue",
+                      identifier: "ENG-1",
+                      title: "Review",
+                      description: "Context",
+                      url: "https://linear.app/issue/ENG-1",
+                    },
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          };
+        }
         return {
           data: {
-            comments: {
-              nodes: [
-                {
-                  id: "own",
-                  body: "Done",
-                  createdAt: "2026-10-22T12:00:00Z",
-                  user: { id: "me", name: "Me" },
-                  issue: {
-                    id: "issue",
-                    identifier: "ENG-1",
-                    title: "Review",
-                    description: "Context",
-                    url: "https://linear.app/issue/ENG-1",
-                  },
-                },
-              ],
+            viewer: { id: "me" },
+            organization: { id: "org" },
+            notifications: {
+              nodes: [],
               pageInfo: { hasNextPage: false, endCursor: null },
             },
           },
         };
-      }
-      return {
-        data: {
-          viewer: { id: "me" },
-          organization: { id: "org" },
-          notifications: {
-            nodes: [],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        },
-      };
-    },
-    ["all"],
-    "2026-10-22T00:00:00Z",
-    [
-      { connectionId: "org:me", groupId: "issue" },
-      { connectionId: "other:me", groupId: "private" },
-    ],
-  );
-  expect(items).toHaveLength(1);
-  expect(items[0]).toMatchObject({
-    groupId: "issue",
-    content: "Done\n\nContext",
-    replyActivity: [{ id: "own", occurredAt: "2026-10-22T12:00:00Z", isSelf: true }],
-  });
-  expect(calls).toHaveLength(2);
-});
+      },
+      ["all"],
+      "2026-10-22T00:00:00Z",
+      [
+        { connectionId: "org:me", groupId: "issue" },
+        { connectionId: "other:me", groupId: "private" },
+      ],
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      groupId: "issue",
+      content: "Done\n\nContext",
+      replyTarget: { source: "linear", issueId: "issue", parentId: parent?.id ?? "own" },
+      replyActivity: [{ id: "own", occurredAt: "2026-10-22T12:00:00Z", isSelf: true }],
+    });
+    expect(calls).toHaveLength(2);
+  },
+);
 
 it.each([null, "repeat"])(
   "rejects incomplete tracked-comment pagination (%s) without returning partial intake",

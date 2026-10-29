@@ -121,6 +121,7 @@ it.effect.each([
       );
       const wrap = (cause: unknown) => new InboxError({ detail: String(cause) });
       const linear = Layer.succeed(Linear.LinearConnection, {
+        createComment: () => Effect.die("Unused"),
         begin: () => Effect.die("Unused"),
         complete: () => Effect.void,
         cancel: () => Effect.void,
@@ -290,13 +291,16 @@ it.effect.each([
           getOrCreateRandom: () => Effect.die("Unused"),
         }),
         Layer.succeed(Slack.SlackConnection, {
+          status: () => Effect.succeed({}),
           begin: () => Effect.die("Unused"),
           complete: () => Effect.die("Unused"),
           cancel: () => Effect.void,
           disconnect: () => Effect.void,
           accessToken: () => Effect.succeed("fixture"),
         }),
-        Layer.succeed(Research.InboxResearch, { research: () => Effect.succeed([]) }),
+        Layer.succeed(Research.InboxResearch, {
+          research: () => Effect.succeed({ suggestions: [] }),
+        }),
         Layer.succeed(Agent.InboxAgent, {
           start: (_, run) =>
             Effect.sync(() => {
