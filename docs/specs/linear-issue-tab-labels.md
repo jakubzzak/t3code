@@ -2,7 +2,7 @@
 
 ## Problem and outcome
 
-Every semi-native Linear tab currently says **Linear**, so users cannot distinguish open issues. Show the current issue's identifier and name in a compact label without widening the existing tabs.
+Every semi-native Linear tab currently says **Linear**, so users cannot distinguish open issues. Show the current issue's identifier and the start of its name in a compact label.
 
 ## Scope
 
@@ -12,7 +12,7 @@ This spec supersedes the fixed **Linear** label requirement for issue pages in [
 
 ## Required behavior
 
-- On a recognized issue detail route, show `TEAM-123 · Fix login redirect`. Keep the complete identifier visible and truncate only the original issue name with an ellipsis when necessary, for example `TEAM-123 · Fix login…`. Reuse the existing tab width cap; do not summarize or rewrite the name.
+- On a recognized issue detail route, show `TEAM-123 · Fix login redirect`. Keep the complete identifier visible and show the first 15 characters of the original issue name, followed by `..` when the name is longer, for example `TEAM-123 · Fix login redir..`. Linear issue tabs widen to fit this label regardless of identifier length instead of using the shared tab width cap. Do not summarize or rewrite the name.
 - Hovering the tab reveals the full identifier and issue name using the existing tooltip convention. Visual truncation must not remove text from the tab's accessible name.
 - Derive the identifier from the current recognized Linear issue URL. Use a name associated with that same issue from reliable page metadata or structured issue data. The thread's linked issue or branch is not authoritative after navigation inside Linear.
 - If the identifier is known but a matching name is unavailable, show only the identifier, with no dangling separator. Never combine a new issue identifier with the previous issue's name. Update the label and tooltip when the matching name becomes available.
@@ -22,9 +22,9 @@ This spec supersedes the fixed **Linear** label requirement for issue pages in [
 
 ## Acceptance criteria
 
-1. Two tabs showing different issues display their respective identifiers and names. A long name truncates with an ellipsis within the existing tab width, the identifier remains visible, and hover reveals the complete text.
+1. Two tabs showing different issues display their respective identifiers and names. A name longer than 15 characters shows its first 15 followed by `..`, the identifier remains fully visible even when long, and hover reveals the complete text.
 2. Navigate from issue A to issue B and then to My Issues. The label follows A, B, and **Linear**. Back/forward restores the appropriate label without reopening the surface, including navigation handled inside the page.
-3. Reload an issue while its title is delayed, then exercise a load failure at that issue URL. The identifier remains available; a stale or unavailable name never produces a misleading label. When valid metadata arrives, the full name appears subject to visual truncation.
+3. Reload an issue while its title is delayed, then exercise a load failure at that issue URL. The identifier remains available; a stale or unavailable name never produces a misleading label. When valid metadata arrives, the name appears, shortened as above.
 4. Opening a login page or an unrecognized route produces **Linear**. An issue with unavailable name metadata produces ID-only. Neither case leaks the previous issue's name into the label or tooltip.
 5. The same behavior works in the desktop client against local and remote environments. Ordinary Browser tabs, Linear's page content, and the existing availability rules remain unchanged.
 

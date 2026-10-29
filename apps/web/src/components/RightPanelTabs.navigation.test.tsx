@@ -260,7 +260,8 @@ it("follows the current Linear issue and never labels it with the previous issue
   await press("b");
   const label = () =>
     document.querySelector<HTMLButtonElement>('[data-active-tab="true"] button:last-child')!;
-  expect(label().textContent).toBe("ENG-123 · Fix login redirect");
+  expect(label().textContent).toBe("ENG-123 · Fix login redir..");
+  expect(label().getAttribute("aria-label")).toBe("ENG-123 · Fix login redirect");
 
   const navigate = async (navigation: PreviewSessionSnapshot["navStatus"]) => {
     await act(async () => root.render(<Harness linear navigation={navigation} />));
@@ -269,13 +270,13 @@ it("follows the current Linear issue and never labels it with the previous issue
   const next = { ...first, url: "https://linear.app/demo/issue/ENG-456/keyboard-focus" };
   expect(await navigate({ ...next, _tag: "Loading" })).toBe("ENG-456");
   expect(await navigate({ ...next, title: "ENG-456 Preserve keyboard focus" })).toBe(
-    "ENG-456 · Preserve keyboard focus",
+    "ENG-456 · Preserve keyboa..",
   );
   expect(await navigate({ ...next, url: "https://linear.app/demo/my-issues" })).toBe("Linear");
-  expect(await navigate(first)).toBe("ENG-123 · Fix login redirect");
-  expect(await navigate({ ...first, _tag: "Loading" })).toBe("ENG-123 · Fix login redirect");
+  expect(await navigate(first)).toBe("ENG-123 · Fix login redir..");
+  expect(await navigate({ ...first, _tag: "Loading" })).toBe("ENG-123 · Fix login redir..");
   expect(await navigate({ ...first, _tag: "LoadFailed", code: -106, description: "Offline" })).toBe(
-    "ENG-123 · Fix login redirect",
+    "ENG-123 · Fix login redir..",
   );
   expect(await navigate({ ...first, title: "" })).toBe("ENG-123");
   expect(await navigate({ ...first, url: "https://accounts.google.com/signin" })).toBe("Linear");

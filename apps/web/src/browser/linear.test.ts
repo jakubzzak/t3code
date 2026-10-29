@@ -13,8 +13,26 @@ describe("Linear issue tab labels", () => {
     ).toEqual({
       identifier: "ENG-123",
       name: "Fix déjà vu · keep - punctuation — unchanged",
+      shortName: "Fix déjà vu · k..",
       label: "ENG-123 · Fix déjà vu · keep - punctuation — unchanged",
     });
+  });
+
+  it.each([
+    ["Fix", "Fix"],
+    ["Exactly fifteen", "Exactly fifteen"],
+    ["Exactly fifteen!", "Exactly fifteen.."],
+    ["Fix login redirect on expiry", "Fix login redir.."],
+    ["Fix login      redirect", "Fix login.."],
+    ["🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀", "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀.."],
+  ])("shows at most 15 characters of the name: %s", (name, shortName) => {
+    expect(
+      linearIssueTabLabel({
+        _tag: "Success",
+        url: "https://linear.app/workspace/issue/PLATFORM-123456/slug",
+        title: `PLATFORM-123456 ${name}`,
+      })?.shortName,
+    ).toBe(shortName);
   });
 
   it.each([
@@ -33,7 +51,7 @@ describe("Linear issue tab labels", () => {
           url: "https://linear.app/workspace/issue/eng-123/",
           title,
         }),
-      ).toEqual({ identifier: "ENG-123", name: "", label: "ENG-123" });
+      ).toEqual({ identifier: "ENG-123", name: "", shortName: "", label: "ENG-123" });
     },
   );
 

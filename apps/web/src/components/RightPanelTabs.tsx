@@ -1343,7 +1343,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     onAuxClick={(event) => handleTabAuxClick(event, surface)}
                     onContextMenu={(event) => void handleTabContextMenu(event, surface)}
                     className={cn(
-                      "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                      "cursor-pointer group/tab flex h-6 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                      // Linear issue labels are already capped at 15 name characters.
+                      !linearIssue && "max-w-36",
                       ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
                       active
                         ? "bg-accent text-foreground"
@@ -1429,18 +1431,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                                   setRenamingDevice(surface.id);
                               }}
                               className="cursor-pointer flex min-w-0 items-center"
+                              aria-label={linearIssue ? title : undefined}
                               onClick={() => props.onActivate(surface)}
                             >
                               {linearIssue ? (
-                                <>
-                                  <span className="shrink-0">{linearIssue.identifier}</span>
-                                  {linearIssue.name ? (
-                                    // `pre` keeps the leading space that `truncate` would collapse.
-                                    <span className="overflow-hidden text-ellipsis whitespace-pre">
-                                      {` · ${linearIssue.name}`}
-                                    </span>
-                                  ) : null}
-                                </>
+                                <span className="whitespace-nowrap">
+                                  {linearIssue.shortName
+                                    ? `${linearIssue.identifier} · ${linearIssue.shortName}`
+                                    : linearIssue.identifier}
+                                </span>
                               ) : (
                                 <span className="truncate">{title}</span>
                               )}

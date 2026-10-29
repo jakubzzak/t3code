@@ -21,7 +21,21 @@ export function linearIssueTabLabel(navigation: PreviewSessionSnapshot["navStatu
   // navigation the preview can still carry the previous document's title.
   const title = navigation.title.trim();
   const name = title.startsWith(`${identifier} `) ? title.slice(identifier.length + 1).trim() : "";
-  return { identifier, name, label: name ? `${identifier} · ${name}` : identifier };
+  return {
+    identifier,
+    name,
+    shortName: shortIssueName(name),
+    label: name ? `${identifier} · ${name}` : identifier,
+  };
+}
+
+const SHORT_NAME_LENGTH = 15;
+
+/** The first 15 characters of the name, marked with `..` when cut. */
+function shortIssueName(name: string) {
+  const characters = Array.from(name);
+  if (characters.length <= SHORT_NAME_LENGTH) return name;
+  return `${characters.slice(0, SHORT_NAME_LENGTH).join("").trimEnd()}..`;
 }
 
 /** Initial destination only: an existing surface owns its subsequent navigation. */
