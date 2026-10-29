@@ -77,6 +77,7 @@ import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 import { createFindSession } from "./FindSession.ts";
 import { isLinearNavigationUrl, restrictLinearNavigation } from "./LinearNavigation.ts";
+import * as OnePassword from "./OnePassword.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -3892,6 +3893,7 @@ export class PreviewManager extends Context.Service<
 export const make = Effect.gen(function* PreviewManagerMake() {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const browserSession = yield* BrowserSession.BrowserSession;
+  const onePassword = yield* OnePassword.OnePassword;
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
   const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const downloadSessions = new WeakSet<Electron.Session>();
@@ -3957,6 +3959,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
               (cause) => new PreviewOperationError({ operation: "getBrowserSession", cause }),
             ),
           );
+        yield* onePassword.prepare(session);
         placeServerDownloads(session);
         passkeys.installSessionHandlers(session);
         return session;

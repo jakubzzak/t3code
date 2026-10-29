@@ -27,6 +27,7 @@ import {
 } from "../ipc/channels.ts";
 import { PASSKEY_BRIDGE_ARGUMENT } from "../preview/GuestProtocol.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as OnePassword from "../preview/OnePassword.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
@@ -329,6 +330,7 @@ export const make = Effect.gen(function* () {
   const electronTheme = yield* ElectronTheme.ElectronTheme;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const previewManager = yield* PreviewManager.PreviewManager;
+  const onePassword = yield* OnePassword.OnePassword;
   const previewPasskeys = yield* PreviewPasskeys.PreviewPasskeys;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
@@ -613,6 +615,11 @@ export const make = Effect.gen(function* () {
           { role: "selectAll", enabled: params.editFlags.canSelectAll },
         );
 
+        if (contents !== window.webContents) {
+          const items = onePassword.menuItems(contents, ownerWindow);
+          if (items.length > 0) menuTemplate.push({ type: "separator" }, ...items);
+        }
+
         void runPromise(
           electronMenu.popupTemplate({
             window: ownerWindow,
@@ -622,11 +629,13 @@ export const make = Effect.gen(function* () {
         );
       });
       contents.on("did-create-window", (popup) => {
+        onePassword.track(popup.webContents, popup);
         installContextMenu(popup, popup.webContents);
       });
     };
     installContextMenu(window, window.webContents);
     window.webContents.on("did-attach-webview", (_event, contents) => {
+      onePassword.track(contents, window);
       installContextMenu(window, contents);
       void runPromise(previewManager.prepareWebview(contents));
     });

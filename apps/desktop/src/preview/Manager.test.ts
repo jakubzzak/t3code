@@ -29,6 +29,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewManager from "./Manager.ts";
+import * as OnePassword from "./OnePassword.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 
 describe("fitPictureInPictureContentSize", () => {
@@ -305,6 +306,16 @@ const managerLayer = (platform: NodeJS.Platform = "darwin") =>
     ),
     Layer.provideMerge(DesktopBrowserHost.layer),
     Layer.provideMerge(layerBrowserSession),
+    Layer.provideMerge(
+      Layer.succeed(OnePassword.OnePassword, {
+        prepare: () => Effect.void,
+        enable: () => Effect.void,
+        disable: () => Effect.void,
+        track: () => {},
+        isEnabled: () => false,
+        menuItems: () => [],
+      }),
+    ),
     Layer.provideMerge(
       Layer.mock(PreviewPasskeys.PreviewPasskeys)({
         bridgeEnabled: false,

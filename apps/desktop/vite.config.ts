@@ -142,6 +142,15 @@ export default defineConfig({
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/mac-permission-preload.ts"],
     },
+    {
+      format: "cjs",
+      outDir: "dist-electron",
+      dts: false,
+      clean: false,
+      entry: ["src/chrome-extension-api.preload.ts"],
+      outExtensions: () => ({ js: ".js" }),
+      deps: { alwaysBundle: ["electron-chrome-extensions/preload"] },
+    },
   ],
   test: {
     // The Windows lane runs workspace suites concurrently; filesystem-heavy

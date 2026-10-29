@@ -157,6 +157,7 @@ patchedDependencies:
   '@react-navigation/native-stack@7.17.6': d2d52f3776e30765519748fd5e177592dc3b9cc778c52fb00e02674dfa9042c5
   alchemy@2.0.0-beta.80: bea1b6c0c0b23157fd5f439a1d7feff430f28ac1621ba135d8a13eeec60ccacd
   dbus-next@0.10.2: cfff57561b0ee59b5addb3b2e6c6f20906e967507a530ab67e8db8108e520ba4
+  electron-chrome-extensions@4.10.0: 9d9fc56cab77fb8ddad4370bc2bd788a494a505adc3531824eb9a31da211fb76
   expo-audio@58.0.4: c20cb927d6848c53e7bf6ec14fe12f19daae9210165d2dbaf4e0f97ce31e8742
   expo-blur@58.0.3: d0311b0c0b05bd94393bd9a84653cb42503d5f3c8a19eb2627c34ace08bedf18
   expo-glass-effect@58.0.3: f750041c45ab838a3530451dc7b50d6640a79141037a1b0499c5e3412a860c57
@@ -237,6 +238,9 @@ importers:
       electron:
         specifier: 44.4.5
         version: 44.4.5
+      electron-chrome-extensions:
+        specifier: 4.10.0
+        version: 4.10.0(patch_hash=9d9fc56cab77fb8ddad4370bc2bd788a494a505adc3531824eb9a31da211fb76)
       electron-store:
         specifier: ^8.2.0
         version: 8.2.0
@@ -8388,6 +8392,9 @@ packages:
     resolution: {integrity: sha512-jxlHRjqYrlTgLVo/aoACGpiki3QFYv8s4f2djsqaEbwTBZ9PcTBK03Tj/HMa65kiE0hdZxxbZdmVFo22eou2wA==}
     engines: {node: '>=14.0.0'}
     hasBin: true
+
+  electron-chrome-extensions@4.10.0:
+    resolution: {integrity: sha512-yGOGqDN38Xn8hP1jGSWUNoQJSmgZvDltZn8ZVFo8GcQQD1DI4NtA/Fv/BzYzUhpevX8C+4aZI3LC/lqzN+/RFQ==}
 
   electron-publish@26.15.3:
     resolution: {integrity: sha512-g/2bn8YTavY4cuS5F+jOS7zmZbXXBV8KZ8yHKfJjFPoKtzBqrpCdNPxBd3tqdBwP7BVd0lGzf7Bk2s0KesWZ4Q==}
@@ -18940,6 +18947,12 @@ snapshots:
       yargs: 17.7.2
     transitivePeerDependencies:
       - electron-builder-squirrel-windows
+      - supports-color
+
+  electron-chrome-extensions@4.10.0(patch_hash=9d9fc56cab77fb8ddad4370bc2bd788a494a505adc3531824eb9a31da211fb76):
+    dependencies:
+      debug: 4.4.3
+    transitivePeerDependencies:
       - supports-color
 
   electron-publish@26.15.3:

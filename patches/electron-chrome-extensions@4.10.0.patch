@@ -1,0 +1,181 @@
+--- a/dist/cjs/index.js
++++ b/dist/cjs/index.js
+@@ -2264,6 +2264,14 @@
+   }
+ };
+ var d8 = (0, import_debug8.default)("electron-chrome-extensions:router");
++// Bind extension IPC to the actual sender, never a renderer-supplied extension ID.
++function trustedExtensionSender(event, extensionId) {
++  const url = event.type === "service-worker" ? event.serviceWorker?.scope : event.senderFrame?.url;
++  try {
++    const origin = new URL(url);
++    return origin.protocol === "chrome-extension:" && origin.hostname === extensionId;
++  } catch { return false; }
++}
+ var DEFAULT_SESSION = "_self";
+ var gRoutingDelegate;
+ var RoutingDelegate = class _RoutingDelegate {
+@@ -2271,17 +2279,16 @@
+     this.sessionMap = /* @__PURE__ */ new WeakMap();
+     this.workers = /* @__PURE__ */ new WeakSet();
+     this.onRouterMessage = async (event, extensionId, handlerName, ...args) => {
+-      d8(`received '${handlerName}'`, args);
++      if (!trustedExtensionSender(event, extensionId)) throw new Error("Untrusted extension IPC sender");
++      if (["runtime.connectNative", "runtime.sendNativeMessage"].includes(handlerName)) throw new Error("Native messaging is disabled");
+       const observer = this.sessionMap.get(getSessionFromEvent(event));
+       return observer?.onExtensionMessage(event, extensionId, handlerName, ...args);
+     };
+     this.onRemoteMessage = async (event, sessionPartition, handlerName, ...args) => {
+-      d8(`received remote '${handlerName}' for '${sessionPartition}'`, args);
+-      const ses = sessionPartition === DEFAULT_SESSION ? getSessionFromEvent(event) : resolvePartition(sessionPartition);
+-      const observer = this.sessionMap.get(ses);
+-      return observer?.onExtensionMessage(event, void 0, handlerName, ...args);
++      throw new Error("Cross-session extension IPC is disabled");
+     };
+     this.onAddListener = (event, extensionId, eventName) => {
++      if (!trustedExtensionSender(event, extensionId)) return;
+       const observer = this.sessionMap.get(getSessionFromEvent(event));
+       const listener = event.type === "frame" ? {
+         type: event.type,
+@@ -2294,6 +2301,7 @@
+       return observer?.addListener(listener, extensionId, eventName);
+     };
+     this.onRemoveListener = (event, extensionId, eventName) => {
++      if (!trustedExtensionSender(event, extensionId)) return;
+       const observer = this.sessionMap.get(getSessionFromEvent(event));
+       const listener = event.type === "frame" ? {
+         type: event.type,
+@@ -2478,7 +2486,7 @@
+     }
+     const extEvent = event.type === "frame" ? { type: event.type, sender: event.sender, extension } : { type: event.type, sender: event.serviceWorker, extension };
+     const result = await handler.callback(extEvent, ...args);
+-    d8(`${handlerName} result: %r`, result);
++    // Extension results may contain vault data; never log them.
+     return result;
+   }
+   handle(name, callback, opts) {
+--- a/dist/esm/index.mjs
++++ b/dist/esm/index.mjs
+@@ -2227,6 +2227,14 @@
+   }
+ };
+ var d8 = debug8("electron-chrome-extensions:router");
++// Bind extension IPC to the actual sender, never a renderer-supplied extension ID.
++function trustedExtensionSender(event, extensionId) {
++  const url = event.type === "service-worker" ? event.serviceWorker?.scope : event.senderFrame?.url;
++  try {
++    const origin = new URL(url);
++    return origin.protocol === "chrome-extension:" && origin.hostname === extensionId;
++  } catch { return false; }
++}
+ var DEFAULT_SESSION = "_self";
+ var gRoutingDelegate;
+ var RoutingDelegate = class _RoutingDelegate {
+@@ -2234,17 +2242,16 @@
+     this.sessionMap = /* @__PURE__ */ new WeakMap();
+     this.workers = /* @__PURE__ */ new WeakSet();
+     this.onRouterMessage = async (event, extensionId, handlerName, ...args) => {
+-      d8(`received '${handlerName}'`, args);
++      if (!trustedExtensionSender(event, extensionId)) throw new Error("Untrusted extension IPC sender");
++      if (["runtime.connectNative", "runtime.sendNativeMessage"].includes(handlerName)) throw new Error("Native messaging is disabled");
+       const observer = this.sessionMap.get(getSessionFromEvent(event));
+       return observer?.onExtensionMessage(event, extensionId, handlerName, ...args);
+     };
+     this.onRemoteMessage = async (event, sessionPartition, handlerName, ...args) => {
+-      d8(`received remote '${handlerName}' for '${sessionPartition}'`, args);
+-      const ses = sessionPartition === DEFAULT_SESSION ? getSessionFromEvent(event) : resolvePartition(sessionPartition);
+-      const observer = this.sessionMap.get(ses);
+-      return observer?.onExtensionMessage(event, void 0, handlerName, ...args);
++      throw new Error("Cross-session extension IPC is disabled");
+     };
+     this.onAddListener = (event, extensionId, eventName) => {
++      if (!trustedExtensionSender(event, extensionId)) return;
+       const observer = this.sessionMap.get(getSessionFromEvent(event));
+       const listener = event.type === "frame" ? {
+         type: event.type,
+@@ -2257,6 +2264,7 @@
+       return observer?.addListener(listener, extensionId, eventName);
+     };
+     this.onRemoveListener = (event, extensionId, eventName) => {
++      if (!trustedExtensionSender(event, extensionId)) return;
+       const observer = this.sessionMap.get(getSessionFromEvent(event));
+       const listener = event.type === "frame" ? {
+         type: event.type,
+@@ -2441,7 +2449,7 @@
+     }
+     const extEvent = event.type === "frame" ? { type: event.type, sender: event.sender, extension } : { type: event.type, sender: event.serviceWorker, extension };
+     const result = await handler.callback(extEvent, ...args);
+-    d8(`${handlerName} result: %r`, result);
++    // Extension results may contain vault data; never log them.
+     return result;
+   }
+   handle(name, callback, opts) {
+--- a/dist/chrome-extension-api.preload.js
++++ b/dist/chrome-extension-api.preload.js
+@@ -21,7 +21,7 @@
+     }
+     listenerMap.set(name, listenerCount + 1);
+     import_electron.ipcRenderer.addListener(formatIpcName(name), function(event, ...args) {
+-      if (true) {
++      if (false) {
+         console.log(name, "(result)", ...args);
+       }
+       callback(...args);
+@@ -44,7 +44,7 @@
+   var injectExtensionAPIs = () => {
+     const invokeExtension = async function(extensionId, fnName, options = {}, ...args) {
+       const callback = typeof args[args.length - 1] === "function" ? args.pop() : void 0;
+-      if (true) {
++      if (false) {
+         console.log(fnName, args);
+       }
+       if (options.noop) {
+@@ -62,7 +62,7 @@
+         console.error(e);
+         result = void 0;
+       }
+-      if (true) {
++      if (false) {
+         console.log(fnName, "(result)", result);
+       }
+       if (callback) {
+@@ -72,26 +72,11 @@
+       }
+     };
+     const connectNative = (extensionId, application, receive, disconnect, callback) => {
+-      const connectionId = import_electron2.contextBridge.executeInMainWorld({
+-        func: () => crypto.randomUUID()
+-      });
+-      invokeExtension(extensionId, "runtime.connectNative", {}, connectionId, application);
+-      const onMessage = (_event, message) => {
+-        receive(message);
+-      };
+-      import_electron2.ipcRenderer.on(`crx-native-msg-${connectionId}`, onMessage);
+-      import_electron2.ipcRenderer.once(`crx-native-msg-${connectionId}-disconnect`, () => {
+-        import_electron2.ipcRenderer.off(`crx-native-msg-${connectionId}`, onMessage);
+-        disconnect();
+-      });
+-      const send = (message) => {
+-        import_electron2.ipcRenderer.send(`crx-native-msg-${connectionId}`, message);
+-      };
+-      callback(connectionId, send);
++      // Standalone extension mode: return a port, then deliver its disconnect event.
++      callback("disabled", () => {});
++      queueMicrotask(disconnect);
+     };
+-    const disconnectNative = (extensionId, connectionId) => {
+-      invokeExtension(extensionId, "runtime.disconnectNative", {}, connectionId);
+-    };
++    const disconnectNative = () => {};
+     const electronContext = {
+       invokeExtension,
+       addExtensionListener,
+@@ -566,6 +551,8 @@
+           configurable: true
+         });
+       });
++      // Chromium exposes a separate browser namespace; keep it in step with chrome.
++      Object.defineProperty(globalThis, "browser", { value: chrome, configurable: true });
+       delete globalThis.electron;
+       Object.freeze(chrome);
+     }
