@@ -2,7 +2,9 @@
 
 ## Problem and outcome
 
-When an agent uses the browser, T3 Code pulls the agent's tab into view. The right panel switches to it, or the floating mini player pops up, while the user is reading or working on something else. The user wants agents to browse in the background, watch only when they choose to, and be brought to the browser only when the agent needs them, such as for a login, consent, or confirmation.
+When an agent uses the browser, T3 Code pulls the agent's tab into view. The right panel switches to it, or the floating mini player pops up, while the user is reading or working on something else. The opposite also fails. When the agent does need the user, for example to sign in on three tabs, nothing reliably shows those tabs. The reveal is best-effort, the agent sees `visible: false`, and its next attempt times out.
+
+The user wants agents to browse in the background, watch only when they choose to, and be brought to the browser reliably when the agent needs them, such as for a login, consent, or confirmation.
 
 ## Scope
 
@@ -19,8 +21,9 @@ Keep the existing browser. Agent tabs already run without a visible window and c
   - the browser hits an interruption the agent cannot resolve by itself: a page dialog, file chooser, or permission prompt; or
   - the agent explicitly asks for the user through a new browser tool, giving a short reason such as "Sign in to staging". Agent guidance tells agents to use this tool for logins, consent, CAPTCHA, and confirmations instead of attempting them.
 
-  While in that state, the agent waits.
-- **Bringing it forward.** When a tab needs you and the user is viewing that thread, the browser is shown and focused with the reason visible, ready for the user to take control. This is the only case where the browser takes over the view.
+  While in that state, the agent waits. The request stays pending until the user resolves or declines it, or the turn is stopped. It does not time out or fail because nobody is watching.
+- **Bringing it forward.** When a tab needs you and the user is viewing that thread, the browser is shown and focused with the reason visible, ready for the user to take control. This happens regardless of the auto-show setting, the panel layout, and whether the tab is already a panel tab. This is the only case where the browser takes over the view.
+- **Several requests.** Each tab's request is tracked separately. The browser brings forward the earliest pending request; when it is resolved or declined, the next one comes forward. The thread stays in the attention state until none are pending.
 - **Other threads.** When a tab in another thread needs you, that thread shows the existing attention status in the sidebar and sends the existing thread notification. The current chat is never switched or interrupted. The browser comes forward when the user opens that thread.
 - **Resolving.** Releasing control after completing the step returns control to the agent with the outcome. The user can also decline, which tells the agent the step was declined. Either way the "needs you" state clears: the badge and notification are removed, and the view stays open only if the user was already following.
 - **Logins persist.** Sign-ins completed during a handoff are stored in the tab's browser profile and are available in later agent runs that use that profile.
@@ -32,11 +35,13 @@ Keep the existing browser. Agent tabs already run without a visible window and c
 3. In the visible thread, the agent asks for a login. The browser comes forward with the reason. The user takes control, signs in, and releases control. The agent continues signed in. In a later run with the same profile, the agent is still signed in.
 4. While the user is in thread A, the agent in thread B hits a page confirmation dialog. Thread A stays selected and undisturbed. Thread B shows the attention status and a notification is sent. Opening thread B shows the browser with the dialog.
 5. The user declines a "needs you" request. The agent is told it was declined, and the attention status and notification clear.
-6. A thread viewed from a remote web or mobile client behaves the same way: no automatic reveal, watching from the indicator, and the browser brought forward only for "needs you".
+6. In the visible thread, with auto-show off, the agent requests sign-in on three tabs. The first comes forward. After the user signs in and releases control, the second comes forward, then the third. No request times out while waiting, and the attention status clears after the last one.
+7. A thread viewed from a remote web or mobile client behaves the same way: no automatic reveal, watching from the indicator, and the browser brought forward only for "needs you".
 
 ## Constraints and decisions
 
 - Agent tabs run in the server's shared browser and are mounted in the desktop app when one is attached ([ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts)). Today's reveal comes from `requestReveal` and the auto-reveal effect in [ChatView.tsx](../../apps/web/src/components/ChatView.tsx).
+- Today a reveal only records a request; whether a client acts on it depends on the auto-show setting and on that thread being open. `visible` in preview status only reports whether any client is currently showing the tab ([ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts)). Agents therefore cannot get the user's attention reliably by revealing a tab, which is why "needs you" is an explicit request that waits for an answer.
 - Reuse the existing take/release control flow ([SessionControl.ts](../../apps/server/src/preview/SessionControl.ts)) and the existing pending-dialog pause for handoffs. Reuse the sidebar's attention status and the thread notification coordinator rather than adding a separate alert system.
 - The "ask for the user" tool is a T3 MCP browser tool, so it works the same for every provider. Guidance for it lives with the other orchestration instructions.
 - "Needs you" is limited to signals the browser detects and explicit agent requests, because guessing at login or consent pages is unreliable in both directions.
