@@ -3,8 +3,19 @@ import * as Schema from "effect/Schema";
 import { Message, History, messageText } from "./slackMessages.ts";
 import { readSlackThread } from "./slackThread.ts";
 import { readableSlackItem } from "../notificationContent.ts";
-import type { InboxSourceItem } from "@t3tools/contracts";
+import type { InboxSourceItem, InboxSourceConnection } from "@t3tools/contracts";
 import type { SlackNames } from "@t3tools/shared/slackText";
+
+export class SlackReadError extends Error {
+  readonly code: string;
+  constructor(method: string, code: string) {
+    super(`Slack ${method} failed (${code}). Check the connection permissions.`);
+    this.code = code;
+  }
+}
+const inaccessibleThread = (error: unknown) =>
+  error instanceof SlackReadError &&
+  ["thread_not_found", "channel_not_found", "not_in_channel"].includes(error.code);
 
 const Conversations = Schema.Struct({
   ok: Schema.Boolean,
@@ -90,9 +101,23 @@ export async function readSlackInbox(
   read: SlackRead,
   categories: ReadonlyArray<string>,
   since: string,
-): Promise<ReadonlyArray<InboxSourceItem>> {
+  tracked: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> = [],
+  retries: NonNullable<InboxSourceConnection["slackRetryThreads"]> = [],
+) {
   const sinceMillis = Date.parse(since);
   const identity = decodeIdentity(await read("auth.test", {}));
+  const connectionId = `${identity.team_id}:${identity.user_id}`;
+  const pending = new Map(
+    retries
+      .filter((entry) => entry.connectionId === connectionId)
+      .map((entry) => [entry.groupId, entry]),
+  );
+  const unavailable = (error: unknown, groupId: string, boundary: string) => {
+    if (!inaccessibleThread(error)) throw error;
+    pending.delete(groupId);
+    if (error instanceof SlackReadError && error.code !== "thread_not_found")
+      pending.set(groupId, { connectionId, groupId, since: boundary });
+  };
   const items = new Map<string, InboxSourceItem>();
   let groups: Promise<typeof Groups.Type> | undefined;
   const getGroups = () =>
@@ -151,7 +176,6 @@ export async function readSlackInbox(
     thread: Awaited<ReturnType<typeof readSlackThread>> | undefined,
     url?: string,
   ) => {
-    if (message.user === identity.user_id) return;
     const id = `${channel}:${message.ts}`;
     const context = (thread ? [thread.root, ...thread.messages] : [])
       .filter((entry) => entry.ts !== message.ts)
@@ -197,6 +221,22 @@ export async function readSlackInbox(
           url ??
           `https://app.slack.com/client/${identity.team_id}/${channel}/thread/${channel}-${message.thread_ts ?? message.ts}`,
         occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
+        replyActivity: [
+          {
+            id,
+            occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
+            isSelf: message.user === identity.user_id,
+          },
+          ...(thread?.messages ?? [])
+            .filter(
+              (entry) => entry.ts !== message.ts && Date.parse(entry.occurredAt) >= sinceMillis,
+            )
+            .map((entry) => ({
+              id: `${channel}:${entry.ts}`,
+              occurredAt: entry.occurredAt,
+              isSelf: entry.authorId === identity.user_id,
+            })),
+        ],
       },
       names,
     );
@@ -280,7 +320,16 @@ export async function readSlackInbox(
       if (cursor) cursors.add(cursor);
     } while (cursor);
   }
+  const conversations = new Set(
+    tracked
+      .filter((entry) => entry.connectionId === `${identity.team_id}:${identity.user_id}`)
+      .map((entry) => entry.groupId),
+  );
+  // Retry a bounded batch even when lost access removes the thread from search.
+  // Failed attempts move to the end so other pending conversations are not starved.
+  const changedConversations = new Set([...pending.keys()].slice(0, 50));
   const queries: string[] = [];
+  if (conversations.size) queries.push("is:thread");
   // A reply does not move its parent into conversations.history's oldest window.
   if (categories.includes("dms")) queries.push("is:dm is:thread");
   if (categories.includes("mentions")) queries.push(`<@${identity.user_id}>`);
@@ -309,49 +358,65 @@ export async function readSlackInbox(
           reachedCheckpoint = true;
           continue;
         }
-        if (hit.user === identity.user_id || items.has(`${hit.channel.id}:${hit.ts}`)) continue;
-        if (query === "is:dm is:thread" && !dmLocations.has(hit.channel.id)) continue;
-        let message = hit;
-        // Search links can retain the parent ID even when the match omits thread_ts.
-        if (!message.thread_ts) {
-          const parent = new URL(hit.permalink).searchParams.get("thread_ts");
-          if (parent && /^\d+(?:\.\d+)?$/.test(parent)) message = { ...hit, thread_ts: parent };
-        }
-        if (!message.thread_ts) {
-          const exact = decodeHistory(
-            await read("conversations.history", {
-              channel: hit.channel.id,
-              latest: hit.ts,
-              oldest: hit.ts,
-              inclusive: "true",
-              limit: "1",
-            }),
+        const tracking = query === "is:thread";
+        if (
+          !tracking &&
+          (hit.user === identity.user_id || items.has(`${hit.channel.id}:${hit.ts}`))
+        )
+          continue;
+        let groupId = `${hit.channel.id}:${hit.thread_ts ?? new URL(hit.permalink).searchParams.get("thread_ts") ?? hit.ts}`;
+        try {
+          if (query === "is:dm is:thread" && !dmLocations.has(hit.channel.id)) continue;
+          let message = hit;
+          // Search links can retain the parent ID even when the match omits thread_ts.
+          if (!message.thread_ts) {
+            const parent = new URL(hit.permalink).searchParams.get("thread_ts");
+            if (parent && /^\d+(?:\.\d+)?$/.test(parent)) message = { ...hit, thread_ts: parent };
+          }
+          if (!message.thread_ts) {
+            const exact = decodeHistory(
+              await read("conversations.history", {
+                channel: hit.channel.id,
+                latest: hit.ts,
+                oldest: hit.ts,
+                inclusive: "true",
+                limit: "1",
+              }),
+            );
+            const native = exact.messages?.find((entry) => entry.ts === hit.ts);
+            if (native) message = { ...hit, ...native };
+          }
+          groupId = `${hit.channel.id}:${message.thread_ts ?? message.ts}`;
+          if (tracking) {
+            if (conversations.has(groupId)) changedConversations.add(groupId);
+            continue;
+          }
+          if (message.thread_ts && message.thread_ts !== message.ts) {
+            const exact = decodeHistory(
+              await read("conversations.replies", {
+                channel: hit.channel.id,
+                ts: message.thread_ts,
+                oldest: hit.ts,
+                latest: hit.ts,
+                inclusive: "true",
+                limit: "1",
+              }),
+            );
+            const native = exact.messages?.find((entry) => entry.ts === hit.ts);
+            if (!native)
+              throw new Error("Slack did not return the matching thread reply. Try syncing again.");
+            message = { ...message, ...native, thread_ts: message.thread_ts };
+          }
+          await append(
+            message.channel.id,
+            dmLocations.get(message.channel.id) ?? `#${message.channel.name}`,
+            message,
+            await contextFor(message.channel.id, message),
+            message.permalink,
           );
-          const native = exact.messages?.find((entry) => entry.ts === hit.ts);
-          if (native) message = { ...hit, ...native };
-        } else if (message.thread_ts !== message.ts) {
-          const exact = decodeHistory(
-            await read("conversations.replies", {
-              channel: hit.channel.id,
-              ts: message.thread_ts,
-              oldest: hit.ts,
-              latest: hit.ts,
-              inclusive: "true",
-              limit: "1",
-            }),
-          );
-          const native = exact.messages?.find((entry) => entry.ts === hit.ts);
-          if (!native)
-            throw new Error("Slack did not return the matching thread reply. Try syncing again.");
-          message = { ...message, ...native, thread_ts: message.thread_ts };
+        } catch (error) {
+          unavailable(error, groupId, pending.get(groupId)?.since ?? since);
         }
-        await append(
-          message.channel.id,
-          dmLocations.get(message.channel.id) ?? `#${message.channel.name}`,
-          message,
-          await contextFor(message.channel.id, message),
-          message.permalink,
-        );
       }
       if (reachedCheckpoint) break;
       if (page === 100 && pages > page)
@@ -360,5 +425,49 @@ export async function readSlackInbox(
         );
     }
   }
-  return [...items.values()];
+  // Search discovers changed threads; fetch their full incremental replies because
+  // Slack may collapse adjacent search hits. Quiet refreshes never scan retained history.
+  for (const groupId of changedConversations) {
+    const boundary = pending.get(groupId)?.since ?? since;
+    const boundaryMillis = Date.parse(boundary);
+    try {
+      const [channel, ts] = groupId.split(":");
+      if (!channel || !ts) continue;
+      let cursor = "";
+      const cursors = new Set<string>();
+      do {
+        const page = decodeHistory(
+          await read("conversations.replies", {
+            channel,
+            ts,
+            oldest: String(boundaryMillis / 1000),
+            inclusive: "true",
+            limit: "100",
+            cursor,
+          }),
+        );
+        for (const message of page.messages ?? []) {
+          if (Number(message.ts) * 1000 < boundaryMillis || items.has(`${channel}:${message.ts}`))
+            continue;
+          const reply = { ...message, thread_ts: ts };
+          await append(
+            channel,
+            dmLocations.get(channel) ?? `#${channel}`,
+            reply,
+            await contextFor(channel, reply),
+          );
+        }
+        cursor = page.response_metadata?.next_cursor ?? "";
+        if ((page.has_more && !cursor) || (cursor && (cursors.has(cursor) || cursors.size >= 100)))
+          throw new Error(
+            "Slack returned incomplete or repeated reply history. Try syncing again.",
+          );
+        if (cursor) cursors.add(cursor);
+      } while (cursor);
+      pending.delete(groupId);
+    } catch (error) {
+      unavailable(error, groupId, boundary);
+    }
+  }
+  return { items: [...items.values()], slackRetryThreads: [...pending.values()] };
 }

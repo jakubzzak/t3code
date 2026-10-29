@@ -13,46 +13,49 @@ it("retains non-issue notifications and the targeted comment plus its issue cont
     actor: { name: "Alex" },
   };
   const items = await readLinearInbox(
-    async () => ({
-      data: {
-        viewer: { id: "me" },
-        organization: { id: "org" },
-        notifications: {
-          nodes: [
-            {
-              ...base,
-              issue: {
-                id: "issue",
-                identifier: "ENG-1",
-                title: "Launch",
-                description: "Launch context",
-              },
-              comment: {
-                id: "c2",
-                body: "Please approve the date",
-                createdAt: base.createdAt,
-                user: { name: "Maya" },
-              },
-              parentComment: {
-                id: "c1",
-                body: "Friday launch",
-                createdAt: "2026-10-21T10:00:00Z",
-                user: null,
-                botActor: { name: "Release bot" },
+    async (query) =>
+      query.includes("BlackbirdInboxReplies")
+        ? { data: { comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } }
+        : {
+            data: {
+              viewer: { id: "me" },
+              organization: { id: "org" },
+              notifications: {
+                nodes: [
+                  {
+                    ...base,
+                    issue: {
+                      id: "issue",
+                      identifier: "ENG-1",
+                      title: "Launch",
+                      description: "Launch context",
+                    },
+                    comment: {
+                      id: "c2",
+                      body: "Please approve the date",
+                      createdAt: base.createdAt,
+                      user: { name: "Maya" },
+                    },
+                    parentComment: {
+                      id: "c1",
+                      body: "Friday launch",
+                      createdAt: "2026-10-21T10:00:00Z",
+                      user: null,
+                      botActor: { name: "Release bot" },
+                    },
+                  },
+                  {
+                    ...base,
+                    id: "system",
+                    type: "welcome",
+                    category: "system",
+                    title: "Workspace announcement",
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
               },
             },
-            {
-              ...base,
-              id: "system",
-              type: "welcome",
-              category: "system",
-              title: "Workspace announcement",
-            },
-          ],
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      },
-    }),
+          },
     ["all"],
     "2026-10-21T00:00:00.000Z",
   );
@@ -87,7 +90,7 @@ it("sends the cutoff on each page and excludes older notifications even if retur
   const requests: Array<{ after: string | null; since: string }> = [];
   const items = await readLinearInbox(
     async (query, variables) => {
-      expect(query).toContain("filter: { createdAt: { gte: $since } }");
+      expect(query).toContain("{ createdAt: { gte: $since } }");
       requests.push(variables);
       return {
         data: {
@@ -116,8 +119,8 @@ it("sends the cutoff on each page and excludes older notifications even if retur
     since,
   );
   expect(requests).toEqual([
-    { after: null, since },
-    { after: "next", since },
+    { after: null, since, notificationIds: [] },
+    { after: "next", since, notificationIds: [] },
   ]);
   expect(items.map((item) => item.id)).toEqual(["new"]);
 });
@@ -190,6 +193,10 @@ it("hydrates the latest comment preview without downloading history, and handles
   expect(
     await readLinearIssue(
       async (query) => {
+        if (query.includes("BlackbirdInboxReplies"))
+          return {
+            data: { comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
+          };
         expect(query).toContain("latestComments: comments(last: 1");
         expect(query).toContain("nodes { id } pageInfo");
         expect(query).not.toContain("comments(first: 50, after:");
@@ -231,6 +238,10 @@ it("imports the latest issue comment and exact count before Show all, counting I
           },
         };
       }
+      if (query.includes("BlackbirdInboxReplies"))
+        return {
+          data: { comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
+        };
       expect(query).toContain("latestComments: comments(last: 1");
       const issue = {
         id: "issue",
@@ -298,3 +309,152 @@ it("recognizes an issue with no comments on the initial detail request", async (
   );
   expect(result).toMatchObject({ comments: [], commentCount: 0, commentsComplete: true });
 });
+
+it.each([null, { id: "parent" }])(
+  "observes self comments without a source notification and preserves their reply destination (%j)",
+  async (parent) => {
+    const calls: string[] = [];
+    const items = await readLinearInbox(
+      async (query, variables) => {
+        calls.push(query);
+        if (query.includes("BlackbirdInboxReplies")) {
+          expect(variables).toMatchObject({ issueIds: ["issue"], since: "2026-10-22T00:00:00Z" });
+          return {
+            data: {
+              comments: {
+                nodes: [
+                  {
+                    id: "own",
+                    parent,
+                    body: "Done",
+                    createdAt: "2026-10-22T12:00:00Z",
+                    user: { id: "me", name: "Me" },
+                    issue: {
+                      id: "issue",
+                      identifier: "ENG-1",
+                      title: "Review",
+                      description: "Context",
+                      url: "https://linear.app/issue/ENG-1",
+                    },
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          };
+        }
+        return {
+          data: {
+            viewer: { id: "me" },
+            organization: { id: "org" },
+            notifications: {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        };
+      },
+      ["all"],
+      "2026-10-22T00:00:00Z",
+      [
+        { connectionId: "org:me", groupId: "issue" },
+        { connectionId: "other:me", groupId: "private" },
+      ],
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      groupId: "issue",
+      content: "Done\n\nContext",
+      replyTarget: { source: "linear", issueId: "issue", parentId: parent?.id ?? "own" },
+      replyActivity: [{ id: "own", occurredAt: "2026-10-22T12:00:00Z", isSelf: true }],
+    });
+    expect(calls).toHaveLength(2);
+  },
+);
+
+it.each([null, "repeat"])(
+  "rejects incomplete tracked-comment pagination (%s) without returning partial intake",
+  async (cursor) => {
+    await expect(
+      readLinearInbox(
+        async (query) => {
+          if (query.includes("BlackbirdInboxReplies"))
+            return {
+              data: {
+                comments: {
+                  nodes: [],
+                  pageInfo: { hasNextPage: true, endCursor: cursor },
+                },
+              },
+            };
+          return {
+            data: {
+              viewer: { id: "me" },
+              organization: { id: "org" },
+              notifications: {
+                nodes: [],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          };
+        },
+        ["all"],
+        "2026-10-22T00:00:00Z",
+        [{ connectionId: "org:me", groupId: "issue" }],
+      ),
+    ).rejects.toThrow("reply history");
+  },
+);
+
+it.each(["projectUpdate", "project"])(
+  "discovers self replies for tracked %s comments without a notification",
+  async (kind) => {
+    const items = await readLinearInbox(
+      async (query) => {
+        if (query.includes("BlackbirdInboxReplies"))
+          return {
+            data: {
+              comments: {
+                nodes: [
+                  {
+                    id: "own-project-comment",
+                    body: "Project review completed",
+                    createdAt: "2026-10-22T12:00:00Z",
+                    user: { id: "me", name: "Me" },
+                    issue: null,
+                    [kind]: { id: "native-project" },
+                    parent: { id: "native-target" },
+                    url: "https://linear.app/project/update#comment",
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          };
+        return {
+          data: {
+            viewer: { id: "me" },
+            organization: { id: "org" },
+            notifications: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        };
+      },
+      ["all"],
+      "2026-10-22T00:00:00Z",
+      [
+        {
+          connectionId: "org:me",
+          groupId: "opaque-native-group",
+          linearCommentTarget: "comment:native-target",
+        },
+      ],
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      groupId: "opaque-native-group",
+      linearCommentTarget: "comment:native-target",
+      content: "Project review completed",
+      replyActivity: [{ id: "own-project-comment", isSelf: true }],
+    });
+  },
+);

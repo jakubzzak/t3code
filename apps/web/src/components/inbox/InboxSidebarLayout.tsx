@@ -650,8 +650,13 @@ export function InboxSidebarLayout({
       });
       if (result._tag === "Success") {
         const next = result.value.notification;
+        const restoreFocus =
+          focusedRef.current === key ||
+          (advancing && hadFocus && document.activeElement === activeElement);
         overridesRef.current = { ...overridesRef.current, [key]: next };
-        setOverrides(overridesRef.current);
+        // Remove the departing row before list focus can redirect back into it.
+        if (advancing && restoreFocus) flushSync(() => setOverrides(overridesRef.current));
+        else setOverrides(overridesRef.current);
         if (recordUndo && result.value.undoCommandId)
           setUndo((current) => [
             ...current,
@@ -665,10 +670,7 @@ export function InboxSidebarLayout({
             action.type === "delegate" && !action.startAgent,
           );
         }
-        if (
-          focusedRef.current === key ||
-          (advancing && hadFocus && document.activeElement === activeElement)
-        ) {
+        if (restoreFocus) {
           if (advancing && next.state.placement !== n.state.placement) {
             const rows = [
               ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),

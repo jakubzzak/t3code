@@ -124,3 +124,114 @@ it("sends the history boundary on every page and never downloads an older thread
     calls.filter((call) => call.name === "list_threads").map((call) => call.args.start_date),
   ).toEqual([since, since]);
 });
+
+it("separates direct-address self replies from incoming activity while retaining both as context", async () => {
+  const thread = {
+    thread_id: "thread",
+    subject: "Review",
+    snippet: "Done",
+    last_message_at: "2026-10-22T12:00:00Z",
+    last_message_id: "own",
+    labels: [],
+    messages: [
+      {
+        message_id: "incoming",
+        from: "Alex <alex@example.com>",
+        sent_at: "2026-10-22T11:00:00Z",
+        snippet: "Please review",
+      },
+      {
+        message_id: "own",
+        from: "Jakub <WORK@example.com>",
+        sent_at: "2026-10-22T12:00:00Z",
+        snippet: "Done",
+      },
+    ],
+  };
+  const items = await readSuperhumanInbox(
+    async (name) => {
+      if (name === "list_accounts")
+        return { accounts: [{ accountEmail: "work@example.com", isPrimary: true }] };
+      if (name === "list_threads") return { threads: [thread] };
+      return thread;
+    },
+    ["work@example.com"],
+    ["split:Important"],
+    "2026-10-22T10:00:00Z",
+  );
+  expect(items[0]?.replyActivity).toEqual([
+    { id: "incoming", occurredAt: "2026-10-22T11:00:00Z", isSelf: false },
+    { id: "own", occurredAt: "2026-10-22T12:00:00Z", isSelf: true },
+  ]);
+  expect(items[0]?.content).toContain("Please review");
+  expect(items[0]?.content).toContain("Done");
+});
+
+it("reads replies on tracked mail outside selected splits, using direct addresses but not aliases or names", async () => {
+  const since = "2026-10-22T10:00:00Z";
+  const thread = {
+    thread_id: "tracked",
+    subject: "Review",
+    snippet: "Done",
+    last_message_at: "2026-10-22T15:00:00Z",
+    last_message_id: "last",
+    labels: [],
+    messages: [
+      {
+        message_id: "direct",
+        from: "Other account <personal@example.com>",
+        sent_at: "2026-10-22T11:00:00Z",
+        snippet: "Done",
+      },
+      {
+        message_id: "alias",
+        from: "Me <alias@example.com>",
+        sent_at: "2026-10-22T12:00:00Z",
+        snippet: "Alias",
+      },
+      {
+        message_id: "name",
+        from: '"work@example.com" <someone@example.com>',
+        sent_at: "2026-10-22T13:00:00Z",
+        snippet: "Name",
+      },
+      {
+        message_id: "draft",
+        from: "work@example.com",
+        sent_at: "2026-10-22T14:00:00Z",
+        snippet: "Unsent",
+        is_draft: true,
+      },
+    ],
+  };
+  const loaded: unknown[] = [];
+  const items = await readSuperhumanInbox(
+    async (name, args) => {
+      if (name === "list_accounts")
+        return {
+          accounts: [
+            { accountEmail: "work@example.com", isPrimary: true },
+            { accountEmail: "personal@example.com", isPrimary: false },
+          ],
+        };
+      if (name === "list_threads")
+        return { threads: args.split ? [] : [thread, { ...thread, thread_id: "untracked" }] };
+      loaded.push(args.thread_id);
+      return thread;
+    },
+    ["work@example.com"],
+    ["split:Important"],
+    since,
+    [
+      { connectionId: "work@example.com", groupId: "tracked" },
+      { connectionId: "different@example.com", groupId: "untracked" },
+    ],
+  );
+  expect(loaded).toEqual(["tracked"]);
+  expect(items[0]?.replyActivity?.map(({ id, isSelf }) => ({ id, isSelf }))).toEqual([
+    { id: "direct", isSelf: true },
+    { id: "alias", isSelf: false },
+    { id: "name", isSelf: false },
+  ]);
+  expect(items[0]?.content).not.toContain("Unsent");
+});

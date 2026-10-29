@@ -54,6 +54,7 @@ export class SuperhumanConnection extends Context.Service<
       accounts: ReadonlyArray<string>,
       categories: ReadonlyArray<string>,
       since: string,
+      tracked?: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">>,
     ) => Effect.Effect<ReadonlyArray<InboxSourceItem>, InboxError>;
     readonly catalog: (projectId: ProjectId) => Effect.Effect<SuperhumanCatalog, InboxError>;
   }
@@ -262,8 +263,10 @@ const make = Effect.gen(function* () {
             );
         }),
       ),
-    read: (projectId, accounts, categories, since) =>
-      withClient(projectId, (read) => readSuperhumanInbox(read, accounts, categories, since)),
+    read: (projectId, accounts, categories, since, tracked) =>
+      withClient(projectId, (read) =>
+        readSuperhumanInbox(read, accounts, categories, since, tracked),
+      ),
     catalog: (projectId) =>
       withClient(projectId, async (read) => {
         const accounts = decodeAccounts(await read("list_accounts", {})).accounts ?? [];

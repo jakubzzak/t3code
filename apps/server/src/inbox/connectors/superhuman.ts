@@ -78,21 +78,34 @@ export async function readSuperhumanInbox(
   selectedAccounts: ReadonlyArray<string>,
   categories: ReadonlyArray<string>,
   since: string,
+  tracked: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> = [],
 ): Promise<ReadonlyArray<InboxSourceItem>> {
   if (!selectedAccounts.length || !categories.length)
     throw new Error("Select a Superhuman account and at least one split or label.");
   const { accounts } = decodeAccounts(await read("list_accounts", {}));
+  const directAddresses = new Set(
+    accounts?.map((account) => account.accountEmail.trim().toLowerCase()),
+  );
+  const isSelf = (from: string) => {
+    const address = (from.match(/<([^<>]+)>\s*$/)?.[1] ?? from).trim().toLowerCase();
+    return directAddresses.has(address);
+  };
   const items = new Map<string, InboxSourceItem>();
   for (const email of selectedAccounts) {
     if (!accounts?.some((account) => account.accountEmail === email))
       throw new Error("A selected Superhuman account is no longer connected.");
     const threads = new Map<string, typeof Thread.Type>();
-    for (const category of categories) {
+    const trackedIds = new Set(
+      tracked.filter((entry) => entry.connectionId === email).map((entry) => entry.groupId),
+    );
+    for (const category of [...categories, ...(trackedIds.size ? ["tracked"] : [])]) {
       const filter = category.startsWith("split:")
         ? { split: category.slice(6) }
         : category.startsWith("label:")
           ? { labels: [category.slice(6)] }
-          : null;
+          : category === "tracked"
+            ? {}
+            : null;
       if (!filter) throw new Error("Unknown Superhuman relevance filter.");
       let cursor: string | undefined;
       const seen = new Set<string>();
@@ -107,7 +120,10 @@ export async function readSuperhumanInbox(
           }),
         );
         for (const thread of page.threads ?? [])
-          if (Date.parse(thread.last_message_at) >= Date.parse(since))
+          if (
+            Date.parse(thread.last_message_at) >= Date.parse(since) &&
+            (category !== "tracked" || trackedIds.has(thread.thread_id))
+          )
             threads.set(thread.thread_id, thread);
         cursor = page.next_cursor;
         if (cursor && seen.has(cursor))
@@ -126,13 +142,19 @@ export async function readSuperhumanInbox(
         }),
       );
       if (Date.parse(full.last_message_at) < Date.parse(since)) continue;
-      const messages = full.messages?.filter((message) => !message.is_draft) ?? [];
+      const messages = (full.messages?.filter((message) => !message.is_draft) ?? []).toSorted(
+        (a, b) =>
+          Date.parse(a.sent_at) - Date.parse(b.sent_at) || a.message_id.localeCompare(b.message_id),
+      );
       const content =
         [
-          ...messages.map(
-            (message) =>
-              `${message.from} · ${message.sent_at}\n${emailText(message.body ?? "").trim() || emailText(message.snippet)}`,
-          ),
+          ...(messages.length ? ["Messages, newest first:"] : []),
+          ...messages
+            .toReversed()
+            .map(
+              (message) =>
+                `${message.from} · ${message.sent_at}\n${emailText(message.body ?? "").trim() || emailText(message.snippet)}`,
+            ),
           ...(full.comments ?? []).map(
             (comment) =>
               `${comment.author_name ?? comment.author ?? "Comment"} · ${comment.created_at ?? ""}\n${emailText(comment.body)}${comment.reactions?.length ? `\nReactions: ${comment.reactions.map((reaction) => `${reaction.emoji} ${reaction.reaction_count}${reaction.by_me ? " (including you)" : ""}`).join(", ")}` : ""}`,
@@ -159,6 +181,14 @@ export async function readSuperhumanInbox(
             : content,
         url: `https://mail.superhuman.com/${encodeURIComponent(email)}/thread/${encodeURIComponent(full.thread_id)}`,
         occurredAt: full.last_message_at,
+        // Edits, labels and collaborative comments are context, not incoming mail.
+        replyActivity: messages
+          .filter((message) => Date.parse(message.sent_at) >= Date.parse(since))
+          .map((message) => ({
+            id: message.message_id,
+            occurredAt: message.sent_at,
+            isSelf: isSelf(message.from),
+          })),
       });
     }
   }

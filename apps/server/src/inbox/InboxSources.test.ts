@@ -35,6 +35,8 @@ it.effect(
       const calls = yield* Ref.make(0);
       const fail = yield* Ref.make(false);
       const boundaries: string[] = [];
+      let trackedConversations: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> =
+        [];
       const imported: InboxSourceItem[] = [];
       let historyItems: InboxSourceItem[] = [];
       let pendingRead:
@@ -111,9 +113,10 @@ it.effect(
               nextCursor: cursor === "page2" ? "page3" : null,
             };
           }),
-        read: (connection, _token, since) =>
+        read: (connection, _token, since, tracked = []) =>
           Effect.gen(function* () {
             boundaries.push(since);
+            trackedConversations = tracked;
             const waiting = pendingRead;
             if (waiting && (!waiting.projectId || waiting.projectId === connection.projectId)) {
               pendingStarts++;
@@ -123,12 +126,12 @@ it.effect(
             if (connection.source === "linear") {
               linearReads++;
               yield* Deferred.succeed(linearRead, undefined);
-              return historyItems;
+              return { items: historyItems };
             }
             yield* Ref.update(calls, (count) => count + 1);
             if (yield* Ref.get(fail))
               return yield* new InboxError({ detail: "Slack permission missing" });
-            return historyItems;
+            return { items: historyItems };
           }),
       });
       const inbox = Inbox.InboxService.of({
@@ -294,7 +297,21 @@ it.effect(
         yield* service.refresh(noCategories);
         assert.equal(yield* Ref.get(calls), 0);
         yield* service.configure(input);
+        const trackedFixture = ingestInboxItem(projectId, {
+          id: "tracked",
+          source: "slack",
+          connectionId: "T1:me",
+          groupId: "C1:123",
+          location: "#launch",
+          title: "Review",
+          author: "Alex",
+          content: "Please review",
+          url: "https://slack.com/x",
+          occurredAt: "2026-10-22T10:00:00Z",
+        });
+        yield* sql`INSERT INTO inbox_notifications (id, project_id, updated_at, payload_json) VALUES (${trackedFixture.id}, ${projectId}, ${trackedFixture.updatedAt}, ${JSON.stringify(trackedFixture)})`;
         const synced = yield* service.refresh(input);
+        assert.deepEqual(trackedConversations, [{ connectionId: "T1:me", groupId: "C1:123" }]);
         assert.ok(synced.lastSyncAt);
         assert.equal(yield* Ref.get(ingested), 1);
         threadNotification = ingestInboxItem(projectId, {

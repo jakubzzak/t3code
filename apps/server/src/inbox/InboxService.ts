@@ -1033,9 +1033,34 @@ const make = Effect.gen(function* () {
         .withPermits(1)(
           Effect.gen(function* () {
             yield* requireEnabled(projectId);
-            for (const raw of items) {
-              const item = readableInboxItem(raw);
-              const stored = yield* repository.get(projectId, inboxIdentity(projectId, item));
+            // A preview may contain the latest self reply before another page delivers an earlier
+            // incoming reply. Apply each conversation's complete attention batch once, in order.
+            const activity = new Map<
+              string,
+              NonNullable<InboxSourceItem["replyActivity"]>[number][]
+            >();
+            for (const item of items) {
+              if (!item.replyActivity) continue;
+              const key = inboxIdentity(projectId, item);
+              const replies = activity.get(key) ?? [];
+              replies.push(...item.replyActivity);
+              activity.set(key, replies);
+            }
+            for (const raw of items.toSorted(
+              (a, b) =>
+                Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.id.localeCompare(b.id),
+            )) {
+              const key = inboxIdentity(projectId, raw);
+              const replies = raw.replyActivity ? activity.get(key) : undefined;
+              const item = readableInboxItem(replies ? { ...raw, replyActivity: replies } : raw);
+              if (replies) activity.delete(key);
+              const stored = yield* repository.get(projectId, key);
+              if (
+                !stored &&
+                item.replyActivity &&
+                !item.replyActivity.some((reply) => !reply.isSelf)
+              )
+                continue;
               const previous = stored ? readableNotification(stored) : undefined;
               const next = ingestInboxItem(projectId, item, previous);
               if (stored !== next) {

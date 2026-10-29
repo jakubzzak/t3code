@@ -732,3 +732,61 @@ it.each(["Enter", "Tab"])(
     }
   },
 );
+
+it.each(["Meta", "Control"])(
+  "keeps last-row settlement undo reachable with %s",
+  async (modifier) => {
+    state.items = [notification];
+    let revision = 0;
+    state.mutate.mockImplementation(async ({ input }) => ({
+      _tag: "Success",
+      value: {
+        notification: {
+          ...notification,
+          revision: ++revision,
+          state: {
+            ...notification.state,
+            placement: input.action.type === "resolve" ? "resolved" : "active",
+          },
+        },
+        openThread: false,
+        undoCommandId: input.action.type === "resolve" ? "undo-settle" : null,
+      },
+    }));
+    useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+    await act(async () =>
+      root.render(
+        <InboxSidebarLayout
+          projects={[{ environmentId, projectId }]}
+          threadRef={null}
+          chatCount={0}
+          chatHeader={null}
+        >
+          <div>Current chat</div>
+        </InboxSidebarLayout>,
+      ),
+    );
+    await act(async () => container.querySelector<HTMLElement>("[data-inbox-row]")!.focus());
+    const press = (key: string) =>
+      act(async () => {
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            metaKey: modifier === "Meta",
+            ctrlKey: modifier === "Control",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    await press("e");
+    expect(container.querySelector("[data-inbox-row]")).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector("[data-inbox-list]"));
+    await press("z");
+    expect(container.querySelector("[data-inbox-row]")).not.toBeNull();
+    expect(state.mutate.mock.calls.at(-1)?.[0].input.action).toEqual({
+      type: "undo",
+      commandId: "undo-settle",
+    });
+  },
+);

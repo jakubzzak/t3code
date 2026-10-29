@@ -140,6 +140,7 @@ export async function readSlackThread(
   const options = { ...names, users, groups, emojis: slackEmojis };
   const format = (message: typeof Message.Type): InboxSlackMessage => ({
     ts: message.ts,
+    ...(message.user ? { authorId: message.user } : {}),
     author:
       (message.user && users[message.user]) ||
       message.username ||

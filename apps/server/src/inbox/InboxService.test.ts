@@ -868,3 +868,135 @@ it.effect("preserves failed text and never automatically retransmits an uncertai
     );
   }).pipe(Effect.scoped),
 );
+
+it.effect("self-only intake does not create notification work", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    yield* Effect.gen(function* () {
+      const service = yield* Inbox.InboxService;
+      const own = {
+        ...item,
+        replyActivity: [{ id: item.id, occurredAt: item.occurredAt, isSelf: true }],
+      };
+      yield* service.ingest(projectId, [own]);
+      assert.deepEqual(yield* service.list({ projectId }), []);
+    }).pipe(Effect.provide(fixture.layer));
+  }).pipe(Effect.scoped),
+);
+
+it.effect.each(["slack", "linear", "superhuman"] as const)(
+  "%s replies update persisted linked context without duplicating or restarting a settled chat",
+  (source) =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const repository = yield* Repository.InboxRepository;
+        const reply = (id: string, hour: number, isSelf: boolean): InboxSourceItem => ({
+          ...item,
+          source,
+          id,
+          content: id,
+          occurredAt: `2026-10-22T${hour}:00:00Z`,
+          replyActivity: [{ id, occurredAt: `2026-10-22T${hour}:00:00Z`, isSelf }],
+        });
+        yield* service.ingest(projectId, [reply("request", 10, false)]);
+        const first = (yield* service.list({ projectId }))[0]!;
+        yield* service.mutate({
+          projectId,
+          id: first.id,
+          commandId: CommandId.make("link-replies"),
+          expectedRevision: first.revision,
+          action: { type: "delegate", startAgent: false },
+        });
+        yield* service.drain;
+        yield* Ref.set(fixture.settled, true);
+        const settled = (yield* service.get({ projectId, id: first.id }))!;
+        assert.equal(settled.state.placement, "resolved");
+        const own = reply("Done, ready for review", 11, true);
+        yield* service.ingest(projectId, [own]);
+        const answered = (yield* service.get({ projectId, id: first.id }))!;
+        assert.equal(answered.state.read, true);
+        assert.equal(answered.state.placement, "resolved");
+        const incoming = reply("Please adjust the date", 12, false);
+        const answer = reply("Date adjusted", 13, true);
+        // Descending API pages must still be applied in source order.
+        yield* service.ingest(projectId, [answer, incoming]);
+        const updated = (yield* service.get({ projectId, id: first.id }))!;
+        assert.equal(updated.state.placement, "active");
+        assert.equal(updated.state.read, true);
+        assert.equal(updated.state.threadId, settled.state.threadId);
+        assert.ok(updated.state.threadId);
+        const linked = (yield* repository.forThread(projectId, updated.state.threadId))!;
+        assert.deepEqual(
+          linked.items.map((entry) => entry.content),
+          ["request", own.content, incoming.content, answer.content],
+        );
+        assert.equal((yield* service.list({ projectId })).length, 1);
+        const manual = yield* service.mutate({
+          projectId,
+          id: updated.id,
+          commandId: CommandId.make("manual-unread"),
+          expectedRevision: updated.revision,
+          action: { type: "read", read: false },
+        });
+        const resolved = yield* service.mutate({
+          projectId,
+          id: updated.id,
+          commandId: CommandId.make("manual-settle"),
+          expectedRevision: manual.notification.revision,
+          action: { type: "resolve", resolved: true },
+        });
+        yield* service.ingest(projectId, [answer, own, incoming]);
+        assert.deepEqual(
+          (yield* service.get({ projectId, id: updated.id }))?.state,
+          resolved.notification.state,
+        );
+        yield* service.ingest(projectId, [reply("One more question", 14, false)]);
+        for (let client = 0; client < 2; client++) {
+          const refreshed = (yield* service.get({ projectId, id: updated.id }))!;
+          assert.equal(refreshed.state.placement, "active");
+          assert.equal(refreshed.state.read, false);
+          assert.equal(refreshed.items.at(-1)?.content, "One more question");
+        }
+        assert.equal(yield* Ref.get(fixture.starts), 0);
+      }).pipe(Effect.provide(fixture.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "does not let a latest-self preview hide an unseen incoming reply from the same sync",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const repository = yield* Repository.InboxRepository;
+        const first = ingestInboxItem(projectId, {
+          ...item,
+          replyActivity: [{ id: "old", occurredAt: item.occurredAt, isSelf: false }],
+        });
+        yield* repository.put({
+          ...first,
+          state: { ...first.state, placement: "resolved", read: false },
+        });
+        const incoming = { id: "incoming", occurredAt: "2026-10-22T11:00:00Z", isSelf: false };
+        const own = { id: "own", occurredAt: "2026-10-22T12:00:00Z", isSelf: true };
+        yield* service.ingest(projectId, [
+          { ...item, content: "Old message and latest self preview", replyActivity: [own] },
+          {
+            ...item,
+            id: "incoming",
+            content: "Unseen incoming request",
+            occurredAt: incoming.occurredAt,
+            replyActivity: [incoming],
+          },
+        ]);
+        const current = (yield* service.get({ projectId, id: first.id }))!;
+        assert.equal(current.state.placement, "active");
+        assert.equal(current.state.read, true);
+        assert.equal(current.updatedAt, incoming.occurredAt);
+        assert.ok(current.items.some((entry) => entry.content === "Unseen incoming request"));
+      }).pipe(Effect.provide(fixture.layer));
+    }).pipe(Effect.scoped),
+);

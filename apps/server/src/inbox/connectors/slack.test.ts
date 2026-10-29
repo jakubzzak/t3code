@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { readSlackInbox } from "./slack.ts";
+import { SlackReadError, readSlackInbox as readSlackBatch } from "./slack.ts";
 it("loads a parent thread identified by reply_count even without thread_ts", async () => {
   const root = {
     ts: "1792620000.000000",
@@ -494,4 +494,244 @@ it("discovers new non-mentioned DM replies independently of an older parent hist
   expect(calls.find(([method]) => method === "search.messages")?.[1].query).toContain(
     "is:dm is:thread",
   );
+});
+
+it("observes self and unmentioned incoming replies on a tracked channel thread", async () => {
+  const root = {
+    ts: "1792620000.000000",
+    user: "UOTHER",
+    text: "Review",
+    reply_count: 1,
+    latest_reply: "1792623600.000000",
+  };
+  const own = { ts: "1792623600.000000", thread_ts: root.ts, user: "UME", text: "Done" };
+  const calls: Array<[string, Record<string, string>]> = [];
+  const items = await readSlackInbox(
+    async (method, params) => {
+      calls.push([method, params]);
+      if (method === "auth.test") return { ok: true, user_id: "UME", team_id: "T1" };
+      if (method === "users.info") return { user: { name: params.user } };
+      if (method === "search.messages")
+        return {
+          ok: true,
+          messages: {
+            matches: params.query?.startsWith("is:thread")
+              ? [
+                  {
+                    ...own,
+                    permalink: `https://slack.com/archives/C1/p1792623600000000?thread_ts=${root.ts}`,
+                    channel: { id: "C1", name: "launch" },
+                  },
+                ]
+              : [],
+            paging: { pages: 1 },
+          },
+        };
+      if (method === "conversations.replies")
+        return { ok: true, messages: params.oldest ? [own] : [root, own] };
+      throw new Error(`Unexpected ${method}`);
+    },
+    ["mentions"],
+    "2026-10-21T20:00:00Z",
+    [{ connectionId: "T1:UME", groupId: `C1:${root.ts}` }],
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]?.replyActivity).toEqual([
+    { id: `C1:${own.ts}`, occurredAt: items[0]?.occurredAt, isSelf: true },
+  ]);
+  expect(items[0]?.slackThread?.messages.at(-1)?.content).toBe("Done");
+  expect(
+    calls.some(
+      ([method, params]) =>
+        method === "conversations.replies" &&
+        params.oldest === String(Date.parse("2026-10-21T20:00:00Z") / 1000),
+    ),
+  ).toBe(true);
+});
+
+it("does not poll retained Slack threads when incremental search is quiet", async () => {
+  const calls: string[] = [];
+  const items = await readSlackInbox(
+    async (method) => {
+      calls.push(method);
+      if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T" };
+      if (method === "search.messages")
+        return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
+      if (method === "conversations.replies") return { ok: true, messages: [] };
+      throw new Error(method);
+    },
+    ["mentions"],
+    "2026-10-22T00:00:00Z",
+    Array.from({ length: 1000 }, (_, i) => ({
+      connectionId: "T:me",
+      groupId: `C${i}:1792620000.000000`,
+    })),
+  );
+  expect(items).toEqual([]);
+  expect(calls.length).toBeLessThanOrEqual(3);
+  expect(calls).not.toContain("conversations.replies");
+});
+
+it.each(["thread_not_found", "channel_not_found", "not_in_channel"])(
+  "isolates inaccessible tracked threads (%s) from healthy intake",
+  async (code) => {
+    const root = "1792620000.000000";
+    const ts = "1792706400.000000";
+    const batch = await readSlackBatch(
+      async (method, args) => {
+        if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T" };
+        if (method === "users.info") return { user: { name: args.user } };
+        if (method === "search.messages")
+          return {
+            ok: true,
+            messages: {
+              matches: [
+                {
+                  ts,
+                  thread_ts: root,
+                  user: "other",
+                  text: "Hello",
+                  channel: {
+                    id: args.query?.startsWith("is:thread") ? "DELETED" : "HEALTHY",
+                    name: "test",
+                  },
+                  permalink: "https://slack.com/archives/test/p1792706400000000",
+                },
+              ],
+              paging: { pages: 1 },
+            },
+          };
+        if (method === "conversations.replies") {
+          if (args.channel === "DELETED") throw new SlackReadError(method, code);
+          return {
+            ok: true,
+            messages: [
+              ...(args.oldest
+                ? []
+                : [
+                    { ts: root, user: "other", text: "Original", reply_count: 1, latest_reply: ts },
+                  ]),
+              { ts, thread_ts: root, user: "other", text: "Hello" },
+            ],
+          };
+        }
+        throw new Error(method);
+      },
+      ["mentions"],
+      "2026-10-22T00:00:00Z",
+      [{ connectionId: "T:me", groupId: `DELETED:${root}` }],
+    );
+    expect(batch.items.some((item) => item.groupId === `HEALTHY:${root}`)).toBe(true);
+    expect(batch.slackRetryThreads).toEqual(
+      code === "thread_not_found"
+        ? []
+        : [{ connectionId: "T:me", groupId: `DELETED:${root}`, since: "2026-10-22T00:00:00Z" }],
+    );
+  },
+);
+
+it("fetches adjacent unmentioned replies across pages when search returns only the self reply", async () => {
+  const root = {
+    ts: "1792620000.000000",
+    user: "other",
+    text: "Review",
+    reply_count: 2,
+    latest_reply: "1792706460.000000",
+  };
+  const incoming = {
+    ts: "1792706400.000000",
+    thread_ts: root.ts,
+    user: "other",
+    text: "New request",
+  };
+  const own = { ts: root.latest_reply, thread_ts: root.ts, user: "me", text: "Confirmed" };
+  const cursors: string[] = [];
+  const items = await readSlackInbox(
+    async (method, args) => {
+      if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T" };
+      if (method === "users.info") return { user: { name: args.user } };
+      if (method === "search.messages")
+        return {
+          ok: true,
+          messages: {
+            matches: args.query?.startsWith("is:thread")
+              ? [
+                  {
+                    ...own,
+                    channel: { id: "C", name: "review" },
+                    permalink: `https://slack.com/archives/C/p1?thread_ts=${root.ts}`,
+                  },
+                ]
+              : [],
+            paging: { pages: 1 },
+          },
+        };
+      if (method === "conversations.replies") {
+        if (!args.oldest) return { ok: true, messages: [root, incoming, own] };
+        cursors.push(args.cursor ?? "");
+        return args.cursor
+          ? { ok: true, messages: [own] }
+          : {
+              ok: true,
+              messages: [incoming],
+              has_more: true,
+              response_metadata: { next_cursor: "next" },
+            };
+      }
+      throw new Error(method);
+    },
+    ["mentions"],
+    "2026-10-22T00:00:00Z",
+    [{ connectionId: "T:me", groupId: `C:${root.ts}` }],
+  );
+  expect(items.map((item) => item.id)).toEqual([`C:${incoming.ts}`, `C:${own.ts}`]);
+  expect(cursors).toEqual(["", "next"]);
+});
+
+const readSlackInbox = (...args: Parameters<typeof readSlackBatch>) =>
+  readSlackBatch(...args).then((batch) => batch.items);
+
+it("bounds retries, rotates denied threads and excludes another account's pending work", async () => {
+  const since = "2026-10-22T00:00:00Z";
+  const pending = Array.from({ length: 51 }, (_, index) => ({
+    connectionId: "T:me",
+    groupId: `C${index}:1792620000.000000`,
+    since,
+  }));
+  const attempted: string[] = [];
+  let denied = true;
+  const read: Parameters<typeof readSlackBatch>[0] = async (method, args) => {
+    if (method === "auth.test") return { ok: true, team_id: "T", user_id: "me" };
+    if (method === "search.messages")
+      return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
+    if (method === "conversations.replies") {
+      attempted.push(args.channel!);
+      expect(args.oldest).toBe(String(Date.parse(since) / 1000));
+      if (denied) throw new SlackReadError(method, "not_in_channel");
+      return { ok: true, messages: [] };
+    }
+    throw new Error(method);
+  };
+  const first = await readSlackBatch(
+    read,
+    ["mentions"],
+    "2026-10-23T00:00:00Z",
+    [],
+    [...pending, { connectionId: "other:me", groupId: "PRIVATE:1", since }],
+  );
+  expect(attempted).toHaveLength(50);
+  expect(first.slackRetryThreads).toHaveLength(51);
+  expect(first.slackRetryThreads[0]?.groupId).toBe(pending[50]?.groupId);
+  denied = false;
+  attempted.length = 0;
+  const second = await readSlackBatch(
+    read,
+    ["mentions"],
+    "2026-10-24T00:00:00Z",
+    [],
+    first.slackRetryThreads,
+  );
+  expect(attempted).toHaveLength(50);
+  expect(attempted[0]).toBe("C50");
+  expect(second.slackRetryThreads).toEqual([pending[49]]);
 });
