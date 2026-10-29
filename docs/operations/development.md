@@ -37,6 +37,12 @@ The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` win
 Never run a development server against the live `~/.t3/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
+To isolate desktop browser cookies and extensions as well, set
+`T3CODE_DESKTOP_DEV_APP_DATA_DIR` to an absolute directory inside the worktree's `.t3`.
+This overrides Electron's app-data root only when `VITE_DEV_SERVER_URL` is configured;
+packaged apps without a dev renderer ignore it. `T3CODE_HOME` alone does not isolate
+Electron's browser profile.
+
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
 different preference when needed.

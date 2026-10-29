@@ -39,6 +39,19 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.effect("isolates the dev browser profile only when a dev renderer is configured", () =>
+    Effect.gen(function* () {
+      const settings = { T3CODE_DESKTOP_DEV_APP_DATA_DIR: " /tmp/onepassword-dev-profile " };
+      const development = yield* makeEnvironment(
+        {},
+        { ...settings, VITE_DEV_SERVER_URL: "http://localhost:5173" },
+      );
+      assert.equal(development.appDataDirectory, "/tmp/onepassword-dev-profile");
+      const packaged = yield* makeEnvironment({ isPackaged: true }, settings);
+      assert.equal(packaged.appDataDirectory, "/Users/alice/Library/Application Support");
+    }),
+  );
+
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(
