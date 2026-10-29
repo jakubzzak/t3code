@@ -1304,7 +1304,14 @@ export const DesktopPreviewFindInputSchema = Schema.Struct({
   findNext: Schema.Boolean,
 });
 
-export type DesktopPreviewShortcut = "back" | "forward" | "copy-url" | "find";
+export type DesktopPreviewShortcut =
+  | "back"
+  | "forward"
+  | "copy-url"
+  | "find"
+  | "zoom-in"
+  | "zoom-out"
+  | "reset-zoom";
 
 export const DesktopLinearBrowserInput = Schema.Union([
   Schema.Struct({ tabId: Schema.String, operation: Schema.Literal("status") }),

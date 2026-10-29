@@ -5,6 +5,7 @@
  */
 
 import * as Schema from "effect/Schema";
+import { isMacPlatform, type ShortcutEventLike } from "./keybindings.ts";
 
 const TAB_ID_PREFIX = "tab_";
 let nextPreviewTabSequence = 0;
@@ -179,5 +180,19 @@ export function resolvePreviewShortcut(input: {
   if (key === "[") return "back";
   if (key === "]") return "forward";
   if (key === "f") return "find";
+  return null;
+}
+
+/** Page zoom chords shared by native guest input and preview panel capture. */
+export function resolvePreviewZoomShortcut(
+  input: ShortcutEventLike,
+  platform: string,
+): "zoom-in" | "zoom-out" | "reset-zoom" | null {
+  const mac = isMacPlatform(platform);
+  if (input.metaKey !== mac || input.ctrlKey === mac || input.altKey) return null;
+  if (input.key === "+" || (input.key === "=" && !input.shiftKey)) return "zoom-in";
+  if (input.shiftKey) return null;
+  if (input.key === "-") return "zoom-out";
+  if (input.key === "0") return "reset-zoom";
   return null;
 }
