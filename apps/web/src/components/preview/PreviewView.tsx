@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   AuthOrchestrationOperateScope,
+  AuthPreviewOperateScope,
   DEFAULT_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   type DesktopPreviewShortcut,
@@ -22,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 import {
   resolvePreviewShortcut,
+  resolvePreviewZoomShortcut,
   normalizePreviewUrl,
   resolveAddressBarInput,
 } from "@t3tools/shared/preview";
@@ -194,6 +196,7 @@ export function PreviewView({
   const serverBrowser = useEnvironmentSupportsServerBrowser(threadRef.environmentId);
   const resize = useAtomCommand(previewEnvironment.resize, "preview viewport resize");
   const adjust = useAtomCommand(previewEnvironment.adjust, "preview appearance or zoom");
+  const canOperatePreview = useEnvironmentScope(threadRef.environmentId, AuthPreviewOperateScope);
 
   usePreviewSession(threadRef);
 
@@ -456,7 +459,15 @@ export function PreviewView({
 
   const handleBrowserCommand = useCallback(
     (action: DesktopPreviewShortcut) => {
-      if (!previewBridge || !runtimeTabId || !visible) return;
+      if (!runtimeTabId || !visible) return;
+      if (action === "zoom-in" || action === "zoom-out" || action === "reset-zoom") {
+        if (!canOperatePreview || serverInputDisabled) return;
+        if (action === "zoom-in") handleZoomIn();
+        else if (action === "zoom-out") handleZoomOut();
+        else handleResetZoom();
+        return;
+      }
+      if (!previewBridge) return;
       if (action === "find") {
         if (!desktopOverlay?.hasWebContents || showEmptyState || isUnreachable) return;
         setFindTarget({ tabId: runtimeTabId, url });
@@ -479,7 +490,19 @@ export function PreviewView({
         }),
       );
     },
-    [desktopOverlay?.hasWebContents, isUnreachable, runtimeTabId, showEmptyState, visible, url],
+    [
+      canOperatePreview,
+      serverInputDisabled,
+      handleZoomIn,
+      handleZoomOut,
+      handleResetZoom,
+      desktopOverlay?.hasWebContents,
+      isUnreachable,
+      runtimeTabId,
+      showEmptyState,
+      visible,
+      url,
+    ],
   );
 
   const findOpen =
@@ -1011,37 +1034,38 @@ export function PreviewView({
           setFocusUrlNonce((value) => (value ?? 0) + 1);
           return;
         case "zoom-in":
-          handleZoomIn();
-          return;
         case "zoom-out":
-          handleZoomOut();
-          return;
         case "reset-zoom":
-          handleResetZoom();
+          handleBrowserCommand(action);
           return;
         case "toggle-panel":
           return;
       }
     });
-  }, [handleRefresh, handleResetZoom, handleZoomIn, handleZoomOut, visible]);
+  }, [handleBrowserCommand, handleRefresh, visible]);
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-thread-key={scopedThreadKey(threadRef)}
       onKeyDownCapture={(event) => {
-        if (
-          !visible ||
-          !previewBridge ||
-          event.defaultPrevented ||
-          !isMacPlatform(navigator.platform)
-        )
-          return;
-        const action = resolvePreviewShortcut(event);
+        if (!visible || event.defaultPrevented || event.nativeEvent.isComposing) return;
+        const zoom = resolvePreviewZoomShortcut(event, navigator.platform);
+        const action =
+          zoom ??
+          (previewBridge && isMacPlatform(navigator.platform)
+            ? resolvePreviewShortcut(event)
+            : null);
         if (!action) return;
+        // Capture before the streamed surface forwards the chord to its page.
         event.preventDefault();
         event.stopPropagation();
         handleBrowserCommand(action);
+      }}
+      onKeyUpCapture={(event) => {
+        if (!visible || !resolvePreviewZoomShortcut(event, navigator.platform)) return;
+        event.preventDefault();
+        event.stopPropagation();
       }}
       onKeyDown={showEmptyState ? handlePreviewStartNavigation : undefined}
     >

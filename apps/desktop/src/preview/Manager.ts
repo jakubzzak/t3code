@@ -29,7 +29,11 @@ import type {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { matchesKeybindingShortcut } from "@t3tools/shared/keybindings";
-import { normalizePreviewUrl, resolvePreviewShortcut } from "@t3tools/shared/preview";
+import {
+  normalizePreviewUrl,
+  resolvePreviewShortcut,
+  resolvePreviewZoomShortcut,
+} from "@t3tools/shared/preview";
 import {
   BrowserWindow,
   ClipboardItem,
@@ -1549,15 +1553,19 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     };
     const beforeInput = (event: Electron.Event, input: Electron.Input): void => {
       syncMenuShortcuts(wc, input);
+      const keys = {
+        key: input.key,
+        metaKey: input.meta,
+        ctrlKey: input.control,
+        altKey: input.alt,
+        shiftKey: input.shift,
+      };
       const shortcut =
-        hostPlatform === "darwin" && input.type === "keyDown"
-          ? resolvePreviewShortcut({
-              key: input.key,
-              metaKey: input.meta,
-              ctrlKey: input.control,
-              altKey: input.alt,
-              shiftKey: input.shift,
-            })
+        input.type === "keyDown" && !input.isComposing
+          ? (resolvePreviewZoomShortcut(
+              keys,
+              hostPlatform === "darwin" ? "MacIntel" : hostPlatform,
+            ) ?? (hostPlatform === "darwin" ? resolvePreviewShortcut(keys) : null))
           : null;
       if (shortcut && ownsKeyboardFocus(wc) && wc.hostWebContents) {
         event.preventDefault();

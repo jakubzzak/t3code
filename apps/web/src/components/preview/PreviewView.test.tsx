@@ -1,17 +1,32 @@
+// @vitest-environment jsdom
 import {
   BUILT_IN_BROWSER_PROFILES,
   DEFAULT_BROWSER_PROFILE_ID,
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
   EnvironmentId,
+  type DesktopPreviewShortcut,
   FILL_PREVIEW_VIEWPORT,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import { act, createElement, Profiler } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
+  zoomDom: false,
+  serverRuntime: false,
+  serverZoom: 1,
+  adjust: vi.fn(),
+  updateSnapshot: vi.fn(),
+  onShortcut: vi.fn(
+    (_listener: (tabId: string, action: DesktopPreviewShortcut) => void) => () => undefined,
+  ),
+  zoomIn: vi.fn(async (_tabId: string) => undefined),
+  zoomOut: vi.fn(async (_tabId: string) => undefined),
+  resetZoom: vi.fn(async (_tabId: string) => undefined),
   navigate: vi.fn(async (_tabId: string, _url: string): Promise<void> => undefined),
   rememberPreviewUrl: vi.fn(),
   readPreparedConnection: vi.fn(() => ({ httpBaseUrl: "http://172.25.85.75:3773" })),
@@ -110,7 +125,7 @@ vi.mock("~/localApi", () => ({
 
 vi.mock("~/previewStateStore", () => ({
   rememberPreviewUrl: mocks.rememberPreviewUrl,
-  updatePreviewServerSnapshot: vi.fn(),
+  updatePreviewServerSnapshot: mocks.updateSnapshot,
   useThreadPreviewState: () => ({
     activeTabId: "tab-1",
     serverEpoch: mocks.serverEpoch,
@@ -133,6 +148,8 @@ vi.mock("~/previewStateStore", () => ({
       ? {}
       : {
           "tab-1": {
+            runtime: mocks.serverRuntime ? "server" : "desktop",
+            zoomFactor: mocks.serverZoom,
             threadId: "thread-1",
             tabId: "tab-1",
             navStatus: {
@@ -155,11 +172,16 @@ vi.mock("~/state/environments", () => ({
 }));
 
 vi.mock("~/state/preview", () => ({
-  previewEnvironment: { open: {}, close: {}, resize: {} },
+  previewEnvironment: { open: {}, close: {}, resize: {}, adjust: "adjust" },
 }));
 
 vi.mock("~/state/use-atom-command", () => ({
-  useAtomCommand: () => vi.fn(),
+  useAtomCommand: (command: unknown) => (command === "adjust" ? mocks.adjust : vi.fn()),
+}));
+
+vi.mock("~/browser/previewRuntime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/browser/previewRuntime")>()),
+  useRendersServerTabNatively: () => mocks.serverRuntime,
 }));
 
 vi.mock("~/browser/browserRecording", () => ({
@@ -219,6 +241,10 @@ vi.mock("~/components/ui/toast", () => ({
 vi.mock("./previewBridge", () => ({
   previewBridge: {
     navigate: mocks.navigate,
+    onShortcut: mocks.onShortcut,
+    zoomIn: mocks.zoomIn,
+    zoomOut: mocks.zoomOut,
+    resetZoom: mocks.resetZoom,
     pickElement: mocks.pickElement,
     setAnnotationSendEnabled: mocks.setAnnotationSendEnabled,
     cancelPickElement: mocks.cancelPickElement,
@@ -245,7 +271,14 @@ vi.mock("./PreviewChromeRow", () => ({
     mocks.toggleNativePictureInPicture =
       props.trailingActions?.props.actions?.toggleNativePictureInPicture ?? null;
     mocks.pictureInPicturePressed = props.pictureInPicture ?? false;
-    return null;
+    return mocks.zoomDom
+      ? createElement(
+          "div",
+          null,
+          createElement("input", { "aria-label": "Address" }),
+          createElement("button", null, "Toolbar"),
+        )
+      : null;
   },
 }));
 
@@ -376,7 +409,6 @@ describe("PreviewView navigation", () => {
 
   it("shows the cursor in a replacement browser while the old instance still records", async () => {
     const document = installTestDom();
-    const { createRoot } = await import("react-dom/client");
     const container = document.createElement("div");
     const root = createRoot(container as unknown as Element);
     const hasCursor = (node: TestNode): boolean =>
@@ -404,7 +436,6 @@ describe("PreviewView navigation", () => {
     vi.useFakeTimers();
     mocks.loading = true;
     const document = installTestDom();
-    const { createRoot } = await import("react-dom/client");
     const root = createRoot(document.createElement("div") as unknown as Element);
     const onRender = vi.fn();
 
@@ -621,7 +652,6 @@ describe("PreviewView navigation", () => {
         }),
     );
     const document = installTestDom();
-    const { createRoot } = await import("react-dom/client");
     const root = createRoot(document.createElement("div") as unknown as Element);
     const view = () => (
       <PreviewView
@@ -667,7 +697,6 @@ describe("PreviewView navigation", () => {
         }),
     );
     const document = installTestDom();
-    const { createRoot } = await import("react-dom/client");
     const root = createRoot(document.createElement("div") as unknown as Element);
     try {
       await act(async () =>
@@ -756,5 +785,160 @@ describe("PreviewView navigation", () => {
     await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledWith(sent, null));
     expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, sent);
     expect(mocks.addImage).not.toHaveBeenCalled();
+  });
+});
+
+describe("PreviewView zoom focus", () => {
+  it.each(["MacIntel", "Win32", "Linux x86_64"])(
+    "owns zoom inside its panel on %s",
+    async (platform) => {
+      document.body.innerHTML = "<main></main><input id='chat'>";
+      mocks.zoomDom = true;
+      vi.stubGlobal("navigator", { platform });
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      mocks.showEmptyState = false;
+      mocks.onShortcut.mockClear();
+      mocks.zoomIn.mockClear();
+      mocks.zoomOut.mockClear();
+      mocks.resetZoom.mockClear();
+      const root = createRoot(document.querySelector("main")!);
+      try {
+        await act(() =>
+          root.render(<PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible />),
+        );
+        for (const selector of ["main input", "main button"]) {
+          const target = document.querySelector<HTMLElement>(selector)!;
+          target.focus();
+          for (const [key, shiftKey, operation] of [
+            ["=", false, mocks.zoomIn],
+            ["+", true, mocks.zoomIn],
+            ["-", false, mocks.zoomOut],
+            ["0", false, mocks.resetZoom],
+          ] as const) {
+            operation.mockClear();
+            const event = new KeyboardEvent("keydown", {
+              key,
+              shiftKey,
+              metaKey: platform === "MacIntel",
+              ctrlKey: platform !== "MacIntel",
+              bubbles: true,
+              cancelable: true,
+            });
+            await act(() => target.dispatchEvent(event));
+            expect(event.defaultPrevented).toBe(true);
+            expect(operation).toHaveBeenCalledExactlyOnceWith(TEST_RUNTIME_TAB_ID);
+          }
+          const plain = new KeyboardEvent("keydown", { key: "=", bubbles: true, cancelable: true });
+          target.dispatchEvent(plain);
+          expect(plain.defaultPrevented).toBe(false);
+        }
+        mocks.zoomIn.mockClear();
+        const chat = document.querySelector<HTMLElement>("#chat")!;
+        chat.focus();
+        chat.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "=",
+            metaKey: true,
+            ctrlKey: platform !== "MacIntel",
+            bubbles: true,
+          }),
+        );
+        expect(mocks.zoomIn).not.toHaveBeenCalled();
+        const onShortcut = mocks.onShortcut.mock.calls.at(-1)![0];
+        onShortcut(TEST_RUNTIME_TAB_ID, "zoom-in");
+        expect(mocks.zoomIn).not.toHaveBeenCalled();
+        const guest = document.createElement("webview");
+        guest.setAttribute("data-preview-tab", TEST_RUNTIME_TAB_ID);
+        guest.tabIndex = 0;
+        document.body.append(guest);
+        guest.focus();
+        onShortcut("another-tab", "zoom-in");
+        expect(mocks.zoomIn).not.toHaveBeenCalled();
+        onShortcut(TEST_RUNTIME_TAB_ID, "zoom-in");
+        expect(mocks.zoomIn).toHaveBeenCalledExactlyOnceWith(TEST_RUNTIME_TAB_ID);
+      } finally {
+        await act(() => root.unmount());
+        vi.unstubAllGlobals();
+        mocks.zoomDom = false;
+        document.body.innerHTML = "";
+      }
+    },
+  );
+});
+
+describe("server-owned native preview zoom", () => {
+  it.each([
+    { zoom: 1, action: "zoom-in", next: 1.1 },
+    { zoom: 1.25, action: "zoom-out", next: 1.1 },
+    { zoom: 1.5, action: "reset-zoom", next: 1 },
+    { zoom: 5, action: "zoom-in", next: null },
+    { zoom: 0.25, action: "zoom-out", next: null },
+    { zoom: 1, action: "reset-zoom", next: null },
+  ] as const)("keeps $action at $zoom server-authoritative", async ({ zoom, action, next }) => {
+    document.body.innerHTML = "<main></main><webview tabindex='0'></webview>";
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mocks.serverRuntime = true;
+    mocks.serverZoom = zoom;
+    STUB_BROWSER_DEFAULTS.zoomFactor = 1.5;
+    mocks.showEmptyState = false;
+    mocks.readEnvironmentScope.mockReturnValue(true);
+    mocks.adjust.mockReset().mockResolvedValue({ _tag: "Success", value: { zoomFactor: next } });
+    mocks.updateSnapshot.mockClear();
+    mocks.zoomIn.mockClear();
+    mocks.zoomOut.mockClear();
+    mocks.resetZoom.mockClear();
+    const root = createRoot(document.querySelector("main")!);
+    try {
+      await act(() =>
+        root.render(<PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible />),
+      );
+      const guest = document.querySelector<HTMLElement>("webview")!;
+      guest.setAttribute("data-preview-tab", TEST_RUNTIME_TAB_ID);
+      guest.focus();
+      await act(() => mocks.onShortcut.mock.calls.at(-1)![0](TEST_RUNTIME_TAB_ID, action));
+      expect(mocks.zoomIn).not.toHaveBeenCalled();
+      expect(mocks.zoomOut).not.toHaveBeenCalled();
+      expect(mocks.resetZoom).not.toHaveBeenCalled();
+      if (next === null) {
+        expect(mocks.adjust).not.toHaveBeenCalled();
+      } else {
+        expect(mocks.adjust).toHaveBeenCalledExactlyOnceWith({
+          environmentId: TEST_THREAD_REF.environmentId,
+          input: { threadId: TEST_THREAD_REF.threadId, tabId: "tab-1", zoomFactor: next },
+        });
+        expect(mocks.updateSnapshot).toHaveBeenCalledExactlyOnceWith(TEST_THREAD_REF, {
+          zoomFactor: next,
+        });
+        mocks.adjust.mockResolvedValue({
+          _tag: "Failure",
+          cause: Cause.fail(new Error("Adjustment rejected")),
+        });
+        mocks.updateSnapshot.mockClear();
+        vi.mocked(toastManager.add).mockClear();
+        await act(() => mocks.onShortcut.mock.calls.at(-1)![0](TEST_RUNTIME_TAB_ID, action));
+        expect(mocks.updateSnapshot).not.toHaveBeenCalled();
+        expect(toastManager.add).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "error", description: "Adjustment rejected" }),
+        );
+      }
+      mocks.readEnvironmentScope.mockReturnValue(false);
+      mocks.adjust.mockClear();
+      await act(() =>
+        root.render(<PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible />),
+      );
+      await act(() => mocks.onShortcut.mock.calls.at(-1)![0](TEST_RUNTIME_TAB_ID, action));
+      expect(mocks.adjust).not.toHaveBeenCalled();
+      const { dispatchPreviewAction } = await import("./previewActionBus");
+      await act(() => dispatchPreviewAction(action));
+      expect(mocks.adjust).not.toHaveBeenCalled();
+    } finally {
+      await act(() => root.unmount());
+      mocks.serverRuntime = false;
+      mocks.serverZoom = 1;
+      STUB_BROWSER_DEFAULTS.zoomFactor = DEFAULT_PREVIEW_ZOOM_FACTOR;
+      mocks.readEnvironmentScope.mockReturnValue(true);
+      vi.unstubAllGlobals();
+      document.body.innerHTML = "";
+    }
   });
 });

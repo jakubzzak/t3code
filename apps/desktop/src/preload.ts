@@ -352,7 +352,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     onShortcut: (listener) => {
       const handler = (_event: Electron.IpcRendererEvent, tabId: unknown, action: unknown) => {
         if (typeof tabId !== "string") return;
-        if (action === "back" || action === "forward" || action === "copy-url" || action === "find")
+        if (
+          action === "back" ||
+          action === "forward" ||
+          action === "copy-url" ||
+          action === "find" ||
+          action === "zoom-in" ||
+          action === "zoom-out" ||
+          action === "reset-zoom"
+        )
           listener(tabId, action);
       };
       ipcRenderer.on(IpcChannels.PREVIEW_SHORTCUT_CHANNEL, handler);

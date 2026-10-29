@@ -937,6 +937,74 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect.each(["darwin", "win32", "linux"] as const)(
+    "routes zoom once through the focused guest on %s",
+    (platform) =>
+      withManager(
+        (manager) =>
+          Effect.gen(function* () {
+            const preview = makeFaviconWebContents();
+            const send = vi.fn();
+            Object.assign(preview.webContents, {
+              hostWebContents: { isDestroyed: () => false, send },
+            });
+            fromId.mockReturnValue(preview.webContents);
+            yield* manager.createTab("tab_zoom_keys");
+            yield* manager.registerWebview("tab_zoom_keys", 42);
+            const beforeInput = preview.listeners.get("before-input-event")!;
+            for (const [key, shift, action] of [
+              ["=", false, "zoom-in"],
+              ["+", true, "zoom-in"],
+              ["+", false, "zoom-in"],
+              ["-", false, "zoom-out"],
+              ["0", false, "reset-zoom"],
+            ] as const) {
+              const input = {
+                type: "keyDown",
+                key,
+                meta: platform === "darwin",
+                control: platform !== "darwin",
+                alt: false,
+                shift,
+              };
+              const preventDefault = vi.fn();
+              for (const focus of [
+                { isFocused: () => false, focusedFrame: {} },
+                { isFocused: () => true, focusedFrame: null },
+              ]) {
+                Object.assign(preview.webContents, focus);
+                beforeInput({ preventDefault } as never, input as never);
+                expect(preventDefault).not.toHaveBeenCalled();
+                expect(send).not.toHaveBeenCalled();
+              }
+              Object.assign(preview.webContents, { isFocused: () => true, focusedFrame: {} });
+              for (const extra of [
+                { meta: false, control: false },
+                { alt: true },
+                { isComposing: true },
+                { type: "keyUp" },
+              ]) {
+                beforeInput({ preventDefault } as never, { ...input, ...extra } as never);
+                expect(preventDefault).not.toHaveBeenCalled();
+                expect(send).not.toHaveBeenCalled();
+              }
+              beforeInput({ preventDefault } as never, input as never);
+              expect(preventDefault).toHaveBeenCalledOnce();
+              expect(send).toHaveBeenCalledExactlyOnceWith(
+                "desktop:preview-shortcut",
+                "tab_zoom_keys",
+                action,
+              );
+              expect(
+                (preview.webContents as Electron.WebContents).setIgnoreMenuShortcuts,
+              ).toHaveBeenLastCalledWith(true);
+              send.mockClear();
+            }
+          }),
+        platform,
+      ),
+  );
+
   effectIt.effect("routes browser commands only from the focused guest", () =>
     withManager((manager) =>
       Effect.gen(function* () {
