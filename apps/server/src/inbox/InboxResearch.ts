@@ -23,7 +23,10 @@ export class InboxResearch extends Context.Service<
   {
     readonly research: (
       notification: InboxNotification,
-    ) => Effect.Effect<ReadonlyArray<string>, InboxError>;
+    ) => Effect.Effect<
+      { suggestions: ReadonlyArray<string>; replyDraft?: string | null },
+      InboxError
+    >;
   }
 >()("t3/inbox/InboxResearch") {}
 
@@ -167,11 +170,11 @@ const make = Effect.gen(function* () {
           const suggestions = result.suggestions.map((text) => text.trim()).filter(Boolean);
           if (observations.length && successfulTools === 0)
             return yield* new InboxError({ detail: "Research could not read its sources." });
-          if (suggestions.length && successfulTools === 0)
+          if ((suggestions.length || result.replyDraft?.trim()) && successfulTools === 0)
             return yield* new InboxError({
               detail: "Research returned a suggestion without checking its sources.",
             });
-          return suggestions;
+          return { suggestions, replyDraft: result.replyDraft?.trim() || null };
         }
         const key = encodeJson(result.request);
         if (step === 6 || requests.has(key))

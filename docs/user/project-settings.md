@@ -195,6 +195,17 @@ expand an item. **Agent** starts the project's configured agent; **Agent chat** 
 and waits for your message. Either action opens an existing linked chat. Its notification context
 is also available in the chat's Details.
 
+For Slack and Linear, focus an Inbox item and press **Enter**, or use **Reply**, to write inline.
+A reply draft icon beside Suggestion means a proposed message will be prefilled. You can edit it;
+**Cmd+Enter** sends (**Ctrl+Enter** on other platforms), while plain Enter adds a newline.
+Slack replies stay in the message's thread, including DMs. Linear replies stay with the relevant
+comment, or become an issue comment when the notification has no comment. Sending marks the
+Blackbird item read and keeps its settlement state. Escape closes the input while keeping edits;
+Cancel discards the draft. If delivery is uncertain, Send checks the existing attempt without
+posting again. Check the original conversation before
+starting another reply. Reconnect the source in **Settings → Integrations** if reply permission
+is missing. Existing connections keep their read access during an upgrade.
+
 Read state, snoozing and settlement belong to Blackbird; they do not change the source. Undo restores
 notification state. Undoing a running delegation requests a stop and keeps the chat and completed
 work. A stop can remain pending or fail, so check its status before assuming the agent has stopped.
@@ -247,7 +258,9 @@ The view is unavailable on web and mobile, including when they connect to a desk
 
 To link a chat to an issue, choose **Connect Linear** in the project's integration settings,
 then select **Linear issue** in the bottom bar before your first message, or in the top-right
-thread details panel once the conversation starts. A linked issue's identifier replaces the label.
+thread details panel once the conversation starts. Chats opened from Linear issue notifications
+automatically associate the originating issue. A linked issue's identifier replaces the label;
+click it to open the issue in the Linear right panel, or use the chevron to choose another issue.
 The list starts with issues assigned to you. Use **Triage** for the workspace’s intake queue,
 or **All issues** to find issues assigned to anyone. Choose a team before the search field to narrow all views; T3 remembers it for this
 project and workspace on this device. **All teams** clears the filter. Search filters the selected

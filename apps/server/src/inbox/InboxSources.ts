@@ -134,7 +134,11 @@ export const make = Effect.gen(function* () {
             yield* settings.getSettings.pipe(Effect.mapError(error)),
             projectId,
           ).settings;
-          if (!config.linearWorkspace) return connections;
+          const slackStatus = yield* slack.status(projectId).pipe(Effect.orElseSucceed(() => ({})));
+          const withSlack = connections.map((connection) =>
+            connection.source === "slack" ? { ...connection, ...slackStatus } : connection,
+          );
+          if (!config.linearWorkspace) return withSlack;
           const status = yield* linear
             .request(projectId, {
               operation: "status",
@@ -142,11 +146,16 @@ export const make = Effect.gen(function* () {
               connectionKey: projectId,
             })
             .pipe(Effect.result);
-          return connections.map((connection) =>
+          return withSlack.map((connection) =>
             connection.source === "linear"
               ? {
                   ...connection,
                   connected: status._tag === "Success" && status.success.connection !== null,
+                  canReply:
+                    status._tag === "Success" && (status.success.connection?.canReply ?? false),
+                  ...(status._tag === "Success" && status.success.connection
+                    ? { account: status.success.connection.name }
+                    : {}),
                   error: status._tag === "Failure" ? status.failure.detail : connection.error,
                 }
               : connection,

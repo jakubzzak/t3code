@@ -112,6 +112,7 @@ export function ingestInboxItem(
     linkedChatSettled: previous?.linkedChatSettled ?? false,
     updatedAt: items.at(-1)!.occurredAt,
     confirmedOutcome: previous?.confirmedOutcome ?? null,
+    ...(previous?.replyAttempt ? { replyAttempt: previous.replyAttempt } : {}),
   };
 }
 export function restoreInboxState(

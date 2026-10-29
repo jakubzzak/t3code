@@ -24,6 +24,7 @@ import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ProjectFiles from "../project/T3ProjectFileLoader.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Settings from "../serverSettings.ts";
+import * as Linear from "../linear/LinearConnection.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as Replay from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -60,6 +61,7 @@ function makeLayer(
   override?: (
     service: ThreadManagement.ThreadManagementService["Service"],
   ) => ThreadManagement.ThreadManagementService["Service"],
+  linearRequest?: Linear.LinearConnection["Service"]["request"],
 ) {
   const receipts = Receipts.layer.pipe(Layer.provide(database));
   const originalThreads = ThreadManagement.layer.pipe(
@@ -72,6 +74,9 @@ function makeLayer(
       ).pipe(Layer.provide(originalThreads))
     : originalThreads;
   const dependencies = Layer.mergeAll(
+    Layer.mock(Linear.LinearConnection)({
+      request: linearRequest ?? (() => Effect.die("Unexpected Linear request")),
+    }),
     Layer.mock(ProjectFiles.T3ProjectFileLoader)({ load: () => Effect.succeed(Option.none()) }),
     runtime,
     threads,
@@ -114,6 +119,84 @@ function makeLayer(
   );
 }
 const layer = makeLayer(settings);
+it.effect.each([false, true])(
+  "links the originating Linear issue before launching (start=$)",
+  (startAgent) => {
+    const projectId = ProjectId.make("linear-inbox-project");
+    const issue = {
+      id: "source-issue",
+      identifier: "ENG-123",
+      title: "Fix login",
+      workspace: "acme",
+      url: "https://linear.app/acme/issue/ENG-123/fix-login",
+      branchName: "eng-123-fix-login",
+    };
+    let lookups = 0;
+    const configured = Settings.layerTest({
+      inboxAgentEnabled: true,
+      inboxAgentModelSelection: { instanceId: "codex", model: "gpt-5" },
+      projectSettingsOverrides: { [projectId]: { linearWorkspace: "acme" } },
+    });
+    return Effect.gen(function* () {
+      const agent = yield* Agent.InboxAgent;
+      const engine = yield* Orchestrator.OrchestratorV2;
+      const notification = ingestInboxItem(projectId, {
+        source: "linear",
+        id: "linear-notification",
+        connectionId: "org:me",
+        groupId: issue.id,
+        location: issue.identifier,
+        title: "Assigned to you",
+        author: "Alex",
+        content: "Please investigate.",
+        linearIssue: {
+          id: issue.id,
+          title: issue.title,
+          description: null,
+          comments: [],
+          commentsComplete: true,
+        },
+        url: issue.url,
+        occurredAt: "2026-10-29T08:00:00Z",
+      });
+      const threadId = ThreadId.make("linear-inbox-chat");
+      const linked = { ...notification, state: { ...notification.state, threadId } };
+      yield* agent.start(linked, startAgent);
+      assert.deepEqual((yield* engine.getThreadShell(threadId))?.linkedLinearIssue, issue);
+      yield* agent.start(linked, startAgent);
+      assert.equal(lookups, 1);
+      assert.equal((yield* engine.getThreadShell(threadId))?.worktreePath, null);
+      if (!startAgent) {
+        const selected = { ...issue, id: "explicitly-selected", identifier: "ENG-456" };
+        yield* engine.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("manual-issue-selection"),
+          threadId,
+          linkedLinearIssue: selected,
+        });
+        yield* agent.start(linked, false);
+        assert.deepEqual((yield* engine.getThreadShell(threadId))?.linkedLinearIssue, selected);
+        assert.equal(lookups, 1);
+      }
+    }).pipe(
+      Effect.provide(
+        makeLayer(configured, undefined, (id, input) => {
+          assert.equal(id, projectId);
+          assert.equal(input.operation, "issue");
+          assert.equal(input.issueId, issue.id);
+          lookups++;
+          return Effect.succeed({
+            configured: true,
+            connection: { workspace: "acme", userId: "me", name: "Me", email: "me@example.test" },
+            issues: [issue],
+          });
+        }),
+      ),
+      Effect.scoped,
+    );
+  },
+);
+
 it.effect(
   "creates a compose-only chat, dispatches direct delegation once and retains the chat on stop",
   () =>

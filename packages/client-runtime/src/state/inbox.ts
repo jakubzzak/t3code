@@ -80,6 +80,10 @@ export function createInboxEnvironmentAtoms<R, E>(
       label: "inbox:loadPreviousComments",
       tag: WS_METHODS.inboxGet,
     }),
+    reply: createEnvironmentRpcCommand(runtime, {
+      label: "inbox:reply",
+      tag: WS_METHODS.inboxReply,
+    }),
     mutate: createEnvironmentRpcCommand(runtime, {
       label: "inbox:mutate",
       tag: WS_METHODS.inboxMutate,

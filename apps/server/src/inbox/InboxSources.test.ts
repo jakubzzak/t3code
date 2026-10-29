@@ -132,6 +132,7 @@ it.effect(
           }),
       });
       const inbox = Inbox.InboxService.of({
+        reply: () => Effect.die("Not used"),
         cacheLinearIssue: (input) =>
           Effect.sync(() => {
             threadNotification = threadNotification
@@ -171,6 +172,7 @@ it.effect(
         ),
         Layer.provide(
           Layer.succeed(Linear.LinearConnection, {
+            createComment: () => Effect.die("Not used"),
             readIssue: (_projectId, id, comments) =>
               Effect.gen(function* () {
                 linearDetailReads.push({ id, comments });

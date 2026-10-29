@@ -8,7 +8,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { Tabs } from "@base-ui/react/tabs";
-import { PlusIcon, UnlinkIcon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon, UnlinkIcon } from "lucide-react";
 import { LinearIssueViewTabs, linearIssueViews, useLinearIssueViews } from "./LinearIssueViews";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -39,9 +39,14 @@ import {
 } from "react";
 import { useThreadShellsForProjectRefs } from "~/state/entities";
 import { ComposerContextLabel } from "../ComposerContextLabel";
-import { ComposerControl } from "../chat/ComposerControl";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
-import { THREAD_DETAILS_PANEL_ICON_CLASS } from "../chat/threadDetailsPanelStyles";
+import {
+  THREAD_DETAILS_PANEL_ICON_CLASS,
+  THREAD_DETAILS_PANEL_CHEVRON_CLASS,
+  THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
+  THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
+} from "../chat/threadDetailsPanelStyles";
+import { Group, GroupSeparator } from "../ui/group";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -348,35 +353,79 @@ export function LinearIssuePicker(props: Props) {
       buttons[index + (event.key === "ArrowDown" ? 1 : -1)]?.focus();
     }
   };
+  const openLinkedIssue = async () => {
+    if (!props.linkedIssue || !props.onOpenIssue) {
+      return;
+    }
+    setActionError(null);
+    try {
+      await props.onOpenIssue(props.linkedIssue);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "Unable to open the Linear issue.");
+    }
+  };
+  const ActionGroup = isPanel ? "div" : Group;
+  const primaryProps = {
+    panel: isPanel,
+    part: "primary" as const,
+    size: "xs" as const,
+    variant: "outline" as const,
+    tone: error ? ("destructive" as const) : ("default" as const),
+    disabled: busy || creation?.status === "setting-up",
+    "aria-label": `${props.linkedIssue ? `Open Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"}${error ? (props.linkedIssue ? " — error, choose an issue for details" : " — error, open for details") : ""}`,
+  };
+  const issueLabel = (
+    <>
+      <LinearIcon
+        aria-hidden="true"
+        className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : undefined}
+      />
+      <ComposerContextLabel displayMode={displayMode}>
+        {busy ? "Setting up issue…" : (props.linkedIssue?.identifier ?? "Linear issue")}
+      </ComposerContextLabel>
+    </>
+  );
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
-            isPanel ? (
-              <ThreadDetailsControl part="select" tone={error ? "destructive" : "default"} />
-            ) : (
-              <ComposerControl
-                size="xs"
-                className={
-                  error
-                    ? "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive"
-                    : undefined
-                }
-              />
-            )
-          }
-          disabled={busy || creation?.status === "setting-up"}
-          aria-label={`${props.linkedIssue ? `Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"}${error ? " — error, open for details" : ""}`}
+        <ActionGroup
+          role="group"
+          aria-label="Linear issue"
+          {...(isPanel ? { className: THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS } : {})}
         >
-          <LinearIcon
-            aria-hidden="true"
-            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : undefined}
-          />
-          <ComposerContextLabel displayMode={displayMode}>
-            {busy ? "Setting up issue…" : (props.linkedIssue?.identifier ?? "Linear issue")}
-          </ComposerContextLabel>
-        </PopoverTrigger>
+          {props.linkedIssue && props.onOpenIssue ? (
+            <ThreadDetailsControl {...primaryProps} onClick={() => void openLinkedIssue()}>
+              {issueLabel}
+            </ThreadDetailsControl>
+          ) : (
+            <PopoverTrigger render={<ThreadDetailsControl {...primaryProps} />}>
+              {issueLabel}
+            </PopoverTrigger>
+          )}
+          {isPanel ? (
+            <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+          ) : (
+            <GroupSeparator />
+          )}
+          <PopoverTrigger
+            render={
+              <ThreadDetailsControl
+                panel={isPanel}
+                part="secondary"
+                size="icon-xs"
+                variant="outline"
+                tone={error ? "destructive" : "default"}
+              />
+            }
+            disabled={busy || creation?.status === "setting-up"}
+            aria-label="Choose Linear issue"
+          >
+            <ChevronDownIcon
+              aria-hidden="true"
+              className={isPanel ? THREAD_DETAILS_PANEL_CHEVRON_CLASS : "size-4"}
+            />
+          </PopoverTrigger>
+        </ActionGroup>
         <PopoverPopup
           width="lg"
           padding="compact"

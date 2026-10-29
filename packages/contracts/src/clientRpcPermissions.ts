@@ -38,6 +38,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.inboxDisconnectSource]: AuthSettingsWriteScope,
   [WS_METHODS.inboxRefreshSource]: AuthOrchestrationOperateScope,
   [WS_METHODS.inboxMutate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.inboxReply]: AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsGenerateReviewGuide]: AuthOrchestrationOperateScope,
   [WS_METHODS.sourceControlCloneRepository]: AuthSourceControlWriteScope,
   [WS_METHODS.sourceControlPublishRepository]: AuthSourceControlWriteScope,

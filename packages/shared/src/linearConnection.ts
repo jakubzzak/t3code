@@ -2,6 +2,8 @@
 import { sealLinearConnection } from "./linearConnectionTransfer.ts";
 import * as NodeCrypto from "node:crypto";
 import {
+  InboxReplyError,
+  InboxReplyMessage,
   LinearConnectionInfo,
   LinearIssue,
   LinearTeam,
@@ -13,6 +15,7 @@ import * as Schema from "effect/Schema";
 
 export interface LinearConnectionDependencies {
   clientId: string;
+  scopes?: string;
   now: () => number;
   redirectUri: string;
   read: () => Promise<string | null>;
@@ -30,6 +33,7 @@ const Credential = Schema.Struct({
 });
 const Credentials = Schema.Record(Schema.String, Credential);
 const Token = Schema.Struct({
+  scope: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
   access_token: Schema.String,
   refresh_token: Schema.String,
   expires_in: Schema.Number,
@@ -73,6 +77,34 @@ const issueFields = `id identifier title url branchName priority assignee { name
   state { name color type position team { states(filter: { type: { eq: "started" } }) { nodes { position } } } }`;
 const fields = `nodes { ${issueFields} } pageInfo { hasNextPage endCursor }`;
 
+const decodeReplyIdentity = Schema.decodeUnknownSync(
+  Schema.Struct({
+    data: Schema.Struct({
+      viewer: Schema.Struct({ id: Schema.String }),
+      organization: Schema.Struct({ id: Schema.String }),
+    }),
+  }),
+);
+const decodePostedComment = Schema.decodeUnknownSync(
+  Schema.Struct({
+    data: Schema.NullOr(
+      Schema.Struct({
+        commentCreate: Schema.Struct({
+          success: Schema.Boolean,
+          comment: Schema.NullOr(
+            Schema.Struct({
+              id: Schema.String,
+              body: Schema.String,
+              createdAt: Schema.String,
+              user: Schema.NullOr(Schema.Struct({ name: Schema.String })),
+            }),
+          ),
+        }),
+      }),
+    ),
+  }),
+);
+const decodeReplyMessage = Schema.decodeUnknownSync(InboxReplyMessage);
 const decodeCredential = Schema.decodeUnknownSync(Credential);
 const decodeCredentials = Schema.decodeUnknownSync(Credentials);
 const decodeToken = Schema.decodeUnknownSync(Token);
@@ -234,7 +266,7 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
           client_id: clientId,
           redirect_uri: dependencies.redirectUri,
           response_type: "code",
-          scope: "read",
+          scope: dependencies.scopes ?? "read",
           actor: "user",
           state,
           code_challenge: NodeCrypto.createHash("sha256").update(verifier).digest("base64url"),
@@ -267,6 +299,8 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
         if (identity.data.organization.urlKey !== input.workspace)
           throw new Error("The authorized Linear workspace does not match this project.");
         controller.signal.throwIfAborted();
+        const grantedScopes =
+          typeof tokens.scope === "string" ? tokens.scope.split(/[ ,]+/) : (tokens.scope ?? []);
         credential = {
           clientId,
           connection: {
@@ -274,6 +308,12 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
             userId: identity.data.viewer.id,
             name: identity.data.viewer.name,
             email: identity.data.viewer.email,
+            ...(dependencies.scopes
+              ? {
+                  canReply:
+                    grantedScopes.includes("comments:create") || grantedScopes.includes("write"),
+                }
+              : {}),
           },
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
@@ -491,6 +531,75 @@ export function createLinearConnection(dependencies: LinearConnectionDependencie
           );
         await dependencies.write(JSON.stringify({ ...credentials, [connectionKey]: credential }));
         return credential.connection;
+      }),
+    createComment: (
+      connectionKey: string,
+      workspace: string,
+      expectedConnectionId: string,
+      input: { issueId: string; parentId: string | null; body: string },
+    ) =>
+      serial(async () => {
+        const credentials = await read();
+        const existing = credentials[connectionKey];
+        if (
+          !existing ||
+          existing.connection.workspace !== workspace ||
+          !existing.connection.canReply
+        )
+          throw new InboxReplyError({ reason: "permission" });
+        const credential = await refreshCredential(credentials, connectionKey, existing);
+        const identity = decodeReplyIdentity(
+          await graphql(credential.accessToken, "query { viewer { id } organization { id } }"),
+        );
+        if (`${identity.data.organization.id}:${identity.data.viewer.id}` !== expectedConnectionId)
+          throw new InboxReplyError({ reason: "permission" });
+        let response: Response;
+        try {
+          response = await dependencies.fetch("https://api.linear.app/graphql", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${credential.accessToken}`,
+            },
+            body: JSON.stringify({
+              query:
+                "mutation InboxReply($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id body createdAt user { name } } } }",
+              variables: {
+                input: {
+                  issueId: input.issueId,
+                  ...(input.parentId ? { parentId: input.parentId } : {}),
+                  body: input.body,
+                },
+              },
+            }),
+            signal: AbortSignal.timeout(30_000),
+          });
+        } catch {
+          throw new InboxReplyError({ reason: "uncertain" });
+        }
+        if (response.status === 401 || response.status === 403)
+          throw new InboxReplyError({ reason: "permission" });
+        if (response.status === 429)
+          throw new InboxReplyError({
+            reason: "rate-limit",
+            retryAfter: Number(response.headers.get("retry-after")) || 60,
+          });
+        if (!response.ok)
+          throw new InboxReplyError({ reason: response.status >= 500 ? "uncertain" : "rejected" });
+        try {
+          const result = decodePostedComment(await response.json());
+          const comment = result.data?.commentCreate.comment;
+          if (!result.data?.commentCreate.success || !comment)
+            throw new InboxReplyError({ reason: "uncertain" });
+          return decodeReplyMessage({
+            id: comment.id,
+            text: comment.body,
+            occurredAt: comment.createdAt,
+            author: comment.user?.name ?? credential.connection.name,
+          });
+        } catch {
+          throw new InboxReplyError({ reason: "uncertain" });
+        }
       }),
     query: (
       connectionKey: string,

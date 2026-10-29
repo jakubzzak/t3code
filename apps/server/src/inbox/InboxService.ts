@@ -11,6 +11,11 @@ import {
   CommandId,
   InboxError,
   InboxMutation,
+  InboxReplyInput,
+  InboxReplyTarget,
+  InboxReplyError,
+  type InboxReplyAttempt,
+  type InboxReplyMessage,
   type InboxMutateInput,
   type InboxMutationResult,
   type InboxNotification,
@@ -25,6 +30,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as InboxRepository from "./InboxRepository.ts";
 import * as InboxAnalysis from "./InboxAnalysis.ts";
 import * as InboxResearch from "./InboxResearch.ts";
+import * as ReplyTransport from "./InboxReplyTransport.ts";
 import * as InboxAgent from "./InboxAgent.ts";
 import { readableInboxItem, readableNotification } from "./notificationContent.ts";
 import {
@@ -37,6 +43,10 @@ import {
 export class InboxService extends Context.Service<
   InboxService,
   {
+    readonly reply: <E = never, R = never>(
+      input: InboxReplyInput,
+      check?: Effect.Effect<void, E, R>,
+    ) => Effect.Effect<InboxReplyAttempt, InboxError | E, ReplyTransport.InboxReplyTransport | R>;
     readonly list: (input: {
       projectId: ProjectId;
       search?: string;
@@ -84,6 +94,7 @@ const make = Effect.gen(function* () {
   const analysisDrainPermit = yield* Semaphore.make(1);
   const settings = yield* ServerSettings.ServerSettingsService;
   const mutex = yield* Semaphore.make(1);
+  const sending = new Set<CommandId>();
   const scope = yield* Effect.scope;
   const readProjectSettings = (projectId: ProjectId) =>
     settings.getSettings.pipe(
@@ -113,9 +124,11 @@ const make = Effect.gen(function* () {
       const next: InboxNotification = {
         ...notification,
         suggestionResearch: {
-          status: notification.analysis.suggestions.some((text) => text.trim())
-            ? "ready"
-            : "researching",
+          status:
+            notification.analysis.suggestions.some((text) => text.trim()) ||
+            notification.analysis.replyDraft?.trim()
+              ? "ready"
+              : "researching",
           attempts: 0,
           version: 0,
           retryAt: null,
@@ -402,6 +415,22 @@ const make = Effect.gen(function* () {
               undoable = false;
               break;
             }
+            case "ignore-reply": {
+              if (
+                current.replyAttempt?.status === "pending" &&
+                sending.has(current.replyAttempt.commandId)
+              )
+                return yield* new InboxError({
+                  detail: "A reply is still pending. Check its result before discarding it.",
+                });
+              const { replyAttempt: _reply, ...rest } = current;
+              next = {
+                ...rest,
+                analysis: current.analysis ? { ...current.analysis, replyDraft: null } : null,
+              };
+              undoable = false;
+              break;
+            }
             case "outcome":
               next = { ...current, confirmedOutcome: action.text.trim() || null };
               undoable = false;
@@ -622,17 +651,21 @@ const make = Effect.gen(function* () {
             const delay = state.attempts * 5000;
             const suggestions =
               result._tag === "Success"
-                ? result.success.map((text) => text.trim()).filter(Boolean)
+                ? result.success.suggestions.map((text) => text.trim()).filter(Boolean)
                 : [];
             // Research annotates the current content; it must not invalidate a pending triage action.
             yield* repository.put({
               ...current,
-              analysis: { ...current.analysis, suggestions },
+              analysis: {
+                ...current.analysis,
+                suggestions,
+                replyDraft: result._tag === "Success" ? (result.success.replyDraft ?? null) : null,
+              },
               suggestionResearch: {
                 ...state,
                 status:
                   result._tag === "Success"
-                    ? suggestions.length
+                    ? suggestions.length || result.success.replyDraft?.trim()
                       ? "ready"
                       : "empty"
                     : exhausted
@@ -705,7 +738,168 @@ const make = Effect.gen(function* () {
     Effect.repeat(Schedule.spaced("30 seconds")),
     Effect.forkIn(scope),
   );
+  // A source success is retained until the local transaction succeeds. Durable pending receipts
+  // prevent automatic retransmission after process loss, including an uncertain HTTP outcome.
+  const delivered = new Map<CommandId, InboxReplyMessage>();
+  const sameTarget = Schema.toEquivalence(InboxReplyTarget);
+  const sameInput = Schema.toEquivalence(InboxReplyInput);
+  const reply: InboxService["Service"]["reply"] = (input, check = Effect.void) =>
+    Effect.suspend(() => {
+      let claimed = false;
+      return Effect.gen(function* () {
+        const prepared = yield* mutex.withPermits(1)(
+          Effect.gen(function* () {
+            yield* check;
+            yield* requireEnabled(input.projectId);
+            if (!input.text.trim())
+              return yield* new InboxError({ detail: "Write a reply before sending." });
+            const previous = yield* repository.replyReceipt(input.commandId);
+            if (previous) {
+              if (!sameInput(previous, input))
+                return yield* new InboxError({
+                  detail: "This command ID belongs to another reply.",
+                });
+              return { attempt: previous, fresh: false };
+            }
+            const notification = yield* repository.get(input.projectId, input.id);
+            const item = notification?.items.find((candidate) => candidate.id === input.itemId);
+            // Old cached Slack threads retain authoritative channel/root IDs. Old Linear snapshots
+            // must be refreshed by intake: their displayed comments are insufficient to infer a target.
+            const target =
+              item?.replyTarget ??
+              (notification?.source === "slack" && notification.slackThread
+                ? {
+                    source: "slack" as const,
+                    channelId: notification.slackThread.channelId,
+                    threadTs: notification.slackThread.ts,
+                  }
+                : undefined);
+            if (!notification || !item || !target || !sameTarget(target, input.target))
+              return yield* new InboxError({
+                detail:
+                  "The reply destination is unavailable or has changed. Reopen the notification after refreshing its source.",
+              });
+            if (
+              notification.replyAttempt &&
+              ["pending", "uncertain"].includes(notification.replyAttempt.status)
+            )
+              return yield* new InboxError({
+                detail:
+                  "Check the original conversation: a previous reply has uncertain delivery and will not be sent again.",
+              });
+            const attempt: InboxReplyAttempt = { ...input, status: "pending" };
+            yield* repository.recordReply(
+              { ...notification, replyAttempt: attempt, revision: notification.revision + 1 },
+              attempt,
+            );
+            sending.add(input.commandId);
+            claimed = true;
+            return { attempt, fresh: true };
+          }),
+        );
+        if (!prepared.fresh && !delivered.has(input.commandId)) return prepared.attempt;
+        let message = delivered.get(input.commandId);
+        let failed: InboxReplyError | undefined;
+        if (!message) {
+          const transport = yield* ReplyTransport.InboxReplyTransport;
+          const notification = yield* repository.get(input.projectId, input.id);
+          if (!notification) return yield* new InboxError({ detail: "Notification unavailable." });
+          yield* check;
+          const result = yield* transport
+            .send(input, notification.connectionId)
+            .pipe(Effect.result);
+          if (result._tag === "Success") {
+            message = result.success;
+            delivered.set(input.commandId, message);
+          } else failed = result.failure;
+        }
+        const attempt: InboxReplyAttempt = {
+          ...input,
+          status: message ? "sent" : failed?.reason === "uncertain" ? "uncertain" : "failed",
+          ...(message ? { message } : {}),
+          ...(failed ? { error: failed.message } : {}),
+        };
+        yield* mutex.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* repository.get(input.projectId, input.id);
+            if (!current) return yield* new InboxError({ detail: "Notification unavailable." });
+            let next: InboxNotification = {
+              ...current,
+              replyAttempt: attempt,
+              revision: current.revision + 1,
+            };
+            if (message) {
+              next = {
+                ...next,
+                state: { ...next.state, read: true },
+                analysis: next.analysis ? { ...next.analysis, replyDraft: null } : null,
+              };
+              if (input.target.source === "slack" && next.slackThread) {
+                const thread = next.slackThread;
+                const messages = new Map(thread.messages.map((entry) => [entry.ts, entry]));
+                const newMessage = !messages.has(message.id);
+                messages.set(message.id, {
+                  ts: message.id,
+                  author: message.author,
+                  content: message.text,
+                  formattedContent: message.text,
+                  occurredAt: message.occurredAt,
+                });
+                next = {
+                  ...next,
+                  slackThread: {
+                    ...thread,
+                    messages: [...messages.values()].sort((a, b) => Number(a.ts) - Number(b.ts)),
+                    latestReplyTs: message.id,
+                    replyCount:
+                      thread.replyCount === null ? null : thread.replyCount + (newMessage ? 1 : 0),
+                  },
+                };
+              }
+              if (input.target.source === "linear") {
+                const append = (issue: InboxLinearIssue) => ({
+                  ...issue,
+                  comments: [
+                    ...issue.comments.filter((c) => c.id !== message!.id),
+                    {
+                      id: message!.id,
+                      author: message!.author,
+                      body: message!.text,
+                      occurredAt: message!.occurredAt,
+                    },
+                  ],
+                  ...(issue.commentCount === undefined
+                    ? {}
+                    : {
+                        commentCount:
+                          issue.commentCount +
+                          (issue.comments.some((c) => c.id === message!.id) ? 0 : 1),
+                      }),
+                });
+                next = {
+                  ...next,
+                  ...(next.linearIssue ? { linearIssue: append(next.linearIssue) } : {}),
+                  items: next.items.map((item) =>
+                    item.linearIssue ? { ...item, linearIssue: append(item.linearIssue) } : item,
+                  ),
+                };
+              }
+            }
+            yield* repository.recordReply(next, attempt);
+          }),
+        );
+        delivered.delete(input.commandId);
+        return attempt;
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (claimed) sending.delete(input.commandId);
+          }),
+        ),
+      );
+    });
   return InboxService.of({
+    reply,
     list: (input) =>
       mutex
         .withPermits(1)(
@@ -721,7 +915,12 @@ const make = Effect.gen(function* () {
               const next = yield* reconcile(item).pipe(Effect.flatMap(prepareResearch));
               if (config.inboxSummaryEnabled && !next.analysis && !next.processingError) continue;
               // List responses are bounded previews. Expanded rows fetch their full detail separately.
-              const { slackThread: _thread, linearIssue: _issue, ...preview } = next;
+              const {
+                slackThread: _thread,
+                linearIssue: _issue,
+                replyAttempt: _replyAttempt,
+                ...preview
+              } = next;
               result.push({
                 ...preview,
                 items: next.items
@@ -754,6 +953,7 @@ const make = Effect.gen(function* () {
                           ? `${next.analysis.summary.slice(0, 600)}…`
                           : next.analysis.summary,
                       suggestions: [],
+                      replyDraft: null,
                     }
                   : null,
               });

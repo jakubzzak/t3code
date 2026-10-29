@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { LightbulbIcon, RotateCwIcon } from "lucide-react";
+import { LightbulbIcon, RotateCwIcon, FilePenLineIcon } from "lucide-react";
 import type { InboxNotification } from "@t3tools/contracts";
 import { Button } from "../ui/button";
 import { inboxResearchPhrases, nextResearchPhrase } from "./inboxResearchPresentation";
@@ -141,10 +141,12 @@ export function InboxSuggestionStatus({
 export function InboxSuggestionCallout({
   visible,
   suggestions,
+  hasDraft = false,
   children,
 }: {
   visible: boolean;
   suggestions: ReadonlyArray<string>;
+  hasDraft?: boolean | undefined;
   children: (suggestions: ReadonlyArray<string>) => ReactNode;
 }) {
   const [retained, setRetained] = useState({ input: suggestions, content: suggestions });
@@ -165,6 +167,12 @@ export function InboxSuggestionCallout({
           <p className="mb-1 flex items-center gap-1 text-2xs text-muted-foreground">
             <LightbulbIcon aria-hidden="true" className="size-3" />
             Suggestion
+            {hasDraft && (
+              <>
+                <span aria-hidden="true">·</span>
+                <FilePenLineIcon aria-label="Reply draft available" role="img" className="size-3" />
+              </>
+            )}
           </p>
           {children(suggestions.length ? suggestions : retained.content)}
         </section>

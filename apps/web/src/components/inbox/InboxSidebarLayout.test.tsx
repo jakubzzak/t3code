@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
+import { InboxReplyComposer } from "./InboxReplyComposer";
+import { openInboxReply, useInboxReplyDrafts } from "./inboxReplyDraft";
+import { AsyncResult } from "effect/reactivity";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import {
   DEFAULT_SERVER_SETTINGS,
+  CommandId,
   EnvironmentId,
   ProjectId,
+  ProviderInstanceId,
   type InboxNotification,
 } from "@t3tools/contracts";
 import { InboxAnimatedList, InboxRow } from "./InboxSidebarLayout";
@@ -15,6 +20,9 @@ const state = vi.hoisted(() => ({
   action: vi.fn(),
   open: vi.fn().mockResolvedValue(undefined),
   refresh: vi.fn(),
+  send: vi.fn(),
+  mutate: vi.fn(),
+  deferDetail: false,
   details: new Map<string, InboxNotification>(),
 }));
 vi.mock("~/state/entities", () => ({
@@ -33,16 +41,26 @@ vi.mock("~/state/entities", () => ({
     ]),
   waitForThreadShell: vi.fn(),
 }));
+vi.mock("~/state/use-atom-command", () => ({
+  useAtomCommand: (command: { label: string }) =>
+    command.label === "reply" ? state.send : state.mutate,
+}));
+vi.mock("~/rpc/atomRegistry", () => ({ appAtomRegistry: { refresh: () => {} } }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
 vi.mock("~/state/inbox", () => ({
   inboxEnvironment: {
-    mutate: { permissionAtom: () => null },
+    mutate: { label: "mutate", permissionAtom: () => null },
+    reply: { label: "reply", permissionAtom: () => null },
+    sources: () => null,
+    list: () => null,
     get: (request: unknown) => request,
   },
+  readInboxNotification: async (_environmentId: string, _projectId: string, id: string) =>
+    state.details.get(id) ?? null,
 }));
 vi.mock("~/state/query", () => ({
   useEnvironmentQuery: (request: { input: { id: string } } | null) => ({
-    data: request ? (state.details.get(request.input.id) ?? null) : null,
+    data: !state.deferDetail && request ? (state.details.get(request.input.id) ?? null) : null,
     error: null,
     refresh: state.refresh,
   }),
@@ -61,6 +79,10 @@ afterEach(async () => {
   await act(async () => root.unmount());
   root = createRoot(container);
   state.details.clear();
+  useInboxReplyDrafts.setState({ drafts: {} });
+  state.send.mockReset();
+  state.mutate.mockReset();
+  state.deferDetail = false;
   vi.clearAllMocks();
 });
 const notification: InboxNotification = {
@@ -75,6 +97,7 @@ const notification: InboxNotification = {
     {
       id: "m",
       source: "slack",
+      replyTarget: { source: "slack", channelId: "C1", threadTs: "1793260800.000001" },
       connectionId: "team",
       groupId: "thread",
       location: "#support",
@@ -232,4 +255,223 @@ it("fades the settled notification out while remaining notifications slide up wi
     vi.unstubAllGlobals();
     delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
   }
+});
+
+it("opens an inline reply using Enter on the focused row", async () => {
+  const target = { source: "slack" as const, channelId: "C1", threadTs: "1793260800.000001" };
+  state.details.set("other", {
+    ...notification,
+    id: "other",
+    items: notification.items.map((item) => ({ ...item, replyTarget: target })),
+  });
+  await act(async () => root.render(<Rows />));
+  await act(async () => row("other").focus());
+  await act(async () =>
+    row("other").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+  );
+  expect(row("other").querySelector('textarea[aria-label="Reply"]')).not.toBeNull();
+  expect(state.action).not.toHaveBeenCalled();
+});
+
+it("keeps edited draft text through newer suggestions, Escape, and reopening", async () => {
+  const n = {
+    ...notification,
+    analysis: {
+      description: "Release",
+      summary: "Confirm release",
+      suggestions: ["Reply to Alex"],
+      replyDraft: "Friday works.",
+      precedentIds: [],
+      generatedAt: notification.updatedAt,
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+    },
+  };
+  await act(async () => {
+    openInboxReply(environmentId, n);
+    root.render(<InboxReplyComposer environmentId={environmentId} notification={n} />);
+  });
+  const input = container.querySelector("textarea")!;
+  expect(input.value).toBe("Friday works.");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(
+      input,
+      "Monday instead.",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const newer = { ...n, analysis: { ...n.analysis, replyDraft: "Tuesday works." } };
+  await act(async () =>
+    root.render(<InboxReplyComposer environmentId={environmentId} notification={newer} />),
+  );
+  expect(input.value).toBe("Monday instead.");
+  await act(async () =>
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  expect(container.querySelector("textarea")).toBeNull();
+  await act(async () => openInboxReply(environmentId, newer));
+  expect(container.querySelector("textarea")!.value).toBe("Monday instead.");
+});
+
+it("Cmd+Enter sends once, disables the pending input, and preserves text after failure", async () => {
+  let finish!: (value: unknown) => void;
+  state.send.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await act(async () => {
+    openInboxReply(environmentId, notification);
+    root.render(<InboxReplyComposer environmentId={environmentId} notification={notification} />);
+  });
+  const input = container.querySelector("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(
+      input,
+      "Friday works.",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+    );
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+    );
+  });
+  expect(state.send).toHaveBeenCalledTimes(1);
+  expect(input.disabled).toBe(true);
+  const sent = state.send.mock.calls[0]![0].input;
+  await act(async () =>
+    finish(AsyncResult.success({ ...sent, status: "failed", error: "Reconnect Slack." })),
+  );
+  expect(input.disabled).toBe(false);
+  expect(input.value).toBe("Friday works.");
+  expect(container.textContent).toContain("Reconnect Slack.");
+  expect(container.textContent).not.toContain("Check result");
+  for (const text of ["Monday", "Monday works instead."]) {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(
+        input,
+        text,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe(text);
+  }
+  expect(container.textContent).not.toContain("Check result");
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+    ),
+  );
+  expect(state.send).toHaveBeenCalledTimes(2);
+  const retried = state.send.mock.calls[1]![0].input;
+  expect(retried.text).toBe("Monday works instead.");
+  expect(retried.commandId).not.toBe(sent.commandId);
+  await act(async () => finish(AsyncResult.success({ ...retried, status: "sent" })));
+  expect(container.querySelector("textarea")).toBeNull();
+});
+
+it("loads the full reply draft when Enter beats the row detail query", async () => {
+  state.deferDetail = true;
+  state.details.set(notification.id, {
+    ...notification,
+    analysis: {
+      description: "Release",
+      summary: "Confirm release",
+      suggestions: [],
+      replyDraft: "The saved message draft.",
+      precedentIds: [],
+      generatedAt: notification.updatedAt,
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
+    },
+  });
+  await act(async () =>
+    root.render(
+      <InboxRow
+        entry={{ environmentId, notification }}
+        focused
+        hints={false}
+        pending={false}
+        onFocus={() => {}}
+        onAction={() => {}}
+      />,
+    ),
+  );
+  const row = container.querySelector("article")!;
+  await act(async () =>
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+  );
+  expect(container.querySelector("textarea")!.value).toBe("The saved message draft.");
+});
+
+it("restores an uncertain attempt and checks it with Send, with only Send and Cancel actions", async () => {
+  const attempt = {
+    projectId: notification.projectId,
+    id: notification.id,
+    itemId: notification.items[0]!.id,
+    commandId: CommandId.make("uncertain-reply"),
+    target: notification.items[0]!.replyTarget!,
+    text: "The message whose delivery is uncertain.",
+    status: "uncertain" as const,
+    error: "Check the original conversation before another reply.",
+  };
+  const n = { ...notification, replyAttempt: attempt };
+  state.send.mockResolvedValue(AsyncResult.success(attempt));
+  await act(async () => {
+    openInboxReply(environmentId, n);
+    root.render(<InboxReplyComposer environmentId={environmentId} notification={n} />);
+  });
+  const input = container.querySelector("textarea")!;
+  expect(input.value).toBe(attempt.text);
+  expect(input.disabled).toBe(true);
+  const buttons = [...container.querySelectorAll("section button")];
+  expect(buttons.map((button) => button.textContent)).toEqual(["Send", "Cancel"]);
+  expect(container.textContent).toContain("Thread reply");
+  await act(async () => (buttons[0] as HTMLButtonElement).click());
+  expect(state.send).toHaveBeenCalledExactlyOnceWith({
+    environmentId,
+    input: expect.objectContaining({ commandId: attempt.commandId, text: attempt.text }),
+  });
+  expect(input.value).toBe(attempt.text);
+});
+
+it("Cancel discards the reply without sending, while reopening starts empty", async () => {
+  state.mutate.mockResolvedValue(AsyncResult.success({ notification }));
+  const onClose = vi.fn();
+  await act(async () => {
+    openInboxReply(environmentId, notification);
+    root.render(
+      <InboxReplyComposer
+        environmentId={environmentId}
+        notification={notification}
+        onClose={onClose}
+      />,
+    );
+  });
+  const input = container.querySelector("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(
+      input,
+      "Discard this reply.",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const cancel = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Cancel",
+  );
+  expect(cancel).toBeDefined();
+  await act(async () => cancel!.click());
+  expect(state.send).not.toHaveBeenCalled();
+  expect(state.mutate).toHaveBeenCalledExactlyOnceWith({
+    environmentId,
+    input: expect.objectContaining({ action: { type: "ignore-reply" } }),
+  });
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(container.querySelector("textarea")).toBeNull();
+  await act(async () => openInboxReply(environmentId, notification));
+  expect(container.querySelector("textarea")!.value).toBe("");
 });

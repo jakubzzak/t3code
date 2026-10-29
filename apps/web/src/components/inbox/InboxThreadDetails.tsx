@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo } from "react";
-import { InboxIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { InboxIcon, ReplyIcon } from "lucide-react";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { CommandId } from "@t3tools/contracts";
 import { randomUUID } from "~/lib/utils";
@@ -19,6 +19,8 @@ import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
 import { InboxFeedbackNotes } from "./InboxFeedbackNotes";
 import { useLoadInboxThread } from "./useLoadInboxThread";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
+import { InboxReplyComposer } from "./InboxReplyComposer";
+import { inboxReplyTarget, openInboxReply } from "./inboxReplyDraft";
 import { Button } from "../ui/button";
 
 export function InboxThreadDetails({
@@ -28,6 +30,8 @@ export function InboxThreadDetails({
   environmentId: EnvironmentId;
   threadId: ThreadId;
 }) {
+  const sourceRef = useRef<HTMLDetailsElement>(null);
+  const replyRef = useRef<HTMLButtonElement>(null);
   const loadThread = useLoadInboxThread();
   const threadRef = useMemo(() => ({ environmentId, threadId }), [environmentId, threadId]);
   const thread = useThreadShell({ environmentId, threadId });
@@ -64,6 +68,7 @@ export function InboxThreadDetails({
     }, 5_000);
     return () => window.clearInterval(timer);
   }, [enabled, list.refresh, detail.refresh]);
+  const canReply = useAtomValue(inboxEnvironment.reply.permissionAtom(environmentId));
   const canWrite = useAtomValue(inboxEnvironment.mutate.permissionAtom(environmentId));
   const command = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
   const refresh = useCallback(() => {
@@ -95,6 +100,22 @@ export function InboxThreadDetails({
             >
               <InboxIcon className="size-3.5" />
             </Button>
+            {(n.source === "slack" || n.source === "linear") && (
+              <Button
+                ref={replyRef}
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Reply"
+                title="Reply"
+                disabled={!canReply || !inboxReplyTarget(n)}
+                onClick={() => {
+                  if (sourceRef.current) sourceRef.current.open = true;
+                  openInboxReply(environmentId, n);
+                }}
+              >
+                <ReplyIcon className="size-3.5" />
+              </Button>
+            )}
             <InboxOpenOriginalAction notification={n} threadRef={threadRef} />
           </>
         }
@@ -143,7 +164,7 @@ export function InboxThreadDetails({
               }
             />
           </div>
-          <details className="mt-2 text-xs">
+          <details ref={sourceRef} className="mt-2 text-xs">
             <summary className="cursor-pointer text-muted-foreground">
               Original message and context
             </summary>
@@ -158,6 +179,11 @@ export function InboxThreadDetails({
             ) : (
               <p className="py-2 text-muted-foreground">{detail.error ?? "Loading context…"}</p>
             )}
+            <InboxReplyComposer
+              environmentId={environmentId}
+              notification={n}
+              onClose={() => replyRef.current?.focus()}
+            />
           </details>
           {detail.error && (
             <p role="alert" className="text-xs text-destructive">

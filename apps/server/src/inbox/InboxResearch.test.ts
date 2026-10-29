@@ -139,9 +139,10 @@ it.effect(
       ]);
       yield* Effect.gen(function* () {
         const research = yield* Research.InboxResearch;
-        assert.deepEqual(yield* research.research(notification), [
-          "Verify retryRefresh handles expired sessions.",
-        ]);
+        assert.deepEqual(yield* research.research(notification), {
+          suggestions: ["Verify retryRefresh handles expired sessions."],
+          replyDraft: null,
+        });
         assert.deepEqual(f.reads, ["src/session.ts"]);
         assert.deepEqual(f.scopes, ["/project", projectId, projectId]);
         const context = f.inputs.at(-1)!.context;

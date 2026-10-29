@@ -230,7 +230,11 @@ it.each(["toolbar", "panel"] as const)(
   "opens and unlinks an issue from the %s",
   async (displayMode) => {
     await render(false, issue, false, true, displayMode);
-    await click("ENG-123");
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Choose Linear issue"]')!
+        .click(),
+    );
     expect(document.querySelector('input[aria-label="Search Linear issues"]')).not.toBeNull();
     expect(document.body.textContent).toContain("Fix login");
     await click("Unlink issue");
@@ -242,6 +246,23 @@ it.each(["toolbar", "panel"] as const)(
     expect(document.body.textContent).toContain("Fix login");
   },
 );
+it.each(["toolbar", "panel"] as const)(
+  "opens the linked issue from the %s label and reserves the chevron for selection",
+  async (displayMode) => {
+    await render(true, issue, false, true, displayMode);
+    await click("ENG-123");
+    expect(openIssue).toHaveBeenCalledExactlyOnceWith(issue);
+    expect(document.querySelector('input[aria-label="Search Linear issues"]')).toBeNull();
+    expect(select).not.toHaveBeenCalled();
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Choose Linear issue"]')!
+        .click(),
+    );
+    expect(document.querySelector('input[aria-label="Search Linear issues"]')).not.toBeNull();
+    expect(openIssue).toHaveBeenCalledTimes(1);
+  },
+);
 it("disables issue selection while the current agent runs and does not queue a switch", async () => {
   await render(true);
   await click("Linear issue");
@@ -249,6 +270,20 @@ it("disables issue selection while the current agent runs and does not queue a s
   expect(button("Fix login").disabled).toBe(true);
   await render(false);
   expect(button("Fix login").disabled).toBe(false);
+  expect(select).not.toHaveBeenCalled();
+});
+
+it("keeps a failed issue-open error available through the selector without changing the link", async () => {
+  openIssue.mockRejectedValueOnce(new Error("Linear panel could not open."));
+  await render(false, issue);
+  await click("ENG-123");
+  expect(document.querySelector('input[aria-label="Search Linear issues"]')).toBeNull();
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('button[aria-label="Choose Linear issue"]')!.click(),
+  );
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+    "Linear panel could not open.",
+  );
   expect(select).not.toHaveBeenCalled();
 });
 
@@ -295,7 +330,9 @@ it("automatically sets up a created issue in an unlinked chat", async () => {
 });
 it("asks before replacing an issue, and declining leaves the current context", async () => {
   await render(false, { ...issue, id: "old", identifier: "ENG-2" });
-  await click("ENG-2");
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('button[aria-label="Choose Linear issue"]')!.click(),
+  );
   await click("Create issue");
   await act(async () => {
     state.creationResult!(createdResult);

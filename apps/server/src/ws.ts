@@ -1,4 +1,5 @@
 import * as LinearConnection from "./linear/LinearConnection.ts";
+import * as InboxReplyTransport from "./inbox/InboxReplyTransport.ts";
 import * as InboxRpc from "./inbox/inboxRpc.ts";
 import { WsCoreRpcGroup } from "@t3tools/contracts";
 import * as InboxSources from "./inbox/InboxSources.ts";
@@ -3184,6 +3185,7 @@ export const layer = Layer.unwrap(
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const inbox = yield* InboxService.InboxService;
+    const inboxReplies = yield* InboxReplyTransport.InboxReplyTransport;
     const inboxSources = yield* InboxSources.InboxSources;
     const linearConnection = yield* LinearConnection.LinearConnection;
     const sql = yield* SqlClient.SqlClient;
@@ -3255,6 +3257,7 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
               Layer.provide(OtlpEndpointCheck.layer),
               Layer.provide(Layer.succeed(InboxService.InboxService, inbox)),
+              Layer.provide(Layer.succeed(InboxReplyTransport.InboxReplyTransport, inboxReplies)),
               Layer.provide(Layer.succeed(InboxSources.InboxSources, inboxSources)),
               Layer.provide(Layer.succeed(LinearConnection.LinearConnection, linearConnection)),
               // Shared like the pull request service, so concurrent generations single-flight.

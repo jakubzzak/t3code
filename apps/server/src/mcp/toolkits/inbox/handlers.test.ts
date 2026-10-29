@@ -3,6 +3,7 @@ import { CommandId, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import * as ReplyTransport from "../../../inbox/InboxReplyTransport.ts";
 import * as Inbox from "../../../inbox/InboxService.ts";
 import { ingestInboxItem } from "../../../inbox/inboxState.ts";
 import * as Threads from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -29,6 +30,7 @@ it.effect(
       });
       for (const access of ["read-only", "auto-accept-edits", "full-access"] as const) {
         let changed = false;
+        let replied = false;
         const dependencies = Layer.mergeAll(
           Layer.succeed(Invocation.McpInvocationContext, {
             environmentId: EnvironmentId.make("environment"),
@@ -39,7 +41,14 @@ it.effect(
             capabilities: new Set(["orchestration" as const]),
           }),
           Layer.mock(Threads.ThreadManagementService)({}),
+          Layer.mock(ReplyTransport.InboxReplyTransport)({}),
           Layer.mock(Inbox.InboxService)({
+            reply: (input, check) =>
+              Effect.gen(function* () {
+                if (check) yield* check;
+                replied = true;
+                return { ...input, status: "sent" as const };
+              }),
             list: () => Effect.succeed([notification]),
             get: () => Effect.succeed(notification),
             mutate: (_, check) =>
@@ -68,6 +77,19 @@ it.effect(
             action: { type: "resolve", resolved: true },
           })
           .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        const reply = yield* toolkit
+          .handle("inbox_reply", {
+            projectId,
+            id: notification.id,
+            itemId: "item",
+            commandId: CommandId.make("confirmed-reply"),
+            target: { source: "linear", issueId: "issue", parentId: null },
+            text: "Confirmed by user.",
+          })
+          .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        expect(replied).toBe(access === "full-access");
+        if (access !== "full-access")
+          expect(reply.at(-1)?.result).toMatchObject({ code: expect.stringMatching(/denied/) });
         expect(changed).toBe(access === "full-access");
         if (access !== "full-access")
           expect(write.at(-1)?.result).toMatchObject({ code: expect.stringMatching(/denied/) });

@@ -25,6 +25,7 @@ export const LinearIssue = Schema.Struct({
 export type LinearIssue = typeof LinearIssue.Type;
 
 export const LinearConnectionInfo = Schema.Struct({
+  canReply: Schema.optionalKey(Schema.Boolean),
   workspace: TrimmedNonEmptyString,
   userId: TrimmedNonEmptyString,
   name: Schema.String,

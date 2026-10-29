@@ -17,6 +17,8 @@ import {
   InboxMutationResult,
   InboxNotification,
   InboxGetInput,
+  InboxReplyInput,
+  InboxReplyAttempt,
 } from "./inbox.ts";
 import { LinearIssueSetupInput, LinearIssueSetupResult, LinearIssueSetupError } from "./linear.ts";
 import { ThreadCleanupInput, ThreadCleanupSnapshot, ThreadCleanupError } from "./threadCleanup.ts";
@@ -585,6 +587,7 @@ export const WS_METHODS = {
   inboxList: "inbox.list",
   inboxGet: "inbox.get",
   inboxMutate: "inbox.mutate",
+  inboxReply: "inbox.reply",
   pullRequestsReviewGuide: "pullRequests.reviewGuide",
   pullRequestsGenerateReviewGuide: "pullRequests.generateReviewGuide",
   pullRequestsThreadComments: "pullRequests.threadComments",
@@ -1151,6 +1154,11 @@ const WsInboxListRpc = Rpc.make(WS_METHODS.inboxList, {
 const WsInboxGetRpc = Rpc.make(WS_METHODS.inboxGet, {
   payload: InboxGetInput,
   success: Schema.NullOr(InboxNotification),
+  error: InboxError,
+});
+const WsInboxReplyRpc = Rpc.make(WS_METHODS.inboxReply, {
+  payload: InboxReplyInput,
+  success: InboxReplyAttempt,
   error: InboxError,
 });
 const WsInboxMutateRpc = Rpc.make(WS_METHODS.inboxMutate, {
@@ -2244,6 +2252,7 @@ export const WsInboxRpcGroup = RpcGroup.make(
   WsInboxListRpc,
   WsInboxGetRpc,
   WsInboxMutateRpc,
+  WsInboxReplyRpc,
   WsInboxSourcesRpc,
   WsInboxConfigureSourceRpc,
   WsInboxDisconnectSourceRpc,
