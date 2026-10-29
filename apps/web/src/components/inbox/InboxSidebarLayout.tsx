@@ -175,6 +175,7 @@ export function InboxRow({
     else toastManager.add({ type: "error", title: "Could not load the reply draft. Try again." });
   }
 
+  const hasReplyAction = n.source === "slack" || n.source === "linear";
   const actions = [
     {
       label: n.state.threadId ? "Open linked agent chat" : "Agent",
@@ -189,7 +190,7 @@ export function InboxRow({
       Icon: BotMessageSquareIcon,
       action: { type: "delegate", startAgent: false } as const,
     },
-    ...(n.source === "slack" || n.source === "linear"
+    ...(hasReplyAction
       ? [{ label: "Reply", hint: "↵", Icon: ReplyIcon, action: "reply" as const }]
       : []),
     {
@@ -332,7 +333,10 @@ export function InboxRow({
         {actions
           .filter((action) => !action.primary || settings?.inboxAgentEnabled)
           .map(({ label, hint, Icon, action, primary }) => (
-            <span className={`relative ${action === "snooze-menu" ? "ml-auto" : ""}`} key={label}>
+            <span
+              className={`relative ${action === (hasReplyAction ? "reply" : "snooze-menu") ? "ml-auto" : ""}`}
+              key={label}
+            >
               <Button
                 size="icon-xs"
                 variant={primary ? "default" : "ghost"}

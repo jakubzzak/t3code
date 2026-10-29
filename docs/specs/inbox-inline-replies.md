@@ -15,7 +15,7 @@ No destination picker, unrelated channel posts or DMs, email replies, attachment
 ### Open and review
 
 - With an eligible Inbox item focused, plain **Enter** opens and focuses the reply input inside its relevant conversation. The shortcut must not intercept typing elsewhere.
-- Add an icon-only reply action after the two agent buttons, as the rightmost action in the CTA bar's left group. Keep the existing right group unchanged. Clicking it has the same behavior as Enter. Provide an accessible name and tooltip.
+- Add an icon-only reply action as the leftmost item in the CTA bar's right group, immediately before Snooze. Keep the agent buttons in the left group. Clicking it has the same behavior as Enter. Provide an accessible name and tooltip.
 - When a suggested resolution includes an actual proposed message, show a non-clickable draft icon after the Suggestion heading, separated by a dot. Do not add visible “Draft available” text or make the status icon another action.
 - Prefill the input with only the proposed message. Advice such as “check the deployment” is not a reply draft. Without a proposed message, open an empty input. A newer suggestion must not overwrite the user's edits.
 - Place the input below the conversation in both Inbox and linked-chat Details. Opening Reply in Details expands its source conversation. Label the input section simply **Thread reply**. Opening or generating a draft never sends it. Show only **Send** and **Cancel** actions; Cancel discards the draft without sending or marking the item read. Do not add separate Check result, Ignore, or Close actions.
@@ -52,7 +52,7 @@ The current Slack transport only allows read methods, and Linear's displayed com
 
 ## Acceptance criteria
 
-1. For a Slack notification with a suggested message, the status icon appears after the Suggestion dot. Enter and the left CTA reply action open the same prefilled composer. Editing and sending produces exactly one reply in the correct thread, including a new thread under a DM message.
+1. For a Slack notification with a suggested message, the status icon appears after the Suggestion dot. Enter and the right-group reply action open the same prefilled composer. Editing and sending produces exactly one reply in the correct thread, including a new thread under a DM message.
 2. A general suggestion without a message opens an empty composer with no draft status icon. Updating the suggestion while composing leaves user edits intact.
 3. Linear comment notifications reply to their relevant comment; issue notifications without comments create an issue comment. A newer incoming comment does not change the destination of an open draft.
 4. Cmd+Enter delegates from the row and sends from the composer. Pending controls prevent duplicate sends. Confirmed success displays the response and marks only the Blackbird item read; settlement is unchanged.
