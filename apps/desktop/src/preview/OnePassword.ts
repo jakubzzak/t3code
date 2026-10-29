@@ -39,6 +39,7 @@ export class OnePassword extends Context.Service<
     ) => Effect.Effect<void, OnePasswordError>;
     readonly disable: (session: Session) => Effect.Effect<void, OnePasswordError>;
     readonly isEnabled: (session: Session) => boolean;
+    readonly open: (contents: WebContents) => Effect.Effect<void, OnePasswordError>;
     readonly track: (contents: WebContents, owner: BrowserWindow) => void;
     readonly menuItems: (
       contents: WebContents,
@@ -118,6 +119,15 @@ const make = Effect.gen(function* () {
       if (!isOnePasswordPage(next) && !next.startsWith("https://")) event.preventDefault();
     });
     if (asTab) track(window.webContents, window);
+    else {
+      window.once("blur", () => window.close());
+      window.webContents.on("before-input-event", (event, input) => {
+        if (input.type === "keyDown" && input.key === "Escape") {
+          event.preventDefault();
+          window.close();
+        }
+      });
+    }
     void window.loadURL(url).then(
       () => window.show(),
       () => window.close(),
@@ -249,6 +259,21 @@ const make = Effect.gen(function* () {
     for (const tab of profile.tabs.keys()) if (!tab.isDestroyed()) tab.reload();
   };
 
+  const open = async (contents: WebContents) => {
+    const session = contents.session;
+    const profile = profileFor(session);
+    const owner = profile.tabs.get(contents);
+    if (environment.platform !== "darwin" || !session.storagePath) {
+      throw new Error("1Password requires a persistent browser profile on macOS.");
+    }
+    if (!owner || owner.isDestroyed() || contents.isDestroyed()) {
+      throw new Error("The browser tab is no longer available.");
+    }
+    if (!profile.enabled) return enable(session, owner);
+    profile.compatibility?.selectTab(contents);
+    createWindow(session, `${ONE_PASSWORD_ORIGIN}/popup/index.html`, owner, false);
+  };
+
   const perform = (session: Session, work: () => Promise<void>) =>
     Effect.suspend(() => {
       const profile = profileFor(session);
@@ -295,6 +320,7 @@ const make = Effect.gen(function* () {
     disable: (session) => perform(session, () => disable(session)),
     track,
     isEnabled: (session) => profileFor(session).enabled,
+    open: (contents) => perform(contents.session, () => open(contents)),
     menuItems: (contents, owner) => {
       if (environment.platform !== "darwin") return [];
       const session = contents.session;
@@ -309,15 +335,7 @@ const make = Effect.gen(function* () {
                   {
                     label: "Open 1Password",
                     enabled: !profile.busy,
-                    click: action(session, owner, async () => {
-                      profile.compatibility?.selectTab(contents);
-                      createWindow(
-                        session,
-                        `${ONE_PASSWORD_ORIGIN}/popup/index.html`,
-                        owner,
-                        false,
-                      );
-                    }),
+                    click: action(session, owner, () => open(contents)),
                   },
                   {
                     label: "Set up 1Password…",

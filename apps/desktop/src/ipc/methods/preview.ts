@@ -237,6 +237,11 @@ export const setAudioMuted = DesktopIpc.makeIpcMethod({
     yield* manager.setAudioMuted(tabId, audioMuted);
   }),
 });
+export const openOnePassword = tabMethod(
+  IpcChannels.PREVIEW_OPEN_ONE_PASSWORD_CHANNEL,
+  "desktop.ipc.preview.openOnePassword",
+  (manager, tabId) => manager.openOnePassword(tabId),
+);
 export const openDevTools = tabMethod(
   IpcChannels.PREVIEW_OPEN_DEVTOOLS_CHANNEL,
   "desktop.ipc.preview.openDevTools",
@@ -508,6 +513,7 @@ export const methods = [
   setZoomFactor,
   setAudioMuted,
   openDevTools,
+  openOnePassword,
   clearCookies,
   clearCache,
   getPreviewConfig,

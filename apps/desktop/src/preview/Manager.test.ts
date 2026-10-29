@@ -313,6 +313,7 @@ const managerLayer = (platform: NodeJS.Platform = "darwin") =>
         disable: () => Effect.void,
         track: () => {},
         isEnabled: () => false,
+        open: () => Effect.void,
         menuItems: () => [],
       }),
     ),

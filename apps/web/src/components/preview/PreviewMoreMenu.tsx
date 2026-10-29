@@ -44,6 +44,7 @@ export interface PreviewMoreMenuActions {
   readonly clearCache: () => void;
   /** Absent where there is no inspector to open, such as a streamed server tab. */
   readonly openDevTools?: () => void;
+  readonly openOnePassword?: () => void;
   /** Absent where the tab cannot get its own window. */
   readonly toggleNativePictureInPicture?: () => void;
 }
@@ -111,6 +112,11 @@ export function PreviewMoreMenu({
         <MenuItem onClick={onCopyUrl} disabled={disabled || !onCopyUrl}>
           Copy URL
         </MenuItem>
+        {actions.openOnePassword ? (
+          <MenuItem onClick={actions.openOnePassword} disabled={disabled}>
+            1Password
+          </MenuItem>
+        ) : null}
         <MenuSeparator />
         <MenuItem onClick={actions.hardReload} disabled={disabled}>
           Hard reload

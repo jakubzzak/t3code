@@ -333,6 +333,7 @@ function layerTest(input: {
           disable: () => Effect.void,
           track: () => {},
           isEnabled: () => false,
+          open: () => Effect.void,
           menuItems: () => [],
         }),
         Layer.mock(PreviewPasskeys.PreviewPasskeys)({
@@ -454,6 +455,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             disable: () => Effect.void,
             track: () => {},
             isEnabled: () => false,
+            open: () => Effect.void,
             menuItems: () => [],
           }),
           Layer.mock(PreviewPasskeys.PreviewPasskeys)({

@@ -18,7 +18,13 @@ const mocks = vi.hoisted(() => ({
   removeTab: vi.fn(),
   selectTab: vi.fn(),
   instances: vi.fn(),
-  windows: [] as Array<{ url?: string; close: ReturnType<typeof vi.fn> }>,
+  windows: [] as Array<
+    NodeEvents.EventEmitter & {
+      url?: string;
+      close: ReturnType<typeof vi.fn>;
+      webContents: NodeEvents.EventEmitter;
+    }
+  >,
 }));
 vi.mock("electron-chrome-extensions", () => ({
   ElectronChromeExtensions: class {
@@ -120,6 +126,53 @@ const setup = (platform: NodeJS.Platform = "darwin", persisted = false) =>
   });
 
 describe("1Password profile lifecycle", () => {
+  it.effect("opens setup on first use and keeps it open when focus changes", () =>
+    Effect.gen(function* () {
+      const f = yield* setup();
+      f.service.track(f.tab, f.owner);
+      yield* f.service.open(f.tab);
+      const window = mocks.windows[0]!;
+      expect(window.url).toBe(`${ONE_PASSWORD_ORIGIN}/app/app.html#/page/welcome`);
+      window.emit("blur");
+      window.webContents.emit(
+        "before-input-event",
+        { preventDefault: vi.fn() },
+        {
+          type: "keyDown",
+          key: "Escape",
+        },
+      );
+      expect(window.close).not.toHaveBeenCalled();
+    }),
+  );
+  it.effect("dismisses the vault on Escape or focus leaving it", () =>
+    Effect.gen(function* () {
+      const f = yield* setup("darwin", true);
+      f.service.track(f.tab, f.owner);
+      yield* f.service.prepare(f.session);
+      yield* f.service.open(f.tab);
+      const window = mocks.windows[0]!;
+      expect(window.url).toBe(`${ONE_PASSWORD_ORIGIN}/popup/index.html`);
+      const event = { preventDefault: vi.fn() };
+      window.webContents.emit("before-input-event", event, { type: "keyDown", key: "a" });
+      expect(window.close).not.toHaveBeenCalled();
+      window.webContents.emit("before-input-event", event, { type: "keyDown", key: "Escape" });
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(window.close).toHaveBeenCalledOnce();
+      yield* f.service.open(f.tab);
+      mocks.windows[1]!.emit("blur");
+      expect(mocks.windows[1]!.close).toHaveBeenCalledOnce();
+    }),
+  );
+  it.effect("rejects untracked tabs without installing the extension", () =>
+    Effect.gen(function* () {
+      const f = yield* setup();
+      const error = yield* f.service.open(f.tab).pipe(Effect.flip);
+      expect(error.message).toBe("The browser tab is no longer available.");
+      expect(f.extensions.loadExtension).not.toHaveBeenCalled();
+      expect(mocks.windows).toHaveLength(0);
+    }),
+  );
   it.effect("does not initialize compatibility APIs in profiles which never opted in", () =>
     Effect.gen(function* () {
       const f = yield* setup();

@@ -27,6 +27,8 @@ Chromium browser first. T3 Code copies the extension code and opens its account 
 to 1Password separately. Desktop-app unlocking is not supported by this experimental integration.
 
 The extension can read and fill pages in that profile, including pages opened by agents.
+Open **1Password** from the browser's three-dot menu. The vault popup closes with Escape
+or when you click outside it; the account setup window stays open while you sign in.
 Incognito profiles and remote server browsers do not support this integration. Use
 **1Password → Set up 1Password** to resume sign-in, **Open 1Password** to open the vault popup
 after signing in, or **Disable in this profile** to stop it.
