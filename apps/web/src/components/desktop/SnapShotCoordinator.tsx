@@ -1,19 +1,11 @@
-import {
-  type DesktopPendingSnapShot,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-  type ScopedThreadRef,
-} from "@t3tools/contracts";
+import { type DesktopPendingSnapShot, type ScopedThreadRef } from "@t3tools/contracts";
 import { useCallback, useEffect, useRef } from "react";
 
-import {
-  type DraftId,
-  type PersistedComposerImageAttachment,
-  useComposerDraftStore,
-} from "../../composerDraftStore";
+import { type DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { useHandleNewThread } from "../../hooks/useHandleNewThread";
 import { useClientSettings } from "../../hooks/useSettings";
 import { readThreadShell } from "../../state/entities";
-import { compressImageToByteLimit, dataUrlToFile } from "../../lib/imageCompression";
+import { addCapturedImageToDraft, fitCapturedImage } from "../../lib/capturedImageDraft";
 import { resolveThreadActionProjectRef } from "../../lib/chatThreadActions";
 import {
   beginSnapShotAnimation,
@@ -31,7 +23,6 @@ import {
   getDesktopSnapShotBridge,
   type DesktopSnapShotBridge,
 } from "../../lib/desktopSnapShot";
-import { readFileAsDataUrl } from "../ChatView.logic";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
 type CaptureTarget = DraftId | ScopedThreadRef;
@@ -136,51 +127,19 @@ export async function deliverSnapShot(
   item: DesktopPendingSnapShot,
   target: CaptureTarget,
 ): Promise<void> {
-  const store = useComposerDraftStore.getState();
   updateSnapShotAnimationSource(item.id, item.source);
   const capture = await bridge.readSnapShot(item.id);
-  const original = dataUrlToFile(capture.dataUrl, capture.name, capture.mimeType);
-  const compressed = await compressImageToByteLimit(original, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES);
-  if (!compressed.ok) {
+  const fitted = await fitCapturedImage(capture);
+  if (!fitted) {
     finishSnapShotAnimation(item.id);
     throw new Error("The captured window is too large to attach.");
   }
-  const file = compressed.file;
-  const source = resizeSnapShotSource(capture.source, compressed.imageSize);
-  const dataUrl = compressed.recompressed ? await readFileAsDataUrl(file) : capture.dataUrl;
-  const alreadyAttached =
-    store.getComposerDraft(target)?.images.some(({ id }) => id === capture.id) ?? false;
-  if (
-    !alreadyAttached &&
-    !store.addImage(target, {
-      type: "image",
-      id: capture.id,
-      name: file.name,
-      mimeType: file.type,
-      sizeBytes: file.size,
-      previewUrl: dataUrl,
-      file,
-      source,
-    })
-  ) {
-    throw new Error("Remove an attachment, then try this capture again.");
-  }
-  const persisted: PersistedComposerImageAttachment = {
+  await addCapturedImageToDraft(target, {
     id: capture.id,
-    name: file.name,
-    mimeType: file.type,
-    sizeBytes: file.size,
-    dataUrl,
-    source,
-  };
-  const persistedAttachments =
-    store
-      .getComposerDraft(target)
-      ?.persistedAttachments.filter((attachment) => attachment.id !== capture.id) ?? [];
-  await store.syncPersistedAttachments(target, [...persistedAttachments, persisted]);
-  if (!store.getComposerDraft(target)?.persistedAttachments.some(({ id }) => id === capture.id)) {
-    throw new Error("The captured window could not be saved to the draft.");
-  }
+    file: fitted.file,
+    dataUrl: fitted.dataUrl,
+    source: resizeSnapShotSource(capture.source, fitted.imageSize),
+  });
 
   // Reveal the attachment under the flying capture before the desktop tears the overlay down,
   // otherwise the tile is missing for the frames between the landing and its first paint.

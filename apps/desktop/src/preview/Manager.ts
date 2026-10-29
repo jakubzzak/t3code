@@ -3443,17 +3443,32 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
 
-  const copyArtifactToClipboard = Effect.fn("PreviewManager.copyArtifactToClipboard")(function* (
-    artifactPath: string,
-  ) {
+  /** Decodes an image saved in the artifact directory; anything else fails. */
+  const loadArtifactImage = Effect.fnUntraced(function* (artifactPath: string, operation: string) {
     const resolvedPath = yield* resolveArtifactPath(artifactPath);
-    const image = yield* attempt(
-      { operation: "copyArtifactToClipboard.load", artifactPath: resolvedPath },
-      () => nativeImage.createFromPath(resolvedPath),
+    const image = yield* attempt({ operation, artifactPath: resolvedPath }, () =>
+      nativeImage.createFromPath(resolvedPath),
     );
     if (image.isEmpty()) {
       return yield* new PreviewArtifactImageLoadError({ artifactPath: resolvedPath });
     }
+    return { image, resolvedPath };
+  });
+
+  const readArtifactImage = Effect.fn("PreviewManager.readArtifactImage")(function* (
+    artifactPath: string,
+  ) {
+    const { image } = yield* loadArtifactImage(artifactPath, "readArtifactImage.load");
+    return `data:image/png;base64,${image.toPNG().toString("base64")}`;
+  });
+
+  const copyArtifactToClipboard = Effect.fn("PreviewManager.copyArtifactToClipboard")(function* (
+    artifactPath: string,
+  ) {
+    const { image, resolvedPath } = yield* loadArtifactImage(
+      artifactPath,
+      "copyArtifactToClipboard.load",
+    );
     yield* attemptPromise(
       { operation: "copyArtifactToClipboard.write", artifactPath: resolvedPath },
       () =>
@@ -3576,6 +3591,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     openDevTools,
     pickElement,
     prepareWebview,
+    readArtifactImage,
     reapplyZoom,
     refresh,
     registerWebview,
@@ -3834,6 +3850,8 @@ export class PreviewManager extends Context.Service<
     ) => Effect.Effect<DesktopPreviewScreenshotArtifact, PreviewManagerError>;
     readonly revealArtifact: (path: string) => Effect.Effect<void, PreviewManagerError>;
     readonly copyArtifactToClipboard: (path: string) => Effect.Effect<void, PreviewManagerError>;
+    /** Returns a saved screenshot as a PNG data URL so the renderer can attach it. */
+    readonly readArtifactImage: (path: string) => Effect.Effect<string, PreviewManagerError>;
     readonly openPictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly closePictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly startRecording: (
@@ -3992,6 +4010,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     captureScreenshot: operations.captureScreenshot,
     revealArtifact: operations.revealArtifact,
     copyArtifactToClipboard: operations.copyArtifactToClipboard,
+    readArtifactImage: operations.readArtifactImage,
     openPictureInPicture: operations.openPictureInPicture,
     closePictureInPicture: operations.closePictureInPicture,
     startRecording: operations.startRecording,

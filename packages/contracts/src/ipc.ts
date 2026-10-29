@@ -1410,6 +1410,8 @@ export interface DesktopPreviewBridge {
   captureScreenshot: (tabId: string) => Promise<DesktopPreviewScreenshotArtifact>;
   revealArtifact: (path: string) => Promise<void>;
   copyArtifactToClipboard: (path: string) => Promise<void>;
+  /** Reads a saved screenshot as a PNG data URL. Only paths in the artifact directory resolve. */
+  readArtifactImage: (path: string) => Promise<string>;
   pictureInPicture: {
     open: (tabId: string) => Promise<void>;
     close: (tabId: string) => Promise<void>;

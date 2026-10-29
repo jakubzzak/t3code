@@ -467,6 +467,16 @@ export const copyArtifactToClipboard = DesktopIpc.makeIpcMethod({
   }),
 });
 
+export const readArtifactImage = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_READ_ARTIFACT_IMAGE_CHANNEL,
+  payload: DesktopPreviewArtifactInputSchema,
+  result: Schema.String,
+  handler: Effect.fn("desktop.ipc.preview.readArtifactImage")(function* ({ path }) {
+    const manager = yield* PreviewManager.PreviewManager;
+    return yield* manager.readArtifactImage(path);
+  }),
+});
+
 export const saveRecording = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_RECORDING_SAVE_CHANNEL,
   payload: DesktopPreviewRecordingSaveInputSchema,
@@ -508,6 +518,7 @@ export const methods = [
   captureScreenshot,
   revealArtifact,
   copyArtifactToClipboard,
+  readArtifactImage,
   openPictureInPicture,
   closePictureInPicture,
   startRecording,

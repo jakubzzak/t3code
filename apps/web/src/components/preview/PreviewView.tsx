@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { previewStreamDownloadUrl } from "@t3tools/client-runtime/preview/server-browser-stream";
@@ -35,6 +35,7 @@ import {
   useThreadRecentHistory,
 } from "~/browserHistoryStore";
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
+import { dispatchSnapShotComposerFocus } from "~/lib/desktopSnapShot";
 import { capturePreviewAnnotationScreenshot } from "~/lib/previewAnnotation";
 import { ensureLocalApi } from "~/localApi";
 import {
@@ -82,6 +83,8 @@ import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { BrowserSettingsReadError } from "~/browser/openFileInPreview";
 import { PreviewFileNotShown, PreviewUnreachable } from "./PreviewUnreachable";
 import { revealInFileExplorerLabel } from "./fileExplorerLabel";
+import { attachBrowserScreenshotToChat } from "./attachBrowserScreenshot";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "~/threadRoutes";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { Badge } from "~/components/ui/badge";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
@@ -159,6 +162,7 @@ export function PreviewView({
   visible,
   onSendAnnotation,
 }: Props) {
+  const navigate = useNavigate();
   const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
   const [findTarget, setFindTarget] = useState<{ tabId: string; url: string } | null>(null);
   const [findFocusNonce, setFindFocusNonce] = useState(0);
@@ -740,6 +744,7 @@ export function PreviewView({
           };
           let pathCopied = false;
           let imageCopied = false;
+          let pasteState: "idle" | "pasting" | "pasted" = "idle";
           let toastId: ReturnType<typeof toastManager.add>;
 
           const updateScreenshotToast = (
@@ -754,12 +759,20 @@ export function PreviewView({
                 title,
                 description,
                 actionProps: {
-                  children: imageCopied ? "Copied!" : "Copy image",
-                  disabled: imageCopied,
-                  onClick: copyImage,
+                  children: pasteState === "pasted" ? "Pasted!" : "Paste in chat",
+                  disabled: pasteState !== "idle",
+                  onClick: () => void pasteInChat(),
                 },
                 data: {
                   additionalActions: [
+                    {
+                      id: "copy-image",
+                      props: {
+                        children: imageCopied ? "Copied!" : "Copy image",
+                        disabled: imageCopied,
+                        onClick: copyImage,
+                      },
+                    },
                     {
                       id: "copy-path",
                       props: {
@@ -827,16 +840,65 @@ export function PreviewView({
             );
           };
 
+          // Bound to the chat that owned the browser at capture time, never the chat open now.
+          const captureThreadRef = threadRef;
+          const pasteInChat = async () => {
+            if (pasteState !== "idle") return;
+            pasteState = "pasting";
+            updateScreenshotToast();
+            let chat: Awaited<ReturnType<typeof attachBrowserScreenshotToChat>>;
+            try {
+              chat = await attachBrowserScreenshotToChat(
+                (path) => bridge.readArtifactImage(path),
+                artifact,
+                captureThreadRef,
+              );
+            } catch (error) {
+              pasteState = "idle";
+              updateScreenshotToast(
+                "error",
+                "Unable to paste screenshot",
+                error instanceof Error ? error.message : "An error occurred.",
+              );
+              return;
+            }
+            pasteState = "pasted";
+            updateScreenshotToast();
+            window.setTimeout(() => {
+              pasteState = "idle";
+              updateScreenshotToast();
+            }, 2_000);
+            await (
+              chat.kind === "draft"
+                ? navigate({
+                    to: "/draft/$draftId",
+                    params: buildDraftThreadRouteParams(chat.draftId),
+                  })
+                : navigate({
+                    to: "/$environmentId/$threadId",
+                    params: buildThreadRouteParams(chat.threadRef),
+                  })
+            ).catch(() => undefined);
+            dispatchSnapShotComposerFocus();
+          };
+
           toastId = toastManager.add(
             stackedThreadToast({
               type: "success",
               title: "Screenshot saved",
               actionProps: {
-                children: "Copy image",
-                onClick: copyImage,
+                children: "Paste in chat",
+                onClick: () => void pasteInChat(),
               },
               data: {
                 additionalActions: [
+                  {
+                    id: "copy-image",
+                    props: {
+                      children: "Copy image",
+                      onClick: copyImage,
+                    },
+                  },
                   {
                     id: "copy-path",
                     props: {
@@ -862,7 +924,7 @@ export function PreviewView({
         },
       );
     },
-    [recordingRuntimeTabId, runtimeTabId, tabId, threadRef],
+    [navigate, recordingRuntimeTabId, runtimeTabId, tabId, threadRef],
   );
 
   const handlePickElement = useCallback(() => {
