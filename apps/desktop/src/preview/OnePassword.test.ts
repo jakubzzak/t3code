@@ -34,8 +34,13 @@ vi.mock("electron", () => ({
   BrowserWindow: class extends NodeEvents.EventEmitter {
     url?: string;
     webContents = Object.assign(new NodeEvents.EventEmitter(), { setWindowOpenHandler: vi.fn() });
-    constructor() {
+    constructor(options: { webPreferences: { session: Session } }) {
       super();
+      Object.assign(this.webContents, {
+        session: options.webPreferences.session,
+        isDestroyed: () => false,
+        reload: vi.fn(),
+      });
       mocks.windows.push(this);
     }
     isDestroyed = () => false;
@@ -146,7 +151,7 @@ describe("1Password profile lifecycle", () => {
           NodeFSP.readFile(NodePath.join(f.directory, "enabled"), "utf8"),
         ),
       ).toBe("1");
-      expect(mocks.windows[0]?.url).toBe(`${ONE_PASSWORD_ORIGIN}/popup/index.html`);
+      expect(mocks.windows[0]?.url).toBe(`${ONE_PASSWORD_ORIGIN}/app/app.html#/page/welcome`);
       expect(mocks.addTab).toHaveBeenCalledWith(f.tab, f.owner);
       const popup = mocks.windows[0]!;
       yield* f.service.disable(f.session);

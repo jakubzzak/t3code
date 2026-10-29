@@ -235,7 +235,8 @@ const make = Effect.gen(function* () {
     for (const tab of profileFor(session).tabs.keys()) {
       if (!tab.isDestroyed() && !isOnePasswordPage(tab.getURL())) tab.reload();
     }
-    createWindow(session, `${ONE_PASSWORD_ORIGIN}/popup/index.html`, owner, false);
+    // The popup alone has no sign-in controls in a fresh extension profile.
+    createWindow(session, `${ONE_PASSWORD_ORIGIN}/app/app.html#/page/welcome`, owner);
   };
 
   const disable = async (session: Session) => {
@@ -315,6 +316,17 @@ const make = Effect.gen(function* () {
                         `${ONE_PASSWORD_ORIGIN}/popup/index.html`,
                         owner,
                         false,
+                      );
+                    }),
+                  },
+                  {
+                    label: "Set up 1Password…",
+                    enabled: !profile.busy,
+                    click: action(session, owner, async () => {
+                      createWindow(
+                        session,
+                        `${ONE_PASSWORD_ORIGIN}/app/app.html#/page/welcome`,
+                        owner,
                       );
                     }),
                   },

@@ -28,5 +28,6 @@ to 1Password separately. Desktop-app unlocking is not supported by this experime
 
 The extension can read and fill pages in that profile, including pages opened by agents.
 Incognito profiles and remote server browsers do not support this integration. Use
-**1Password → Open 1Password** to open it again, or **Disable in this profile** to stop it.
+**1Password → Set up 1Password** to resume sign-in, **Open 1Password** to open the vault popup
+after signing in, or **Disable in this profile** to stop it.
 Disabling keeps the extension's saved sign-in data. The copied extension does not update automatically.
