@@ -1046,6 +1046,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     cloudOnly: true,
   },
   {
+    id: "automation-catch-up",
+    title: "Catch up missed automations",
+    to: "/settings/scheduled-tasks",
+    scope: "project-defaults",
+    searchTerms: [
+      "automation scheduler daily brief offline sleep wake startup missed catch up inherit",
+    ],
+  },
+  {
     id: "hold-webhooks-while-offline",
     localEnvironmentOnly: true,
     title: "Hold webhooks while offline",

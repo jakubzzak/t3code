@@ -95,6 +95,28 @@ export function isMissedFixedTimeRun(
   return DateTime.toEpochMillis(now) - DateTime.toEpochMillis(dueAt) > MISSED_FIXED_TIME_GRACE_MS;
 }
 
+/**
+ * How many fixed-time occurrences a catch-up covers: the first missed one plus
+ * every later occurrence up to `now`. `firstMissed` must be in the
+ * environment's zone so weekdays and daylight saving resolve as scheduled.
+ */
+export function countMissedFixedTimeRuns(
+  schedule: ScheduledTaskSchedule,
+  firstMissed: DateTime.DateTime,
+  now: DateTime.DateTime,
+): number {
+  let count = 1;
+  // Fixed-time schedules fire at most daily, so even a year offline stays small.
+  for (
+    let next = nextScheduledRunAt(schedule, firstMissed);
+    next !== null && DateTime.toEpochMillis(next) <= DateTime.toEpochMillis(now);
+    next = nextScheduledRunAt(schedule, next)
+  ) {
+    count += 1;
+  }
+  return count;
+}
+
 function describeSchedule(schedule: ScheduledTaskSchedule): string {
   if (schedule.type === "webhook") return "On webhook";
   if (schedule.type === "interval") {

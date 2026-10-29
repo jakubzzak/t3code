@@ -124,6 +124,7 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           projectWorktreeCleanup: true,
           worktreesDirectory: true,
           scheduledTaskChatBinding: true,
+          automationCatchUp: true,
           threadAutoSettlementScope: true,
         });
       }

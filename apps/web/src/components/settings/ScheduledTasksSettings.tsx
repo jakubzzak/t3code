@@ -35,6 +35,7 @@ import {
   ComboboxEmpty,
 } from "../ui/combobox";
 import { DEFAULT_WEBHOOK_PROMPT } from "@t3tools/client-runtime/scheduled-task-webhook";
+import { formatScheduledTaskCatchUp } from "@t3tools/client-runtime/scheduled-task-catch-up";
 import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   MIN_SCHEDULED_TASK_INTERVAL_MS,
@@ -48,6 +49,7 @@ import {
 
 import { formatRelativeTime } from "../../timestampFormat";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
   applyProviderInstanceSettings,
@@ -103,6 +105,9 @@ import {
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { ScopedSwitch } from "./ScopedSwitch";
+import { searchableSetting } from "./settingsSearch";
+import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
@@ -259,12 +264,41 @@ export function ScheduledTasksSettings(target: {
   const openForEdit = useCallback((environmentId: EnvironmentId, task: ScheduledTask) => {
     setEditor({ environmentId, task });
   }, []);
+  const catchUpEnabled = useScopedSettings((settings) => settings.automationCatchUpEnabled);
+  const updateSettings = useUpdateScopedSettings();
+  const supportsCatchUp =
+    connectedEnvironments.length > 0 &&
+    connectedEnvironments.every(
+      (entry) => entry.serverConfig?.environment.capabilities.automationCatchUp === true,
+    );
   const defaultEnvironment = environment ?? connectedEnvironments[0];
   const canCreate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(defaultEnvironment?.environmentId ?? null),
   );
   return (
     <SettingsPageContainer>
+      <SettingsSection title="Scheduling">
+        <SettingsRow
+          {...searchableSetting("automation-catch-up")}
+          serverScoped
+          settingKeys={["automationCatchUpEnabled"]}
+          description="When this environment starts or wakes, run each missed fixed-time automation once, then resume its normal schedule. Paused automations are excluded."
+          status={
+            !supportsCatchUp ? "Update the selected environments to configure catch-up." : undefined
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["automationCatchUpEnabled"]}
+              checked={catchUpEnabled}
+              disabled={!supportsCatchUp}
+              onCheckedChange={(checked) =>
+                updateSettings({ automationCatchUpEnabled: Boolean(checked) })
+              }
+              aria-label="Catch up missed automations"
+            />
+          }
+        />
+      </SettingsSection>
       <SettingsSection
         title="Scheduled tasks"
         variant="plain"
@@ -427,6 +461,9 @@ function ScheduledTaskRow({
   const [busy, setBusy] = useState(false);
   const [deliveriesOpen, setDeliveriesOpen] = useState(false);
   const isWebhook = task.schedule.type === "webhook";
+  // The minute clock (UTC "YYYY-MM-DDTHH:MM") keeps "today" current past midnight.
+  const nowMinute = useNowMinute();
+  const catchUp = formatScheduledTaskCatchUp(task, Date.parse(`${nowMinute}Z`));
   const toggle = useAtomCommand(serverEnvironment.setScheduledTaskEnabled, {
     label: "scheduled task enabled",
   });
@@ -476,6 +513,7 @@ function ScheduledTaskRow({
             <Badge variant={statusVariant(task.lastRunStatus)}>{task.lastRunStatus}</Badge>
           ) : null}
           {task.lastRunError ? <span className="text-destructive">{task.lastRunError}</span> : null}
+          {catchUp ? <span className="basis-full text-warning-foreground">{catchUp}</span> : null}
         </div>
       }
       control={
