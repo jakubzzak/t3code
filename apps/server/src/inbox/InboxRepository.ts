@@ -9,6 +9,7 @@ import {
   CommandId,
   InboxError,
   InboxMutation,
+  InboxReplyAttempt,
   InboxMutationResult,
   InboxNotification,
   InboxState,
@@ -30,6 +31,13 @@ export type Receipt = typeof Receipt.Type;
 export class InboxRepository extends Context.Service<
   InboxRepository,
   {
+    readonly replyReceipt: (
+      commandId: CommandId,
+    ) => Effect.Effect<InboxReplyAttempt | null, InboxError>;
+    readonly recordReply: (
+      notification: InboxNotification,
+      attempt: InboxReplyAttempt,
+    ) => Effect.Effect<void, InboxError>;
     readonly forThread: (
       projectId: ProjectId,
       threadId: ThreadId,
@@ -93,7 +101,29 @@ const make = Effect.gen(function* () {
       Effect.asVoid,
       Effect.mapError(failed),
     );
+  const decodeReply = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxReplyAttempt));
+  const encodeReply = Schema.encodeEffect(Schema.fromJsonString(InboxReplyAttempt));
   return InboxRepository.of({
+    replyReceipt: (commandId) =>
+      sql<{
+        result_json: string;
+      }>`SELECT result_json FROM inbox_commands WHERE command_id=${commandId}`.pipe(
+        Effect.flatMap((rows) =>
+          rows[0] ? decodeReply(rows[0].result_json) : Effect.succeed(null),
+        ),
+        Effect.mapError(failed),
+      ),
+    recordReply: (notification, attempt) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const json = yield* encodeReply(attempt);
+            const state = yield* encodeState(notification.state);
+            yield* put(notification);
+            yield* sql`INSERT INTO inbox_commands(command_id,project_id,notification_id,before_json,after_json,result_json) VALUES(${attempt.commandId},${notification.projectId},${notification.id},${state},${state},${json}) ON CONFLICT(command_id) DO UPDATE SET result_json=excluded.result_json`;
+          }),
+        )
+        .pipe(Effect.mapError(failed)),
     forThread: (projectId, threadId) =>
       rows(
         sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId} AND thread_id=${threadId} LIMIT 1`,

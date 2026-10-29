@@ -35,6 +35,7 @@ import {
   MailIcon,
   MailOpenIcon,
   MessageSquareIcon,
+  ReplyIcon,
   SettingsIcon,
   Undo2Icon,
 } from "lucide-react";
@@ -79,6 +80,8 @@ import { keepInboxRowVisible } from "./inboxFocusScroll";
 import { useLoadInboxThread } from "./useLoadInboxThread";
 import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
 import { isInboxInitialLoad, isInboxDetailCurrent, nextInboxFocusKey } from "./inboxPresentation";
+import { InboxReplyComposer } from "./InboxReplyComposer";
+import { inboxReplyTarget, openInboxReply } from "./inboxReplyDraft";
 import styles from "./inboxSidebar.module.css";
 
 type Entry = { environmentId: EnvironmentId; notification: InboxNotification };
@@ -164,6 +167,14 @@ export function InboxRow({
     if (focused && rowRef.current) return keepInboxRowVisible(rowRef.current);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A late detail response can move a bottom-anchored row after focus.
   }, [focused, detailReady]);
+  const canReply = useAtomValue(inboxEnvironment.reply.permissionAtom(environmentId));
+  async function openReply() {
+    const notification =
+      fullDetail ?? (await readInboxNotification(environmentId, n.projectId, n.id));
+    if (notification) openInboxReply(environmentId, notification);
+    else toastManager.add({ type: "error", title: "Could not load the reply draft. Try again." });
+  }
+
   const actions = [
     {
       label: n.state.threadId ? "Open linked agent chat" : "Agent",
@@ -178,6 +189,9 @@ export function InboxRow({
       Icon: BotMessageSquareIcon,
       action: { type: "delegate", startAgent: false } as const,
     },
+    ...(n.source === "slack" || n.source === "linear"
+      ? [{ label: "Reply", hint: "↵", Icon: ReplyIcon, action: "reply" as const }]
+      : []),
     {
       label: n.state.placement === "snoozed" ? "Unsnooze" : "Snooze",
       hint: "⇧H",
@@ -211,8 +225,24 @@ export function InboxRow({
         onFocus();
       }}
       onClick={(event) => {
-        if (!(event.target instanceof Element && event.target.closest("button,a")))
+        if (!(event.target instanceof Element && event.target.closest("button,a,input,textarea")))
           event.currentTarget.focus();
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          event.key === "Enter" &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          canReply &&
+          inboxReplyTarget(content)
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          void openReply();
+        }
       }}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -267,6 +297,11 @@ export function InboxRow({
               {detail.error ?? "Loading context…"}
             </p>
           )}
+          <InboxReplyComposer
+            environmentId={environmentId}
+            notification={content}
+            onClose={() => rowRef.current?.focus()}
+          />
         </div>
       </div>
       {n.agentStatus === "starting" ||
@@ -302,9 +337,11 @@ export function InboxRow({
                 size="icon-xs"
                 variant={primary ? "default" : "ghost"}
                 disabled={
+                  (action === "reply" && (!canReply || !inboxReplyTarget(content))) ||
                   (!canWrite &&
                     !(
                       action !== "snooze-menu" &&
+                      action !== "reply" &&
                       action.type === "delegate" &&
                       n.state.threadId
                     )) ||
@@ -312,7 +349,12 @@ export function InboxRow({
                 }
                 aria-label={label}
                 title={label}
-                onClick={() => onAction(action)}
+                onClick={() => {
+                  if (action === "reply") {
+                    rowRef.current?.focus();
+                    void openReply();
+                  } else onAction(action);
+                }}
               >
                 <Icon className="size-3.5" />
               </Button>

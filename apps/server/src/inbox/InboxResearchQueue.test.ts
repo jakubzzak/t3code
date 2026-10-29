@@ -101,6 +101,7 @@ it.effect(
         const full = yield* service.get({ projectId, id: visible.id });
         assert.equal(full?.analysis?.summary, item.content);
         assert.deepEqual(full?.analysis?.suggestions, ["Check the report's final figures."]);
+        assert.equal(full?.analysis?.replyDraft, "I checked the figures. They are correct.");
         assert.equal(full?.state.read, true);
         assert.equal(full?.revision, read.notification.revision);
         yield* service.drainResearch;
@@ -111,7 +112,10 @@ it.effect(
             Ref.update(calls, (n) => n + 1).pipe(
               Effect.andThen(Deferred.succeed(entered, undefined)),
               Effect.andThen(Deferred.await(release)),
-              Effect.as(["Check the report's final figures."]),
+              Effect.as({
+                suggestions: ["Check the report's final figures."],
+                replyDraft: "I checked the figures. They are correct.",
+              }),
             ),
           ),
         ),
@@ -134,7 +138,11 @@ it.effect("records checked-empty explicitly and does not rerun it on later displ
       yield* service.list({ projectId });
       yield* service.drainResearch;
       assert.equal(yield* Ref.get(calls), 1);
-    }).pipe(Effect.provide(fixture(() => Ref.update(calls, (n) => n + 1).pipe(Effect.as([])))));
+    }).pipe(
+      Effect.provide(
+        fixture(() => Ref.update(calls, (n) => n + 1).pipe(Effect.as({ suggestions: [] }))),
+      ),
+    );
   }).pipe(Effect.scoped),
 );
 
@@ -186,7 +194,7 @@ it.effect(
               Effect.flatMap((count) =>
                 count < 4
                   ? Effect.fail(new InboxError({ detail: "offline" }))
-                  : Effect.succeed(["Review the figures."]),
+                  : Effect.succeed({ suggestions: ["Review the figures."] }),
               ),
             ),
           ),
@@ -235,9 +243,9 @@ it.effect(
                 count === 1
                   ? Deferred.succeed(entered, undefined).pipe(
                       Effect.andThen(Deferred.await(release)),
-                      Effect.as(["Stale suggestion"]),
+                      Effect.as({ suggestions: ["Stale suggestion"] }),
                     )
-                  : Effect.succeed(["New suggestion"]),
+                  : Effect.succeed({ suggestions: ["New suggestion"] }),
               ),
             ),
           ),
@@ -272,6 +280,10 @@ it.effect("resumes a persisted research lease without resetting its attempt budg
       const recovered = yield* repository.get(projectId, n.id);
       assert.equal(recovered?.suggestionResearch?.attempts, 3);
       assert.equal(recovered?.suggestionResearch?.status, "empty");
-    }).pipe(Effect.provide(fixture(() => Ref.update(calls, (n) => n + 1).pipe(Effect.as([])))));
+    }).pipe(
+      Effect.provide(
+        fixture(() => Ref.update(calls, (n) => n + 1).pipe(Effect.as({ suggestions: [] }))),
+      ),
+    );
   }).pipe(Effect.scoped),
 );

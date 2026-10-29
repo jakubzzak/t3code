@@ -5,10 +5,13 @@ import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import {
   InboxError,
+  InboxReplyError,
+  type InboxReplyMessage,
   type ProjectId,
   type LinearDesktopRequest,
   type LinearDesktopResult,
@@ -23,10 +26,16 @@ import { readLinearInbox, readLinearIssue } from "../inbox/connectors/linear.ts"
 
 declare const __T3CODE_BUILD_LINEAR_CLIENT_ID__: string | undefined;
 export const LINEAR_CALLBACK_PATH = "/oauth/linear/callback";
+const isReplyError = Schema.is(InboxReplyError);
 const secretKey = (id: ProjectId) => `inbox-linear-${encodeURIComponent(id)}`;
 export class LinearConnection extends Context.Service<
   LinearConnection,
   {
+    readonly createComment: (
+      projectId: ProjectId,
+      connectionId: string,
+      input: { issueId: string; parentId: string | null; body: string },
+    ) => Effect.Effect<InboxReplyMessage, InboxReplyError>;
     readonly request: (
       projectId: ProjectId,
       input: LinearDesktopRequest,
@@ -79,7 +88,10 @@ export const layer = Layer.effect(
       string,
       { projectId: ProjectId; accept: (code: string) => void; finished: Promise<void> }
     >();
-    const connecting = new Map<ProjectId, { url: Promise<string>; status: LinearDesktopResult }>();
+    const connecting = new Map<
+      ProjectId,
+      { url: Promise<string>; status: LinearDesktopResult; finished: Promise<void> }
+    >();
     const beginLocks = new Map<ProjectId, Semaphore.Semaphore>();
     const beginLock = (projectId: ProjectId) => {
       let lock = beginLocks.get(projectId);
@@ -121,6 +133,7 @@ export const layer = Layer.effect(
         return cached.client;
       const client = createLinearConnection({
         clientId: effectiveClientId,
+        scopes: "read,comments:create",
         get redirectUri() {
           return new URL(
             LINEAR_CALLBACK_PATH,
@@ -195,6 +208,23 @@ export const layer = Layer.effect(
         });
       });
     return LinearConnection.of({
+      createComment: (projectId, connectionId, input) =>
+        Effect.gen(function* () {
+          const { linearWorkspace, linearClientId } = yield* projectConfiguration(projectId).pipe(
+            Effect.mapError(() => new InboxReplyError({ reason: "permission" })),
+          );
+          return yield* Effect.tryPromise({
+            try: () =>
+              getClient(projectId, linearClientId).createComment(
+                projectId,
+                linearWorkspace,
+                connectionId,
+                input,
+              ),
+            catch: (error) =>
+              isReplyError(error) ? error : new InboxReplyError({ reason: "permission" }),
+          });
+        }),
       request,
       begin: (projectId, origin) =>
         beginLock(projectId)(
@@ -227,7 +257,7 @@ export const layer = Layer.effect(
               finish = resolve;
             });
             const client = getClient(projectId, linearClientId, { origin, ready, finished });
-            connecting.set(projectId, { url, status });
+            connecting.set(projectId, { url, status, finished });
             yield* Effect.tryPromise({
               try: () =>
                 client.request({ operation: "connect", workspace: slug, connectionKey: projectId }),
@@ -264,6 +294,7 @@ export const layer = Layer.effect(
         }),
       cancel: (projectId) =>
         Effect.gen(function* () {
+          const pending = connecting.get(projectId);
           const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           yield* Effect.tryPromise({
             try: () =>
@@ -274,6 +305,8 @@ export const layer = Layer.effect(
               }),
             catch: wrap,
           });
+          if (pending) yield* Effect.promise(() => pending.finished);
+          errors.delete(projectId);
         }).pipe(Effect.asVoid),
       disconnect: (projectId) =>
         Effect.gen(function* () {

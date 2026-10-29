@@ -61,8 +61,62 @@ export const InboxLinearIssue = Schema.Struct({
   commentsComplete: Schema.Boolean,
 });
 export type InboxLinearIssue = typeof InboxLinearIssue.Type;
+export const InboxReplyTarget = Schema.Union([
+  Schema.Struct({
+    source: Schema.Literal("slack"),
+    channelId: TrimmedNonEmptyString,
+    threadTs: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    source: Schema.Literal("linear"),
+    issueId: TrimmedNonEmptyString,
+    parentId: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+]);
+export type InboxReplyTarget = typeof InboxReplyTarget.Type;
+export const InboxReplyInput = Schema.Struct({
+  projectId: ProjectId,
+  id: TrimmedNonEmptyString,
+  itemId: TrimmedNonEmptyString,
+  commandId: CommandId,
+  target: InboxReplyTarget,
+  text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
+});
+export type InboxReplyInput = typeof InboxReplyInput.Type;
+export const InboxReplyMessage = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  author: Schema.String,
+  text: Schema.String,
+  occurredAt: IsoDateTime,
+});
+export type InboxReplyMessage = typeof InboxReplyMessage.Type;
+export const InboxReplyAttempt = Schema.Struct({
+  ...InboxReplyInput.fields,
+  status: Schema.Literals(["pending", "sent", "failed", "uncertain"]),
+  message: Schema.optionalKey(InboxReplyMessage),
+  error: Schema.optionalKey(Schema.String),
+});
+export type InboxReplyAttempt = typeof InboxReplyAttempt.Type;
+export class InboxReplyError extends Schema.TaggedError<InboxReplyError>()("InboxReplyError", {
+  reason: Schema.Literals(["permission", "rate-limit", "rejected", "uncertain"]),
+  retryAfter: Schema.optionalKey(Schema.Number),
+}) {
+  override get message() {
+    switch (this.reason) {
+      case "permission":
+        return "Reconnect this source in Settings → Integrations to grant reply permission.";
+      case "rate-limit":
+        return `Reply rate limit reached. Try again after ${this.retryAfter ?? 60} seconds.`;
+      case "rejected":
+        return "This conversation cannot accept the reply. Check access in the source application.";
+      case "uncertain":
+        return "Delivery is uncertain. Check the original conversation before composing another reply. This attempt will not be sent again.";
+    }
+  }
+}
 export const InboxSourceItem = Schema.Struct({
   ...slackPresentation,
+  replyTarget: Schema.optionalKey(InboxReplyTarget),
   id: TrimmedNonEmptyString,
   source: InboxSource,
   connectionId: TrimmedNonEmptyString,
@@ -90,6 +144,7 @@ export const InboxAnalysisContent = Schema.Struct({
 });
 export type InboxAnalysisContent = typeof InboxAnalysisContent.Type;
 export const InboxAnalysis = Schema.Struct({
+  replyDraft: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMaxLength(4000)))),
   description: Schema.String,
   summary: Schema.String,
   suggestions: Schema.Array(Schema.String),
@@ -98,6 +153,7 @@ export const InboxAnalysis = Schema.Struct({
   generatedAt: IsoDateTime,
 });
 export const InboxResearchStep = Schema.Struct({
+  replyDraft: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMaxLength(4000)))),
   request: Schema.NullOr(
     Schema.Struct({
       tool: Schema.Literals([
@@ -129,6 +185,7 @@ export const InboxState = Schema.Struct({
 });
 export type InboxState = typeof InboxState.Type;
 export const InboxNotification = Schema.Struct({
+  replyAttempt: Schema.optionalKey(InboxReplyAttempt),
   id: TrimmedNonEmptyString,
   projectId: ProjectId,
   source: InboxSource,
@@ -171,6 +228,7 @@ export const InboxListInput = Schema.Struct({
   threadId: Schema.optionalKey(ThreadId),
 });
 export const InboxMutation = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("ignore-reply") }),
   Schema.Struct({ type: Schema.Literal("read"), read: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("snooze"), until: Schema.NullOr(IsoDateTime) }),
   Schema.Struct({ type: Schema.Literal("resolve"), resolved: Schema.Boolean }),
@@ -209,6 +267,7 @@ export class InboxError extends Schema.TaggedError<InboxError>()("InboxError", {
 }
 
 export const InboxSourceConnection = Schema.Struct({
+  canReply: Schema.optionalKey(Schema.Boolean),
   projectId: ProjectId,
   source: InboxSource,
   // Legacy wire compatibility; collection is controlled by the project Inbox feature.

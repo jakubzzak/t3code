@@ -57,7 +57,11 @@ it("retains non-issue notifications and the targeted comment plus its issue cont
     "2026-10-21T00:00:00.000Z",
   );
   expect(items).toHaveLength(2);
-  expect(items[0]).toMatchObject({ groupId: "issue", location: "ENG-1" });
+  expect(items[0]).toMatchObject({
+    groupId: "issue",
+    location: "ENG-1",
+    replyTarget: { source: "linear", issueId: "issue", parentId: "c1" },
+  });
   expect(items[0]?.content).toContain("Please approve the date");
   expect(items[0]?.content).toContain("Launch context");
   expect(items[0]?.linearIssue).toEqual({

@@ -178,6 +178,11 @@ export async function readSlackInbox(
         source: "slack",
         connectionId: `${identity.team_id}:${identity.user_id}`,
         groupId: `${channel}:${message.thread_ts ?? message.ts}`,
+        replyTarget: {
+          source: "slack",
+          channelId: channel,
+          threadTs: message.thread_ts ?? message.ts,
+        },
         location,
         title: (message.text ?? "Slack notification").split("\n")[0]!.slice(0, 250),
         author:

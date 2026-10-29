@@ -504,9 +504,10 @@ export function InboxSummary({
                 expanded &&
                 suggestionsEnabled &&
                 suggestionStatus === "ready" &&
-                suggestions.length > 0
+                (suggestions.length > 0 || !!notification.analysis?.replyDraft)
               }
               suggestions={suggestions}
+              hasDraft={!!notification.analysis?.replyDraft}
             >
               {(content) => (
                 <ul className="space-y-2">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { InboxIcon } from "lucide-react";
+import { InboxIcon, ReplyIcon } from "lucide-react";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { CommandId } from "@t3tools/contracts";
 import { randomUUID } from "~/lib/utils";
@@ -19,6 +19,8 @@ import { InboxNotificationMetadata } from "./InboxNotificationMetadata";
 import { InboxFeedbackNotes } from "./InboxFeedbackNotes";
 import { useLoadInboxThread } from "./useLoadInboxThread";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
+import { InboxReplyComposer } from "./InboxReplyComposer";
+import { inboxReplyTarget, openInboxReply } from "./inboxReplyDraft";
 import { Button } from "../ui/button";
 
 export function InboxThreadDetails({
@@ -64,6 +66,7 @@ export function InboxThreadDetails({
     }, 5_000);
     return () => window.clearInterval(timer);
   }, [enabled, list.refresh, detail.refresh]);
+  const canReply = useAtomValue(inboxEnvironment.reply.permissionAtom(environmentId));
   const canWrite = useAtomValue(inboxEnvironment.mutate.permissionAtom(environmentId));
   const command = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
   const refresh = useCallback(() => {
@@ -95,12 +98,25 @@ export function InboxThreadDetails({
             >
               <InboxIcon className="size-3.5" />
             </Button>
+            {(n.source === "slack" || n.source === "linear") && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Reply"
+                title="Reply"
+                disabled={!canReply || !inboxReplyTarget(n)}
+                onClick={() => openInboxReply(environmentId, n)}
+              >
+                <ReplyIcon className="size-3.5" />
+              </Button>
+            )}
             <InboxOpenOriginalAction notification={n} threadRef={threadRef} />
           </>
         }
       >
         <div className="px-2.5 py-2">
           <InboxNotificationMetadata notification={n} />
+          <InboxReplyComposer environmentId={environmentId} notification={n} />
           <div className="mt-2">
             <InboxSummary
               threadRef={threadRef}

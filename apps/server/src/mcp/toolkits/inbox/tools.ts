@@ -3,12 +3,15 @@ import {
   InboxNotification,
   InboxMutateInput,
   InboxMutationResult,
+  InboxReplyInput,
+  InboxReplyAttempt,
   OrchestratorMcpFailure,
   ProjectId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
+import { InboxReplyTransport } from "../../../inbox/InboxReplyTransport.ts";
 import { InboxService } from "../../../inbox/InboxService.ts";
 import { ThreadManagementService } from "../../../orchestration-v2/ThreadManagementService.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
@@ -32,6 +35,16 @@ export const InboxToolkit = Toolkit.make(
     parameters: Schema.Struct({ projectId: ProjectId, id: TrimmedNonEmptyString }),
     success: Schema.NullOr(InboxNotification),
   }).annotate(Tool.Readonly, true),
+  Tool.make("inbox_reply", {
+    ...shared,
+    dependencies: [...shared.dependencies, InboxReplyTransport],
+    description:
+      "Send a reviewed reply to this notification's Slack thread or Linear comment/issue as the connected user. Before calling, show the exact text and destination, offer Send/Edit/Ignore, and wait for explicit Send confirmation. Suggested resolutions and delegated tasks are never send approval. Read the notification first; copy its exact itemId and replyTarget. Use a unique commandId and reuse it only to check/retry this exact attempt. Pending/uncertain results must never be automatically resent with a new ID. Does not settle the item or change source read state.",
+    parameters: InboxReplyInput,
+    success: InboxReplyAttempt,
+  })
+    .annotate(Tool.Readonly, false)
+    .annotate(Tool.Destructive, false),
   Tool.make("inbox_update", {
     ...shared,
     description:

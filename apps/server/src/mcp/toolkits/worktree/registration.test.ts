@@ -1,3 +1,4 @@
+import * as ReplyTransport from "../../../inbox/InboxReplyTransport.ts";
 import * as Inbox from "../../../inbox/InboxService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
@@ -37,6 +38,7 @@ import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as PreviewBrowser from "../../../preview/PreviewBrowser.ts";
 
 const layerStubServices = Layer.mergeAll(
+  Layer.mock(ReplyTransport.InboxReplyTransport)({}),
   Layer.mock(Inbox.InboxService)({}),
   Layer.mock(Orchestrator.OrchestratorV2)({}),
   Layer.mock(ProjectionStore.ProjectionStoreV2)({}),

@@ -124,6 +124,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.inboxList]: "inbox",
   [WS_METHODS.inboxGet]: "inbox",
   [WS_METHODS.inboxMutate]: "inbox",
+  [WS_METHODS.inboxReply]: "inbox",
   [WS_METHODS.pullRequestsReviewGuide]: "pull-requests",
   [WS_METHODS.pullRequestsGenerateReviewGuide]: "pull-requests",
   [WS_METHODS.pullRequestsThreadComments]: "pull-requests",

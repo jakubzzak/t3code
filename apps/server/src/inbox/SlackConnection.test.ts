@@ -184,7 +184,7 @@ it.effect(
 );
 
 it.effect(
-  "uses project PKCE, grants only user read scopes, consumes callback state once and refreshes rotating tokens",
+  "uses project PKCE, requests user read and reply scopes, consumes callback state once and refreshes rotating tokens",
   () =>
     Effect.gen(function* () {
       const fixture = yield* setup;
@@ -203,7 +203,7 @@ it.effect(
         );
         assert.isFalse(url.searchParams.has("scope"));
         assert.isFalse(url.searchParams.has("client_secret"));
-        assert.notInclude(url.searchParams.get("user_scope")!, "write");
+        assert.include(url.searchParams.get("user_scope")!, "chat:write");
         assert.include(url.searchParams.get("user_scope")!, "users:read");
         assert.equal(fixture.values.size, 0);
         const state = url.searchParams.get("state")!;

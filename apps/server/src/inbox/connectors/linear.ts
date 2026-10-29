@@ -186,6 +186,11 @@ export async function readLinearInbox(
         content: context.slice(0, 32000),
         ...(notification.issue
           ? {
+              replyTarget: {
+                source: "linear" as const,
+                issueId: notification.issue.id,
+                parentId: notification.parentComment?.id ?? notification.comment?.id ?? null,
+              },
               linearIssue: {
                 id: notification.issue.id,
                 title: notification.issue.title,

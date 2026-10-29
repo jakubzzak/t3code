@@ -19,6 +19,13 @@ export const layer = Access.toLayer(InboxToolkit, {
       return yield* (yield* InboxService).get(input).pipe(Effect.mapError(error));
     }),
   ),
+  inbox_reply: Access.writesEnvironment((input, check) =>
+    Effect.gen(function* () {
+      return yield* (yield* InboxService)
+        .reply(input, Effect.asVoid(check))
+        .pipe(Effect.mapError((cause) => (cause._tag === "InboxError" ? error(cause) : cause)));
+    }),
+  ),
   inbox_update: Access.writesEnvironment((input, check) =>
     Effect.gen(function* () {
       return yield* (yield* InboxService)

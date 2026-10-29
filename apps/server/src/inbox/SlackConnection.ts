@@ -15,10 +15,11 @@ import * as Settings from "../serverSettings.ts";
 import * as Secrets from "../auth/ServerSecretStore.ts";
 
 export const SLACK_CALLBACK_PATH = "/oauth/inbox/slack/callback";
-const READ_SCOPES =
-  "im:read,im:history,mpim:read,mpim:history,search:read,usergroups:read,users:read,channels:history,groups:history";
+const USER_SCOPES =
+  "im:read,im:history,mpim:read,mpim:history,search:read,usergroups:read,users:read,channels:history,groups:history,chat:write";
 const credentialKey = (projectId: ProjectId) => `inbox-slack-${encodeURIComponent(projectId)}`;
 const Tokens = Schema.Struct({
+  scope: Schema.optionalKey(Schema.String),
   access_token: Schema.NonEmptyString,
   refresh_token: Schema.optionalKey(Schema.String),
   expires_in: Schema.optionalKey(Schema.Number),
@@ -38,6 +39,7 @@ const Credential = Schema.Struct({
   refreshToken: Schema.optionalKey(Schema.String),
   expiresAt: Schema.NullOr(Schema.Number),
   account: Schema.String,
+  scopes: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 const decodeCredential = Schema.decodeUnknownSync(Schema.fromJsonString(Credential));
 const decodeResponse = Schema.decodeUnknownSync(OAuthResponse);
@@ -99,6 +101,9 @@ export class SlackConnection extends Context.Service<
     ) => Effect.Effect<{ projectId: ProjectId; account: string }, InboxError>;
     readonly cancel: (projectId: ProjectId) => Effect.Effect<void>;
     readonly disconnect: (projectId: ProjectId) => Effect.Effect<void, InboxError>;
+    readonly status: (
+      projectId: ProjectId,
+    ) => Effect.Effect<{ canReply?: boolean; account?: string }, InboxError>;
     readonly accessToken: (projectId: ProjectId) => Effect.Effect<string, InboxError>;
   }
 >()("t3/inbox/SlackConnection") {}
@@ -173,6 +178,23 @@ export const layer = Layer.effect(
           Effect.mapError(() => fail("Could not save the Slack connection on this environment.")),
         );
     return SlackConnection.of({
+      status: (projectId) =>
+        Effect.gen(function* () {
+          const stored = yield* secrets
+            .get(credentialKey(projectId))
+            .pipe(Effect.mapError(() => fail("Could not read the Slack connection.")));
+          if (Option.isNone(stored)) return { canReply: false };
+          const text = new TextDecoder().decode(stored.value);
+          if (text.startsWith("xoxp-")) return {};
+          const credential = yield* Effect.try({
+            try: () => decodeCredential(text),
+            catch: () => fail("Reconnect Slack to repair its saved connection."),
+          });
+          return {
+            canReply: credential.scopes?.includes("chat:write") ?? false,
+            account: credential.account,
+          };
+        }),
       begin: (projectId, origin) =>
         lock(projectId)(
           Effect.gen(function* () {
@@ -202,7 +224,7 @@ export const layer = Layer.effect(
             const url = new URL("https://slack.com/oauth/v2/authorize");
             url.search = new URLSearchParams({
               client_id: config.slackClientId,
-              user_scope: READ_SCOPES,
+              user_scope: USER_SCOPES,
               redirect_uri: redirectUri,
               state,
               code_challenge: NodeCrypto.createHash("sha256").update(verifier).digest("base64url"),
@@ -242,6 +264,7 @@ export const layer = Layer.effect(
                   ? clock.currentTimeMillisUnsafe() + user.expires_in * 1000
                   : null,
                 account,
+                scopes: user.scope?.split(",") ?? [],
               });
               return { projectId: flow.projectId, account };
             }),

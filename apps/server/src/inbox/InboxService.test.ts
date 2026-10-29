@@ -1,3 +1,4 @@
+import * as ReplyTransport from "./InboxReplyTransport.ts";
 import { ingestInboxItem } from "./inboxState.ts";
 import * as Analysis from "./InboxAnalysis.ts";
 import * as Research from "./InboxResearch.ts";
@@ -11,6 +12,7 @@ import * as Ref from "effect/Ref";
 import {
   CommandId,
   InboxError,
+  InboxReplyError,
   ProjectId,
   ProviderInstanceId,
   type InboxSourceItem,
@@ -35,7 +37,7 @@ const item: InboxSourceItem = {
   occurredAt: "2026-10-22T10:00:00Z",
 };
 const dependencies = Layer.mergeAll(
-  Layer.succeed(Research.InboxResearch, { research: () => Effect.succeed([]) }),
+  Layer.succeed(Research.InboxResearch, { research: () => Effect.succeed({ suggestions: [] }) }),
   Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)),
   Settings.layerTest({
     projectSettingsOverrides: {
@@ -45,6 +47,7 @@ const dependencies = Layer.mergeAll(
 );
 const scenario = Effect.gen(function* () {
   const analysisCalls = yield* Ref.make(0);
+  const replySaveFailure = yield* Ref.make(false);
   const analyzedHistory = yield* Ref.make<ReadonlyArray<InboxNotification>>([]);
   const starts = yield* Ref.make(0);
   const stops = yield* Ref.make(0);
@@ -71,6 +74,7 @@ const scenario = Effect.gen(function* () {
   });
   return {
     analysisCalls,
+    replySaveFailure,
     analyzedHistory,
     starts,
     stops,
@@ -79,6 +83,17 @@ const scenario = Effect.gen(function* () {
     fail,
     providerError,
     layer: Inbox.layer.pipe(
+      Layer.updateService(Repository.InboxRepository, (repository) => ({
+        ...repository,
+        recordReply: (notification, attempt) =>
+          Ref.get(replySaveFailure).pipe(
+            Effect.flatMap((fail) =>
+              fail && attempt.status === "sent"
+                ? Effect.fail(new InboxError({ detail: "Fixture persistence failure" }))
+                : repository.recordReply(notification, attempt),
+            ),
+          ),
+      })),
       Layer.provide(Layer.succeed(Agent.InboxAgent, agent)),
       Layer.provideMerge(dependencies),
       Layer.provide(
@@ -700,4 +715,156 @@ it.effect(
         );
       }).pipe(Effect.provide(fixture.layer));
     }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "sends a reviewed reply once, rejects changed destinations, and preserves placement",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* scenario;
+      let posts = 0;
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const target = { source: "linear" as const, issueId: "issue", parentId: "comment-root" };
+        yield* service.ingest(projectId, [{ ...item, replyTarget: target }]);
+        const [first] = yield* service.list({ projectId });
+        assert.ok(first);
+        const input = {
+          projectId,
+          id: first.id,
+          itemId: item.id,
+          target,
+          commandId: CommandId.make("reply-one"),
+          text: "Friday works.",
+        };
+        const sent = yield* service.reply(input);
+        assert.equal(sent.status, "sent");
+        assert.equal((yield* service.reply(input)).status, "sent");
+        assert.equal(posts, 1);
+        const n = yield* service.get({ projectId, id: first.id });
+        assert.equal(n?.state.read, true);
+        assert.equal(n?.state.placement, "active");
+        assert.equal(n?.replyAttempt?.message?.text, "Friday works.");
+        const changed = yield* Effect.result(
+          service.reply({
+            ...input,
+            commandId: CommandId.make("reply-two"),
+            target: { ...target, parentId: "newest-comment" },
+          }),
+        );
+        assert.equal(changed._tag, "Failure");
+        assert.equal(posts, 1);
+      }).pipe(
+        Effect.provide(fixture.layer),
+        Effect.provideService(ReplyTransport.InboxReplyTransport, {
+          send: () =>
+            Effect.sync(() => {
+              posts++;
+              return {
+                id: "posted-comment",
+                author: "Me",
+                text: "Friday works.",
+                occurredAt: "2026-10-29T08:00:00Z",
+              };
+            }),
+        }),
+      );
+    }).pipe(Effect.scoped),
+);
+
+it.effect("recovers a confirmed post after local persistence failure without reposting", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    let posts = 0;
+    yield* Effect.gen(function* () {
+      const service = yield* Inbox.InboxService;
+      const target = { source: "linear" as const, issueId: "issue", parentId: null };
+      yield* service.ingest(projectId, [{ ...item, replyTarget: target }]);
+      const [n] = yield* service.list({ projectId });
+      assert.ok(n);
+      const input = {
+        projectId,
+        id: n.id,
+        itemId: item.id,
+        target,
+        commandId: CommandId.make("local-failure"),
+        text: "Confirmed.",
+      };
+      yield* Ref.set(fixture.replySaveFailure, true);
+      assert.equal((yield* Effect.result(service.reply(input)))._tag, "Failure");
+      assert.equal(posts, 1);
+      assert.equal((yield* service.get({ projectId, id: n.id }))?.replyAttempt?.status, "pending");
+      yield* Ref.set(fixture.replySaveFailure, false);
+      assert.equal((yield* service.reply(input)).status, "sent");
+      assert.equal(posts, 1);
+      assert.equal((yield* service.get({ projectId, id: n.id }))?.state.read, true);
+    }).pipe(
+      Effect.provide(fixture.layer),
+      Effect.provideService(ReplyTransport.InboxReplyTransport, {
+        send: () =>
+          Effect.sync(() => {
+            posts++;
+            return {
+              id: "posted",
+              author: "Me",
+              text: "Confirmed.",
+              occurredAt: "2026-10-29T08:00:00Z",
+            };
+          }),
+      }),
+    );
+  }).pipe(Effect.scoped),
+);
+
+it.effect("preserves failed text and never automatically retransmits an uncertain attempt", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    let posts = 0;
+    yield* Effect.gen(function* () {
+      const service = yield* Inbox.InboxService;
+      const target = { source: "linear" as const, issueId: "issue", parentId: null };
+      yield* service.ingest(projectId, [{ ...item, replyTarget: target }]);
+      const [n] = yield* service.list({ projectId });
+      assert.ok(n);
+      const input = {
+        projectId,
+        id: n.id,
+        itemId: item.id,
+        target,
+        commandId: CommandId.make("uncertain"),
+        text: "Keep my edit.",
+      };
+      const result = yield* service.reply(input);
+      assert.equal(result.status, "uncertain");
+      assert.equal(result.text, input.text);
+      yield* service.reply(input);
+      assert.equal(posts, 1);
+      assert.equal(
+        (yield* Effect.result(
+          service.reply({ ...input, commandId: CommandId.make("unsafe-resend") }),
+        ))._tag,
+        "Failure",
+      );
+      const current = yield* service.get({ projectId, id: n.id });
+      assert.ok(current);
+      yield* service.mutate({
+        projectId,
+        id: n.id,
+        commandId: CommandId.make("checked-source-discard"),
+        expectedRevision: current.revision,
+        action: { type: "ignore-reply" },
+      });
+      assert.equal((yield* service.get({ projectId, id: n.id }))?.replyAttempt, undefined);
+      assert.equal((yield* service.reply(input)).status, "uncertain");
+      assert.equal(posts, 1);
+    }).pipe(
+      Effect.provide(fixture.layer),
+      Effect.provideService(ReplyTransport.InboxReplyTransport, {
+        send: () =>
+          Effect.sync(() => {
+            posts++;
+          }).pipe(Effect.andThen(Effect.fail(new InboxReplyError({ reason: "uncertain" })))),
+      }),
+    );
+  }).pipe(Effect.scoped),
 );

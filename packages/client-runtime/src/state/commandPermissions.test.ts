@@ -356,7 +356,11 @@ it.effect(
             "EnvironmentAuthorizationError",
           );
         }
-        for (const method of [WS_METHODS.inboxMutate, WS_METHODS.inboxRefreshSource]) {
+        for (const method of [
+          WS_METHODS.inboxMutate,
+          WS_METHODS.inboxRefreshSource,
+          WS_METHODS.inboxReply,
+        ]) {
           const permission = createCommandPermissions(runtime, method);
           yield* permission.authorize(registry, env);
           registry.set(sessions(other), AsyncResult.success(grant(false)));

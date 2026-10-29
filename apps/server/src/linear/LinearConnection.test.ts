@@ -38,7 +38,7 @@ it.effect(
         const url = new URL(yield* service.begin(first, "https://blackbird.example.test"));
         assert.equal(url.searchParams.get("client_id"), "custom-public-client");
         assert.equal(url.searchParams.get("code_challenge_method"), "S256");
-        assert.equal(url.searchParams.get("scope"), "read");
+        assert.equal(url.searchParams.get("scope"), "read,comments:create");
         assert.isFalse(url.searchParams.has("client_secret"));
         yield* service.cancel(first);
       }).pipe(
@@ -228,4 +228,49 @@ it.effect("shares a single pending authorization across concurrent project clien
       ),
     );
   }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "keeps the existing read connection available after canceling a reply-permission upgrade",
+  () => {
+    const credential = JSON.stringify({
+      [first]: {
+        clientId: "fixture-client",
+        accessToken: "fixture-access",
+        refreshToken: "fixture-refresh",
+        expiresAt: 9999999999999,
+        connection: { workspace: "acme", userId: "me", name: "Me", email: "me@example.test" },
+      },
+    });
+    return Effect.gen(function* () {
+      const connection = yield* Connection.LinearConnection;
+      yield* connection.begin(first, "https://example.test");
+      yield* connection.cancel(first);
+      const status = yield* connection.request(first, {
+        operation: "status",
+        workspace: "acme",
+        connectionKey: first,
+      });
+      assert.equal(status.connection?.userId, "me");
+    }).pipe(
+      Effect.provide(
+        Connection.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Settings.layerTest({
+                projectSettingsOverrides: {
+                  [first]: { linearWorkspace: "acme", linearClientId: "fixture-client" },
+                },
+              }),
+              Layer.mock(Secrets.ServerSecretStore)({
+                get: () => Effect.succeedSome(new TextEncoder().encode(credential)),
+                set: () => Effect.die("Cancel must not replace credentials"),
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.scoped,
+    );
+  },
 );

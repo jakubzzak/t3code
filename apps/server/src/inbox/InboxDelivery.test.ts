@@ -39,7 +39,9 @@ const fixture = (succeedAt = 0, hang = false, blockFirst = false) =>
     const entered = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
     const deps = Layer.mergeAll(
-      Layer.succeed(Research.InboxResearch, { research: () => Effect.succeed([]) }),
+      Layer.succeed(Research.InboxResearch, {
+        research: () => Effect.succeed({ suggestions: [] }),
+      }),
       Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)),
       Settings.layerTest({
         projectSettingsOverrides: {
