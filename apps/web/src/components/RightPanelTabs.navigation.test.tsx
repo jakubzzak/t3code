@@ -2,6 +2,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import type { PreviewSessionSnapshot } from "@t3tools/contracts";
 import { installSectionNavigation } from "../sectionNavigation";
 import type { RightPanelSurface } from "../rightPanelStore";
 import { RightPanelTabs } from "./RightPanelTabs";
@@ -14,9 +15,20 @@ const initial: RightPanelSurface[] = [
   { id: "pull-requests", kind: "pull-requests" },
 ];
 const noop = () => {};
+const idleNavigation = { _tag: "Idle" } as const;
 Element.prototype.getAnimations ??= () => [];
 
-function Harness({ empty = false, list = false, linear = false } = {}) {
+function Harness({
+  empty = false,
+  list = false,
+  linear = false,
+  navigation = idleNavigation,
+}: {
+  empty?: boolean;
+  list?: boolean;
+  linear?: boolean;
+  navigation?: PreviewSessionSnapshot["navStatus"];
+} = {}) {
   const [surfaces, setSurfaces] = useState(empty ? [] : initial);
   const [active, setActive] = useState<RightPanelSurface | null>(empty ? null : initial[1]!);
   const addBrowser = () => {
@@ -61,7 +73,7 @@ function Harness({ empty = false, list = false, linear = false } = {}) {
                   threadId: "thread-1",
                   tabId: "browser:2",
                   surface: "linear",
-                  navStatus: { _tag: "Idle" },
+                  navStatus: navigation,
                   canGoBack: false,
                   canGoForward: false,
                   updatedAt: "2026-10-05T00:00:00.000Z",
@@ -236,4 +248,37 @@ it("does not create an ordinary browser from an active Linear view", async () =>
   await press("t", { metaKey: true, shiftKey: true });
   expect(document.querySelectorAll("[data-active-tab]")).toHaveLength(3);
   expect(selected()).toBe("surfaces");
+});
+
+it("follows the current Linear issue and never labels it with the previous issue's name", async () => {
+  const first = {
+    _tag: "Success" as const,
+    url: "https://linear.app/demo/issue/ENG-123/fix-login",
+    title: "ENG-123 Fix login redirect",
+  };
+  await act(async () => root.render(<Harness linear navigation={first} />));
+  await press("b");
+  const label = () =>
+    document.querySelector<HTMLButtonElement>('[data-active-tab="true"] button:last-child')!;
+  expect(label().textContent).toBe("ENG-123 · Fix login redir..");
+  expect(label().getAttribute("aria-label")).toBe("ENG-123 · Fix login redirect");
+
+  const navigate = async (navigation: PreviewSessionSnapshot["navStatus"]) => {
+    await act(async () => root.render(<Harness linear navigation={navigation} />));
+    return label().textContent;
+  };
+  const next = { ...first, url: "https://linear.app/demo/issue/ENG-456/keyboard-focus" };
+  expect(await navigate({ ...next, _tag: "Loading" })).toBe("ENG-456");
+  expect(await navigate({ ...next, title: "ENG-456 Preserve keyboard focus" })).toBe(
+    "ENG-456 · Preserve keyboa..",
+  );
+  expect(await navigate({ ...next, url: "https://linear.app/demo/my-issues" })).toBe("Linear");
+  expect(await navigate(first)).toBe("ENG-123 · Fix login redir..");
+  expect(await navigate({ ...first, _tag: "Loading" })).toBe("ENG-123 · Fix login redir..");
+  expect(await navigate({ ...first, _tag: "LoadFailed", code: -106, description: "Offline" })).toBe(
+    "ENG-123 · Fix login redir..",
+  );
+  expect(await navigate({ ...first, title: "" })).toBe("ENG-123");
+  expect(await navigate({ ...first, url: "https://accounts.google.com/signin" })).toBe("Linear");
+  expect(await navigate({ _tag: "Idle" })).toBe("Linear");
 });

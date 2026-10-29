@@ -79,6 +79,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { useBrowserDefaults } from "~/browser/browserDefaults";
+import { linearIssueTabLabel } from "~/browser/linear";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
 import { faviconUrlForOrigin } from "~/lib/favicon";
@@ -1312,11 +1313,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
               {props.surfaces.map((surface) => {
                 const active = surface.id === props.activeSurfaceId;
                 const pending = props.pendingSurfaceIds.has(surface.id);
-                const title = surfaceTitle(
-                  surface,
-                  props.previewSessions,
-                  props.terminalLabelsById,
-                );
+                const snapshot =
+                  surface.kind === "preview" && surface.resourceId
+                    ? props.previewSessions[surface.resourceId]
+                    : undefined;
+                const linearIssue =
+                  snapshot?.surface === "linear" ? linearIssueTabLabel(snapshot.navStatus) : null;
+                const title =
+                  linearIssue?.label ??
+                  surfaceTitle(surface, props.previewSessions, props.terminalLabelsById);
                 const previewTabId = previewTabIdOf(surface, props.previewSessions);
                 // Desktop state is keyed by the session id, but desktop actions
                 // must be addressed with the runtime id.
@@ -1338,7 +1343,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     onAuxClick={(event) => handleTabAuxClick(event, surface)}
                     onContextMenu={(event) => void handleTabContextMenu(event, surface)}
                     className={cn(
-                      "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                      "cursor-pointer group/tab flex h-6 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                      // Linear issue labels are already capped at 15 name characters.
+                      !linearIssue && "max-w-36",
                       ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
                       active
                         ? "bg-accent text-foreground"
@@ -1424,9 +1431,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                                   setRenamingDevice(surface.id);
                               }}
                               className="cursor-pointer flex min-w-0 items-center"
+                              aria-label={linearIssue ? title : undefined}
                               onClick={() => props.onActivate(surface)}
                             >
-                              <span className="truncate">{title}</span>
+                              {linearIssue ? (
+                                <span className="whitespace-nowrap">
+                                  {linearIssue.shortName
+                                    ? `${linearIssue.identifier} · ${linearIssue.shortName}`
+                                    : linearIssue.identifier}
+                                </span>
+                              ) : (
+                                <span className="truncate">{title}</span>
+                              )}
                             </button>
                           }
                         />
