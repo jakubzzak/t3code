@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { SlackReadError, readSlackInbox } from "./slack.ts";
+import { SlackReadError, readSlackInbox as readSlackBatch } from "./slack.ts";
 it("loads a parent thread identified by reply_count even without thread_ts", async () => {
   const root = {
     ts: "1792620000.000000",
@@ -577,7 +577,7 @@ it.each(["thread_not_found", "channel_not_found", "not_in_channel"])(
   async (code) => {
     const root = "1792620000.000000";
     const ts = "1792706400.000000";
-    const items = await readSlackInbox(
+    const batch = await readSlackBatch(
       async (method, args) => {
         if (method === "auth.test") return { ok: true, user_id: "me", team_id: "T" };
         if (method === "users.info") return { user: { name: args.user } };
@@ -621,7 +621,12 @@ it.each(["thread_not_found", "channel_not_found", "not_in_channel"])(
       "2026-10-22T00:00:00Z",
       [{ connectionId: "T:me", groupId: `DELETED:${root}` }],
     );
-    expect(items.some((item) => item.groupId === `HEALTHY:${root}`)).toBe(true);
+    expect(batch.items.some((item) => item.groupId === `HEALTHY:${root}`)).toBe(true);
+    expect(batch.slackRetryThreads).toEqual(
+      code === "thread_not_found"
+        ? []
+        : [{ connectionId: "T:me", groupId: `DELETED:${root}`, since: "2026-10-22T00:00:00Z" }],
+    );
   },
 );
 
@@ -681,4 +686,52 @@ it("fetches adjacent unmentioned replies across pages when search returns only t
   );
   expect(items.map((item) => item.id)).toEqual([`C:${incoming.ts}`, `C:${own.ts}`]);
   expect(cursors).toEqual(["", "next"]);
+});
+
+const readSlackInbox = (...args: Parameters<typeof readSlackBatch>) =>
+  readSlackBatch(...args).then((batch) => batch.items);
+
+it("bounds retries, rotates denied threads and excludes another account's pending work", async () => {
+  const since = "2026-10-22T00:00:00Z";
+  const pending = Array.from({ length: 51 }, (_, index) => ({
+    connectionId: "T:me",
+    groupId: `C${index}:1792620000.000000`,
+    since,
+  }));
+  const attempted: string[] = [];
+  let denied = true;
+  const read: Parameters<typeof readSlackBatch>[0] = async (method, args) => {
+    if (method === "auth.test") return { ok: true, team_id: "T", user_id: "me" };
+    if (method === "search.messages")
+      return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
+    if (method === "conversations.replies") {
+      attempted.push(args.channel!);
+      expect(args.oldest).toBe(String(Date.parse(since) / 1000));
+      if (denied) throw new SlackReadError(method, "not_in_channel");
+      return { ok: true, messages: [] };
+    }
+    throw new Error(method);
+  };
+  const first = await readSlackBatch(
+    read,
+    ["mentions"],
+    "2026-10-23T00:00:00Z",
+    [],
+    [...pending, { connectionId: "other:me", groupId: "PRIVATE:1", since }],
+  );
+  expect(attempted).toHaveLength(50);
+  expect(first.slackRetryThreads).toHaveLength(51);
+  expect(first.slackRetryThreads[0]?.groupId).toBe(pending[50]?.groupId);
+  denied = false;
+  attempted.length = 0;
+  const second = await readSlackBatch(
+    read,
+    ["mentions"],
+    "2026-10-24T00:00:00Z",
+    [],
+    first.slackRetryThreads,
+  );
+  expect(attempted).toHaveLength(50);
+  expect(attempted[0]).toBe("C50");
+  expect(second.slackRetryThreads).toEqual([pending[49]]);
 });

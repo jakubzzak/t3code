@@ -196,11 +196,9 @@ export async function readLinearInbox(
         ).values(),
       ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
       const context = [
+        ...comments.toReversed().map((comment) => comment.body),
         notification.title,
         notification.subtitle,
-        notification.parentComment?.body,
-        notification.comment?.body,
-        ...(issue?.latestComments?.nodes.map((comment) => comment.body) ?? []),
         notification.issue?.description,
         notification.project?.description,
       ]
@@ -258,7 +256,10 @@ export async function readLinearInbox(
       throw new Error("Linear returned a repeated notification cursor.");
     if (after) seen.add(after);
   } while (after);
-  const conversations = tracked
+  const conversations = [
+    ...tracked,
+    ...items.filter((item) => item.linearIssue || item.linearCommentTarget),
+  ]
     .filter((entry) => entry.connectionId === connectionId)
     .flatMap((entry) => {
       if (!entry.linearCommentTarget?.startsWith("notification:")) return [entry];

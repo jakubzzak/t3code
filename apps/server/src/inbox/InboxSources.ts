@@ -254,44 +254,69 @@ export const make = Effect.gen(function* () {
           ),
           Effect.mapError(error),
         );
+        const retryBoundaries = new Map(
+          (policyMatches ? (connection.slackRetryThreads ?? []) : []).map((entry) => [
+            `${entry.connectionId}/${entry.groupId}`,
+            entry.since,
+          ]),
+        );
         const result = yield* (
           connection.source === "slack" ? slack.accessToken(input.projectId) : Effect.succeed("")
         ).pipe(
-          Effect.flatMap((token) => transport.read(connection, token, since, tracked)),
-          Effect.flatMap((items) =>
+          Effect.flatMap((token) =>
+            transport.read(
+              policyMatches ? connection : { ...connection, slackRetryThreads: [] },
+              token,
+              since,
+              tracked,
+            ),
+          ),
+          Effect.flatMap((batch) =>
             settings
-              .withSettingsSnapshot((snapshot) => {
-                const latest = resolveProjectSettings(snapshot, input.projectId).settings;
-                if (
-                  !latest.inboxEnabled ||
-                  (latest.inboxEnabledAtByProject[input.projectId] ?? enabledAt) !== enabledAt ||
-                  latest.inboxInitialHistoryDays !== config.inboxInitialHistoryDays
-                )
-                  return Effect.succeed(false);
-                return inbox
-                  .ingest(
-                    input.projectId,
-                    items.filter((item) => Date.parse(item.occurredAt) >= Date.parse(since)),
+              .withSettingsSnapshot((snapshot) =>
+                Effect.gen(function* () {
+                  const latest = resolveProjectSettings(snapshot, input.projectId).settings;
+                  if (
+                    !latest.inboxEnabled ||
+                    (latest.inboxEnabledAtByProject[input.projectId] ?? enabledAt) !== enabledAt ||
+                    latest.inboxInitialHistoryDays !== config.inboxInitialHistoryDays
                   )
-                  .pipe(Effect.as(true));
-              })
+                    return false;
+                  return yield* inbox
+                    .ingest(
+                      input.projectId,
+                      batch.items.filter((item) => {
+                        const boundary =
+                          retryBoundaries.get(`${item.connectionId}/${item.groupId}`) ?? since;
+                        return Date.parse(item.occurredAt) >= Date.parse(boundary);
+                      }),
+                    )
+                    .pipe(Effect.as(batch));
+                }),
+              )
               .pipe(Effect.mapError(error)),
           ),
           Effect.result,
         );
-        if (result._tag === "Success" && !result.success) return connection;
-        return yield* save(
-          result._tag === "Success"
-            ? {
-                ...connection,
-                collectionStartedAt: enabledAt,
-                collectionHistoryDays: config.inboxInitialHistoryDays,
-                lastSyncAt: iso(now),
-                error: null,
-                retryAt: null,
-              }
-            : { ...connection, error: result.failure.detail, retryAt: iso(now + 300_000) },
-        );
+        if (result._tag === "Failure")
+          return yield* save({
+            ...connection,
+            error: result.failure.detail,
+            retryAt: iso(now + 300_000),
+          });
+        if (!result.success) return connection;
+        const pending = result.success.slackRetryThreads ?? [];
+        return yield* save({
+          ...connection,
+          collectionStartedAt: enabledAt,
+          collectionHistoryDays: config.inboxInitialHistoryDays,
+          lastSyncAt: iso(now),
+          ...(connection.source === "slack" ? { slackRetryThreads: pending } : {}),
+          error: pending.length
+            ? "Some Slack threads are unavailable. Restore channel access to retry."
+            : null,
+          retryAt: pending.length ? iso(now + 300_000) : null,
+        });
       }),
     );
   const configure = (input: InboxSourceConfigureInput) =>

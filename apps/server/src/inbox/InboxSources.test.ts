@@ -126,12 +126,12 @@ it.effect(
             if (connection.source === "linear") {
               linearReads++;
               yield* Deferred.succeed(linearRead, undefined);
-              return historyItems;
+              return { items: historyItems };
             }
             yield* Ref.update(calls, (count) => count + 1);
             if (yield* Ref.get(fail))
               return yield* new InboxError({ detail: "Slack permission missing" });
-            return historyItems;
+            return { items: historyItems };
           }),
       });
       const inbox = Inbox.InboxService.of({

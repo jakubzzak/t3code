@@ -40,7 +40,13 @@ export class InboxSourceTransport extends Context.Service<
       tracked?: ReadonlyArray<
         Pick<InboxSourceItem, "connectionId" | "groupId" | "linearCommentTarget">
       >,
-    ) => Effect.Effect<ReadonlyArray<InboxSourceItem>, InboxError>;
+    ) => Effect.Effect<
+      {
+        readonly items: ReadonlyArray<InboxSourceItem>;
+        readonly slackRetryThreads?: InboxSourceConnection["slackRetryThreads"];
+      },
+      InboxError
+    >;
   }
 >()("t3/inbox/InboxSourceTransport") {}
 export const layer: Layer.Layer<
@@ -95,17 +101,28 @@ export const layer: Layer.Layer<
         slackRead((read) => readSlackThread(read, channelId, ts, cached), token),
       read: (connection, token, since, tracked) =>
         connection.source === "linear"
-          ? linear.read(connection.projectId, connection.categories, since, tracked)
+          ? linear
+              .read(connection.projectId, connection.categories, since, tracked)
+              .pipe(Effect.map((items) => ({ items })))
           : connection.source === "superhuman"
-            ? superhuman.read(
-                connection.projectId,
-                connection.accounts,
-                connection.categories,
-                since,
-                tracked,
-              )
+            ? superhuman
+                .read(
+                  connection.projectId,
+                  connection.accounts,
+                  connection.categories,
+                  since,
+                  tracked,
+                )
+                .pipe(Effect.map((items) => ({ items })))
             : slackRead(
-                (read) => readSlackInbox(read, connection.categories, since, tracked),
+                (read) =>
+                  readSlackInbox(
+                    read,
+                    connection.categories,
+                    since,
+                    tracked,
+                    connection.slackRetryThreads,
+                  ),
                 token,
               ),
     });

@@ -295,6 +295,16 @@ export const InboxSourceConnection = Schema.Struct({
   collectionHistoryDays: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
   ),
+  // Keep inaccessible Slack conversations recoverable while healthy intake advances.
+  slackRetryThreads: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        connectionId: TrimmedNonEmptyString,
+        groupId: TrimmedNonEmptyString,
+        since: IsoDateTime,
+      }),
+    ),
+  ),
   lastSyncAt: Schema.NullOr(IsoDateTime),
   error: Schema.NullOr(Schema.String),
   retryAt: Schema.NullOr(IsoDateTime),

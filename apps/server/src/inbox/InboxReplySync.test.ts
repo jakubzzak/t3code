@@ -32,14 +32,25 @@ import { inboxContext } from "./notificationContext.ts";
 import { readLinearInbox } from "./connectors/linear.ts";
 import { readSuperhumanInbox } from "./connectors/superhuman.ts";
 
-it.effect.each(["slack", "linear", "superhuman"] as const)(
-  "%s: refresh persists replies, summary and linked context, and retries without skipping activity",
-  (source) =>
+it.effect.each([
+  ...(["slack", "linear", "superhuman"] as const).map((source) => ({
+    source,
+    scenario: "normal" as const,
+    parentLength: 0,
+  })),
+  { source: "linear", scenario: "initial-reply", parentLength: 0 },
+  { source: "linear", scenario: "long-parent", parentLength: 5000 },
+  { source: "linear", scenario: "long-parent", parentLength: 33000 },
+  { source: "slack", scenario: "access-recovery", parentLength: 0 },
+] as const)(
+  "$source: $scenario (parent $parentLength) persists replies, summary and linked context without skipping activity",
+  ({ source, scenario, parentLength }) =>
     Effect.gen(function* () {
       const projectId = ProjectId.make(`sync-${source}`);
       const start = Date.parse("2026-10-22T12:00:00Z");
       yield* TestClock.setTime(start);
-      let phase = 0;
+      let phase = scenario === "initial-reply" ? 1 : 0;
+      let hideSearch = false;
       let fail = false;
       let starts = 0;
       let command = 0;
@@ -77,7 +88,8 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
               ok: true,
               messages: {
                 matches:
-                  phase === 0 || url.searchParams.get("query")?.startsWith("is:thread")
+                  !hideSearch &&
+                  (phase === 0 || url.searchParams.get("query")?.startsWith("is:thread"))
                     ? [
                         {
                           ...current(),
@@ -90,7 +102,13 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
               },
             };
           else if (method === "conversations.replies") {
-            if (fail) return HttpClientResponse.fromWeb(request, new Response("", { status: 429 }));
+            if (fail)
+              return HttpClientResponse.fromWeb(
+                request,
+                scenario === "access-recovery"
+                  ? new Response(JSON.stringify({ ok: false, error: "not_in_channel" }))
+                  : new Response("", { status: 429 }),
+              );
             body = {
               ok: true,
               messages: url.searchParams.has("oldest")
@@ -129,7 +147,7 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
                   const comment = {
                     id: `c${phase}`,
                     body: text(),
-                    createdAt: at(phase || -60),
+                    createdAt: at(scenario === "initial-reply" ? -30 : phase || -60),
                     user: { id: author(), name: author() },
                     projectUpdate: { id: "update" },
                     parent: phase ? { id: "c0" } : null,
@@ -151,7 +169,9 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
                       organization: { id: "org" },
                       notifications: {
                         nodes:
-                          phase && !variables.notificationIds?.includes("n")
+                          phase &&
+                          scenario !== "initial-reply" &&
+                          !variables.notificationIds?.includes("n")
                             ? []
                             : [
                                 {
@@ -165,6 +185,16 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
                                   createdAt: at(-60),
                                   actor: { name: "alex" },
                                   project: { id: "project", name: "Review", description: null },
+                                  ...(scenario === "long-parent"
+                                    ? {
+                                        parentComment: {
+                                          id: "parent",
+                                          body: "A".repeat(parentLength),
+                                          createdAt: at(-120),
+                                          user: null,
+                                        },
+                                      }
+                                    : {}),
                                   comment: {
                                     ...comment,
                                     id: "c0",
@@ -280,7 +310,7 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
           analyze: (notification) =>
             Effect.succeed({
               description: "Review",
-              summary: inboxContext(notification).slice(0, 2000),
+              summary: inboxContext(notification),
               suggestions: [],
               precedentIds: [],
               generatedAt: at(phase),
@@ -334,6 +364,53 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
         yield* inbox.drain;
         const threadId = linked.notification.state.threadId;
         assert.ok(threadId);
+        if (scenario === "initial-reply" || scenario === "long-parent") {
+          const expected =
+            scenario === "initial-reply" ? "SELF: Friday confirmed" : "Please review";
+          if (scenario === "initial-reply") assert.equal(first.state.read, true);
+          if (scenario === "long-parent")
+            assert.include(
+              first.items.find((item) => item.id === "n")!.content.slice(0, 4000),
+              expected,
+            );
+          assert.include(
+            (yield* repository.get(projectId, first.id))?.analysis?.summary ?? "",
+            expected,
+          );
+          assert.include(yield* context.forThread(projectId, threadId), expected);
+          yield* mutate({ type: "read", read: false });
+          yield* TestClock.setTime(start + 2000);
+          yield* sources.refresh({ projectId, source });
+          assert.equal((yield* repository.get(projectId, first.id))?.state.read, false);
+          return;
+        }
+        if (scenario === "access-recovery") {
+          phase = 1;
+          fail = true;
+          yield* TestClock.setTime(start + 2000);
+          const denied = yield* sources.refresh({ projectId, source });
+          assert.ok(denied.error);
+          assert.equal(denied.lastSyncAt, at(2));
+          // Search can stop exposing a thread after access is lost; saved retries must survive that.
+          hideSearch = true;
+          yield* TestClock.setTime(start + 3000);
+          const stillDenied = yield* sources.refresh({ projectId, source });
+          assert.ok(stillDenied.error);
+          fail = false;
+          yield* TestClock.setTime(start + 4000);
+          const recovered = yield* sources.refresh({ projectId, source });
+          assert.isNull(recovered.error);
+          yield* inbox.drainAnalysis;
+          const own = yield* repository.get(projectId, first.id);
+          assert.ok(own);
+          assert.equal(own.state.read, true);
+          assert.include(own.analysis?.summary ?? "", "SELF: Friday confirmed");
+          assert.include(yield* context.forThread(projectId, threadId), "SELF: Friday confirmed");
+          yield* mutate({ type: "read", read: false });
+          yield* sources.refresh({ projectId, source });
+          assert.equal((yield* repository.get(projectId, first.id))?.state.read, false);
+          return;
+        }
         yield* mutate({ type: "resolve", resolved: true });
         yield* mutate({ type: "read", read: false });
         if (source === "linear") {

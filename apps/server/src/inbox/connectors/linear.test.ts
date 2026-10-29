@@ -13,46 +13,49 @@ it("retains non-issue notifications and the targeted comment plus its issue cont
     actor: { name: "Alex" },
   };
   const items = await readLinearInbox(
-    async () => ({
-      data: {
-        viewer: { id: "me" },
-        organization: { id: "org" },
-        notifications: {
-          nodes: [
-            {
-              ...base,
-              issue: {
-                id: "issue",
-                identifier: "ENG-1",
-                title: "Launch",
-                description: "Launch context",
-              },
-              comment: {
-                id: "c2",
-                body: "Please approve the date",
-                createdAt: base.createdAt,
-                user: { name: "Maya" },
-              },
-              parentComment: {
-                id: "c1",
-                body: "Friday launch",
-                createdAt: "2026-10-21T10:00:00Z",
-                user: null,
-                botActor: { name: "Release bot" },
+    async (query) =>
+      query.includes("BlackbirdInboxReplies")
+        ? { data: { comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } }
+        : {
+            data: {
+              viewer: { id: "me" },
+              organization: { id: "org" },
+              notifications: {
+                nodes: [
+                  {
+                    ...base,
+                    issue: {
+                      id: "issue",
+                      identifier: "ENG-1",
+                      title: "Launch",
+                      description: "Launch context",
+                    },
+                    comment: {
+                      id: "c2",
+                      body: "Please approve the date",
+                      createdAt: base.createdAt,
+                      user: { name: "Maya" },
+                    },
+                    parentComment: {
+                      id: "c1",
+                      body: "Friday launch",
+                      createdAt: "2026-10-21T10:00:00Z",
+                      user: null,
+                      botActor: { name: "Release bot" },
+                    },
+                  },
+                  {
+                    ...base,
+                    id: "system",
+                    type: "welcome",
+                    category: "system",
+                    title: "Workspace announcement",
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
               },
             },
-            {
-              ...base,
-              id: "system",
-              type: "welcome",
-              category: "system",
-              title: "Workspace announcement",
-            },
-          ],
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      },
-    }),
+          },
     ["all"],
     "2026-10-21T00:00:00.000Z",
   );
@@ -190,6 +193,10 @@ it("hydrates the latest comment preview without downloading history, and handles
   expect(
     await readLinearIssue(
       async (query) => {
+        if (query.includes("BlackbirdInboxReplies"))
+          return {
+            data: { comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
+          };
         expect(query).toContain("latestComments: comments(last: 1");
         expect(query).toContain("nodes { id } pageInfo");
         expect(query).not.toContain("comments(first: 50, after:");
@@ -231,6 +238,10 @@ it("imports the latest issue comment and exact count before Show all, counting I
           },
         };
       }
+      if (query.includes("BlackbirdInboxReplies"))
+        return {
+          data: { comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
+        };
       expect(query).toContain("latestComments: comments(last: 1");
       const issue = {
         id: "issue",

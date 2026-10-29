@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { Message, History, messageText } from "./slackMessages.ts";
 import { readSlackThread } from "./slackThread.ts";
 import { readableSlackItem } from "../notificationContent.ts";
-import type { InboxSourceItem } from "@t3tools/contracts";
+import type { InboxSourceItem, InboxSourceConnection } from "@t3tools/contracts";
 import type { SlackNames } from "@t3tools/shared/slackText";
 
 export class SlackReadError extends Error {
@@ -102,9 +102,22 @@ export async function readSlackInbox(
   categories: ReadonlyArray<string>,
   since: string,
   tracked: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> = [],
-): Promise<ReadonlyArray<InboxSourceItem>> {
+  retries: NonNullable<InboxSourceConnection["slackRetryThreads"]> = [],
+) {
   const sinceMillis = Date.parse(since);
   const identity = decodeIdentity(await read("auth.test", {}));
+  const connectionId = `${identity.team_id}:${identity.user_id}`;
+  const pending = new Map(
+    retries
+      .filter((entry) => entry.connectionId === connectionId)
+      .map((entry) => [entry.groupId, entry]),
+  );
+  const unavailable = (error: unknown, groupId: string, boundary: string) => {
+    if (!inaccessibleThread(error)) throw error;
+    pending.delete(groupId);
+    if (error instanceof SlackReadError && error.code !== "thread_not_found")
+      pending.set(groupId, { connectionId, groupId, since: boundary });
+  };
   const items = new Map<string, InboxSourceItem>();
   let groups: Promise<typeof Groups.Type> | undefined;
   const getGroups = () =>
@@ -312,7 +325,9 @@ export async function readSlackInbox(
       .filter((entry) => entry.connectionId === `${identity.team_id}:${identity.user_id}`)
       .map((entry) => entry.groupId),
   );
-  const changedConversations = new Set<string>();
+  // Retry a bounded batch even when lost access removes the thread from search.
+  // Failed attempts move to the end so other pending conversations are not starved.
+  const changedConversations = new Set([...pending.keys()].slice(0, 50));
   const queries: string[] = [];
   if (conversations.size) queries.push("is:thread");
   // A reply does not move its parent into conversations.history's oldest window.
@@ -349,6 +364,7 @@ export async function readSlackInbox(
           (hit.user === identity.user_id || items.has(`${hit.channel.id}:${hit.ts}`))
         )
           continue;
+        let groupId = `${hit.channel.id}:${hit.thread_ts ?? new URL(hit.permalink).searchParams.get("thread_ts") ?? hit.ts}`;
         try {
           if (query === "is:dm is:thread" && !dmLocations.has(hit.channel.id)) continue;
           let message = hit;
@@ -370,8 +386,8 @@ export async function readSlackInbox(
             const native = exact.messages?.find((entry) => entry.ts === hit.ts);
             if (native) message = { ...hit, ...native };
           }
+          groupId = `${hit.channel.id}:${message.thread_ts ?? message.ts}`;
           if (tracking) {
-            const groupId = `${hit.channel.id}:${message.thread_ts ?? message.ts}`;
             if (conversations.has(groupId)) changedConversations.add(groupId);
             continue;
           }
@@ -399,7 +415,7 @@ export async function readSlackInbox(
             message.permalink,
           );
         } catch (error) {
-          if (!inaccessibleThread(error)) throw error;
+          unavailable(error, groupId, pending.get(groupId)?.since ?? since);
         }
       }
       if (reachedCheckpoint) break;
@@ -412,6 +428,8 @@ export async function readSlackInbox(
   // Search discovers changed threads; fetch their full incremental replies because
   // Slack may collapse adjacent search hits. Quiet refreshes never scan retained history.
   for (const groupId of changedConversations) {
+    const boundary = pending.get(groupId)?.since ?? since;
+    const boundaryMillis = Date.parse(boundary);
     try {
       const [channel, ts] = groupId.split(":");
       if (!channel || !ts) continue;
@@ -422,14 +440,14 @@ export async function readSlackInbox(
           await read("conversations.replies", {
             channel,
             ts,
-            oldest: String(sinceMillis / 1000),
+            oldest: String(boundaryMillis / 1000),
             inclusive: "true",
             limit: "100",
             cursor,
           }),
         );
         for (const message of page.messages ?? []) {
-          if (Number(message.ts) * 1000 < sinceMillis || items.has(`${channel}:${message.ts}`))
+          if (Number(message.ts) * 1000 < boundaryMillis || items.has(`${channel}:${message.ts}`))
             continue;
           const reply = { ...message, thread_ts: ts };
           await append(
@@ -446,9 +464,10 @@ export async function readSlackInbox(
           );
         if (cursor) cursors.add(cursor);
       } while (cursor);
+      pending.delete(groupId);
     } catch (error) {
-      if (!inaccessibleThread(error)) throw error;
+      unavailable(error, groupId, boundary);
     }
   }
-  return [...items.values()];
+  return { items: [...items.values()], slackRetryThreads: [...pending.values()] };
 }
