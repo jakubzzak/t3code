@@ -1,0 +1,48 @@
+# Background agent browser
+
+## Problem and outcome
+
+When an agent uses the browser, T3 Code pulls the agent's tab into view. The right panel switches to it, or the floating mini player pops up, while the user is reading or working on something else. The user wants agents to browse in the background, watch only when they choose to, and be brought to the browser only when the agent needs them, such as for a login, consent, or confirmation.
+
+## Scope
+
+Change when agent browser tabs become visible, add a way for the user to watch on demand, and add a "needs you" state that may bring the browser forward. Applies to every client that shows agent browser tabs: desktop, web, and mobile.
+
+Keep the existing browser. Agent tabs already run without a visible window and can use saved browser profiles, which keeps logins. Out of scope: a separate dedicated browser, detecting login or consent pages automatically, and switching the selected chat.
+
+## Required behavior
+
+- **Background by default.** Opening, navigating, or acting in an agent tab never switches the active right-panel tab, never opens the mini player, and never takes focus. This includes `preview_open` with `open: true` or `show: true`.
+- **Indicator.** While a thread has agent browser tabs, the thread shows an indicator with the agent's current page. Clicking it opens a live view of the agent's tab.
+- **Following.** Once open, the view follows the agent through navigation, newly opened tabs, and later turns until the user closes it. Closing the view does not stop or slow the agent. The tab returns to the background, and the indicator remains so the user can watch again.
+- **Needs you.** A tab enters a "needs you" state when:
+  - the browser hits an interruption the agent cannot resolve by itself: a page dialog, file chooser, or permission prompt; or
+  - the agent explicitly asks for the user through a new browser tool, giving a short reason such as "Sign in to staging". Agent guidance tells agents to use this tool for logins, consent, CAPTCHA, and confirmations instead of attempting them.
+
+  While in that state, the agent waits.
+- **Bringing it forward.** When a tab needs you and the user is viewing that thread, the browser is shown and focused with the reason visible, ready for the user to take control. This is the only case where the browser takes over the view.
+- **Other threads.** When a tab in another thread needs you, that thread shows the existing attention status in the sidebar and sends the existing thread notification. The current chat is never switched or interrupted. The browser comes forward when the user opens that thread.
+- **Resolving.** Releasing control after completing the step returns control to the agent with the outcome. The user can also decline, which tells the agent the step was declined. Either way the "needs you" state clears: the badge and notification are removed, and the view stays open only if the user was already following.
+- **Logins persist.** Sign-ins completed during a handoff are stored in the tab's browser profile and are available in later agent runs that use that profile.
+
+## Acceptance criteria
+
+1. While the user reads another right-panel tab, the agent opens and navigates a page, including with `open: true`. The panel tab does not change, no mini player appears, and the thread indicator shows the agent's page.
+2. The user opens the live view from the indicator and sends another message. In the next turn the agent opens a second tab, and the view follows it without reopening. After the user closes the view, the agent keeps browsing and the indicator remains.
+3. In the visible thread, the agent asks for a login. The browser comes forward with the reason. The user takes control, signs in, and releases control. The agent continues signed in. In a later run with the same profile, the agent is still signed in.
+4. While the user is in thread A, the agent in thread B hits a page confirmation dialog. Thread A stays selected and undisturbed. Thread B shows the attention status and a notification is sent. Opening thread B shows the browser with the dialog.
+5. The user declines a "needs you" request. The agent is told it was declined, and the attention status and notification clear.
+6. A thread viewed from a remote web or mobile client behaves the same way: no automatic reveal, watching from the indicator, and the browser brought forward only for "needs you".
+
+## Constraints and decisions
+
+- Agent tabs run in the server's shared browser and are mounted in the desktop app when one is attached ([ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts)). Today's reveal comes from `requestReveal` and the auto-reveal effect in [ChatView.tsx](../../apps/web/src/components/ChatView.tsx).
+- Reuse the existing take/release control flow ([SessionControl.ts](../../apps/server/src/preview/SessionControl.ts)) and the existing pending-dialog pause for handoffs. Reuse the sidebar's attention status and the thread notification coordinator rather than adding a separate alert system.
+- The "ask for the user" tool is a T3 MCP browser tool, so it works the same for every provider. Guidance for it lives with the other orchestration instructions.
+- "Needs you" is limited to signals the browser detects and explicit agent requests, because guessing at login or consent pages is unreliable in both directions.
+- Only the "needs you" state may take focus. Desktop code that focuses a page's web contents during agent work (for example, element picking in [desktop Manager.ts](../../apps/desktop/src/preview/Manager.ts)) must not bring the app or panel forward.
+
+## Open questions
+
+- Non-blocking: if the user asks the agent in chat to show what it is doing, should that reveal the browser? The default assumption is no: the user opens the live view from the indicator, and agent reveal requests never change the view.
+- Non-blocking: should the existing "auto-show floating preview" setting stay as an opt-in to the old behavior, or be removed?
