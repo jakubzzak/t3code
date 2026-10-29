@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { XIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { CommandId, type EnvironmentId, type InboxNotification } from "@t3tools/contracts";
@@ -239,87 +240,93 @@ export function InboxReplyComposer({
           replies. Your draft is kept.
         </p>
       )}
-      <Textarea
-        ref={textarea}
-        size="sm"
-        aria-label="Reply"
-        placeholder="Write a reply…"
-        maxLength={4000}
-        value={draft.input.text}
-        disabled={locked}
-        onPaste={(event) => {
-          const files = Array.from(event.clipboardData.files);
-          if (n.source === "slack" && files.length) {
-            event.preventDefault();
-            void attach(files);
+      <div className="rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/24">
+        {!!draft.input.images?.length && (
+          <div className="grid grid-cols-[repeat(2,4rem)] gap-2 px-2 pt-2">
+            {draft.input.images.map((image) => (
+              <div key={image.attachmentId} className="group/attachment relative">
+                <InboxImage
+                  environmentId={environmentId}
+                  name={image.name}
+                  resource={{ _tag: "attachment", attachmentId: image.attachmentId }}
+                />
+                <span className="pointer-events-none absolute right-1 top-1 flex opacity-0 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 group-hover/attachment:pointer-events-auto group-hover/attachment:opacity-100 group-focus-within/attachment:pointer-events-auto group-focus-within/attachment:opacity-100">
+                  <Button
+                    size="icon-xs"
+                    variant="media-close"
+                    disabled={locked}
+                    aria-label={`Remove ${image.name}`}
+                    onClick={() => {
+                      discardImage(image.attachmentId);
+                      updateInboxReply(key, (value) => ({
+                        ...value,
+                        result: undefined,
+                        error: undefined,
+                        input: {
+                          ...value.input,
+                          commandId: CommandId.make(randomUUID()),
+                          images:
+                            value.input.images?.filter(
+                              (entry) => entry.attachmentId !== image.attachmentId,
+                            ) ?? [],
+                        },
+                      }));
+                    }}
+                  >
+                    <XIcon />
+                  </Button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <Textarea
+          unstyled
+          className="block"
+          ref={textarea}
+          size="sm"
+          aria-label="Reply"
+          placeholder="Write a reply…"
+          maxLength={4000}
+          value={draft.input.text}
+          disabled={locked}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files);
+            if (n.source === "slack" && files.length) {
+              event.preventDefault();
+              void attach(files);
+            }
+          }}
+          onChange={(event) =>
+            updateInboxReply(key, (value) => ({
+              ...value,
+              error: undefined,
+              input: {
+                ...value.input,
+                text: event.target.value,
+                commandId:
+                  value.result?.status === "failed"
+                    ? CommandId.make(randomUUID())
+                    : value.input.commandId,
+              },
+              result: value.result?.status === "failed" ? undefined : value.result,
+            }))
           }
-        }}
-        onChange={(event) =>
-          updateInboxReply(key, (value) => ({
-            ...value,
-            error: undefined,
-            input: {
-              ...value.input,
-              text: event.target.value,
-              commandId:
-                value.result?.status === "failed"
-                  ? CommandId.make(randomUUID())
-                  : value.input.commandId,
-            },
-            result: value.result?.status === "failed" ? undefined : value.result,
-          }))
-        }
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!draft.pending) close();
-          }
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            event.stopPropagation();
-            void submit();
-          }
-        }}
-      />
-      {!!draft.input.images?.length && (
-        <div className="grid grid-cols-[repeat(2,4rem)] gap-2">
-          {draft.input.images.map((image) => (
-            <div key={image.attachmentId}>
-              <InboxImage
-                environmentId={environmentId}
-                name={image.name}
-                resource={{ _tag: "attachment", attachmentId: image.attachmentId }}
-              />
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={locked}
-                aria-label={`Remove ${image.name}`}
-                onClick={() => {
-                  discardImage(image.attachmentId);
-                  updateInboxReply(key, (value) => ({
-                    ...value,
-                    result: undefined,
-                    error: undefined,
-                    input: {
-                      ...value.input,
-                      commandId: CommandId.make(randomUUID()),
-                      images:
-                        value.input.images?.filter(
-                          (entry) => entry.attachmentId !== image.attachmentId,
-                        ) ?? [],
-                    },
-                  }));
-                }}
-              >
-                Remove
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!draft.pending) close();
+            }
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              event.stopPropagation();
+              void submit();
+            }
+          }}
+        />
+      </div>
       {draft.uploadError && (
         <p role="alert" className="text-2xs text-destructive">
           {draft.uploadError}
