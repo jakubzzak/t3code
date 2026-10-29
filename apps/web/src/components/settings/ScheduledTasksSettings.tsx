@@ -513,7 +513,7 @@ function ScheduledTaskRow({
             <Badge variant={statusVariant(task.lastRunStatus)}>{task.lastRunStatus}</Badge>
           ) : null}
           {task.lastRunError ? <span className="text-destructive">{task.lastRunError}</span> : null}
-          {catchUp ? <span className="basis-full">{catchUp}</span> : null}
+          {catchUp ? <span className="basis-full text-warning-foreground">{catchUp}</span> : null}
         </div>
       }
       control={

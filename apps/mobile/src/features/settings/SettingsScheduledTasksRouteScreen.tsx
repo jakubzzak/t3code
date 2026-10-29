@@ -1288,7 +1288,7 @@ function EnvironmentTasks({
                       : ""}
                 </Text>
                 {catchUp ? (
-                  <Text className="text-sm text-foreground-muted" numberOfLines={2}>
+                  <Text className="text-sm text-warning-foreground" numberOfLines={2}>
                     {catchUp}
                   </Text>
                 ) : null}

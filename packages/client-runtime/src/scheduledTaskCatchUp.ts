@@ -26,6 +26,7 @@ const isSameDay = (a: DateTime.Zoned, b: DateTime.Zoned) => {
 /**
  * Second line for a task row whose last run caught up on missed runs, in the
  * viewer's local time, e.g. "Caught up at 10:27 AM · 11 missed runs since Thu, Oct 15".
+ * Null when the last run was not a catch-up, so rows with no missed runs show nothing.
  */
 export function formatScheduledTaskCatchUp(
   task: Pick<ScheduledTask, "lastRunAt" | "lastRunStatus" | "lastRunCatchUp">,

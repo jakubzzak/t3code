@@ -54,8 +54,10 @@ age-limit setting, and automatic retries of failed agent work.
   from the first missed one through the catch-up start, using the task's
   time-of-day, weekday, and daylight-saving rules. Any later run that is not a
   catch-up, including **Run now**, clears the record. The web, desktop, and
-  mobile task rows show it on a second line in the viewer's local time:
-  `Caught up at 10:27 · 11 missed runs since Thu, Oct 15`. A single missed
+  mobile task rows show it on a second line, highlighted in the warning
+  (orange) color, in the viewer's local time:
+  `Caught up at 10:27 · 11 missed runs since Thu, Oct 15`. Rows with no missed
+  runs show no such line. A single missed
   occurrence reads `missed today's 09:00 run` when it was today, otherwise
   `missed the Mon, Oct 26 run`. A catch-up from an earlier day names its date
   (`Caught up Mon, Oct 26 at 10:27`). A running catch-up reads `Catching up`
