@@ -68,6 +68,12 @@ list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
 environment's time zone, which may differ from your phone's.
 
+Turn on **Catch up missed automations** to run each overdue fixed-time task once
+when its environment starts or wakes, even after a long absence. It is off by
+default. Select a project in the settings filter to override the environment's
+choice, or reset its override to inherit again. Missed occurrences become one
+fresh run; paused tasks do not accumulate catch-up work.
+
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run
 immediately.

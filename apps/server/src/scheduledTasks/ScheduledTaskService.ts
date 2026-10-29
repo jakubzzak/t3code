@@ -46,6 +46,8 @@ import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { isMissedFixedTimeRun, isSameSchedule, nextScheduledRunAt } from "./Schedule.ts";
 import {
   redactHeaders,
@@ -398,6 +400,7 @@ export const layer = Layer.effect(
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
     const secretRequests = yield* SecretRequests.SecretRequests;
     const scheduler = yield* Scheduler.Scheduler;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
     const readWebhookOrigin = yield* ScheduledTaskWebhookOrigin;
     // Webhook deliveries for one task dispatch in arrival order rather than
     // being dropped while an earlier delivery is still dispatching.
@@ -777,6 +780,26 @@ export const layer = Layer.effect(
         ) {
           return active;
         }
+        if (
+          trigger === "scheduled" &&
+          Option.isSome(parsedNextRunAt) &&
+          isMissedFixedTimeRun(active.schedule, parsedNextRunAt.value, startedAt)
+        ) {
+          const settings = yield* serverSettings.getSettings.pipe(
+            Effect.mapError((cause) =>
+              taskError("Could not read automation catch-up settings.", {
+                taskId: active.id,
+                cause,
+              }),
+            ),
+          );
+          if (
+            !resolveProjectSettings(settings, active.projectId).settings.automationCatchUpEnabled
+          ) {
+            yield* rescheduleMissedRun(active, startedAt);
+            return active;
+          }
+        }
         // A queued delivery must not run a task that was paused, deleted and
         // recreated under the same id, or switched to another trigger while
         // it waited for its turn.
@@ -893,8 +916,7 @@ export const layer = Layer.effect(
       );
     });
 
-    // A due fixed-time run that is long past its slot (server was off or
-    // asleep) is skipped and re-aimed at its next occurrence, not fired late.
+    // With catch-up off, keep the existing grace window and skip older slots.
     const rescheduleMissedRun = Effect.fn("ScheduledTaskService.rescheduleMissedRun")(function* (
       task: ScheduledTask,
       now: DateTime.DateTime,
@@ -923,17 +945,10 @@ export const layer = Layer.effect(
       const tasks = yield* listDueTasks(now).pipe(
         Effect.mapError((cause) => taskError("Could not list schedule tasks.", { cause })),
       );
-      const due = tasks.flatMap((task) =>
-        task.nextRunAt === null ? [] : [{ task, dueAt: DateTime.makeUnsafe(task.nextRunAt) }],
-      );
       yield* Effect.forEach(
-        due,
-        ({ task, dueAt }) =>
-          Effect.suspend(() =>
-            isMissedFixedTimeRun(task.schedule, dueAt, now)
-              ? rescheduleMissedRun(task, now)
-              : runTask(task, "scheduled"),
-          ).pipe(
+        tasks,
+        (task) =>
+          runTask(task, "scheduled").pipe(
             Effect.catch((cause) =>
               Effect.logWarning("Scheduled task run failed", { taskId: task.id, cause }),
             ),

@@ -1,3 +1,5 @@
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as NodeUtil from "node:util";
 
@@ -217,6 +219,9 @@ it.effect(
                 Layer.mock(SecretRequests.SecretRequests)({}),
                 NodeCrypto.layer,
                 Scheduler.layer,
+                Layer.mock(ServerSettings.ServerSettingsService)({
+                  getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+                }),
               ),
             ),
           );
@@ -324,6 +329,9 @@ it.effect(
                 Layer.mock(SecretRequests.SecretRequests)({}),
                 NodeCrypto.layer,
                 Scheduler.layer,
+                Layer.mock(ServerSettings.ServerSettingsService)({
+                  getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+                }),
               ),
             ),
           );

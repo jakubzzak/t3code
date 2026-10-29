@@ -1,3 +1,5 @@
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import * as ServerSettings from "../serverSettings.ts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no createHmac.
 import * as NodeCrypto from "node:crypto";
 
@@ -80,6 +82,9 @@ const withService = <A, E>(
     const layerDependencies = Layer.mergeAll(
       NodePlatformCrypto.layer,
       Scheduler.layer,
+      Layer.mock(ServerSettings.ServerSettingsService)({
+        getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+      }),
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({
         launch: (input) =>
           Queue.offer(launches, input).pipe(

@@ -70,6 +70,7 @@ import {
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { AutomationCatchUpSettings } from "./components/AutomationCatchUpSettings";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
 import {
   editDraft,
@@ -337,6 +338,7 @@ export function SettingsScheduledTasksRouteScreen() {
           contentContainerClassName="gap-5 px-5 pt-4"
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
+          <AutomationCatchUpSettings />
           {visibleEnvironments.length > 0 ? (
             visibleEnvironments.map((environment) => (
               <EnvironmentTasks

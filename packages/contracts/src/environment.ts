@@ -126,6 +126,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadCleanup: Schema.optionalKey(Schema.Boolean),
   /** Validates automation chat destinations and pauses their schedules atomically on archive. */
   scheduledTaskChatBinding: Schema.optionalKey(Schema.Boolean),
+  /** Server can catch up missed fixed-time automations using scoped settings. */
+  automationCatchUp: Schema.optionalKey(Schema.Boolean),
   /** Server evaluates merge and inactivity settlement without a client. */
   threadAutoSettlement: Schema.optionalKey(Schema.Boolean),
   storageCleanup: Schema.optionalKey(Schema.Boolean),

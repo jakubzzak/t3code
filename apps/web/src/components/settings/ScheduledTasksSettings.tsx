@@ -103,6 +103,9 @@ import {
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { ScopedSwitch } from "./ScopedSwitch";
+import { searchableSetting } from "./settingsSearch";
+import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
@@ -259,12 +262,41 @@ export function ScheduledTasksSettings(target: {
   const openForEdit = useCallback((environmentId: EnvironmentId, task: ScheduledTask) => {
     setEditor({ environmentId, task });
   }, []);
+  const catchUpEnabled = useScopedSettings((settings) => settings.automationCatchUpEnabled);
+  const updateSettings = useUpdateScopedSettings();
+  const supportsCatchUp =
+    connectedEnvironments.length > 0 &&
+    connectedEnvironments.every(
+      (entry) => entry.serverConfig?.environment.capabilities.automationCatchUp === true,
+    );
   const defaultEnvironment = environment ?? connectedEnvironments[0];
   const canCreate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(defaultEnvironment?.environmentId ?? null),
   );
   return (
     <SettingsPageContainer>
+      <SettingsSection title="Scheduling">
+        <SettingsRow
+          {...searchableSetting("automation-catch-up")}
+          serverScoped
+          settingKeys={["automationCatchUpEnabled"]}
+          description="When this environment starts or wakes, run each missed fixed-time automation once, then resume its normal schedule. Paused automations are excluded."
+          status={
+            !supportsCatchUp ? "Update the selected environments to configure catch-up." : undefined
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["automationCatchUpEnabled"]}
+              checked={catchUpEnabled}
+              disabled={!supportsCatchUp}
+              onCheckedChange={(checked) =>
+                updateSettings({ automationCatchUpEnabled: Boolean(checked) })
+              }
+              aria-label="Catch up missed automations"
+            />
+          }
+        />
+      </SettingsSection>
       <SettingsSection
         title="Scheduled tasks"
         variant="plain"
