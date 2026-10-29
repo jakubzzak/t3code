@@ -1034,19 +1034,15 @@ export function PreviewView({
           setFocusUrlNonce((value) => (value ?? 0) + 1);
           return;
         case "zoom-in":
-          handleZoomIn();
-          return;
         case "zoom-out":
-          handleZoomOut();
-          return;
         case "reset-zoom":
-          handleResetZoom();
+          handleBrowserCommand(action);
           return;
         case "toggle-panel":
           return;
       }
     });
-  }, [handleRefresh, handleResetZoom, handleZoomIn, handleZoomOut, visible]);
+  }, [handleBrowserCommand, handleRefresh, visible]);
 
   return (
     <div

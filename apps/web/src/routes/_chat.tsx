@@ -1,4 +1,5 @@
 import { AuthPreviewOperateScope } from "@t3tools/contracts";
+import { resolvePreviewZoomShortcut } from "@t3tools/shared/preview";
 import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
@@ -72,11 +73,12 @@ function ChatRouteGlobalShortcuts() {
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      const previewFocus = isPreviewFocused();
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
           terminalFocus: isTerminalFocused(),
           terminalOpen,
-          previewFocus: isPreviewFocused(),
+          previewFocus,
           previewOpen,
           editableFocus: isEditableFocused(event.target),
           modelPickerOpen: isModelPickerOpen(),
@@ -84,6 +86,19 @@ function ChatRouteGlobalShortcuts() {
       });
 
       if (isCommandPaletteOpen()) {
+        return;
+      }
+
+      // The tab strip sits outside PreviewView's capture boundary.
+      const previewZoom =
+        previewFocus && !event.isComposing
+          ? resolvePreviewZoomShortcut(event, navigator.platform)
+          : null;
+      if (previewZoom) {
+        event.preventDefault();
+        event.stopPropagation();
+        // PreviewView checks the actual tab's permissions, including draft threads.
+        dispatchPreviewAction(previewZoom);
         return;
       }
 

@@ -928,6 +928,9 @@ describe("server-owned native preview zoom", () => {
       );
       await act(() => mocks.onShortcut.mock.calls.at(-1)![0](TEST_RUNTIME_TAB_ID, action));
       expect(mocks.adjust).not.toHaveBeenCalled();
+      const { dispatchPreviewAction } = await import("./previewActionBus");
+      await act(() => dispatchPreviewAction(action));
+      expect(mocks.adjust).not.toHaveBeenCalled();
     } finally {
       await act(() => root.unmount());
       mocks.serverRuntime = false;
