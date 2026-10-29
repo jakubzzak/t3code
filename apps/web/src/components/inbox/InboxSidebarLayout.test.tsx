@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import {
   DEFAULT_SERVER_SETTINGS,
+  CommandId,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -20,6 +21,7 @@ const state = vi.hoisted(() => ({
   open: vi.fn().mockResolvedValue(undefined),
   refresh: vi.fn(),
   send: vi.fn(),
+  mutate: vi.fn(),
   deferDetail: false,
   details: new Map<string, InboxNotification>(),
 }));
@@ -39,13 +41,16 @@ vi.mock("~/state/entities", () => ({
     ]),
   waitForThreadShell: vi.fn(),
 }));
-vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => state.send }));
+vi.mock("~/state/use-atom-command", () => ({
+  useAtomCommand: (command: { label: string }) =>
+    command.label === "reply" ? state.send : state.mutate,
+}));
 vi.mock("~/rpc/atomRegistry", () => ({ appAtomRegistry: { refresh: () => {} } }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
 vi.mock("~/state/inbox", () => ({
   inboxEnvironment: {
-    mutate: { permissionAtom: () => null },
-    reply: { permissionAtom: () => null },
+    mutate: { label: "mutate", permissionAtom: () => null },
+    reply: { label: "reply", permissionAtom: () => null },
     sources: () => null,
     list: () => null,
     get: (request: unknown) => request,
@@ -76,6 +81,7 @@ afterEach(async () => {
   state.details.clear();
   useInboxReplyDrafts.setState({ drafts: {} });
   state.send.mockReset();
+  state.mutate.mockReset();
   state.deferDetail = false;
   vi.clearAllMocks();
 });
@@ -400,4 +406,72 @@ it("loads the full reply draft when Enter beats the row detail query", async () 
     row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
   );
   expect(container.querySelector("textarea")!.value).toBe("The saved message draft.");
+});
+
+it("restores an uncertain attempt and checks it with Send, with only Send and Cancel actions", async () => {
+  const attempt = {
+    projectId: notification.projectId,
+    id: notification.id,
+    itemId: notification.items[0]!.id,
+    commandId: CommandId.make("uncertain-reply"),
+    target: notification.items[0]!.replyTarget!,
+    text: "The message whose delivery is uncertain.",
+    status: "uncertain" as const,
+    error: "Check the original conversation before another reply.",
+  };
+  const n = { ...notification, replyAttempt: attempt };
+  state.send.mockResolvedValue(AsyncResult.success(attempt));
+  await act(async () => {
+    openInboxReply(environmentId, n);
+    root.render(<InboxReplyComposer environmentId={environmentId} notification={n} />);
+  });
+  const input = container.querySelector("textarea")!;
+  expect(input.value).toBe(attempt.text);
+  expect(input.disabled).toBe(true);
+  const buttons = [...container.querySelectorAll("section button")];
+  expect(buttons.map((button) => button.textContent)).toEqual(["Send", "Cancel"]);
+  expect(container.textContent).toContain("Thread reply");
+  await act(async () => (buttons[0] as HTMLButtonElement).click());
+  expect(state.send).toHaveBeenCalledExactlyOnceWith({
+    environmentId,
+    input: expect.objectContaining({ commandId: attempt.commandId, text: attempt.text }),
+  });
+  expect(input.value).toBe(attempt.text);
+});
+
+it("Cancel discards the reply without sending, while reopening starts empty", async () => {
+  state.mutate.mockResolvedValue(AsyncResult.success({ notification }));
+  const onClose = vi.fn();
+  await act(async () => {
+    openInboxReply(environmentId, notification);
+    root.render(
+      <InboxReplyComposer
+        environmentId={environmentId}
+        notification={notification}
+        onClose={onClose}
+      />,
+    );
+  });
+  const input = container.querySelector("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(
+      input,
+      "Discard this reply.",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const cancel = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Cancel",
+  );
+  expect(cancel).toBeDefined();
+  await act(async () => cancel!.click());
+  expect(state.send).not.toHaveBeenCalled();
+  expect(state.mutate).toHaveBeenCalledExactlyOnceWith({
+    environmentId,
+    input: expect.objectContaining({ action: { type: "ignore-reply" } }),
+  });
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(container.querySelector("textarea")).toBeNull();
+  await act(async () => openInboxReply(environmentId, notification));
+  expect(container.querySelector("textarea")!.value).toBe("");
 });

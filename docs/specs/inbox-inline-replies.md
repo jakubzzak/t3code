@@ -18,7 +18,7 @@ No destination picker, unrelated channel posts or DMs, email replies, attachment
 - Add an icon-only reply action after the two agent buttons, as the rightmost action in the CTA bar's left group. Keep the existing right group unchanged. Clicking it has the same behavior as Enter. Provide an accessible name and tooltip.
 - When a suggested resolution includes an actual proposed message, show a non-clickable draft icon after the Suggestion heading, separated by a dot. Do not add visible “Draft available” text or make the status icon another action.
 - Prefill the input with only the proposed message. Advice such as “check the deployment” is not a reply draft. Without a proposed message, open an empty input. A newer suggestion must not overwrite the user's edits.
-- Show the sending account and exact conversation destination with the editable draft. Opening or generating a draft never sends it. Provide explicit Send and Ignore actions; editing happens directly in the input. Ignore discards the draft without sending or marking the item read.
+- Place the input below the conversation in both Inbox and linked-chat Details. Opening Reply in Details expands its source conversation. Label the input section simply **Thread reply**. Opening or generating a draft never sends it. Show only **Send** and **Cancel** actions; Cancel discards the draft without sending or marking the item read. Do not add separate Check result, Ignore, or Close actions.
 
 ### Destination
 
@@ -33,7 +33,7 @@ No destination picker, unrelated channel posts or DMs, email replies, attachment
 - Disable the input and send controls and show a pending state during the request. Repeated activation must not duplicate the send. Empty or whitespace-only replies cannot send.
 - After confirmed source success, display the returned response in the conversation, clear the sent draft and its indicator, and mark the Blackbird Inbox item read if needed. Do not settle it or claim the source application's read state changed.
 - If posting succeeds but local refresh/read-state updates fail, retain the successful send result and recover those local updates without reposting. Later source ingestion must reconcile the response by source identity.
-- A definite send failure preserves edited text, restores controls, and explains the next step. Missing posting permission leads to reconnection; rate limits expose the retry time. An uncertain delivery outcome must be distinguished from a definite failure and must not automatically resend.
+- A definite send failure preserves edited text, restores controls, and explains the next step. Missing posting permission leads to reconnection; rate limits expose the retry time. An uncertain delivery outcome must be distinguished from a definite failure and must not automatically resend. For a pending or uncertain attempt, Send checks the existing command ID without posting again; reopening restores that attempted message and command ID. Check the source conversation before canceling an uncertain attempt and composing another reply.
 
 ### Connections and shared behavior
 
@@ -57,4 +57,4 @@ The current Slack transport only allows read methods, and Linear's displayed com
 ## Non-blocking assumptions
 
 - Escape closes the input while preserving edits; reopening or moving between notifications restores each draft during the session. This was proposed but not explicitly confirmed. Persistence across restarts or devices is not required by this spec.
-- Successful sending or explicit Ignore removes the draft indicator and must not immediately reinsert the same consumed suggestion. No new draft-management screen is included.
+- Successful sending or explicit Cancel removes the draft indicator and must not immediately reinsert the same consumed suggestion. No new draft-management screen is included.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { InboxIcon, ReplyIcon } from "lucide-react";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { CommandId } from "@t3tools/contracts";
@@ -30,6 +30,8 @@ export function InboxThreadDetails({
   environmentId: EnvironmentId;
   threadId: ThreadId;
 }) {
+  const sourceRef = useRef<HTMLDetailsElement>(null);
+  const replyRef = useRef<HTMLButtonElement>(null);
   const loadThread = useLoadInboxThread();
   const threadRef = useMemo(() => ({ environmentId, threadId }), [environmentId, threadId]);
   const thread = useThreadShell({ environmentId, threadId });
@@ -100,12 +102,16 @@ export function InboxThreadDetails({
             </Button>
             {(n.source === "slack" || n.source === "linear") && (
               <Button
+                ref={replyRef}
                 variant="ghost"
                 size="icon-xs"
                 aria-label="Reply"
                 title="Reply"
                 disabled={!canReply || !inboxReplyTarget(n)}
-                onClick={() => openInboxReply(environmentId, n)}
+                onClick={() => {
+                  if (sourceRef.current) sourceRef.current.open = true;
+                  openInboxReply(environmentId, n);
+                }}
               >
                 <ReplyIcon className="size-3.5" />
               </Button>
@@ -116,7 +122,6 @@ export function InboxThreadDetails({
       >
         <div className="px-2.5 py-2">
           <InboxNotificationMetadata notification={n} />
-          <InboxReplyComposer environmentId={environmentId} notification={n} />
           <div className="mt-2">
             <InboxSummary
               threadRef={threadRef}
@@ -159,7 +164,7 @@ export function InboxThreadDetails({
               }
             />
           </div>
-          <details className="mt-2 text-xs">
+          <details ref={sourceRef} className="mt-2 text-xs">
             <summary className="cursor-pointer text-muted-foreground">
               Original message and context
             </summary>
@@ -174,6 +179,11 @@ export function InboxThreadDetails({
             ) : (
               <p className="py-2 text-muted-foreground">{detail.error ?? "Loading context…"}</p>
             )}
+            <InboxReplyComposer
+              environmentId={environmentId}
+              notification={n}
+              onClose={() => replyRef.current?.focus()}
+            />
           </details>
           {detail.error && (
             <p role="alert" className="text-xs text-destructive">

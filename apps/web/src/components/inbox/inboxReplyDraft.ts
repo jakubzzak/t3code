@@ -38,6 +38,10 @@ export function openInboxReply(environmentId: EnvironmentId, n: InboxNotificatio
   const target = inboxReplyTarget(n);
   const item = n.items.at(-1);
   if (!target || !item) return;
+  const attempt =
+    n.replyAttempt?.status === "pending" || n.replyAttempt?.status === "uncertain"
+      ? n.replyAttempt
+      : undefined;
   useInboxReplyDrafts.setState(({ drafts }) => ({
     drafts: {
       ...drafts,
@@ -47,13 +51,15 @@ export function openInboxReply(environmentId: EnvironmentId, n: InboxNotificatio
           : {
               open: true,
               pending: false,
+              result: attempt,
+              error: attempt?.error,
               input: {
                 projectId: n.projectId,
                 id: n.id,
-                itemId: item.id,
-                target,
-                commandId: CommandId.make(randomUUID()),
-                text: n.analysis?.replyDraft ?? "",
+                itemId: attempt?.itemId ?? item.id,
+                target: attempt?.target ?? target,
+                commandId: attempt?.commandId ?? CommandId.make(randomUUID()),
+                text: attempt?.text ?? n.analysis?.replyDraft ?? "",
               },
             },
     },

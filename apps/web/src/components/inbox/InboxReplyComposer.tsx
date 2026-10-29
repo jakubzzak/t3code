@@ -84,12 +84,12 @@ export function InboxReplyComposer({
         ...draft,
         pending: false,
         error:
-          "The send result is unavailable. Check the original conversation or check this attempt's status before trying another reply.",
+          "Could not confirm delivery. Check the original conversation. Send checks this attempt without posting again.",
       }));
     }
     refresh();
   }
-  async function ignore() {
+  async function cancel() {
     const result = await mutate({
       environmentId,
       input: {
@@ -111,24 +111,14 @@ export function InboxReplyComposer({
     refresh();
     onClose?.();
   }
-  const target = draft.input.target;
   const source = connection.data?.find((source) => source.source === n.source);
-  const account = source?.account ?? n.connectionId;
   return (
     <section
       aria-label="Reply to notification"
       className="mt-2 space-y-2 border-t border-border/60 pt-2"
       onClick={(event) => event.stopPropagation()}
     >
-      <p className="break-words text-2xs text-muted-foreground">
-        As {account} ·{" "}
-        {n.items.find((item) => item.id === draft.input.itemId)?.location ?? n.source} ·{" "}
-        {target.source === "slack"
-          ? "Thread reply"
-          : target.parentId
-            ? "Comment reply"
-            : "Issue comment"}
-      </p>
+      <p className="text-2xs text-muted-foreground">Thread reply</p>
       {source?.canReply === false && (
         <p className="text-2xs text-muted-foreground">
           Reconnect {n.source === "slack" ? "Slack" : "Linear"} in Settings → Integrations to enable
@@ -168,7 +158,7 @@ export function InboxReplyComposer({
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             event.stopPropagation();
-            if (!uncertain) void submit();
+            void submit();
           }
         }}
       />
@@ -182,21 +172,13 @@ export function InboxReplyComposer({
       <div className="flex flex-wrap items-center gap-1">
         <Button
           size="xs"
-          disabled={!permitted || draft.pending || uncertain || !draft.input.text.trim()}
+          disabled={!permitted || draft.pending || !draft.input.text.trim()}
           onClick={() => void submit()}
         >
           {draft.pending ? "Sending…" : "Send"}
         </Button>
-        {draft.error && draft.result?.status !== "failed" && (
-          <Button size="xs" variant="ghost" disabled={draft.pending} onClick={() => void submit()}>
-            Check result
-          </Button>
-        )}
-        <Button size="xs" variant="ghost" disabled={draft.pending} onClick={() => void ignore()}>
-          {uncertain ? "Discard after checking source" : "Ignore"}
-        </Button>
-        <Button size="xs" variant="ghost" disabled={draft.pending} onClick={close}>
-          Close
+        <Button size="xs" variant="ghost" disabled={draft.pending} onClick={() => void cancel()}>
+          Cancel
         </Button>
       </div>
     </section>

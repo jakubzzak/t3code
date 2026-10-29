@@ -68,6 +68,7 @@ vi.mock("~/state/inbox", () => ({
     sources: () => null,
     get: () => null,
     mutate: { permissionAtom: () => null },
+    reply: { permissionAtom: () => null },
     loadPreviousComments: {},
   },
 }));

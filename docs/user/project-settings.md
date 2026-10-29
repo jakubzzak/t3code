@@ -194,7 +194,8 @@ A reply draft icon beside Suggestion means a proposed message will be prefilled.
 Slack replies stay in the message's thread, including DMs. Linear replies stay with the relevant
 comment, or become an issue comment when the notification has no comment. Sending marks the
 Blackbird item read and keeps its settlement state. Escape closes the input while keeping edits;
-Ignore discards the draft. If delivery is uncertain, check the original conversation before
+Cancel discards the draft. If delivery is uncertain, Send checks the existing attempt without
+posting again. Check the original conversation before
 starting another reply. Reconnect the source in **Settings → Integrations** if reply permission
 is missing. Existing connections keep their read access during an upgrade.
 
