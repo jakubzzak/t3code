@@ -73,6 +73,7 @@ import * as LinuxBrowserSecret from "./preview/BrowserImport/LinuxBrowserSecret.
 import * as BrowserSession from "./preview/BrowserSession.ts";
 import * as DesktopBrowserHost from "./preview/DesktopBrowserHost.ts";
 import * as PreviewManager from "./preview/Manager.ts";
+import * as OnePassword from "./preview/OnePassword.ts";
 import * as PreviewPasskeys from "./preview/Passkeys.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
@@ -175,6 +176,7 @@ const layerDesktopPreview = PreviewManager.layer.pipe(
   Layer.provideMerge(BrowserImport.layer.pipe(Layer.provide(LinuxBrowserSecret.layer))),
   Layer.provideMerge(BrowserSession.layer),
   Layer.provideMerge(PreviewPasskeys.layer),
+  Layer.provideMerge(OnePassword.layer),
   Layer.provideMerge(layerDesktopFoundation),
 );
 

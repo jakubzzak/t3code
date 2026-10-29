@@ -12,6 +12,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthPreviewOperateScope,
   DEFAULT_BROWSER_PROFILE_ID,
+  INCOGNITO_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   type DesktopPreviewShortcut,
   type PreviewAnnotationPayload,
@@ -600,6 +601,22 @@ export function PreviewView({
   const desktopCall = (op: ((tabId: string) => Promise<void>) | undefined) => () => {
     if (op && runtimeTabId) void op(runtimeTabId).catch(() => undefined);
   };
+  const openOnePassword = previewBridge?.openOnePassword;
+  const onePasswordAction =
+    openOnePassword && activeProfileId !== INCOGNITO_BROWSER_PROFILE_ID
+      ? {
+          openOnePassword: () => {
+            if (!runtimeTabId) return;
+            void openOnePassword(runtimeTabId).catch((error) => {
+              toastManager.add({
+                type: "error",
+                title: "Unable to open 1Password",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              });
+            });
+          },
+        }
+      : {};
   const moreMenuActions: PreviewMoreMenuActions | null = serverOwnsRendering
     ? {
         hardReload: () => void adjustServerTab({ hardReload: true }),
@@ -612,6 +629,7 @@ export function PreviewView({
         ...(nativeServerTab && previewBridge
           ? {
               openDevTools: desktopCall(previewBridge.openDevTools),
+              ...onePasswordAction,
               toggleNativePictureInPicture: () => handleNativePictureInPicture(),
             }
           : {}),
@@ -635,6 +653,7 @@ export function PreviewView({
               ?.clearCache(threadRef.environmentId, activeProfileId)
               .catch(() => undefined),
           openDevTools: desktopCall(previewBridge.openDevTools),
+          ...onePasswordAction,
           toggleNativePictureInPicture: () => handleNativePictureInPicture(),
         }
       : null;

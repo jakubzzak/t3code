@@ -77,6 +77,7 @@ import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 import { createFindSession } from "./FindSession.ts";
 import { isLinearNavigationUrl, restrictLinearNavigation } from "./LinearNavigation.ts";
+import * as OnePassword from "./OnePassword.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -563,6 +564,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const parentScope = yield* Scope.Scope;
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
   const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
+  const onePassword = yield* OnePassword.OnePassword;
   const context = yield* Effect.context<never>();
   const runFork = Effect.runForkWith(context);
   const resolvedArtifactDirectory = path.resolve(artifactDirectory);
@@ -2292,6 +2294,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const hardReload = (tabId: string) =>
     withWebContents("hardReload", tabId, (wc) => wc.reloadIgnoringCache());
 
+  const openOnePassword = Effect.fn("PreviewManager.openOnePassword")(function* (tabId: string) {
+    const wc = yield* requireWebContents(tabId);
+    yield* onePassword
+      .open(wc)
+      .pipe(
+        Effect.mapError(
+          (cause) => new PreviewOperationError({ operation: "openOnePassword", cause }),
+        ),
+      );
+  });
+
   const openDevTools = Effect.fn("PreviewManager.openDevTools")(function* (tabId: string) {
     const wc = yield* requireWebContents(tabId);
     if (wc.isDevToolsOpened()) {
@@ -3597,6 +3610,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     navigate,
     openPictureInPicture,
     openDevTools,
+    openOnePassword,
     pickElement,
     prepareWebview,
     readArtifactImage,
@@ -3830,6 +3844,7 @@ export class PreviewManager extends Context.Service<
       tabId: string,
       audioMuted: boolean,
     ) => Effect.Effect<void, PreviewManagerError>;
+    readonly openOnePassword: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly openDevTools: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly clearCookies: (
       partitions?: ReadonlyArray<string>,
@@ -3892,6 +3907,7 @@ export class PreviewManager extends Context.Service<
 export const make = Effect.gen(function* PreviewManagerMake() {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const browserSession = yield* BrowserSession.BrowserSession;
+  const onePassword = yield* OnePassword.OnePassword;
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
   const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const downloadSessions = new WeakSet<Electron.Session>();
@@ -3957,6 +3973,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
               (cause) => new PreviewOperationError({ operation: "getBrowserSession", cause }),
             ),
           );
+        yield* onePassword.prepare(session);
         placeServerDownloads(session);
         passkeys.installSessionHandlers(session);
         return session;
@@ -3984,6 +4001,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     setZoomFactor: operations.setZoomFactor,
     setAudioMuted: operations.setAudioMuted,
     openDevTools: operations.openDevTools,
+    openOnePassword: operations.openOnePassword,
     clearCookies: Effect.fn("PreviewManager.clearCookies")(function* (partitions) {
       yield* browserSession
         .clearCookies(partitions)

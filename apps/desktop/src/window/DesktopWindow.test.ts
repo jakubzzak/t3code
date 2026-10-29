@@ -56,6 +56,7 @@ import {
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as OnePassword from "../preview/OnePassword.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 
 const environmentInput = {
@@ -326,6 +327,15 @@ function layerTest(input: {
         } satisfies ElectronShell.ElectronShell["Service"]),
         layerElectronTheme,
         layerElectronWindow,
+        Layer.succeed(OnePassword.OnePassword, {
+          prepare: () => Effect.void,
+          enable: () => Effect.void,
+          disable: () => Effect.void,
+          track: () => {},
+          isEnabled: () => false,
+          open: () => Effect.void,
+          menuItems: () => [],
+        }),
         Layer.mock(PreviewPasskeys.PreviewPasskeys)({
           bridgeEnabled: false,
           installSessionHandlers: () => {},
@@ -439,6 +449,15 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           } satisfies ElectronShell.ElectronShell["Service"]),
           layerElectronTheme,
           Layer.succeed(ElectronWindow.ElectronWindow, electronWindowShape),
+          Layer.succeed(OnePassword.OnePassword, {
+            prepare: () => Effect.void,
+            enable: () => Effect.void,
+            disable: () => Effect.void,
+            track: () => {},
+            isEnabled: () => false,
+            open: () => Effect.void,
+            menuItems: () => [],
+          }),
           Layer.mock(PreviewPasskeys.PreviewPasskeys)({
             bridgeEnabled: false,
             installSessionHandlers: () => {},

@@ -285,6 +285,8 @@ packageExtensions:
       vite-plus: "catalog:"
 
 patchedDependencies:
+  # Bind extension IPC to its origin, keep Chromium namespaces aligned, and disable native messaging/logging.
+  electron-chrome-extensions@4.10.0: patches/electron-chrome-extensions@4.10.0.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
   expo-glass-effect@58.0.3: patches/expo-glass-effect@58.0.3.patch
   expo-blur@58.0.3: patches/expo-blur@58.0.3.patch
