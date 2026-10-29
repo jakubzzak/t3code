@@ -4,11 +4,11 @@
 
 When an agent uses the browser, T3 Code pulls the agent's tab into view. The right panel switches to it, or the floating mini player pops up, while the user is reading or working on something else. The opposite also fails. When the agent does need the user, for example to sign in on three tabs, nothing reliably shows those tabs. The reveal is best-effort, the agent sees `visible: false`, and its next attempt times out. Agents with desktop control have then clicked through T3 Code's own window to reach the browser, which selected a different chat.
 
-The user wants agents to browse in the background, watch only when they choose to, and be brought to the browser reliably when the agent needs them, such as for a login, consent, or confirmation.
+The user wants agents to browse in the background, watch only when they choose to, and be brought to the browser reliably when the agent needs them, such as for a login, consent, or confirmation. The user also wants to keep Codex Computer Use, but only after the agent gets permission in each chat.
 
 ## Scope
 
-Change when agent browser tabs become visible, add a way for the user to watch on demand, and add a "needs you" state that may bring the browser forward. Applies to every client that shows agent browser tabs: desktop, web, and mobile.
+Change when agent browser tabs become visible, add a way for the user to watch on demand, and add a "needs you" state that may bring the browser forward. Limit Codex Computer Use permission to a single chat. Applies to every client that shows agent browser tabs or approvals: desktop, web, and mobile.
 
 Keep the existing browser. Agent tabs already run without a visible window and can use saved browser profiles, which keeps logins. Out of scope: a separate dedicated browser, detecting login or consent pages automatically, and switching the selected chat.
 
@@ -27,6 +27,10 @@ Keep the existing browser. Agent tabs already run without a visible window and c
 - **Other threads.** When a tab in another thread needs you, that thread shows the existing attention status in the sidebar and sends the existing thread notification. The current chat is never switched or interrupted. The browser comes forward when the user opens that thread.
 - **Resolving.** Releasing control after completing the step returns control to the agent with the outcome. The user can also decline, which tells the agent the step was declined. Either way the "needs you" state clears: the badge and notification are removed, and the view stays open only if the user was already following.
 - **Logins persist.** Sign-ins completed during a handoff are stored in the tab's browser profile and are available in later agent runs that use that profile.
+- **Computer Use permission per chat.** When a Codex agent wants to control an app with Computer Use, the chat asks first, naming the app. The choices are allow once, allow for this chat, and decline. Nothing grants permission beyond one chat: T3 Code does not offer Codex's "for this session" or "always" choices.
+  - "Allow for this chat" covers that app in that chat only. Later requests for that app in the same chat are approved without asking. Other apps, and other chats, still ask.
+  - The user can revoke the chat's Computer Use permissions from that chat. The next request asks again.
+  - A pending request behaves like other approvals: the agent waits, and in another thread it shows the attention status and a notification without switching chats.
 
 ## Acceptance criteria
 
@@ -38,12 +42,18 @@ Keep the existing browser. Agent tabs already run without a visible window and c
 6. In the visible thread, with auto-show off, the agent requests sign-in on three tabs. The first comes forward. After the user signs in and releases control, the second comes forward, then the third. No request times out while waiting, and the attention status clears after the last one.
 7. An agent that has desktop control needs a sign-in. It uses the "needs you" request, and the user's selected chat and panel are untouched until the request comes forward.
 8. A thread viewed from a remote web or mobile client behaves the same way: no automatic reveal, watching from the indicator, and the browser brought forward only for "needs you".
+9. In chat A, the Codex agent asks to use Computer Use on Safari. The user chooses "Allow for this chat". Later Safari actions in chat A run without asking. A request in chat A to control T3 Code still asks. A Safari request in chat B asks again.
+10. The user revokes chat A's Computer Use permissions. The next Safari request in chat A asks again.
+11. While the user is in chat A, the agent in chat B asks to use Computer Use. Chat A stays selected. Chat B shows the attention status and a notification is sent. Declining tells the agent no, and the agent does not control the app.
 
 ## Constraints and decisions
 
 - Agent tabs run in the server's shared browser and are mounted in the desktop app when one is attached ([ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts)). Today's reveal comes from `requestReveal` and the auto-reveal effect in [ChatView.tsx](../../apps/web/src/components/ChatView.tsx).
 - Today a reveal only records a request; whether a client acts on it depends on the auto-show setting and on that thread being open. `visible` in preview status only reports whether any client is currently showing the tab ([ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts)). Agents therefore cannot get the user's attention reliably by revealing a tab, which is why "needs you" is an explicit request that waits for an answer.
-- T3 Code cannot block a provider's own desktop control, such as Codex Computer Use. Giving agents a request that reliably works, plus guidance, is what removes their reason to drive T3 Code's window.
+- Codex asks before Computer Use controls an app, and T3 Code already shows that question in the chat ([CodexMcpElicitation.ts](../../apps/server/src/provider/CodexMcpElicitation.ts), handled in [CodexAdapterV2.ts](../../apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts)). Today it passes on Codex's "for this session" and "always" choices. Chats share one Codex app-server, so a session grant can carry into other chats. Per-chat permission therefore has to be remembered by T3 Code per thread and app, and answered to Codex as a one-time approval.
+- An "always" grant already stored by Codex means Codex never asks, so T3 Code cannot gate those apps. The user guide must say how to clear them in Codex.
+- Per-chat permission covers Codex Computer Use only. Other providers' desktop control is not affected by this spec.
+- Giving agents a "needs you" request that reliably works, plus guidance, removes their reason to drive T3 Code's window. Per-chat permission is the user's control when they still try.
 - Reuse the existing take/release control flow ([SessionControl.ts](../../apps/server/src/preview/SessionControl.ts)) and the existing pending-dialog pause for handoffs. Reuse the sidebar's attention status and the thread notification coordinator rather than adding a separate alert system.
 - The "ask for the user" tool is a T3 MCP browser tool, so it works the same for every provider. Guidance for it lives with the other orchestration instructions.
 - "Needs you" is limited to signals the browser detects and explicit agent requests, because guessing at login or consent pages is unreliable in both directions.
