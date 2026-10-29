@@ -146,6 +146,7 @@ export function InboxReplyComposer({
         onChange={(event) =>
           updateInboxReply(key, (value) => ({
             ...value,
+            error: undefined,
             input: {
               ...value.input,
               text: event.target.value,

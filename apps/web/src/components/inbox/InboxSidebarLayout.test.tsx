@@ -344,6 +344,29 @@ it("Cmd+Enter sends once, disables the pending input, and preserves text after f
   expect(input.value).toBe("Friday works.");
   expect(container.textContent).toContain("Reconnect Slack.");
   expect(container.textContent).not.toContain("Check result");
+  for (const text of ["Monday", "Monday works instead."]) {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(
+        input,
+        text,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe(text);
+  }
+  expect(container.textContent).not.toContain("Check result");
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+    ),
+  );
+  expect(state.send).toHaveBeenCalledTimes(2);
+  const retried = state.send.mock.calls[1]![0].input;
+  expect(retried.text).toBe("Monday works instead.");
+  expect(retried.commandId).not.toBe(sent.commandId);
+  await act(async () => finish(AsyncResult.success({ ...retried, status: "sent" })));
+  expect(container.querySelector("textarea")).toBeNull();
 });
 
 it("loads the full reply draft when Enter beats the row detail query", async () => {
