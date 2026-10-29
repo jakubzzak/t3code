@@ -1435,7 +1435,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                                 <>
                                   <span className="shrink-0">{linearIssue.identifier}</span>
                                   {linearIssue.name ? (
-                                    <span className="truncate">{` · ${linearIssue.name}`}</span>
+                                    // `pre` keeps the leading space that `truncate` would collapse.
+                                    <span className="overflow-hidden text-ellipsis whitespace-pre">
+                                      {` · ${linearIssue.name}`}
+                                    </span>
                                   ) : null}
                                 </>
                               ) : (
