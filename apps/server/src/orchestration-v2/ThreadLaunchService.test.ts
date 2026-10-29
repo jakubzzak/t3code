@@ -1,4 +1,5 @@
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as LinearConnection from "../linear/LinearConnection.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -3059,6 +3060,7 @@ it.effect.each([true, false])(
       }).pipe(
         Effect.provide(
           InboxAgent.layer.pipe(
+            Layer.provide(Layer.mock(LinearConnection.LinearConnection)({})),
             Layer.provideMerge(harness.layer),
             Layer.provide(
               Layer.mock(ProjectFiles.T3ProjectFileLoader)({

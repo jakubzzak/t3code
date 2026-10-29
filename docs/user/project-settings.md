@@ -251,7 +251,9 @@ The view is unavailable on web and mobile, including when they connect to a desk
 
 To link a chat to an issue, choose **Connect Linear** in the project's integration settings,
 then select **Linear issue** in the bottom bar before your first message, or in the top-right
-thread details panel once the conversation starts. A linked issue's identifier replaces the label.
+thread details panel once the conversation starts. Chats opened from Linear issue notifications
+automatically associate the originating issue. A linked issue's identifier replaces the label;
+click it to open the issue in the Linear right panel, or use the chevron to choose another issue.
 The list starts with issues assigned to you. Use **Triage** for the workspace’s intake queue,
 or **All issues** to find issues assigned to anyone. Choose a team before the search field to narrow all views; T3 remembers it for this
 project and workspace on this device. **All teams** clears the filter. Search filters the selected

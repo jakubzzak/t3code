@@ -35,6 +35,11 @@ No destination picker, unrelated channel posts or DMs, email replies, attachment
 - If posting succeeds but local refresh/read-state updates fail, retain the successful send result and recover those local updates without reposting. Later source ingestion must reconcile the response by source identity.
 - A definite send failure preserves edited text, restores controls, and explains the next step. Missing posting permission leads to reconnection; rate limits expose the retry time. An uncertain delivery outcome must be distinguished from a definite failure and must not automatically resend. For a pending or uncertain attempt, Send checks the existing command ID without posting again; reopening restores that attempted message and command ID. Check the source conversation before canceling an uncertain attempt and composing another reply.
 
+### Linked Linear chats
+
+- Agent and Agent chat from a Linear issue notification associate the originating issue with the chat's standard linked-issue metadata. Retain an explicitly selected issue and the existing workspace when reopening the chat. Linear project notifications without an issue do not acquire a substitute issue.
+- On a linked Linear control, clicking the issue label opens that issue in the desktop Linear right panel. Only the right chevron opens the issue picker. Use the same split action in the composer toolbar and Details, consistent with Finder and Actions. An unlinked control opens the picker from either part.
+
 ### Connections and shared behavior
 
 Use the connected user's identity. Existing read-only connections continue reading and show when a posting upgrade is needed. Request additional authorization through the existing connection flow; record granted capabilities rather than treating “Connected” as proof of write access. Canceling an upgrade preserves reading and the draft.
@@ -53,6 +58,7 @@ The current Slack transport only allows read methods, and Linear's displayed com
 4. Cmd+Enter delegates from the row and sends from the composer. Pending controls prevent duplicate sends. Confirmed success displays the response and marks only the Blackbird item read; settlement is unchanged.
 5. Missing scope, cancellation, rate limiting, definite failure, and uncertain delivery retain recoverable drafts. A successful post followed by a local update failure never causes a second external message.
 6. Local and remote web/desktop sessions enforce the same permissions and destinations. Existing Inbox browsing and agent actions remain usable on read-only connections.
+7. A chat created from a Linear issue notification retains that issue after creation/reopening. The issue label opens Linear in the right panel; the chevron opens selection without opening or changing the linked issue.
 
 ## Non-blocking assumptions
 

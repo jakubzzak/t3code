@@ -20,6 +20,7 @@ import * as ManagedFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectFiles from "../project/T3ProjectFileLoader.ts";
 import * as Git from "../git/GitWorkflowService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as Linear from "../linear/LinearConnection.ts";
 
 export class InboxAgent extends Context.Service<
   InboxAgent,
@@ -45,6 +46,7 @@ const make = Effect.gen(function* () {
   const folders = yield* ManagedFolders.ManagedProjectFolders;
   const git = yield* Git.GitWorkflowService;
   const projectFiles = yield* ProjectFiles.T3ProjectFileLoader;
+  const linear = yield* Linear.LinearConnection;
   const wrap = (cause: unknown) =>
     new InboxError({ detail: "Could not update the linked agent. Open the chat or retry.", cause });
   return InboxAgent.of({
@@ -77,6 +79,47 @@ const make = Effect.gen(function* () {
         const prompt = suggestion
           ? `${instructions}\n\nSuggested resolution:\n${suggestion}`
           : instructions;
+        const linkIssue = Effect.gen(function* () {
+          if (
+            notification.source !== "linear" ||
+            existing?.linkedLinearIssue ||
+            !config.linearWorkspace ||
+            (existing &&
+              (["queued", "preparing", "starting", "running", "waiting"].includes(
+                existing.status,
+              ) ||
+                existing.pendingRuntimeRequest !== null))
+          )
+            return;
+          const target = notification.items.findLast(
+            (item) => item.replyTarget?.source === "linear",
+          )?.replyTarget;
+          const issueId =
+            notification.linearIssue?.id ??
+            notification.items.findLast((item) => item.linearIssue)?.linearIssue?.id ??
+            (target?.source === "linear" ? target.issueId : undefined);
+          if (!issueId) return;
+          const result = yield* linear.request(notification.projectId, {
+            operation: "issue",
+            workspace: config.linearWorkspace,
+            connectionKey: notification.projectId,
+            issueId,
+          });
+          const issue = result.issues?.find((issue) => issue.id === issueId);
+          if (!issue)
+            return yield* new InboxError({
+              detail: "The notification's Linear issue is unavailable.",
+            });
+          // A user can select an issue while the source lookup is in flight.
+          if ((yield* orchestrator.getThreadShell(threadId))?.linkedLinearIssue) return;
+          yield* orchestrator.dispatch({
+            type: "thread.metadata.update",
+            threadId,
+            commandId: CommandId.make(`inbox:${notification.id}:linear:${issue.id}`),
+            linkedLinearIssue: issue,
+          });
+        });
+        if (existing) yield* linkIssue;
         // Replaying delivery must not create another turn. Preparation retries
         // reuse the durable run and workspace that the launch service owns.
         if (existing?.latestRunId) {
@@ -162,6 +205,7 @@ const make = Effect.gen(function* () {
             createdBy: "user",
             creationSource: "web",
           });
+        if (!existing) yield* linkIssue;
         yield* launches.launch({
           commandId: CommandId.make(
             `inbox:${notification.id}:launch:${startAgent ? "run" : "chat"}:${notification.agentAttempt}`,
