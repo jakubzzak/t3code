@@ -15,7 +15,7 @@ Linear API authentication, API tools, and agent API workflows are deferred. Do n
 ### Availability and entry points
 
 - Replace the **Linked pull requests** item in the surface picker with **Linear**, its logo, and the **L** shortcut. Apply the replacement wherever that picker is offered. This removes the picker entry, not the underlying PR associations or the separate Pull request surface.
-- Keep the surface tab label fixed as **Linear** throughout navigation, including issue pages, My Issues, login, and Google authentication. Do not adopt the embedded page's document title.
+- On issue pages, show the identifier and compact original name as defined in [Compact Linear issue tab labels](linear-issue-tab-labels.md). Keep **Linear** on My Issues, login, Google authentication, and other non-issue pages.
 - L opens Linear only in the existing surface-selection shortcut context; it must remain ordinary text while typing in chat or inside Linear.
 - Enable the surface only in the desktop client with its feature flag enabled. Desktop access remains available when connected to a remote environment; support depends on the client, not the server location.
 - On web and mobile, keep Linear visible and disabled with the exact explanation **Available only in the desktop app**. Use the same wording in Features. On desktop with the flag off, explain how to enable it in Settings → Features. Shortcuts and agent opening actions obey the same availability rules.
@@ -26,7 +26,7 @@ Linear API authentication, API tools, and agent API workflows are deferred. Do n
 - Add a dedicated Linear section under Settings → Integrations. Order the integration sections alphabetically: Browser (including its agent-access settings), Devices, then Linear. Select or enter the Linear workspace for each project; one project's choice must not change another's.
 - On initial opening, use the thread's branch to find a Linear issue identifier. For example, `jakub/eng-123-fix-login` opens ENG-123 in the configured workspace. If the branch has no identifier, open that workspace's My Issues view.
 - Once open, preserve the current page and user navigation. Rerenders, returning focus, and branch changes must not retarget an existing surface or interrupt editing. Closing and opening a fresh surface resolves the initial destination again.
-- Restrict the dedicated surface to the exact HTTPS origins `https://linear.app` and `https://accounts.google.com`. Reject other origins, including redirects, popup navigation, and agent navigation. Generic Browser opening must not implicitly reuse a Linear surface for another origin. This restriction does not apply to ordinary page assets; the fixed Linear label must never conceal an unrelated navigated page.
+- Restrict the dedicated surface to the exact HTTPS origins `https://linear.app` and `https://accounts.google.com`. Reject other origins, including redirects, popup navigation, and agent navigation. Generic Browser opening must not implicitly reuse a Linear surface for another origin. This restriction does not apply to ordinary page assets; the tab label must never conceal an unrelated navigated page.
 - An explicit user request to show a particular issue may open that issue in the Linear surface without a second confirmation. Agents must not open it proactively for routine research, search, or editing. The narrow login assistance below is the browser-automation exception in this scope.
 
 ### Login

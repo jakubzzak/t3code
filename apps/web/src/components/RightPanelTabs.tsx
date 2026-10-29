@@ -79,6 +79,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { useBrowserDefaults } from "~/browser/browserDefaults";
+import { linearIssueTabLabel } from "~/browser/linear";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
 import { faviconUrlForOrigin } from "~/lib/favicon";
@@ -1312,11 +1313,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
               {props.surfaces.map((surface) => {
                 const active = surface.id === props.activeSurfaceId;
                 const pending = props.pendingSurfaceIds.has(surface.id);
-                const title = surfaceTitle(
-                  surface,
-                  props.previewSessions,
-                  props.terminalLabelsById,
-                );
+                const snapshot =
+                  surface.kind === "preview" && surface.resourceId
+                    ? props.previewSessions[surface.resourceId]
+                    : undefined;
+                const linearIssue =
+                  snapshot?.surface === "linear" ? linearIssueTabLabel(snapshot.navStatus) : null;
+                const title =
+                  linearIssue?.label ??
+                  surfaceTitle(surface, props.previewSessions, props.terminalLabelsById);
                 const previewTabId = previewTabIdOf(surface, props.previewSessions);
                 // Desktop state is keyed by the session id, but desktop actions
                 // must be addressed with the runtime id.
@@ -1426,7 +1431,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                               className="cursor-pointer flex min-w-0 items-center"
                               onClick={() => props.onActivate(surface)}
                             >
-                              <span className="truncate">{title}</span>
+                              {linearIssue ? (
+                                <>
+                                  <span className="shrink-0">{linearIssue.identifier}</span>
+                                  {linearIssue.name ? (
+                                    <span className="truncate">{` · ${linearIssue.name}`}</span>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <span className="truncate">{title}</span>
+                              )}
                             </button>
                           }
                         />
