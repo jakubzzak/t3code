@@ -2,7 +2,7 @@
 
 ## Problem and outcome
 
-When an agent uses the browser, T3 Code pulls the agent's tab into view. The right panel switches to it, or the floating mini player pops up, while the user is reading or working on something else. The opposite also fails. When the agent does need the user, for example to sign in on three tabs, nothing reliably shows those tabs. The reveal is best-effort, the agent sees `visible: false`, and its next attempt times out.
+When an agent uses the browser, T3 Code pulls the agent's tab into view. The right panel switches to it, or the floating mini player pops up, while the user is reading or working on something else. The opposite also fails. When the agent does need the user, for example to sign in on three tabs, nothing reliably shows those tabs. The reveal is best-effort, the agent sees `visible: false`, and its next attempt times out. Agents with desktop control have then clicked through T3 Code's own window to reach the browser, which selected a different chat.
 
 The user wants agents to browse in the background, watch only when they choose to, and be brought to the browser reliably when the agent needs them, such as for a login, consent, or confirmation.
 
@@ -19,7 +19,7 @@ Keep the existing browser. Agent tabs already run without a visible window and c
 - **Following.** Once open, the view follows the agent through navigation, newly opened tabs, and later turns until the user closes it. Closing the view does not stop or slow the agent. The tab returns to the background, and the indicator remains so the user can watch again.
 - **Needs you.** A tab enters a "needs you" state when:
   - the browser hits an interruption the agent cannot resolve by itself: a page dialog, file chooser, or permission prompt; or
-  - the agent explicitly asks for the user through a new browser tool, giving a short reason such as "Sign in to staging". Agent guidance tells agents to use this tool for logins, consent, CAPTCHA, and confirmations instead of attempting them.
+  - the agent explicitly asks for the user through a new browser tool, giving a short reason such as "Sign in to staging". Agent guidance tells agents to use this tool for logins, consent, CAPTCHA, and confirmations instead of attempting them, and never to use desktop control on T3 Code's window to reach the browser.
 
   While in that state, the agent waits. The request stays pending until the user resolves or declines it, or the turn is stopped. It does not time out or fail because nobody is watching.
 - **Bringing it forward.** When a tab needs you and the user is viewing that thread, the browser is shown and focused with the reason visible, ready for the user to take control. This happens regardless of the auto-show setting, the panel layout, and whether the tab is already a panel tab. This is the only case where the browser takes over the view.
@@ -36,12 +36,14 @@ Keep the existing browser. Agent tabs already run without a visible window and c
 4. While the user is in thread A, the agent in thread B hits a page confirmation dialog. Thread A stays selected and undisturbed. Thread B shows the attention status and a notification is sent. Opening thread B shows the browser with the dialog.
 5. The user declines a "needs you" request. The agent is told it was declined, and the attention status and notification clear.
 6. In the visible thread, with auto-show off, the agent requests sign-in on three tabs. The first comes forward. After the user signs in and releases control, the second comes forward, then the third. No request times out while waiting, and the attention status clears after the last one.
-7. A thread viewed from a remote web or mobile client behaves the same way: no automatic reveal, watching from the indicator, and the browser brought forward only for "needs you".
+7. An agent that has desktop control needs a sign-in. It uses the "needs you" request, and the user's selected chat and panel are untouched until the request comes forward.
+8. A thread viewed from a remote web or mobile client behaves the same way: no automatic reveal, watching from the indicator, and the browser brought forward only for "needs you".
 
 ## Constraints and decisions
 
 - Agent tabs run in the server's shared browser and are mounted in the desktop app when one is attached ([ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts)). Today's reveal comes from `requestReveal` and the auto-reveal effect in [ChatView.tsx](../../apps/web/src/components/ChatView.tsx).
 - Today a reveal only records a request; whether a client acts on it depends on the auto-show setting and on that thread being open. `visible` in preview status only reports whether any client is currently showing the tab ([ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts)). Agents therefore cannot get the user's attention reliably by revealing a tab, which is why "needs you" is an explicit request that waits for an answer.
+- T3 Code cannot block a provider's own desktop control, such as Codex Computer Use. Giving agents a request that reliably works, plus guidance, is what removes their reason to drive T3 Code's window.
 - Reuse the existing take/release control flow ([SessionControl.ts](../../apps/server/src/preview/SessionControl.ts)) and the existing pending-dialog pause for handoffs. Reuse the sidebar's attention status and the thread notification coordinator rather than adding a separate alert system.
 - The "ask for the user" tool is a T3 MCP browser tool, so it works the same for every provider. Guidance for it lives with the other orchestration instructions.
 - "Needs you" is limited to signals the browser detects and explicit agent requests, because guessing at login or consent pages is unreliable in both directions.
