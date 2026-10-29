@@ -12,6 +12,11 @@
       "command": "node scripts/setup-worktree.ts",
       "icon": "configure",
       "runOnWorktreeCreate": true
+    },
+    {
+      "name": "Install Dependencies",
+      "command": "node scripts/setup-worktree.ts --install",
+      "icon": "configure"
     }
   ]
 }

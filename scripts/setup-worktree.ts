@@ -2,9 +2,12 @@
 /**
  * Worktree setup, run by the t3.json "Setup Worktree" action as
  * `node scripts/setup-worktree.ts`. Plain Node keeps one command working in
- * every shell T3 Code spawns (zsh, bash, fish, PowerShell): it installs
- * dependencies, links the main checkout's gitignored env files into this
- * worktree, then warms the web dependency cache.
+ * every shell T3 Code spawns (zsh, bash, fish, PowerShell): it links the main
+ * checkout's gitignored env files into this worktree.
+ *
+ * Installing is opt-in because node_modules costs several GB per worktree.
+ * With `--install` (the "Install Dependencies" action) it also installs
+ * dependencies first and warms the web dependency cache at the end.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -17,16 +20,19 @@ if (!projectRoot) {
   throw new Error("T3CODE_PROJECT_ROOT is not set. Run this through the t3.json setup action.");
 }
 const worktree = NodePath.dirname(import.meta.dirname);
+const shouldInstall = process.argv.includes("--install");
 
 // `shell` resolves `vp` through PATH, including Windows command shims.
 // Setup has no one answering install prompts. Pass pnpm's confirmation flag
 // through vp and leave stdin closed so other prompts fail instead of hanging.
-const install = NodeChildProcess.spawnSync("vp i -- --yes", {
-  cwd: worktree,
-  shell: true,
-  stdio: ["ignore", "inherit", "inherit"],
-});
-if (install.status !== 0) process.exit(install.status ?? 1);
+if (shouldInstall) {
+  const install = NodeChildProcess.spawnSync("vp i -- --yes", {
+    cwd: worktree,
+    shell: true,
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  if (install.status !== 0) process.exit(install.status ?? 1);
+}
 
 // Env files live as real files in the main checkout; worktrees only get
 // symlinks to them. Only a symlink is ever replaced, so a real env file is
@@ -44,6 +50,11 @@ for (const file of ENV_FILES) {
   if (existing && !existing.isSymbolicLink()) continue;
   if (existing) NodeFS.rmSync(target);
   NodeFS.symlinkSync(source, target);
+}
+
+if (!shouldInstall) {
+  console.log("Skipped dependency install. Run the Install Dependencies action when needed.");
+  process.exit(0);
 }
 
 const warm = NodeChildProcess.spawnSync(
