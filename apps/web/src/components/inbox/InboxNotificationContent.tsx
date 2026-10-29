@@ -559,26 +559,29 @@ function SlackMessageBody({ message }: { message: InboxSlackMessage }) {
       className={`${styles.messageMarkdown} [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4`}
     >
       <SlackMarkdown content={message.formattedContent} mentions={message.slackMentions} />
-      {imageContext &&
-        message.images?.map((image) =>
-          image.url ? (
-            <InboxImage
-              key={image.id}
-              environmentId={imageContext.environmentId}
-              name={image.name}
-              resource={{
-                _tag: "slack-image",
-                projectId: imageContext.notification.projectId,
-                notificationId: imageContext.notification.id,
-                fileId: image.id,
-              }}
-            />
-          ) : (
-            <p key={image.id} role="status" className="text-2xs text-muted-foreground">
-              Sent image: {image.name}. Preview pending.
-            </p>
-          ),
-        )}
+      {imageContext && !!message.images?.length && (
+        <div className="grid grid-cols-[repeat(2,4rem)] gap-2">
+          {message.images.map((image) =>
+            image.url ? (
+              <InboxImage
+                key={image.id}
+                environmentId={imageContext.environmentId}
+                name={image.name}
+                resource={{
+                  _tag: "slack-image",
+                  projectId: imageContext.notification.projectId,
+                  notificationId: imageContext.notification.id,
+                  fileId: image.id,
+                }}
+              />
+            ) : (
+              <p key={image.id} role="status" className="col-span-2 text-2xs text-muted-foreground">
+                Sent image: {image.name}. Preview pending.
+              </p>
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
 }

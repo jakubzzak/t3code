@@ -24,6 +24,7 @@ export function InboxImage({
     return <span className="text-2xs text-muted-foreground">Loading {name}…</span>;
   return (
     <a
+      className="block size-16 overflow-hidden rounded-lg border border-border/80"
       href={asset.url}
       target="_blank"
       rel="noreferrer noopener"
@@ -34,7 +35,7 @@ export function InboxImage({
         alt={name}
         loading="lazy"
         onError={() => setFailed(true)}
-        className="my-2 max-h-64 max-w-full rounded-md object-contain"
+        className="size-full object-cover"
       />
     </a>
   );

@@ -283,39 +283,43 @@ export function InboxReplyComposer({
           }
         }}
       />
-      {draft.input.images?.map((image) => (
-        <div key={image.attachmentId}>
-          <InboxImage
-            environmentId={environmentId}
-            name={image.name}
-            resource={{ _tag: "attachment", attachmentId: image.attachmentId }}
-          />
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={locked}
-            aria-label={`Remove ${image.name}`}
-            onClick={() => {
-              discardImage(image.attachmentId);
-              updateInboxReply(key, (value) => ({
-                ...value,
-                result: undefined,
-                error: undefined,
-                input: {
-                  ...value.input,
-                  commandId: CommandId.make(randomUUID()),
-                  images:
-                    value.input.images?.filter(
-                      (entry) => entry.attachmentId !== image.attachmentId,
-                    ) ?? [],
-                },
-              }));
-            }}
-          >
-            Remove image
-          </Button>
+      {!!draft.input.images?.length && (
+        <div className="grid grid-cols-[repeat(2,4rem)] gap-2">
+          {draft.input.images.map((image) => (
+            <div key={image.attachmentId}>
+              <InboxImage
+                environmentId={environmentId}
+                name={image.name}
+                resource={{ _tag: "attachment", attachmentId: image.attachmentId }}
+              />
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={locked}
+                aria-label={`Remove ${image.name}`}
+                onClick={() => {
+                  discardImage(image.attachmentId);
+                  updateInboxReply(key, (value) => ({
+                    ...value,
+                    result: undefined,
+                    error: undefined,
+                    input: {
+                      ...value.input,
+                      commandId: CommandId.make(randomUUID()),
+                      images:
+                        value.input.images?.filter(
+                          (entry) => entry.attachmentId !== image.attachmentId,
+                        ) ?? [],
+                    },
+                  }));
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
       {draft.uploadError && (
         <p role="alert" className="text-2xs text-destructive">
           {draft.uploadError}
