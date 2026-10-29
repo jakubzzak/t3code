@@ -5,9 +5,10 @@
 Specifications for this fork live in `docs/specs/`, named `NN-short-feature-name.md`.
 Add each new spec here with a short summary and its current status.
 
-| Spec                                                            | Summary                                                                                                                       | Status                                             |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| [01 — Resolve chat cleanup](./specs/01-resolve-chat-cleanup.md) | Stop a chat's managed tools and identifiable processes with a cleanup progress modal; preserve conversation and code changes. | Implemented; native mobile UI verification pending |
+| Spec                                                                        | Summary                                                                                                                       | Status                                             |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| [01 — Resolve chat cleanup](./specs/01-resolve-chat-cleanup.md)             | Stop a chat's managed tools and identifiable processes with a cleanup progress modal; preserve conversation and code changes. | Implemented; native mobile UI verification pending |
+| [02 - 1Password in the built-in browser](./specs/02-onepassword-browser.md) | Enable 1Password per browser profile, sign in separately, and use the vault and passkeys with dismissible popups.             | Implemented; experimental macOS support            |
 
 ## Using T3 Code
 
