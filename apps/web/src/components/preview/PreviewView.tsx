@@ -82,7 +82,7 @@ import { BROWSER_DEVICE_TOOLBAR_HEIGHT } from "~/browser/browserViewportLayout";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { BrowserSettingsReadError } from "~/browser/openFileInPreview";
 import { PreviewFileNotShown, PreviewUnreachable } from "./PreviewUnreachable";
-import { revealInFileExplorerLabel } from "./fileExplorerLabel";
+import { revealInFileExplorerIcon, revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { attachBrowserScreenshotToChat } from "./attachBrowserScreenshot";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "~/threadRoutes";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
@@ -104,6 +104,8 @@ import {
 } from "~/browser/browserRecording";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { MorphIcon } from "~/components/MorphIcon";
+import { Check, Copy, Link as LinkGlyph, MessageSquarePlus } from "lucide";
 import { observeResize } from "~/lib/observeResize";
 
 interface Props {
@@ -738,57 +740,80 @@ export function PreviewView({
       }
       void bridge.captureScreenshot(runtimeTabId).then(
         (artifact) => {
-          const revealAction = {
-            children: revealInFileExplorerLabel(navigator.platform),
-            onClick: () => void bridge.revealArtifact(artifact.path),
-          };
+          const RevealIcon = revealInFileExplorerIcon(navigator.platform);
           let pathCopied = false;
           let imageCopied = false;
           let pasteState: "idle" | "pasting" | "pasted" = "idle";
           let toastId: ReturnType<typeof toastManager.add>;
+
+          const screenshotToast = (
+            type: "success" | "error",
+            title: string,
+            description?: string,
+          ) =>
+            stackedThreadToast({
+              type,
+              title,
+              description,
+              actionProps: {
+                children: (
+                  <>
+                    <MorphIcon icon={pasteState === "pasted" ? Check : MessageSquarePlus} />
+                    {pasteState === "pasted" ? "Pasted" : "Paste in chat"}
+                  </>
+                ),
+                disabled: pasteState !== "idle",
+                onClick: () => void pasteInChat(),
+              },
+              data: {
+                additionalActions: [
+                  {
+                    id: "copy-image",
+                    label: imageCopied ? "Copied image" : "Copy image",
+                    props: {
+                      children: (
+                        <MorphIcon
+                          className={cn(imageCopied && "text-success")}
+                          icon={imageCopied ? Check : Copy}
+                        />
+                      ),
+                      disabled: imageCopied,
+                      onClick: copyImage,
+                    },
+                  },
+                  {
+                    id: "copy-path",
+                    label: pathCopied ? "Copied path" : "Copy path",
+                    props: {
+                      children: (
+                        <MorphIcon
+                          className={cn(pathCopied && "text-success")}
+                          icon={pathCopied ? Check : LinkGlyph}
+                        />
+                      ),
+                      disabled: pathCopied,
+                      onClick: copyPath,
+                    },
+                  },
+                  {
+                    id: "reveal",
+                    label: revealInFileExplorerLabel(navigator.platform),
+                    props: {
+                      children: <RevealIcon />,
+                      onClick: () => void bridge.revealArtifact(artifact.path),
+                    },
+                  },
+                ],
+                secondaryActionVariant: "outline",
+              },
+            });
 
           const updateScreenshotToast = (
             type: "success" | "error" = "success",
             title = "Screenshot saved",
             description?: string,
           ) => {
-            toastManager.update(
-              toastId,
-              stackedThreadToast({
-                type,
-                title,
-                description,
-                actionProps: {
-                  children: pasteState === "pasted" ? "Pasted!" : "Paste in chat",
-                  disabled: pasteState !== "idle",
-                  onClick: () => void pasteInChat(),
-                },
-                data: {
-                  additionalActions: [
-                    {
-                      id: "copy-image",
-                      props: {
-                        children: imageCopied ? "Copied!" : "Copy image",
-                        disabled: imageCopied,
-                        onClick: copyImage,
-                      },
-                    },
-                    {
-                      id: "copy-path",
-                      props: {
-                        children: pathCopied ? "Copied!" : "Copy path",
-                        disabled: pathCopied,
-                        onClick: copyPath,
-                      },
-                    },
-                  ],
-                  secondaryActionProps: {
-                    ...revealAction,
-                  },
-                  secondaryActionVariant: "outline",
-                },
-              }),
-            );
+            toastManager.update(toastId, screenshotToast(type, title, description));
           };
 
           const copyPath = () => {
@@ -882,38 +907,7 @@ export function PreviewView({
             dispatchSnapShotComposerFocus();
           };
 
-          toastId = toastManager.add(
-            stackedThreadToast({
-              type: "success",
-              title: "Screenshot saved",
-              actionProps: {
-                children: "Paste in chat",
-                onClick: () => void pasteInChat(),
-              },
-              data: {
-                additionalActions: [
-                  {
-                    id: "copy-image",
-                    props: {
-                      children: "Copy image",
-                      onClick: copyImage,
-                    },
-                  },
-                  {
-                    id: "copy-path",
-                    props: {
-                      children: "Copy path",
-                      onClick: copyPath,
-                    },
-                  },
-                ],
-                secondaryActionProps: {
-                  ...revealAction,
-                },
-                secondaryActionVariant: "outline",
-              },
-            }),
-          );
+          toastId = toastManager.add(screenshotToast("success", "Screenshot saved"));
         },
         (error) => {
           toastManager.add({
