@@ -1,4 +1,5 @@
 import * as ReplyTransport from "../../../inbox/InboxReplyTransport.ts";
+import * as Slack from "../../../inbox/SlackService.ts";
 import * as Inbox from "../../../inbox/InboxService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
@@ -39,6 +40,7 @@ import * as PreviewBrowser from "../../../preview/PreviewBrowser.ts";
 
 const layerStubServices = Layer.mergeAll(
   Layer.mock(ReplyTransport.InboxReplyTransport)({}),
+  Layer.mock(Slack.SlackService)({}),
   Layer.mock(Inbox.InboxService)({}),
   Layer.mock(Orchestrator.OrchestratorV2)({}),
   Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
@@ -147,6 +149,8 @@ it.effect("production mcp layer lists worktree tools over http", () =>
       // than replacing them.
       expect(toolNames).toContain("preview_status");
       expect(toolNames).toContain("delegate_task");
+      expect(toolNames).toContain("slack_read");
+      expect(toolNames).toContain("slack_send");
 
       // The handoff tool mutates thread state, reaches the network (origin
       // fetch), and runs project setup scripts, so its MCP hints must not

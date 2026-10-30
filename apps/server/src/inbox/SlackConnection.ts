@@ -16,7 +16,7 @@ import * as Secrets from "../auth/ServerSecretStore.ts";
 
 export const SLACK_CALLBACK_PATH = "/oauth/inbox/slack/callback";
 const USER_SCOPES =
-  "im:read,im:history,im:write,mpim:read,mpim:history,search:read,usergroups:read,users:read,channels:history,groups:history,chat:write,files:read,files:write";
+  "im:read,im:history,im:write,mpim:read,mpim:history,mpim:write,search:read,usergroups:read,users:read,channels:read,channels:history,groups:read,groups:history,chat:write,files:read,files:write";
 const credentialKey = (projectId: ProjectId) => `inbox-slack-${encodeURIComponent(projectId)}`;
 const Tokens = Schema.Struct({
   scope: Schema.optionalKey(Schema.String),

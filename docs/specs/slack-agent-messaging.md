@@ -81,3 +81,13 @@ an upgrade is needed.
 Live verification may use a single user-confirmed DM. Other destination and
 failure scenarios use isolated fixtures so testing does not send unsolicited
 messages or change other conversations.
+
+Proceed without a Linear issue, as explicitly chosen for this task.
+
+Upgrade the server before using the new tools; existing clients remain compatible
+and the Inbox UI does not require a coordinated client update. The send-receipt
+table is additive and must be retained, with its records, during a rollback. An
+older server can ignore it, but must not delete receipts to retry a message. Prefer
+a forward fix for uncertain delivery. Restoring an older database cannot undo
+messages already sent to Slack and may lose their receipts; inspect Slack before
+attempting another send after a restore.

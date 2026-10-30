@@ -1,4 +1,5 @@
 import { InboxToolkit } from "./inbox/tools.ts";
+import { SlackToolkit } from "./slack/tools.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -95,6 +96,7 @@ it("publishes unique tool names with reference-free object-root inputs", () => {
   const names = new Set<string>();
   for (const toolkit of [
     InboxToolkit,
+    SlackToolkit,
     OrchestratorToolkit,
     PreviewToolkit,
     WorktreeToolkit,

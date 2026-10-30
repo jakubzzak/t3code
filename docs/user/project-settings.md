@@ -174,6 +174,11 @@ Slack user tokens can still be entered manually. Slack supports DMs and personal
 Saved and To-dos remain unavailable. Slack needs `users:read` to show people's names and
 `usergroups:read` for group names. After adding a scope to an existing app, reconnect Slack;
 older connections retain their links and show unresolved identities as IDs.
+Agents can use the same Slack connection through `slack_read` and `slack_send`, even when Inbox
+is off, to find people, read conversations and send reviewed channel messages, DMs, group DMs
+or thread replies. Each send requires confirmation of the exact message and destination.
+The Inbox composer stays limited to replies. Reconnect Slack if posting, opening DMs or
+channel discovery needs additional permissions.
 Linear
 uses the same environment connection as the issue picker. On desktop, **Move existing connection
 to environment** preserves your account and workspace without enabling Inbox or Linear view.

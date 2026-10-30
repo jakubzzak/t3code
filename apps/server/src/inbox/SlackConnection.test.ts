@@ -205,6 +205,9 @@ it.effect(
         assert.isFalse(url.searchParams.has("client_secret"));
         assert.include(url.searchParams.get("user_scope")!, "chat:write");
         assert.include(url.searchParams.get("user_scope")!.split(","), "im:write");
+        assert.include(url.searchParams.get("user_scope")!.split(","), "mpim:write");
+        assert.include(url.searchParams.get("user_scope")!.split(","), "channels:read");
+        assert.include(url.searchParams.get("user_scope")!.split(","), "groups:read");
         assert.include(url.searchParams.get("user_scope")!.split(","), "files:read");
         assert.include(url.searchParams.get("user_scope")!.split(","), "files:write");
         assert.include(url.searchParams.get("user_scope")!, "users:read");
