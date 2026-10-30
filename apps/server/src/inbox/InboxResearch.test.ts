@@ -70,7 +70,9 @@ const fixture = (steps: ReadonlyArray<InboxResearchStep>) => {
           generateInboxResearch: (input) =>
             Effect.sync(() => {
               inputs.push(input);
-              return steps[inputs.length - 1] ?? { request: null, suggestions: [] };
+              return (
+                steps[inputs.length - 1] ?? { replyDraft: null, request: null, suggestions: [] }
+              );
             }),
         }),
         Layer.mock(Entries.WorkspaceEntries)({
@@ -131,11 +133,27 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const f = fixture([
-        { request: { tool: "search_project", query: "refresh" }, suggestions: [] },
-        { request: { tool: "read_project_file", query: "src/session.ts" }, suggestions: [] },
-        { request: { tool: "search_chats", query: "refresh" }, suggestions: [] },
-        { request: { tool: "search_notifications", query: "refresh" }, suggestions: [] },
-        { request: null, suggestions: [" Verify retryRefresh handles expired sessions. "] },
+        {
+          replyDraft: null,
+          request: { tool: "search_project", query: "refresh" },
+          suggestions: [],
+        },
+        {
+          replyDraft: null,
+          request: { tool: "read_project_file", query: "src/session.ts" },
+          suggestions: [],
+        },
+        { replyDraft: null, request: { tool: "search_chats", query: "refresh" }, suggestions: [] },
+        {
+          replyDraft: null,
+          request: { tool: "search_notifications", query: "refresh" },
+          suggestions: [],
+        },
+        {
+          replyDraft: null,
+          request: null,
+          suggestions: [" Verify retryRefresh handles expired sessions. "],
+        },
       ]);
       yield* Effect.gen(function* () {
         const research = yield* Research.InboxResearch;
@@ -157,8 +175,8 @@ it.effect.each(["/private/secret", "../secret", ".env", "not-searched.ts"])(
   (path) =>
     Effect.gen(function* () {
       const f = fixture([
-        { request: { tool: "read_project_file", query: path }, suggestions: [] },
-        { request: null, suggestions: [] },
+        { replyDraft: null, request: { tool: "read_project_file", query: path }, suggestions: [] },
+        { replyDraft: null, request: null, suggestions: [] },
       ]);
       yield* Effect.gen(function* () {
         const result = yield* (yield* Research.InboxResearch)
@@ -173,7 +191,7 @@ it.effect.each(["/private/secret", "../secret", ".env", "not-searched.ts"])(
 it.effect("distinguishes no useful work from a suggestion generated without any research", () =>
   Effect.gen(function* () {
     for (const suggestions of [[], ["Guess at a fix"]]) {
-      const f = fixture([{ request: null, suggestions }]);
+      const f = fixture([{ replyDraft: null, request: null, suggestions }]);
       const result = yield* Effect.gen(function* () {
         return yield* (yield* Research.InboxResearch).research(notification).pipe(Effect.result);
       }).pipe(Effect.provide(f.layer));
@@ -186,8 +204,8 @@ it.effect("rejects repeated tool requests instead of looping indefinitely", () =
   Effect.gen(function* () {
     const request = { tool: "search_chats" as const, query: "refresh" };
     const f = fixture([
-      { request, suggestions: [] },
-      { request, suggestions: [] },
+      { replyDraft: null, request, suggestions: [] },
+      { replyDraft: null, request, suggestions: [] },
     ]);
     yield* Effect.gen(function* () {
       const result = yield* (yield* Research.InboxResearch)
@@ -201,7 +219,7 @@ it.effect("rejects repeated tool requests instead of looping indefinitely", () =
 
 it.effect("refuses research after its project setting is disabled", () =>
   Effect.gen(function* () {
-    const f = fixture([{ request: null, suggestions: [] }]);
+    const f = fixture([{ replyDraft: null, request: null, suggestions: [] }]);
     yield* Effect.gen(function* () {
       const settings = yield* Settings.ServerSettingsService;
       yield* settings.updateSettings({
