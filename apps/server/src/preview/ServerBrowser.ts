@@ -81,6 +81,7 @@ import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
+import { AutomationActivity } from "./AutomationActivity.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 
 const SERVER_HOST_CLIENT_ID = SERVER_BROWSER_AUTOMATION_CLIENT_ID;
@@ -277,6 +278,7 @@ interface EncoderWindow {
 }
 
 interface Recording {
+  readonly releaseActivity: () => Promise<void>;
   readonly encoder: Page;
   readonly session: CDPSession;
   readonly startedAt: string;
@@ -299,6 +301,7 @@ interface ServerTab {
   readonly networkEntries: Array<PreviewAutomationNetworkEntry>;
   readonly actionTimeline: Array<PreviewAutomationActionEvent>;
   readonly control: SessionControl;
+  readonly activity: AutomationActivity;
   /** The tab's own storage context, closed with it. Popups share their opener's. */
   readonly isolatedContext: boolean;
   /**
@@ -700,6 +703,7 @@ const make = Effect.gen(function* () {
     // A desktop page outlives the connection unless its session closed with it.
     const end = tab.desktop && !closeSession && sessionOpen(tab) ? "reconnect" : "gone";
     for (const viewer of tab.viewers) viewer.push({ _tag: end });
+    void tab.activity.close().catch(constVoid);
     void tab.control.close().catch(constVoid);
     // The desktop owns its page; letting go only ends this connection.
     if (tab.desktop) void tab.desktop.close().catch(constVoid);
@@ -781,9 +785,17 @@ const make = Effect.gen(function* () {
     if (!desktop) await recordCopies(cdp);
     page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
-    const control = new SessionControl(snapshot.automationOwner ?? null, () =>
-      ServerBrowserPage.invalidateRefs(page),
+    const activity = new AutomationActivity(
+      (active) =>
+        desktop
+          ? Effect.runPromise(desktopChannel.setActivity(snapshot, active))
+          : Promise.resolve(),
+      (cause) => runFork(Effect.logWarning("browser rendering activity failed", { cause })),
     );
+    const control = new SessionControl(snapshot.automationOwner ?? null, () => {
+      ServerBrowserPage.invalidateRefs(page);
+      void activity.reset().catch(constVoid);
+    });
     const tab: ServerTab = {
       threadId: ThreadId.make(snapshot.threadId),
       tabId: snapshot.tabId,
@@ -797,6 +809,7 @@ const make = Effect.gen(function* () {
       networkEntries: [],
       actionTimeline: [],
       control,
+      activity,
       isolatedContext,
       desktop: desktop === null ? null : { close: desktop.close },
       profileId: snapshot.profileId,
@@ -1507,7 +1520,11 @@ const make = Effect.gen(function* () {
   const startRecording = (tab: ServerTab): Promise<Recording> => {
     const started = withCaptureLock(tab, async () => {
       if (tab.recording) return tab.recording;
-      const encoder = await contexts.scratchPage();
+      const releaseActivity = await tab.activity.acquire(true);
+      const encoder = await contexts.scratchPage().catch(async (cause: unknown) => {
+        await releaseActivity();
+        throw cause;
+      });
       let session: CDPSession | null = null;
       try {
         await encoder.evaluate(ServerBrowserPage.RECORDING_ENCODER_SCRIPT);
@@ -1548,6 +1565,7 @@ const make = Effect.gen(function* () {
         await opened.send("Page.startScreencast", RECORDING_SCREENCAST);
         if (tab.closing) throw new Error("The tab closed while the recording started.");
         const recording: Recording = {
+          releaseActivity,
           encoder,
           session: opened,
           startedAt: new Date().toISOString(),
@@ -1559,6 +1577,7 @@ const make = Effect.gen(function* () {
         // A start that fails partway must not leave its encoder page behind.
         await encoder.close().catch(constVoid);
         await session?.detach().catch(constVoid);
+        await releaseActivity().catch(constVoid);
         throw cause;
       }
     }).finally(() => {
@@ -1628,6 +1647,7 @@ const make = Effect.gen(function* () {
       } finally {
         await recording.encoder.close().catch(constVoid);
         tab.recording = null;
+        await recording.releaseActivity().catch(constVoid);
       }
       const data = Buffer.concat(chunks);
       if (!mimeType || data.byteLength === 0) {
@@ -1762,7 +1782,10 @@ const make = Effect.gen(function* () {
     }
   };
 
-  const runOperation = async (request: PreviewAutomationRequest): Promise<unknown> => {
+  const runOperation = async (
+    request: PreviewAutomationRequest,
+    signal: AbortSignal,
+  ): Promise<unknown> => {
     const input = request.input;
     switch (request.operation) {
       case "status":
@@ -1834,35 +1857,37 @@ const make = Effect.gen(function* () {
             "A browser dialog is pending. Read preview_status and use preview_dialog first.",
             "dialogPending",
           );
-        return tab.control.agent(request.agentSessionId, async () => {
-          if (tab.dialog)
-            throw new BrowserControlInterrupted(
-              "A browser dialog is pending. Read preview_status and use preview_dialog first.",
-              "dialogPending",
-            );
-          if (existing) {
-            if (url) await navigate(tab, url, "load", navigationTimeout);
-          } else {
-            // Await the original navigation failure even though background creation keeps the tab.
-            await tab.initialNavigation;
-          }
-          const reveal = open.open ?? open.show;
-          if (reveal !== false) {
-            await Effect.runPromise(
-              manager.requestReveal({
-                threadId: tab.threadId,
-                tabId: tab.tabId,
-                force: reveal === true,
-              }),
-            );
-          }
-          if (!existing && url) {
-            await tab.page
-              .waitForLoadState("load", { timeout: navigationTimeout })
-              .catch(constVoid);
-          }
-          return statusWithTitle(tab, request.agentSessionId);
-        });
+        return tab.control.agent(request.agentSessionId, () =>
+          tab.activity.run(async () => {
+            if (tab.dialog)
+              throw new BrowserControlInterrupted(
+                "A browser dialog is pending. Read preview_status and use preview_dialog first.",
+                "dialogPending",
+              );
+            if (existing) {
+              if (url) await navigate(tab, url, "load", navigationTimeout);
+            } else {
+              // Await the original navigation failure even though background creation keeps the tab.
+              await tab.initialNavigation;
+            }
+            const reveal = open.open ?? open.show;
+            if (reveal !== false) {
+              await Effect.runPromise(
+                manager.requestReveal({
+                  threadId: tab.threadId,
+                  tabId: tab.tabId,
+                  force: reveal === true,
+                }),
+              );
+            }
+            if (!existing && url) {
+              await tab.page
+                .waitForLoadState("load", { timeout: navigationTimeout })
+                .catch(constVoid);
+            }
+            return statusWithTitle(tab, request.agentSessionId);
+          }, signal),
+        );
       }
       case "recordingStop": {
         if (
@@ -1907,6 +1932,7 @@ const make = Effect.gen(function* () {
         );
       if (tab.control.controller !== null)
         throw new BrowserControlInterrupted("A human controls this tab.", "humanControl");
+      void tab.activity.close().catch(constVoid);
       void tab.control.close().catch(constVoid);
       await Effect.runPromise(manager.close({ threadId: tab.threadId, tabId: tab.tabId }));
       dropTab(tab, false);
@@ -1939,19 +1965,21 @@ const make = Effect.gen(function* () {
         return executeTabOperation(tab, request);
       });
     }
-    return tab.control.agent(agentSessionId, async () => {
-      if (tab.dialog)
-        throw new BrowserControlInterrupted(
-          "A browser dialog is pending. Read preview_status and use preview_dialog first.",
-          "dialogPending",
-        );
-      const generation = tab.control.generation;
-      try {
-        return await executeTabOperation(tab, request);
-      } finally {
-        if (generation !== tab.control.generation) ServerBrowserPage.invalidateRefs(tab.page);
-      }
-    });
+    return tab.control.agent(agentSessionId, () =>
+      tab.activity.run(async () => {
+        if (tab.dialog)
+          throw new BrowserControlInterrupted(
+            "A browser dialog is pending. Read preview_status and use preview_dialog first.",
+            "dialogPending",
+          );
+        const generation = tab.control.generation;
+        try {
+          return await executeTabOperation(tab, request);
+        } finally {
+          if (generation !== tab.control.generation) ServerBrowserPage.invalidateRefs(tab.page);
+        }
+      }, signal),
+    );
   };
 
   const executeTabOperation = async (tab: ServerTab, request: PreviewAutomationRequest) => {
@@ -2044,9 +2072,17 @@ const make = Effect.gen(function* () {
     }
   };
 
-  const handleRequest = (connectionId: string, request: PreviewAutomationRequest) =>
+  const requestAbortControllers = new Map<string, AbortController>();
+  const handleRequest = (
+    connectionId: string,
+    request: PreviewAutomationRequest,
+    controller: AbortController,
+  ) =>
     Effect.tryPromise({
-      try: () => runOperation(request).finally(() => markUsed(request)),
+      try: (signal) =>
+        runOperation(request, AbortSignal.any([signal, controller.signal])).finally(() =>
+          markUsed(request),
+        ),
       catch: ServerBrowserPage.toOperationError,
     }).pipe(
       Effect.match({
@@ -2529,7 +2565,15 @@ const make = Effect.gen(function* () {
               hostConnectionId = event.connectionId;
               return Effect.sync(reportLiveTabs);
             }
-            return handleRequest(event.connectionId, event.request).pipe(
+            if (event.type === "cancelled") {
+              return Effect.sync(() => requestAbortControllers.get(event.requestId)?.abort());
+            }
+            const controller = new AbortController();
+            requestAbortControllers.set(event.request.requestId, controller);
+            return handleRequest(event.connectionId, event.request, controller).pipe(
+              Effect.ensuring(
+                Effect.sync(() => requestAbortControllers.delete(event.request.requestId)),
+              ),
               Effect.forkScoped,
               Effect.asVoid,
             );

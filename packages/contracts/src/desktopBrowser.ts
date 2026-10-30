@@ -23,6 +23,13 @@ export const DesktopBrowserEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("attached"), ...TabKey }),
   /** Its `<webview>` went away: closed, crashed, swapped, or devtools took the debugger. */
   Schema.Struct({ type: Schema.Literal("detached"), ...TabKey }),
+  /** Confirms the desktop applied a rendering activity change. */
+  Schema.Struct({
+    type: Schema.Literal("activity"),
+    ...TabKey,
+    requestId: Schema.String,
+    ok: Schema.Boolean,
+  }),
   /** One CDP message from the tab's relay. */
   Schema.Struct({ type: Schema.Literal("cdp"), ...TabKey, message: Schema.String }),
 ]);
@@ -30,6 +37,13 @@ export type DesktopBrowserEvent = typeof DesktopBrowserEvent.Type;
 
 /** Server -> desktop. */
 export const DesktopBrowserCommand = Schema.Union([
+  /** Keeps an automated page rendering independently of its visible presentation. */
+  Schema.Struct({
+    type: Schema.Literal("activity"),
+    ...TabKey,
+    requestId: Schema.String,
+    active: Schema.Boolean,
+  }),
   /** One CDP message for the tab's relay. */
   Schema.Struct({ type: Schema.Literal("cdp"), ...TabKey, message: Schema.String }),
   /** The server stopped driving this tab, so the relay can drop its sessions. */

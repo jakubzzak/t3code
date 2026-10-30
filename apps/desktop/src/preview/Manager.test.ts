@@ -334,7 +334,11 @@ const managerLayer = (platform: NodeJS.Platform = "darwin") =>
 const withManager = <A>(
   use: (
     manager: PreviewManager.PreviewManager["Service"],
-  ) => Effect.Effect<A, PreviewManager.PreviewManagerError, Scope.Scope>,
+  ) => Effect.Effect<
+    A,
+    PreviewManager.PreviewManagerError,
+    Scope.Scope | DesktopBrowserHost.DesktopBrowserHost
+  >,
   platform: NodeJS.Platform = "darwin",
 ) =>
   Effect.gen(function* () {
@@ -2875,6 +2879,61 @@ describe("PreviewManager", () => {
         ]);
       }),
     ),
+  );
+
+  effectIt.effect.each(["recording-first", "automation-first", "close"] as const)(
+    "releases automation frames without interrupting other consumers: %s",
+    (releaseOrder) =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const browser = yield* DesktopBrowserHost.DesktopBrowserHost;
+          const host = makeTestHostWebContents();
+          const wc = Object.assign(makeTestPreviewWebContents(vi.fn(), 42, host), {
+            isDevToolsOpened: () => false,
+            beginFrameSubscription: vi.fn(),
+            endFrameSubscription: vi.fn(),
+          });
+          fromId.mockReturnValue(wc);
+          const key = { threadId: "automation-thread", tabId: "automation-tab" };
+          yield* manager.createTab("runtime-tab", { serverTab: key });
+          yield* manager.registerWebview("runtime-tab", 42);
+          yield* browser.events.pipe(
+            Stream.filter((line) => new TextDecoder().decode(line).includes('"type":"attached"')),
+            Stream.runHead,
+          );
+          const windowThrottle = vi.fn();
+          yield* manager.setMainWindow({
+            isDestroyed: () => false,
+            once: vi.fn(),
+            webContents: { setBackgroundThrottling: windowThrottle },
+          } as unknown as Electron.BrowserWindow);
+          yield* browser.handleCommandLine(
+            JSON.stringify({ type: "activity", ...key, active: true, requestId: "start" }),
+          );
+          expect(wc.setBackgroundThrottling.mock.calls).toEqual([[false]]);
+          expect(wc.beginFrameSubscription).toHaveBeenCalledOnce();
+          yield* manager.startRecording("runtime-tab");
+          if (releaseOrder === "recording-first") {
+            yield* manager.stopRecording("runtime-tab");
+            expect(wc.endFrameSubscription).not.toHaveBeenCalled();
+            expect(wc.setBackgroundThrottling.mock.calls).toEqual([[false]]);
+          }
+          if (releaseOrder === "close") {
+            yield* manager.closeTab("runtime-tab");
+          } else {
+            yield* browser.handleCommandLine(
+              JSON.stringify({ type: "activity", ...key, active: false, requestId: "stop" }),
+            );
+            if (releaseOrder === "automation-first") {
+              expect(wc.setBackgroundThrottling.mock.calls).toEqual([[false]]);
+              yield* manager.stopRecording("runtime-tab");
+            }
+          }
+          expect(wc.setBackgroundThrottling.mock.calls).toEqual([[false], [true]]);
+          expect(wc.endFrameSubscription).toHaveBeenCalledOnce();
+          expect(windowThrottle.mock.calls).toEqual([[false], [true]]);
+        }),
+      ),
   );
 
   effectIt.effect("keeps every recorded guest unthrottled until its frame capture stops", () =>

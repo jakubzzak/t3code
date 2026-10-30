@@ -200,6 +200,7 @@ const desktopRenders = (tabId: string) => {
   }
   return desktopTabs.has(tabId);
 };
+const desktopActivity: Array<{ tabId: string; active: boolean }> = [];
 const releasedDesktopTabs: Array<string> = [];
 const desktopConnections: Array<{ endpoint: string; context: ReturnType<typeof makeContext> }> = [];
 const testThread = {
@@ -263,6 +264,10 @@ const dependencies = Layer.mergeAll(
         Effect.sync(() => releasedDesktopTabs.push(key.tabId)),
       ),
     pointer: () => Effect.void,
+    setActivity: (key: { tabId: string }, active: boolean) =>
+      Effect.sync(() => {
+        desktopActivity.push({ tabId: key.tabId, active });
+      }),
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
@@ -310,6 +315,7 @@ beforeEach(() => {
   desktopTabs.clear();
   desktopRendersNext = false;
   releasedDesktopTabs.length = 0;
+  desktopActivity.length = 0;
   desktopConnections.length = 0;
 });
 
@@ -1419,6 +1425,14 @@ it.live("drives the desktop's own page for a tab the desktop renders", () =>
         tabId: PreviewTabId.make(opened.tabId),
       });
       expect(evaluated).toMatchObject({ tabId: opened.tabId });
+      yield* broker.invoke({
+        scope: asSession("agent-desktop"),
+        operation: "evaluate",
+        input: { expression: "1" },
+        tabId: PreviewTabId.make(opened.tabId),
+      });
+      expect(desktopActivity).toEqual([{ tabId: opened.tabId, active: true }]);
+
       // Closing the session lets go of the desktop's page without closing it.
       yield* manager.close({ threadId: scope.thread.threadId, tabId: opened.tabId });
       while (releasedDesktopTabs.length === 0) yield* Effect.yieldNow;

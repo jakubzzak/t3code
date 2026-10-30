@@ -714,7 +714,18 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         onSome: (value) => Effect.succeed(value as A),
       });
     });
-    const result = yield* awaitResponse().pipe(Effect.ensuring(removePending));
+    const result = yield* awaitResponse().pipe(
+      Effect.onInterrupt(() =>
+        connection.preferred
+          ? Queue.offer(connection.queue, {
+              type: "cancelled",
+              connectionId: connection.connectionId,
+              requestId,
+            }).pipe(Effect.asVoid)
+          : Effect.void,
+      ),
+      Effect.ensuring(removePending),
+    );
     if (input.updateCurrentTab === false) return result;
     const responseTabId = readResultTabId(result);
     const resultTabId = responseTabId === undefined ? input.tabId : responseTabId;

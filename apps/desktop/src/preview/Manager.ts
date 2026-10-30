@@ -110,6 +110,7 @@ export type PreviewNavStatus =
     };
 
 export interface PreviewTabState {
+  automationActive?: boolean;
   surface?: "linear" | undefined;
   tabId: string;
   webContentsId: number | null;
@@ -377,7 +378,7 @@ interface ManagedListeners {
   readonly webContents: Electron.WebContents;
 }
 
-type FrameCaptureConsumer = "picture-in-picture" | "recording";
+type FrameCaptureConsumer = "picture-in-picture" | "recording" | "automation";
 
 interface FrameCaptureSession {
   readonly recordingInputOptions?: RecordingInputOptions;
@@ -792,6 +793,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         if (!current || !current.consumers.has(consumer)) {
           return [undefined, sessions] as const;
         }
+        if (consumer === "automation") {
+          yield* Effect.forEach(current.unthrottledWebContentsIds, (id) =>
+            attempt(
+              { operation: "automation.endFrameSubscription", tabId, webContentsId: id },
+              () => {
+                const contents = webContents.fromId(id);
+                if (contents && !contents.isDestroyed()) contents.endFrameSubscription();
+              },
+            ).pipe(Effect.ignore),
+          );
+        }
         if (consumer === "recording") {
           yield* Effect.forEach(current.unthrottledWebContentsIds, (id) =>
             attempt({ operation: "recording.cursor", tabId, webContentsId: id }, () => {
@@ -844,10 +856,19 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const stopAllRecordings = Effect.fn("PreviewManager.stopAllRecordings")(function* () {
     pendingRecording = null;
     const sessions = yield* SynchronizedRef.get(frameCaptureSessionsRef);
-    yield* Effect.forEach(sessions.keys(), (tabId) => stopFrameCapture(tabId, "recording"), {
-      concurrency: "unbounded",
-      discard: true,
-    });
+    yield* Effect.forEach(
+      sessions.keys(),
+      (tabId) =>
+        Effect.all([
+          stopFrameCapture(tabId, "recording"),
+          stopFrameCapture(tabId, "automation"),
+          update(tabId, { automationActive: false }),
+        ]),
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
+    );
   });
 
   const deliverEvent = (
@@ -1801,6 +1822,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         cancelPickElement(tabId),
         closePictureInPicture(tabId),
         stopFrameCapture(tabId, "recording"),
+        stopFrameCapture(tabId, "automation"),
       ],
       {
         concurrency: 3,
@@ -1916,6 +1938,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const attached = yield* Ref.get(attachedRef);
     const annotationTheme = yield* Ref.get(annotationThemeRef);
     const currentAttachment = attached.get(webContentsId);
+    if (tab.webContentsId !== webContentsId && tab.automationActive) {
+      yield* stopFrameCapture(tabId, "automation");
+      yield* update(tabId, { automationActive: false });
+    }
     yield* keepFrameCaptureWebContentsUnthrottled(tabId, wc);
     if (tab.webContentsId === webContentsId && currentAttachment?.webContents === wc) {
       // The guest we already own re-announced itself, so nothing about the tab
@@ -2115,6 +2141,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         canGoForward: current?.canGoForward ?? false,
         zoomFactor: current?.zoomFactor ?? DEFAULT_ZOOM_FACTOR,
         pictureInPicture: current?.pictureInPicture ?? false,
+        automationActive: current?.automationActive ?? false,
         colorScheme: current?.colorScheme ?? "system",
         // Both carry across navigation. Mute is user intent, and the old
         // document keeps playing until loadURL actually replaces it, so
@@ -2595,7 +2622,34 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       }
       if (afterAttach.serverTab) {
         yield* listenForAgentPointers;
-        browserHost.attach(afterAttach.serverTab, { webContents: wc, debugger: control.debugger });
+        browserHost.attach(afterAttach.serverTab, {
+          webContents: wc,
+          debugger: control.debugger,
+          setAutomationActive: (active) =>
+            withTabLifecycleLock(
+              tabId,
+              Effect.gen(function* () {
+                const current = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+                if (current?.webContentsId !== wc.id || webContents.fromId(wc.id) !== wc) return;
+                if (active) {
+                  if (current.automationActive) return;
+                  yield* startFrameCapture(tabId, "automation");
+                  // A covered guest can still stop receiving animation frames with
+                  // throttling disabled. Demand native frames only for active work;
+                  // discard dirty regions without encoding, storing, or transmitting.
+                  yield* attempt(
+                    { operation: "automation.beginFrameSubscription", tabId, webContentsId: wc.id },
+                    () => wc.beginFrameSubscription(true, () => {}),
+                  ).pipe(Effect.onError(() => stopFrameCapture(tabId, "automation")));
+                } else yield* stopFrameCapture(tabId, "automation");
+                yield* update(tabId, { automationActive: active });
+              }),
+            ).pipe(
+              Effect.mapError(
+                (cause) => new DesktopBrowserHost.DesktopBrowserActivityError({ cause }),
+              ),
+            ),
+        });
       }
       if (afterAttach.colorScheme !== "system") {
         yield* attemptPromise({ operation: "applyColorScheme", tabId, webContentsId: wc.id }, () =>

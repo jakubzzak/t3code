@@ -16,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -42,11 +43,24 @@ export interface DesktopTabKey {
 
 const keyOf = ({ threadId, tabId }: DesktopTabKey) => `${threadId}\u0000${tabId}`;
 
+export class DesktopBrowserActivityError extends Schema.TaggedError<DesktopBrowserActivityError>()(
+  "DesktopBrowserActivityError",
+  { tabId: Schema.String },
+) {
+  override get message() {
+    return "The desktop could not update browser rendering activity.";
+  }
+}
+
 export class DesktopBrowserChannel extends Context.Service<
   DesktopBrowserChannel,
   {
     /** False when this server was not started by a desktop app. */
     readonly available: boolean;
+    readonly setActivity: (
+      key: DesktopTabKey,
+      active: boolean,
+    ) => Effect.Effect<void, DesktopBrowserActivityError>;
     /**
      * Waits for a tab to be attached. Subscribes before it checks, so an
      * attach landing in between is never missed. False after `timeout`.
@@ -76,6 +90,7 @@ const make = Effect.gen(function* () {
   const controlFd = config.desktopBrowserControlFd;
   const changes = yield* PubSub.unbounded<{ key: DesktopTabKey; attached: boolean }>();
   const attachedTabs = new Set<string>();
+  const activityReplies = new Map<string, Deferred.Deferred<boolean>>();
   /** CDP frames from the desktop, per tab, for the endpoint connected to it. */
   const inbound = new Map<string, Queue.Queue<string>>();
   const writeLock = yield* Semaphore.make(1);
@@ -83,6 +98,7 @@ const make = Effect.gen(function* () {
   if (inputFd === undefined || controlFd === undefined) {
     return DesktopBrowserChannel.of({
       available: false,
+      setActivity: () => Effect.void,
       awaitAttached: () => Effect.succeed(false),
       detached: Stream.empty,
       attached: Stream.empty,
@@ -121,6 +137,10 @@ const make = Effect.gen(function* () {
       const key = { threadId: event.threadId, tabId: event.tabId };
       const id = keyOf(key);
       switch (event.type) {
+        case "activity": {
+          const reply = activityReplies.get(event.requestId);
+          return reply ? Deferred.succeed(reply, event.ok) : Effect.void;
+        }
         case "cdp": {
           const queue = inbound.get(id);
           return queue ? Queue.offer(queue, event.message).pipe(Effect.asVoid) : Effect.void;
@@ -203,6 +223,19 @@ const make = Effect.gen(function* () {
 
   return DesktopBrowserChannel.of({
     available: true,
+    setActivity: (key, active) =>
+      Effect.gen(function* () {
+        const requestId = NodeCrypto.randomUUID();
+        const reply = yield* Deferred.make<boolean>();
+        activityReplies.set(requestId, reply);
+        const ok = yield* command({ type: "activity", ...key, requestId, active }).pipe(
+          Effect.andThen(Deferred.await(reply)),
+          Effect.timeout("5 seconds"),
+          Effect.mapError(() => new DesktopBrowserActivityError({ tabId: key.tabId })),
+          Effect.ensuring(Effect.sync(() => activityReplies.delete(requestId))),
+        );
+        if (!ok) return yield* new DesktopBrowserActivityError({ tabId: key.tabId });
+      }),
     awaitAttached: (key, timeout) =>
       Effect.scoped(
         Effect.gen(function* () {

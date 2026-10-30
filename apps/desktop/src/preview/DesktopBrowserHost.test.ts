@@ -2,6 +2,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { DesktopBrowserEvent } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -37,6 +38,7 @@ const makeDebuggee = () => {
   };
   return {
     tab: {
+      setAutomationActive: () => Effect.void,
       webContents: webContents as unknown as Electron.WebContents,
       debugger: debuggee as unknown as Electron.Debugger,
     },
@@ -149,3 +151,34 @@ describe("DesktopBrowserHost", () => {
     }),
   );
 });
+
+it.effect("releases activity on every backend disconnect, including after a reconnect", () =>
+  Effect.gen(function* () {
+    const host = yield* DesktopBrowserHost.make;
+    let active = false;
+    host.attach(key, {
+      ...makeDebuggee().tab,
+      setAutomationActive: (value) =>
+        Effect.sync(() => {
+          active = value;
+        }),
+    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const attached = yield* Deferred.make<void>();
+          yield* host.events.pipe(
+            Stream.runForEach(() => Deferred.succeed(attached, undefined)),
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(attached);
+          yield* host.handleCommandLine(
+            encodeJson({ type: "activity", ...key, requestId: "start", active: true }),
+          );
+          expect(active).toBe(true);
+        }),
+      );
+      expect(active).toBe(false);
+    }
+  }),
+);

@@ -820,6 +820,11 @@ export type PreviewAutomationRequest = typeof PreviewAutomationRequest.Type;
 
 export const PreviewAutomationStreamEvent = Schema.Union([
   Schema.Struct({
+    type: Schema.Literal("cancelled"),
+    connectionId: PreviewAutomationConnectionId,
+    requestId: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
     type: Schema.Literal("connected"),
     connectionId: PreviewAutomationConnectionId,
   }),

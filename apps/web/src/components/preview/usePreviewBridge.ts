@@ -8,7 +8,7 @@ import type {
 } from "@t3tools/contracts";
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import * as Option from "effect/Option";
-import { useEffect, useEffectEvent, useMemo, useRef } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import {
   flushPendingFaviconsForThread,
@@ -41,8 +41,9 @@ export function usePreviewBridge(input: {
   runtimeTabId: string;
   /** The server drives this tab and reports its navigation itself. */
   serverDriven?: boolean;
-}): void {
+}): boolean {
   const { threadRef, tabId, runtimeTabId, serverDriven = false } = input;
+  const [automationActive, setAutomationActive] = useState(false);
   const clearBrowserPointer = useBrowserPointerStore((state) => state.clear);
   const reportStatus = useAtomCommand(previewEnvironment.reportStatus, "preview status report");
   const bridge = previewBridge;
@@ -66,6 +67,7 @@ export function usePreviewBridge(input: {
   const handleStateChange = useEffectEvent(
     (changedTabId: string, state: DesktopPreviewTabState): void => {
       if (changedTabId !== runtimeTabId) return;
+      setAutomationActive(state.automationActive ?? false);
       if (shouldClearBrowserPointer(lastDesktopNavStatus.current, state.navStatus)) {
         clearBrowserPointer(runtimeTabId);
       }
@@ -101,6 +103,7 @@ export function usePreviewBridge(input: {
     if (!projectRef) return;
     flushPendingFaviconsForThread(stableThreadRef, projectRef, environmentHostname);
   }, [environmentHostname, projectRef, stableThreadRef]);
+  return automationActive;
 }
 
 function shouldClearBrowserPointer(
