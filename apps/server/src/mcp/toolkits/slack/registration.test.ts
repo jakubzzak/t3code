@@ -33,7 +33,12 @@ import { SlackToolkit } from "./tools.ts";
 const projectId = ProjectId.make("slack-http-project");
 const threadId = ThreadId.make("slack-http-agent");
 const decodeRpc = Schema.decodeSync(
-  Schema.fromJsonString(Schema.Struct({ result: Schema.Unknown })),
+  Schema.fromJsonString(
+    Schema.Struct({
+      result: Schema.optionalKey(Schema.Unknown),
+      error: Schema.optionalKey(Schema.Struct({ code: Schema.Number, message: Schema.String })),
+    }),
+  ),
 );
 const decodeTool = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -173,7 +178,8 @@ it.effect(
           expect(response.status).toBe(200);
           sessionId = response.headers["mcp-session-id"] ?? sessionId;
           const body = yield* response.text;
-          return decodeRpc(body.match(/\{.*\}/s)![0]).result;
+          const decoded = decodeRpc(body.match(/\{.*\}/s)![0]);
+          return decoded.error ?? decoded.result;
         });
         const call = Effect.fnUntraced(function* (name: string, args: unknown) {
           const result = decodeTool(yield* rpc("tools/call", { name, arguments: args }));
@@ -202,6 +208,12 @@ it.effect(
           destination: { userIds: ["U2"] },
           text: "\n  reviewed indentation  \n",
         };
+        const ambiguous = yield* rpc("tools/call", {
+          name: "slack_send",
+          arguments: { ...input, destination: { channelId: "C1", userIds: ["U2"] } },
+        });
+        expect(ambiguous).toMatchObject({ code: -32602 });
+        expect(posts).toHaveLength(0);
         const sent = yield* call("slack_send", input);
         expect(sent.isError).toBe(false);
         const receipt = decodeSend(sent.data);

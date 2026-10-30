@@ -23,6 +23,7 @@ import { toolOutputIndicatesFailure } from "@t3tools/shared/toolOutput";
 
 import {
   summarizeT3ToolCalls,
+  slackSendStatus,
   t3ToolResultIndicatesFailure,
   type T3ToolSummaryCall,
 } from "@t3tools/client-runtime/t3ToolSummary";
@@ -205,6 +206,18 @@ export function resolveWorkEntryToolPresentation(
 ) {
   const definition = resolveT3McpToolDefinition(workEntryToolName(entry));
   const status = entry.toolLifecycleStatus ?? fallbackStatus;
+  if (definition?.summaryAction === "slack-send") {
+    const delivery = slackSendStatus(workEntryToolOutput(entry));
+    if (delivery === "pending" || delivery === "uncertain") {
+      return { displayName: `Slack message delivery ${delivery}`, icon: definition.icon };
+    }
+    if (delivery === "sent" || delivery === "failed") {
+      return resolveT3McpToolPresentation(definition, delivery === "sent" ? "completed" : "failed");
+    }
+    if (status === "completed" && !t3ToolResultIndicatesFailure(workEntryToolOutput(entry))) {
+      return { displayName: "Checked Slack message delivery", icon: definition.icon };
+    }
+  }
   return resolveT3McpToolPresentation(
     definition,
     definition && t3ToolResultIndicatesFailure(workEntryToolOutput(entry)) ? "failed" : status,
@@ -372,6 +385,10 @@ function workEntryIndicatesToolFailureFromOutput(
     return true;
   }
   if (!workLogEntryIsToolLike(entry)) return false;
+  if (resolveT3McpToolDefinition(workEntryToolName(entry))?.summaryAction === "slack-send") {
+    const delivery = slackSendStatus(workEntryToolOutput(entry));
+    if (delivery !== undefined) return delivery === "failed";
+  }
   if (
     resolveT3McpToolDefinition(workEntryToolName(entry)) &&
     t3ToolResultIndicatesFailure(workEntryToolOutput(entry))
@@ -407,6 +424,11 @@ export function workEntryDisplayIndicatesToolFailure(entry: WorkLogPresentationE
 
 /** Decides whether the row can show a success marker. */
 export function workEntryIndicatesToolSuccess(entry: WorkLogPresentationEntry): boolean {
+  if (
+    resolveT3McpToolDefinition(workEntryToolName(entry))?.summaryAction === "slack-send" &&
+    slackSendStatus(workEntryToolOutput(entry)) !== "sent"
+  )
+    return false;
   return (
     workLogEntryIsToolLike(entry) &&
     !workEntryIndicatesToolFailure(entry) &&
@@ -608,6 +630,7 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
     case "task-cancel":
     case "thread-create":
     case "thread-send":
+    case "slack-send":
     case "thread-interrupt":
     case "workflow-stop":
     case "schedule-create":

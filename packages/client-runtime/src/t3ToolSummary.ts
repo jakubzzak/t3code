@@ -69,6 +69,60 @@ export function t3ToolResultIndicatesFailure(output: unknown): boolean {
   return readResult(output).failed;
 }
 
+/** Delivery status is independent of whether the provider finished its tool call. */
+export function slackSendStatus(output: unknown) {
+  const status = readResult(output).data?.status;
+  return status === "pending" || status === "sent" || status === "failed" || status === "uncertain"
+    ? status
+    : undefined;
+}
+
+function summarizeSlackSends(calls: ReadonlyArray<T3ToolSummaryCall>) {
+  const receipts = new Map<
+    string,
+    { status: "pending" | "sent" | "failed" | "uncertain"; messageId?: string }
+  >();
+  const rank = { pending: 0, uncertain: 1, failed: 2, sent: 3 };
+  let checked = 0;
+  for (const [index, call] of calls.entries()) {
+    const result = readResult(call.output);
+    const data = result.data;
+    const status =
+      slackSendStatus(call.output) ??
+      (call.outcome === "failed" || result.failed ? "failed" : undefined);
+    if (status === undefined) {
+      checked++;
+      continue;
+    }
+    const key = id(data?.commandId) ?? `call-${index}`;
+    // A stale pending check can finish after the confirmed result it observed in flight.
+    const previous = receipts.get(key);
+    if (previous && rank[previous.status] >= rank[status]) continue;
+    const channel = id(data?.channelId);
+    const ts = id(data?.ts);
+    receipts.set(key, { status, ...(channel && ts ? { messageId: `${channel}:${ts}` } : {}) });
+  }
+  const counts = { pending: 0, sent: 0, failed: 0, uncertain: 0 };
+  const messages = new Set<string>();
+  for (const [key, receipt] of receipts) {
+    if (receipt.status === "sent") messages.add(receipt.messageId ?? key);
+    else counts[receipt.status]++;
+  }
+  counts.sent = messages.size;
+  const parts: string[] = [];
+  if (counts.sent) parts.push(`Sent ${quantity(counts.sent, "Slack message")}`);
+  for (const status of ["pending", "uncertain", "failed"] as const) {
+    if (counts[status])
+      parts.push(
+        parts.length === 0
+          ? `${quantity(counts[status], "Slack message")} ${status}`
+          : `${counts[status]} ${status}`,
+      );
+  }
+  if (checked) parts.push(`Checked Slack message delivery ${quantity(checked, "time")}`);
+  return { label: parts.join("; "), failedCount: counts.failed };
+}
+
 function countEntities(ids: ReadonlyArray<string | undefined>): number {
   return (
     new Set(ids.filter((value) => value !== undefined)).size +
@@ -85,6 +139,7 @@ export function summarizeT3ToolCalls(
   action: T3McpToolSummaryAction,
   calls: ReadonlyArray<T3ToolSummaryCall>,
 ): { label: string; failedCount: number } {
+  if (action === "slack-send") return summarizeSlackSends(calls);
   const results = calls.map((call) => {
     const result = readResult(call.output);
     return {
