@@ -1,4 +1,6 @@
 import { InboxToolkit } from "./toolkits/inbox/tools.ts";
+import { SlackToolkit } from "./toolkits/slack/tools.ts";
+import * as SlackHandlers from "./toolkits/slack/handlers.ts";
 import * as InboxHandlers from "./toolkits/inbox/handlers.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -870,6 +872,7 @@ export const layerMcpTransport = McpServer.layerHttp({
 
 export const layer = Layer.mergeAll(
   toolkitRegistration(InboxToolkit, InboxHandlers.layer),
+  toolkitRegistration(SlackToolkit, SlackHandlers.layer),
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,

@@ -8,7 +8,7 @@ Inbox users can read a conversation and receive suggested actions but must leave
 
 Extend the existing web/desktop Inbox with text replies, Slack image attachments, and optional suggested reply drafts. This adds the narrowly scoped source writes excluded by the original [Inbox spec](project-notification-inbox.md); its other source-write exclusions remain. Native mobile Inbox remains deferred. The same server behavior must work for local and remote web/desktop clients.
 
-No destination picker, unrelated channel posts or DMs, email replies, non-image attachments, Linear image uploads, issue edits, automatic sending, or automatic settlement. Reply-state ingestion and resurfacing are separate work; this feature must coexist with them without duplicating a sent response.
+The Inbox UI has no destination picker, unrelated channel posts or DMs, email replies, non-image attachments, Linear image uploads, issue edits, automatic sending, or automatic settlement. These UI limits do not restrict the Slack connection's [general agent messaging capability](slack-agent-messaging.md). Reply-state ingestion and resurfacing are separate work; this feature must coexist with them without duplicating a sent response.
 
 ## Required behavior
 
@@ -46,11 +46,11 @@ No destination picker, unrelated channel posts or DMs, email replies, non-image 
 
 Use the connected user's identity. Existing read-only connections continue reading and show when a posting upgrade is needed. Request additional authorization through the existing connection flow; record granted capabilities rather than treating “Connected” as proof of write access. Canceling an upgrade preserves reading and the draft.
 
-Slack supports user-token posting with `chat:write` and thread replies with `thread_ts`. Request `im:write` as well for direct-message access; this grant does not change the composer destination or enable top-level DM sends. Existing connections need reconnection to receive the new grant. Image previews and uploads additionally require `files:read` and `files:write`; existing connections may need reconnection. Linear provides the targeted `comments:create` scope and the `user` actor. Retain existing read permissions and avoid requesting broad write/admin access for this feature. See the [Slack posting API](https://docs.slack.dev/reference/methods/chat.postMessage/) and [Linear OAuth documentation](https://linear.app/developers/oauth-2-0-authentication).
+Slack connections support general messaging as the connected user. The Inbox composer alone is restricted to the notification's thread; agents use `slack_read` and `slack_send` independently of Inbox to read context and send channel messages, DMs, group DMs or thread replies. Posting requires `chat:write`; opening DMs requires `im:write`, and opening group DMs requires `mpim:write`. Channel discovery uses `channels:read` and `groups:read`. Existing connections need reconnection to receive additional grants. Image previews and uploads additionally require `files:read` and `files:write`; existing connections may need reconnection. Linear provides the targeted `comments:create` scope and the `user` actor. Retain existing read permissions and avoid requesting broad write/admin access for this feature. See the [Slack posting API](https://docs.slack.dev/reference/methods/chat.postMessage/) and [Linear OAuth documentation](https://linear.app/developers/oauth-2-0-authentication).
 
-Posting belongs in a shared server service, with typed contracts and permission-guarded client commands. Any agent entry point must use the same destination and send rules and require explicit confirmation of the exact message; a suggested resolution or delegated task is not send approval. Never send test messages to real conversations without explicit authorization.
+Posting belongs in a shared server service, with typed contracts and permission-guarded client commands. Inbox agent replies use the notification's destination rules; general Slack agent sends use an explicitly reviewed destination. Both require explicit confirmation of the exact message; a suggested resolution or delegated task is not send approval. Never send test messages to real conversations without explicit authorization.
 
-The current Slack transport only allows read methods, and Linear's displayed comments do not retain sufficient reply relationships. This requires implementation as well as additional permissions. Keep suggestions and message drafts distinct in the data consumed by the composer.
+Keep suggestions and message drafts distinct in the data consumed by the composer.
 
 ## Acceptance criteria
 

@@ -26,6 +26,43 @@ const v2TableCount = Effect.gen(function* () {
 });
 
 describe("runMigrations", () => {
+  it.effect(
+    "retains Slack receipts when an older migration manifest starts and a newer server resumes",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations();
+        yield* sql`INSERT INTO slack_send_attempts(command_id,project_id,input_json,result_json) VALUES('send','p','{}','{"status":"pending"}')`;
+        assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 66 }), []);
+        assert.deepStrictEqual(
+          yield* sql`SELECT result_json FROM slack_send_attempts WHERE command_id='send'`,
+          [{ result_json: '{"status":"pending"}' }],
+        );
+        assert.deepStrictEqual(yield* runMigrations(), []);
+        assert.deepStrictEqual(
+          yield* sql`SELECT result_json FROM slack_send_attempts WHERE command_id='send'`,
+          [{ result_json: '{"status":"pending"}' }],
+        );
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect(
+    "adds Slack send receipts to an existing database without changing source connections",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 66 });
+        yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES('p','slack','{"connected":true}')`;
+        assert.deepStrictEqual(yield* runMigrations(), [[67, "SlackSendAttempts"]]);
+        assert.deepStrictEqual(
+          yield* sql`SELECT payload_json FROM inbox_sources WHERE project_id='p'`,
+          [{ payload_json: '{"connected":true}' }],
+        );
+        assert.deepStrictEqual(yield* sql`SELECT * FROM slack_send_attempts`, []);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("migrates a fresh database through the whole manifest", () =>
     Effect.gen(function* () {
       yield* runMigrations();
