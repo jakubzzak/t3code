@@ -333,7 +333,9 @@ describe("resolveWorkEntryToolPresentation", () => {
       expect(resolveWorkEntryToolPresentation(failed)?.displayName, tool).toMatch(/^Failed to /);
       expect(summarizeToolGroup([failed]).hasFailure, tool).toBe(true);
       expect(summarizeToolGroup([failed]).summary, tool).toMatch(
-        /^(?:Tried to |Requested thread creation)/,
+        tool === "slack_send"
+          ? /^1 Slack message failed$/
+          : /^(?:Tried to |Requested thread creation)/,
       );
     }
   });

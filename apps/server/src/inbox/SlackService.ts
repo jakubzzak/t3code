@@ -91,18 +91,25 @@ const make = Effect.gen(function* () {
             ),
           ),
         );
-    const response = yield* http
-      .execute(request.pipe(HttpClientRequest.setHeader("Authorization", `Bearer ${token}`)))
-      .pipe(
-        Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
-        Effect.mapError(
-          (cause) => new SlackError({ reason: posting ? "uncertain" : "rejected", cause }),
-        ),
-        Effect.timeoutOrElse({
-          duration: "30 seconds",
-          orElse: () => new SlackError({ reason: posting ? "uncertain" : "rejected" }),
-        }),
-      );
+    const execute = http.execute(
+      request.pipe(HttpClientRequest.setHeader("Authorization", `Bearer ${token}`)),
+    );
+    // HTTP spans include the full URL. Keep private read parameters out of both
+    // local diagnostics and delegated tracers; SlackService.read retains its operation span.
+    const response = yield* (
+      write
+        ? execute
+        : execute.pipe(Effect.provideService(HttpClient.TracerDisabledWhen, () => true))
+    ).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+      Effect.mapError(
+        (cause) => new SlackError({ reason: posting ? "uncertain" : "rejected", cause }),
+      ),
+      Effect.timeoutOrElse({
+        duration: "30 seconds",
+        orElse: () => new SlackError({ reason: posting ? "uncertain" : "rejected" }),
+      }),
+    );
     if (response.status === 429)
       return yield* new SlackError({
         reason: "rate-limit",
@@ -169,6 +176,7 @@ const make = Effect.gen(function* () {
       const decoded = yield* decodeRead(input).pipe(
         Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
       );
+      yield* Effect.annotateCurrentSpan("slack.method", decoded.method);
       if ("token" in decoded.parameters) return yield* new SlackError({ reason: "rejected" });
       const parameters = { ...decoded.parameters };
       const pageSize = decoded.method.startsWith("search.") ? "count" : "limit";
@@ -195,7 +203,7 @@ const make = Effect.gen(function* () {
           Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
         );
         const destination =
-          "channelId" in decoded.destination
+          decoded.destination.channelId !== undefined
             ? { channelId: decoded.destination.channelId }
             : { userIds: [...new Set(decoded.destination.userIds)].sort() };
         const json = yield* encodeInput({ ...decoded, destination }).pipe(

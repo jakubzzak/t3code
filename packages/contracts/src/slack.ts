@@ -28,8 +28,9 @@ export const SlackSendInput = Schema.Struct({
   commandId: CommandId,
   connectionId: TrimmedNonEmptyString,
   destination: Schema.Union([
-    Schema.Struct({ channelId: slackId }),
+    Schema.Struct({ channelId: slackId, userIds: Schema.optionalKey(Schema.Never) }),
     Schema.Struct({
+      channelId: Schema.optionalKey(Schema.Never),
       userIds: Schema.Array(slackId).check(Schema.isMinLength(1), Schema.isMaxLength(8)),
     }),
   ]),

@@ -19,6 +19,7 @@ export type T3McpToolSummaryAction =
   | "thread-list"
   | "thread-read"
   | "thread-send"
+  | "slack-send"
   | "thread-wait"
   | "thread-interrupt"
   | "workflow-stop"
@@ -153,7 +154,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   inbox_reply: tool(["Reply", "Replying", "Replied", "to a project notification"], "thread-send"),
   inbox_update: tool(["Update", "Updating", "Updated", "a project notification"], "thread-send"),
   slack_read: tool(["Read", "Reading", "Read", "Slack"], "thread-read"),
-  slack_send: tool(["Send", "Sending", "Sent", "a Slack message"], "thread-send"),
+  slack_send: tool(["Send", "Sending", "Sent", "a Slack message"], "slack-send"),
   t3_thread_read: tool(["Read", "Reading", "Read", "a T3 thread"], "thread-read"),
   t3_thread_send: tool(["Send", "Sending", "Sent", "to a T3 thread"], "thread-send"),
   t3_thread_wait: tool(["Wait", "Waiting", "Waited", "for a T3 thread"], "thread-wait"),

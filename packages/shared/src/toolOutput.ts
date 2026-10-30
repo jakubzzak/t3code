@@ -38,7 +38,10 @@ interface CompactToolOutput {
   messageId?: string;
   taskId?: string;
   scheduledTaskId?: string;
-  status?: "rolled_back";
+  status?: "rolled_back" | "pending" | "sent" | "failed" | "uncertain";
+  commandId?: string;
+  channelId?: string;
+  ts?: string;
   htmlRender?: HtmlRenderReference;
   [MCP_APP_OUTPUT_KEY]?: McpAppReference;
   thread?: { threadId: string };
@@ -124,6 +127,21 @@ export function compactDynamicToolOutput(value: unknown): CompactToolOutput | un
       if (id !== undefined) output[key] = id;
     }
     if (data.status === "rolled_back") output.status = "rolled_back";
+    const commandId = boundedId(data.commandId);
+    if (
+      commandId !== undefined &&
+      (data.status === "pending" ||
+        data.status === "sent" ||
+        data.status === "failed" ||
+        data.status === "uncertain")
+    ) {
+      output.commandId = commandId;
+      output.status = data.status;
+      const channelId = boundedId(data.channelId);
+      const ts = boundedId(data.ts);
+      if (channelId !== undefined) output.channelId = channelId;
+      if (ts !== undefined) output.ts = ts;
+    }
     const htmlRender = readHtmlRenderReference(data.htmlRender);
     if (htmlRender !== undefined) output.htmlRender = htmlRender;
     const mcpApp = readMcpAppReference(data[MCP_APP_OUTPUT_KEY]);

@@ -227,3 +227,30 @@ describe("toolOutputImages", () => {
     ]);
   });
 });
+
+it.each(["pending", "sent", "failed", "uncertain"])(
+  "retains bounded Slack %s receipt metadata without content",
+  (status) => {
+    const metadata = { commandId: "send-1", status, channelId: "D1", ts: "1793260900.000001" };
+    const compact = compactDynamicToolOutput({
+      structuredContent: {
+        ...metadata,
+        text: "Private message",
+        blocks: [{ text: "Private formatting" }],
+        ...(status === "uncertain" || status === "failed" ? { error: "Private error" } : {}),
+      },
+    });
+    expect(compact).toEqual({
+      ...metadata,
+      ...(status === "uncertain" || status === "failed" ? { isError: true } : {}),
+    });
+    expect(compactDynamicToolOutput(compact)).toEqual(compact);
+  },
+);
+
+it("drops oversized or invalid Slack receipt metadata", () => {
+  expect(
+    compactDynamicToolOutput({ commandId: "x".repeat(257), status: "sent", text: "private" }),
+  ).toBeUndefined();
+  expect(compactDynamicToolOutput({ commandId: "send-1", status: "arbitrary" })).toBeUndefined();
+});

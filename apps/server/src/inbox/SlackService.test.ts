@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Tracer from "effect/Tracer";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -26,6 +27,7 @@ const fixture = (
     postStatus?: number;
     postBody?: unknown;
     openStatus?: number;
+    readStatus?: number;
     afterPost?: Effect.Effect<void>;
   } = {},
 ) => {
@@ -69,7 +71,7 @@ const fixture = (
               ? (options.postStatus ?? 200)
               : method === "conversations.open"
                 ? (options.openStatus ?? 200)
-                : 200,
+                : (options.readStatus ?? 200),
           headers: {
             "x-oauth-scopes": options.scopes ?? "chat:write,im:write,mpim:write,users:read",
             "retry-after": "12",
@@ -381,4 +383,72 @@ it.effect("does not resend an interrupted post after reconstructing the service"
       1,
     );
   }).pipe(Effect.provide(Sqlite.layerMemory)),
+);
+
+it.effect(
+  "rejects mixed channel and DM destinations before accessing Slack or claiming a receipt",
+  () => {
+    const f = fixture();
+    return Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const slack = yield* Slack.SlackService;
+      const result = yield* slack
+        .send(
+          JSON.parse(
+            JSON.stringify({
+              ...input,
+              destination: { channelId: "C1", userIds: ["U2"] },
+            }),
+          ),
+        )
+        .pipe(Effect.result);
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") assert.equal(result.failure.reason, "rejected");
+      assert.lengthOf(f.requests, 0);
+      assert.lengthOf(yield* sql`SELECT * FROM slack_send_attempts`, 0);
+      // Rejection must not consume the ID for the corrected reviewed destination.
+      assert.equal((yield* slack.send(input)).status, "sent");
+    }).pipe(Effect.provide(f.layer));
+  },
+);
+
+it.effect.each([200, 503])(
+  "keeps private Slack read parameters out of tracing while retaining safe operation spans (HTTP %s)",
+  (readStatus) => {
+    const f = fixture({ readStatus });
+    const spans: Array<Tracer.NativeSpan> = [];
+    const tracer = Tracer.make({
+      span: (options) => {
+        const span = new Tracer.NativeSpan(options);
+        spans.push(span);
+        return span;
+      },
+    });
+    return Effect.gen(function* () {
+      const result = yield* (yield* Slack.SlackService)
+        .read({
+          projectId: input.projectId,
+          method: "search.messages",
+          parameters: {
+            query: "private-query-marker",
+            cursor: "private-cursor-marker",
+            count: "1",
+          },
+        })
+        .pipe(Effect.result);
+      assert.equal(result._tag, readStatus === 200 ? "Success" : "Failure");
+      assert.equal(f.requests[0]?.parameters.query, "private-query-marker");
+      const diagnostics = spans.map((span) => ({
+        name: span.name,
+        attributes: [...span.attributes],
+      }));
+      assert.equal(
+        spans.find((span) => span.name === "SlackService.read")?.attributes.get("slack.method"),
+        "search.messages",
+      );
+      assert.notInclude(JSON.stringify(diagnostics), "private-query-marker");
+      assert.notInclude(JSON.stringify(diagnostics), "private-cursor-marker");
+      assert.notInclude(JSON.stringify(diagnostics), "fixture-token");
+    }).pipe(Effect.provide(f.layer), Effect.withTracer(tracer));
+  },
 );
