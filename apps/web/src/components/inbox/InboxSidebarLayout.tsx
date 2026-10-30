@@ -25,6 +25,7 @@ import {
 import { Atom, AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
 import {
+  ArrowUpRightIcon,
   BotIcon,
   BotMessageSquareIcon,
   CheckIcon,
@@ -80,6 +81,7 @@ import { keepInboxRowVisible } from "./inboxFocusScroll";
 import { useLoadInboxThread } from "./useLoadInboxThread";
 import { inboxSourceUrl, useInboxLink } from "./inboxSourceLink";
 import { isInboxInitialLoad, isInboxDetailCurrent, nextInboxFocusKey } from "./inboxPresentation";
+import { InboxActionStrip } from "./InboxActionStrip";
 import { InboxReplyComposer } from "./InboxReplyComposer";
 import { inboxReplyTarget, openInboxReply } from "./inboxReplyDraft";
 import styles from "./inboxSidebar.module.css";
@@ -139,6 +141,7 @@ export function InboxRow({
   onAction: (action: InboxMutation | "snooze-menu") => void;
 }) {
   const rowRef = useRef<HTMLElement>(null);
+  const openLink = useInboxLink(threadRef);
   const { notification: n, environmentId } = entry;
   const config = useServerConfigs().get(environmentId);
   const settings = config ? resolveProjectSettings(config.settings, n.projectId).settings : null;
@@ -330,69 +333,51 @@ export function InboxRow({
           </button>
         </div>
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-3">
-        {[
-          { key: "agents", actions: actions.slice(0, 2) },
-          { key: "secondary", actions: actions.slice(2) },
-        ].map((group) => (
-          <div
-            key={group.key}
-            className={
-              group.key === "agents"
-                ? "flex shrink-0 items-center gap-1"
-                : "ml-auto flex flex-wrap items-center justify-end gap-x-1 gap-y-3"
-            }
-          >
-            {group.actions
-              .filter((action) => !action.primary || settings?.inboxAgentEnabled)
-              .map(({ label, hint, Icon, action, primary }) => (
-                <span className="relative" key={label}>
-                  <Button
-                    size="icon-xs"
-                    variant={primary ? "default" : "ghost"}
-                    disabled={
-                      (action === "reply" && (!canReply || !inboxReplyTarget(content))) ||
-                      (!canWrite &&
-                        !(
-                          action !== "snooze-menu" &&
-                          action !== "reply" &&
-                          action.type === "delegate" &&
-                          n.state.threadId
-                        )) ||
-                      pending
-                    }
-                    aria-label={label}
-                    title={label}
-                    onClick={() => {
-                      if (action === "reply") {
-                        rowRef.current?.focus();
-                        void openReply();
-                      } else onAction(action);
-                    }}
-                  >
-                    <Icon className="size-3.5" />
-                  </Button>
-                  {hints && focused && (
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute -top-2 right-0 rounded bg-popover px-1 text-3xs text-popover-foreground shadow-sm"
-                    >
-                      {hint}
-                    </span>
-                  )}
-                </span>
-              ))}
-            {group.key === "secondary" && (
+      <InboxActionStrip
+        hints={hints && focused}
+        agentCount={settings?.inboxAgentEnabled ? 2 : 1}
+        actions={[
+          ...actions
+            .filter((action) => !action.primary || settings?.inboxAgentEnabled)
+            .map(({ action, ...props }) => ({
+              ...props,
+              disabled:
+                (action === "reply" && (!canReply || !inboxReplyTarget(content))) ||
+                (!canWrite &&
+                  !(
+                    action !== "snooze-menu" &&
+                    action !== "reply" &&
+                    action.type === "delegate" &&
+                    n.state.threadId
+                  )) ||
+                pending,
+              onClick: () => {
+                if (action === "reply") {
+                  rowRef.current?.focus();
+                  void openReply();
+                } else onAction(action);
+              },
+            })),
+          {
+            label: "Open original",
+            hint: "⇧O",
+            Icon: ArrowUpRightIcon,
+            disabled: !inboxSourceUrl(n),
+            onClick: (event) => {
+              const url = inboxSourceUrl(n);
+              if (url) openLink(url, event);
+            },
+            button: (
               <InboxOpenOriginalAction
                 notification={n}
                 threadRef={threadRef}
                 shortcut
                 hints={hints && focused}
               />
-            )}
-          </div>
-        ))}
-      </div>
+            ),
+          },
+        ]}
+      />
     </article>
   );
 }
@@ -813,7 +798,9 @@ export function InboxSidebarLayout({
   function keyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (
       event.target instanceof Element &&
-      event.target.closest("input,textarea,[contenteditable=true]")
+      event.target.closest(
+        'input,textarea,[contenteditable=true],[aria-haspopup="menu"],[role="menu"]',
+      )
     )
       return;
     const modifier = event.metaKey || event.ctrlKey;

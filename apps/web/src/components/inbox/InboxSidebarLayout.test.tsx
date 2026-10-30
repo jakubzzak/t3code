@@ -16,6 +16,8 @@ import {
 import { InboxAnimatedList, InboxRow } from "./InboxSidebarLayout";
 
 const state = vi.hoisted(() => ({
+  agentEnabled: true,
+  resize: new Map<Element, () => void>(),
   focus: vi.fn(),
   action: vi.fn(),
   open: vi.fn().mockResolvedValue(undefined),
@@ -26,6 +28,15 @@ const state = vi.hoisted(() => ({
   mutate: vi.fn(),
   deferDetail: false,
   details: new Map<string, InboxNotification>(),
+}));
+vi.mock("~/lib/observeResize", () => ({
+  observeResize: (elements: Element | readonly Element[], callback: () => void) => {
+    const targets = Array.isArray(elements) ? elements : [elements];
+    for (const target of targets) state.resize.set(target, callback);
+    return () => {
+      for (const target of targets) state.resize.delete(target);
+    };
+  },
 }));
 vi.mock("~/assets/assetUrls", () => ({
   useAssetUrlState: () => ({ _tag: "Success", url: "/fixture-image.png" }),
@@ -47,7 +58,7 @@ vi.mock("~/state/entities", () => ({
           settings: {
             ...DEFAULT_SERVER_SETTINGS,
             inboxSummaryEnabled: true,
-            inboxAgentEnabled: true,
+            inboxAgentEnabled: state.agentEnabled,
           },
         },
       ],
@@ -98,6 +109,7 @@ afterEach(async () => {
   state.removeImage.mockReset();
   state.mutate.mockReset();
   state.deferDetail = false;
+  state.agentEnabled = true;
   vi.clearAllMocks();
 });
 const notification: InboxNotification = {
@@ -138,10 +150,13 @@ const notification: InboxNotification = {
   confirmedOutcome: null,
 };
 const environmentId = EnvironmentId.make("env");
-function Rows() {
+function Rows({
+  pending = false,
+  source = "slack",
+}: { pending?: boolean; source?: InboxNotification["source"] } = {}) {
   const [focused, setFocused] = useState("other");
   return ["closed", "other"].map((id) => {
-    const value = { ...notification, id };
+    const value = { ...notification, id, source };
     state.details.set(id, value);
     return (
       <InboxRow
@@ -149,7 +164,7 @@ function Rows() {
         entry={{ environmentId, notification: value }}
         focused={focused === id}
         hints={false}
-        pending={false}
+        pending={pending}
         onFocus={() => {
           state.focus(id);
           setFocused(id);
@@ -542,3 +557,131 @@ it.each(["picker", "paste", "drop"])(
     );
   },
 );
+
+it("moves actions from the right into a menu as the strip shrinks, and restores them on expansion", async () => {
+  let width = 192;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: this.tagName === "BUTTON" ? 24 : width,
+        bottom: 24,
+        width: this.tagName === "BUTTON" ? 24 : width,
+        height: 24,
+        toJSON: () => ({}),
+      };
+    });
+  const getStyles = window.getComputedStyle;
+  const styles = vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+    const result = getStyles(element, pseudo);
+    if (element.hasAttribute("data-inbox-actions")) result.columnGap = "4px";
+    return result;
+  });
+  try {
+    await act(async () => root.render(<Rows />));
+    const labels = () =>
+      [...row("closed").querySelectorAll("button[aria-label]")].map((button) =>
+        button.getAttribute("aria-label"),
+      );
+    const resize = async (next: number) => {
+      width = next;
+      await act(async () => {
+        for (const callback of new Set(state.resize.values())) callback();
+      });
+    };
+    await resize(192);
+    expect(labels()).toEqual([
+      "Agent",
+      "Agent chat",
+      "Reply",
+      "Snooze",
+      "Mark as read",
+      "Settle",
+      "Open original",
+    ]);
+    await resize(191);
+    expect(labels()).toEqual([
+      "Agent",
+      "Agent chat",
+      "Reply",
+      "Snooze",
+      "Mark as read",
+      "More actions",
+    ]);
+    await resize(136);
+    expect(labels()).toEqual(["Agent", "Agent chat", "Reply", "Snooze", "More actions"]);
+    await act(async () =>
+      row("closed").querySelector<HTMLButtonElement>('button[aria-label="More actions"]')!.click(),
+    );
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Mark as read",
+      "Settle",
+      "Open original",
+    ]);
+    await act(async () => items[0]!.click());
+    expect(state.action).toHaveBeenCalledExactlyOnceWith("closed", { type: "read", read: true });
+    expect(state.focus).not.toHaveBeenCalled();
+    expect(row("closed").getAttribute("aria-expanded")).toBe("false");
+    await resize(192);
+    expect(labels()).toContain("Open original");
+    expect(labels()).not.toContain("More actions");
+    await resize(24);
+    expect(labels()).toEqual(["More actions"]);
+    await act(async () =>
+      row("closed").querySelector<HTMLButtonElement>('button[aria-label="More actions"]')!.click(),
+    );
+    const original = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === "Open original",
+    )!;
+    await act(async () => original.click());
+    expect(state.open).toHaveBeenCalledExactlyOnceWith("https://example.test/");
+    // Filtering an optional action must immediately release its slot.
+    await resize(164);
+    state.agentEnabled = false;
+    await act(async () => root.render(<Rows />));
+    expect(labels()).toEqual([
+      "Agent chat",
+      "Reply",
+      "Snooze",
+      "Mark as read",
+      "Settle",
+      "Open original",
+    ]);
+    await resize(136);
+    await act(async () => root.render(<Rows source="superhuman" />));
+    expect(labels()).toEqual(["Agent chat", "Snooze", "Mark as read", "Settle", "Open original"]);
+    await resize(52);
+    await act(async () => root.render(<Rows pending />));
+    await act(async () =>
+      row("closed").querySelector<HTMLButtonElement>('button[aria-label="More actions"]')!.click(),
+    );
+    const pendingItems = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(
+      pendingItems
+        .filter((item) => item.getAttribute("aria-disabled") !== "true")
+        .map((item) => item.textContent),
+    ).toEqual(["Open original"]);
+    const read = pendingItems.find((item) => item.textContent === "Mark as read")!;
+    await act(async () => read.click());
+    expect(state.action).toHaveBeenCalledTimes(1);
+    const outerKeyDown = vi.fn();
+    container.addEventListener("keydown", outerKeyDown);
+    try {
+      await act(async () =>
+        read.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
+      );
+      expect(outerKeyDown).not.toHaveBeenCalled();
+      expect(state.focus).not.toHaveBeenCalled();
+    } finally {
+      container.removeEventListener("keydown", outerKeyDown);
+    }
+  } finally {
+    rect.mockRestore();
+    styles.mockRestore();
+  }
+});
