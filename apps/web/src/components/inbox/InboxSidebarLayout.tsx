@@ -330,55 +330,68 @@ export function InboxRow({
           </button>
         </div>
       )}
-      <div className="mt-2 flex items-center gap-1">
-        {actions
-          .filter((action) => !action.primary || settings?.inboxAgentEnabled)
-          .map(({ label, hint, Icon, action, primary }) => (
-            <span
-              className={`relative ${action === (hasReplyAction ? "reply" : "snooze-menu") ? "ml-auto" : ""}`}
-              key={label}
-            >
-              <Button
-                size="icon-xs"
-                variant={primary ? "default" : "ghost"}
-                disabled={
-                  (action === "reply" && (!canReply || !inboxReplyTarget(content))) ||
-                  (!canWrite &&
-                    !(
-                      action !== "snooze-menu" &&
-                      action !== "reply" &&
-                      action.type === "delegate" &&
-                      n.state.threadId
-                    )) ||
-                  pending
-                }
-                aria-label={label}
-                title={label}
-                onClick={() => {
-                  if (action === "reply") {
-                    rowRef.current?.focus();
-                    void openReply();
-                  } else onAction(action);
-                }}
-              >
-                <Icon className="size-3.5" />
-              </Button>
-              {hints && focused && (
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute -top-2 right-0 rounded bg-popover px-1 text-3xs text-popover-foreground shadow-sm"
-                >
-                  {hint}
+      <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-3">
+        {[
+          { key: "agents", actions: actions.slice(0, 2) },
+          { key: "secondary", actions: actions.slice(2) },
+        ].map((group) => (
+          <div
+            key={group.key}
+            className={
+              group.key === "agents"
+                ? "flex shrink-0 items-center gap-1"
+                : "ml-auto flex flex-wrap items-center justify-end gap-x-1 gap-y-3"
+            }
+          >
+            {group.actions
+              .filter((action) => !action.primary || settings?.inboxAgentEnabled)
+              .map(({ label, hint, Icon, action, primary }) => (
+                <span className="relative" key={label}>
+                  <Button
+                    size="icon-xs"
+                    variant={primary ? "default" : "ghost"}
+                    disabled={
+                      (action === "reply" && (!canReply || !inboxReplyTarget(content))) ||
+                      (!canWrite &&
+                        !(
+                          action !== "snooze-menu" &&
+                          action !== "reply" &&
+                          action.type === "delegate" &&
+                          n.state.threadId
+                        )) ||
+                      pending
+                    }
+                    aria-label={label}
+                    title={label}
+                    onClick={() => {
+                      if (action === "reply") {
+                        rowRef.current?.focus();
+                        void openReply();
+                      } else onAction(action);
+                    }}
+                  >
+                    <Icon className="size-3.5" />
+                  </Button>
+                  {hints && focused && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -top-2 right-0 rounded bg-popover px-1 text-3xs text-popover-foreground shadow-sm"
+                    >
+                      {hint}
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
-          ))}
-        <InboxOpenOriginalAction
-          notification={n}
-          threadRef={threadRef}
-          shortcut
-          hints={hints && focused}
-        />
+              ))}
+            {group.key === "secondary" && (
+              <InboxOpenOriginalAction
+                notification={n}
+                threadRef={threadRef}
+                shortcut
+                hints={hints && focused}
+              />
+            )}
+          </div>
+        ))}
       </div>
     </article>
   );
