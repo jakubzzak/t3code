@@ -43,7 +43,7 @@ export function usePreviewBridge(input: {
   serverDriven?: boolean;
 }): boolean {
   const { threadRef, tabId, runtimeTabId, serverDriven = false } = input;
-  const [automationActive, setAutomationActive] = useState(false);
+  const [automationActivity, setAutomationActivity] = useState({ runtimeTabId, active: false });
   const clearBrowserPointer = useBrowserPointerStore((state) => state.clear);
   const reportStatus = useAtomCommand(previewEnvironment.reportStatus, "preview status report");
   const bridge = previewBridge;
@@ -67,7 +67,12 @@ export function usePreviewBridge(input: {
   const handleStateChange = useEffectEvent(
     (changedTabId: string, state: DesktopPreviewTabState): void => {
       if (changedTabId !== runtimeTabId) return;
-      setAutomationActive(state.automationActive ?? false);
+      const active = state.automationActive ?? false;
+      setAutomationActivity((previous) =>
+        previous.runtimeTabId === runtimeTabId && previous.active === active
+          ? previous
+          : { runtimeTabId, active },
+      );
       if (shouldClearBrowserPointer(lastDesktopNavStatus.current, state.navStatus)) {
         clearBrowserPointer(runtimeTabId);
       }
@@ -103,7 +108,11 @@ export function usePreviewBridge(input: {
     if (!projectRef) return;
     flushPendingFaviconsForThread(stableThreadRef, projectRef, environmentHostname);
   }, [environmentHostname, projectRef, stableThreadRef]);
-  return automationActive;
+  if (automationActivity.runtimeTabId !== runtimeTabId) {
+    setAutomationActivity({ runtimeTabId, active: false });
+    return false;
+  }
+  return automationActivity.active;
 }
 
 function shouldClearBrowserPointer(

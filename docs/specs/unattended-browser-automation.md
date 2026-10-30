@@ -37,3 +37,15 @@ This spec concerns execution, not when browser tabs are revealed. It adds no ind
 - Verify observable animation and interaction progress, not only mocked activity calls or configuration values. Tests must demonstrate cleanup as well as successful hidden execution.
 
 No blocking product questions remain. The precise activity lifetime and the reported page's failure mechanism require implementation-time investigation; they are not established by the earlier headless probe.
+
+## Verification findings (2026-10-30)
+
+The reproduced recording-start cancellation race is fixed with regression coverage at encoder creation and screencast startup. Cancellation releases that start's activity immediately and cleans up its encoder and capture once pending I/O settles. A cancelled duplicate start preserves an established recording. Human takeover also prevents an unfinished start from committing. Mounted webview coverage found and fixed activity state surviving a runtime-tab change; switching away and back now starts inactive.
+
+Direct inherited-pipe tests cover activity acknowledgement correlation, rejection, cancellation, late replies and timeout recovery. The mounted webview test exercises native activity events through the real hook into hidden rendering placement, including release, unrelated tabs, older desktops omitting the field, tab replacement and listener cleanup.
+
+Native Electron service integration demonstrates hidden/minimized interactions, two-tab isolation after failure/cancellation, five-second idle cleanup, real recording and PiP overlap in both stop orders, bounded native subscriptions, and explicit detach/re-attachment on guest replacement with fresh activity and final cleanup. A real headless server/broker flow completes typing and the animated dropdown after its viewer disconnects. These are subsystem integration checks, not complete-client acceptance.
+
+A 30-second animated-page sample per phase measured average aggregate Electron CPU of 0.91% idle before, 3.58% active and 0.94% idle after (GPU-process CPU: 0.13%, 0.95%, 0.14%). The active interval delivered 901 dirty-frame callbacks; both idle intervals delivered zero. These local samples characterize cost on this machine, not a cross-device budget. Ten new two-second stress journeys passed in 1.46–1.49 seconds; earlier intermittent failures remain unexplained and retained in the evidence.
+
+Complete-client ordinary preview-tool execution, hide-midway/thread/focus transitions, and remote viewing against the rebuilt desktop still require acceptance evidence. The available Browser tools reach the isolated web client but their native-browser connection belongs to the installed host. No product decision is pending; required behavior is unchanged.
