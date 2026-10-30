@@ -838,7 +838,7 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
   );
 });
 
-it.effect.each(["summary", "research"] as const)(
+it.effect.each(["summary", "research", "reply draft"] as const)(
   "runs Inbox %s in isolation without user launch configuration or model tools",
   (kind) =>
     Effect.gen(function* () {
@@ -853,8 +853,12 @@ it.effect.each(["summary", "research"] as const)(
         name: "codex",
         source: [
           'import * as fs from "node:fs";',
+          'import assert from "node:assert/strict";',
           "const args=process.argv.slice(2);",
           'if(args.includes("mcp")){process.stdout.write("[]");process.exit(0);}',
+          'const schema=JSON.parse(fs.readFileSync(args[args.indexOf("--output-schema")+1],"utf8"));',
+          // Codex rejects optional properties before generating a response.
+          'assert.deepEqual([...schema.required].sort(),Object.keys(schema.properties).sort(),"Every output property must be required");',
           'const configs=args.flatMap((arg,index)=>arg==="--config"?[args[index+1]]:[]);',
           'const catalog=JSON.parse(fs.readFileSync(JSON.parse(configs.find(x=>x.startsWith("model_catalog_json=")).split("=").slice(1).join("=")),"utf8"));',
           "const model=catalog.models[0];",
@@ -863,7 +867,7 @@ it.effect.each(["summary", "research"] as const)(
           `if(process.cwd()===${JSON.stringify(dir)}||args.includes("danger-full-access")) process.exit(8);`,
           "const chunks=[]; for await(const chunk of process.stdin) chunks.push(chunk);",
           `if(!Buffer.concat(chunks).toString().includes(${JSON.stringify(kind === "summary" ? "Summarize the message only." : "server's read-only tools")})) process.exit(9);`,
-          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify(${kind === "summary" ? '{summary:"Review the launch date.",description:model.slug,suggestions:[],precedentIds:[]}' : "{request:null,suggestions:[]}"}));`,
+          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify(${kind === "summary" ? '{summary:"Review the launch date.",description:model.slug,suggestions:[],precedentIds:[]}' : `{request:null,suggestions:[],replyDraft:${kind === "reply draft" ? '"I can review it today."' : "null"}}`}));`,
         ].join("\n"),
       });
       const generation = yield* makeCodexTextGeneration(
@@ -886,7 +890,11 @@ it.effect.each(["summary", "research"] as const)(
         expect(result.description).toBe(DEFAULT_TEST_MODEL_SELECTION.model);
       } else {
         const result = yield* generation.generateInboxResearch!(input);
-        expect(result).toEqual({ request: null, suggestions: [] });
+        expect(result).toEqual({
+          request: null,
+          suggestions: [],
+          replyDraft: kind === "reply draft" ? "I can review it today." : null,
+        });
       }
       expect(yield* fs.exists(marker)).toBe(false);
       expect(yield* fs.readFileString(canary)).toBe("BENIGN_OUTSIDE_SUPPLIED_CONTEXT");

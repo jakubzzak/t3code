@@ -184,7 +184,7 @@ export const InboxAnalysis = Schema.Struct({
   generatedAt: IsoDateTime,
 });
 export const InboxResearchStep = Schema.Struct({
-  replyDraft: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMaxLength(4000)))),
+  replyDraft: Schema.NullOr(Schema.String.check(Schema.isMaxLength(4000))),
   request: Schema.NullOr(
     Schema.Struct({
       tool: Schema.Literals([
