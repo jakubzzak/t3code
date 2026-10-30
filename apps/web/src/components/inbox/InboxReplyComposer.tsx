@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { XIcon } from "lucide-react";
+import { PaperclipIcon, XIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { CommandId, type EnvironmentId, type InboxNotification } from "@t3tools/contracts";
@@ -240,7 +240,7 @@ export function InboxReplyComposer({
           replies. Your draft is kept.
         </p>
       )}
-      <div className="rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/24">
+      <div className="rounded-lg border border-input bg-background text-xs leading-relaxed focus-within:border-ring focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/24">
         {!!draft.input.images?.length && (
           <div className="grid grid-cols-[repeat(2,4rem)] gap-2 px-2 pt-2">
             {draft.input.images.map((image) => (
@@ -332,30 +332,6 @@ export function InboxReplyComposer({
           {draft.uploadError}
         </p>
       )}
-      {n.source === "slack" && !uncertain && (
-        <>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            multiple
-            hidden
-            aria-label="Attach images"
-            onChange={(event) => {
-              void attach(Array.from(event.target.files ?? []));
-              event.target.value = "";
-            }}
-          />
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={locked}
-            onClick={() => fileInput.current?.click()}
-          >
-            {draft.uploading ? "Uploading…" : "Attach images"}
-          </Button>
-        </>
-      )}
       {(draft.error || (uncertain && !draft.pending)) && (
         <p role="alert" className="text-2xs text-destructive">
           {draft.error ??
@@ -384,6 +360,38 @@ export function InboxReplyComposer({
         >
           Cancel
         </Button>
+        {n.source === "slack" && !uncertain && (
+          <div className="ml-auto flex items-center gap-1">
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+              aria-label="Attach images"
+              onChange={(event) => {
+                void attach(Array.from(event.target.files ?? []));
+                event.target.value = "";
+              }}
+            />
+            {draft.uploading && (
+              <span role="status" className="text-2xs text-muted-foreground">
+                Uploading…
+              </span>
+            )}
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              disabled={locked}
+              aria-label="Attach images"
+              title="Attach images"
+              aria-busy={draft.uploading}
+              onClick={() => fileInput.current?.click()}
+            >
+              <PaperclipIcon aria-hidden />
+            </Button>
+          </div>
+        )}
       </div>
     </section>
   );

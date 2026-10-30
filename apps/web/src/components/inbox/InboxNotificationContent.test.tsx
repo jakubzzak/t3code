@@ -983,3 +983,61 @@ it("shows a confirmed image while its Slack preview is pending, then replaces it
   expect(container.querySelectorAll("[data-slack-reply]")).toHaveLength(1);
   expect(container.querySelector('img[alt="Sent screenshot"]')).not.toBeNull();
 });
+
+it.each(["sent", "synced", "legacy", "pending"])(
+  "labels the connected Slack account as me for %s replies and preserves other authors",
+  async (state) => {
+    const own = {
+      ts: state === "pending" ? "file:F1" : "3",
+      ...(state === "legacy" ? {} : { authorId: "U123" }),
+      author: state === "synced" ? "Jakub" : "U123",
+      content: "My reply",
+      formattedContent: "My reply",
+      occurredAt: "2026-10-22T10:00:00Z",
+    };
+    const other = {
+      ...own,
+      ts: "2",
+      authorId: "U456",
+      author: "Alex",
+      content: "Another reply",
+      formattedContent: "Another reply",
+    };
+    const thread = {
+      channelId: "C1",
+      ts: "1",
+      root: { ...other, ts: "1" },
+      latestReplyTs: state === "pending" ? "2" : "3",
+      replyCount: state === "pending" ? 1 : 2,
+      messages: state === "pending" ? [other] : [other, own],
+      ...(state === "pending" ? { pendingMessages: [own] } : {}),
+      nextCursor: null,
+    };
+    await act(async () =>
+      root.render(
+        <InboxSourceContent
+          notification={{ ...notification, connectionId: "T1:U123", slackThread: thread }}
+        />,
+      ),
+    );
+    const ownRow = container.querySelector(`[data-slack-reply="${own.ts}"]`)!;
+    expect(ownRow.textContent).toContain("me");
+    expect(ownRow.textContent).not.toContain("U123");
+    expect(ownRow.textContent).not.toContain("Jakub");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[aria-label="Show all thread replies"]')!.click(),
+    );
+    expect(container.querySelector('[data-slack-reply="2"]')!.textContent).toContain("Alex");
+    // Account identity belongs to this notification, not a global logged-in user.
+    await act(async () =>
+      root.render(
+        <InboxSourceContent
+          notification={{ ...notification, connectionId: "T1:U789", slackThread: thread }}
+        />,
+      ),
+    );
+    expect(container.querySelector(`[data-slack-reply="${own.ts}"]`)!.textContent).toContain(
+      own.author,
+    );
+  },
+);

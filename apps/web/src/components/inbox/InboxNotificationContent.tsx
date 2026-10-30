@@ -589,7 +589,9 @@ function SlackThreadContent({
   thread: initial,
   onLoadPrevious,
   sourceAuthor,
+  viewerUserId,
 }: {
+  viewerUserId: string | undefined;
   sourceAuthor?: string | undefined;
   thread: InboxSlackThread;
   onLoadPrevious?: LoadComments | undefined;
@@ -600,6 +602,8 @@ function SlackThreadContent({
   const [error, setError] = useState<string | null>(null);
   const historyId = useId();
   const thread = loaded ?? initial;
+  const authorLabel = (message: InboxSlackMessage) =>
+    viewerUserId && (message.authorId ?? message.author) === viewerUserId ? "me" : message.author;
   const replies = [...thread.messages, ...(thread.pendingMessages ?? [])].filter(
     (message) => message.ts !== thread.ts,
   );
@@ -641,7 +645,7 @@ function SlackThreadContent({
       <section aria-label="Original message" className={styles.slackSection}>
         <div className={styles.slackLabel}>
           Original message{" "}
-          {thread.root.author !== sourceAuthor && <span>{thread.root.author}</span>}
+          {thread.root.author !== sourceAuthor && <span>{authorLabel(thread.root)}</span>}
         </div>
         <SlackMessageBody message={thread.root} />
       </section>
@@ -689,14 +693,14 @@ function SlackThreadContent({
             {(expanded ? [...older, latest] : [latest]).map((message) => (
               <li key={message.ts} data-slack-reply={message.ts} className={styles.slackReply}>
                 <span aria-hidden className={styles.slackAvatar}>
-                  {message.author
+                  {authorLabel(message)
                     .split(/\s+/)
                     .slice(0, 2)
                     .map((name) => name[0])
                     .join("")}
                 </span>
                 <div className={styles.slackAuthor}>
-                  <span>{message.author}</span>
+                  <span>{authorLabel(message)}</span>
                   <InboxTimestampLabel timestamp={message.occurredAt} />
                 </div>
                 <SlackMessageBody message={message} />
@@ -793,6 +797,7 @@ export function InboxSourceContent({
           <SlackThreadContent
             key={`${notification.id}:${thread.ts}:${thread.latestReplyTs}`}
             thread={thread}
+            viewerUserId={notification.connectionId.split(":")[1]}
             sourceAuthor={notification.items.at(-1)?.author}
             onLoadPrevious={onLoadPrevious}
           />
