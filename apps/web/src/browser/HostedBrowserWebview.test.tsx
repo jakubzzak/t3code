@@ -5,6 +5,7 @@ import {
   ThreadId,
   type ClientSettings,
   type DesktopPreviewBridge,
+  type DesktopPreviewTabState,
 } from "@t3tools/contracts";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn<DesktopPreviewBridge["navigate"]>(),
   getPreviewConfig: vi.fn<DesktopPreviewBridge["getPreviewConfig"]>(),
   activeRecordings: new Set<string>(),
+  stateListeners: new Set<(tabId: string, state: DesktopPreviewTabState) => void>(),
 }));
 
 vi.mock("~/localApi", () => ({
@@ -32,12 +34,25 @@ vi.mock("~/components/preview/previewBridge", () => ({
     registerWebview: mocks.registerWebview,
     navigate: mocks.navigate,
     getPreviewConfig: mocks.getPreviewConfig,
+    onStateChange: (listener: (tabId: string, state: DesktopPreviewTabState) => void) => {
+      mocks.stateListeners.add(listener);
+      return () => mocks.stateListeners.delete(listener);
+    },
   },
 }));
 
-vi.mock("~/components/preview/usePreviewBridge", () => ({
-  usePreviewBridge: () => undefined,
+vi.mock("~/browserFaviconStore", () => ({
+  flushPendingFaviconsForThread: () => {},
+  recordFaviconForThread: () => {},
+  useFaviconProjectRefForThread: () => undefined,
 }));
+vi.mock("~/previewStateStore", () => ({ applyPreviewDesktopState: () => {} }));
+vi.mock("~/state/preview", () => ({ previewEnvironment: { reportStatus: {} } }));
+vi.mock("~/state/session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/state/session")>()),
+  usePreparedConnection: () => ({ _tag: "None" }),
+}));
+vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => () => {} }));
 
 vi.mock("./browserRecording", () => ({
   useActiveBrowserRecordingTabIds: () => mocks.activeRecordings,
@@ -249,4 +264,79 @@ it("loads Linear only after native registration and does not retarget on rerende
     guest.dispatchEvent(new Event("dom-ready"));
   });
   expect(mocks.navigate).toHaveBeenCalledOnce();
+});
+
+it("keeps only the automation tab paintable without revealing it and suspends on release", async () => {
+  mocks.getClientSettings.mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
+  const props = {
+    threadRef: {
+      environmentId: EnvironmentId.make("activity-env"),
+      threadId: ThreadId.make("activity-thread"),
+    },
+    tabId: "server-tab",
+    runtimeTabId: "activity-tab",
+    initialUrl: "about:blank",
+    viewport: FILL_PREVIEW_VIEWPORT,
+    pictureInPicture: false,
+    profileId: undefined,
+    zoomFactor: 1,
+    serverDriven: true,
+  };
+  const guest = Object.assign(new EventTarget(), { getWebContentsId: () => 52 });
+  await act(async () => {
+    renderer = create(<HostedBrowserWebview {...props} />, {
+      createNodeMock: (element) =>
+        element.type === "webview" ? guest : { scrollLeft: 0, scrollTop: 0, scrollTo: () => {} },
+    });
+  });
+  const wrapper = () => renderer!.root.findByProps({ "data-preview-viewport": props.runtimeTabId });
+  const emit = async (tabId: string, automationActive?: boolean) => {
+    await act(() => {
+      for (const listener of mocks.stateListeners)
+        listener(tabId, {
+          tabId,
+          webContentsId: 52,
+          navStatus: { kind: "Idle" },
+          canGoBack: false,
+          canGoForward: false,
+          zoomFactor: 1,
+          pictureInPicture: false,
+          colorScheme: "system",
+          audioMuted: false,
+          audible: false,
+          controller: "agent",
+          updatedAt: "2026-10-30T00:00:00.000Z",
+          ...(automationActive === undefined ? {} : { automationActive }),
+        });
+    });
+  };
+  expect(wrapper().props["data-preview-rendering"]).toBe("suspended");
+  await emit("another-tab", true);
+  expect(wrapper().props["data-preview-rendering"]).toBe("suspended");
+  await emit(props.runtimeTabId, true);
+  expect(wrapper().props.style).toMatchObject({
+    left: 0,
+    top: 0,
+    pointerEvents: "none",
+    zIndex: -1,
+    visibility: "visible",
+  });
+  expect(useBrowserSurfaceStore.getState().byTabId[props.runtimeTabId]?.visible ?? false).toBe(
+    false,
+  );
+  await emit(props.runtimeTabId, false);
+  expect(wrapper().props["data-preview-rendering"]).toBe("suspended");
+  await emit(props.runtimeTabId, true);
+  await emit(props.runtimeTabId); // Older desktop versions omit activity.
+  expect(wrapper().props["data-preview-rendering"]).toBe("suspended");
+  await emit(props.runtimeTabId, true);
+  props.runtimeTabId = "replacement-tab";
+  await act(() => renderer!.update(<HostedBrowserWebview {...props} />));
+  expect(wrapper().props["data-preview-rendering"]).toBe("suspended");
+  props.runtimeTabId = "activity-tab";
+  await act(() => renderer!.update(<HostedBrowserWebview {...props} />));
+  expect(wrapper().props["data-preview-rendering"]).toBe("suspended");
+  await act(() => renderer!.unmount());
+  expect(mocks.stateListeners.size).toBe(0);
+  renderer = undefined;
 });

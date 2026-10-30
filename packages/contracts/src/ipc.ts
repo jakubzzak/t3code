@@ -637,6 +637,8 @@ export interface DesktopPreviewFavicon {
 }
 
 export interface DesktopPreviewTabState {
+  /** Temporary rendering demand from the server, independent of panel visibility. */
+  automationActive?: boolean;
   tabId: string;
   webContentsId: number | null;
   navStatus: DesktopPreviewNavStatus;

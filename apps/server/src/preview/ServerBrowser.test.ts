@@ -47,7 +47,11 @@ vi.mock("./ServerBrowserContexts.ts", () => ({
       return context as unknown as BrowserContext;
     }
     async scratchPage() {
-      return makeContext().page as unknown as Page;
+      scratchEntered.resolve();
+      await scratchGate?.promise;
+      const page = makeContext().page;
+      scratchPages.push(page);
+      return page as unknown as Page;
     }
     async connectDesktopPage(endpoint: string) {
       const context = makeContext();
@@ -78,6 +82,10 @@ function makeSession(frame?: ReturnType<typeof makeFrame>) {
     emit: (name: string) => events.emit(name),
     detach: vi.fn(async () => {}),
     send: vi.fn(async (method: string, input?: unknown): Promise<Record<string, unknown>> => {
+      if (method === "Page.startScreencast") {
+        screencastEntered.resolve();
+        await screencastGate?.promise;
+      }
       if (method === "Page.getNavigationHistory") return { currentIndex: 0, entries: [{}] };
       if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { pageX: 0, pageY: 0 } };
       if (method === "Page.captureScreenshot") return { data: "ZnJhbWU=" };
@@ -181,6 +189,11 @@ const contexts: ReturnType<typeof makeContext>[] = [];
 /** The profile and isolation each headless tab asked its context for. */
 const contextRequests: Array<{ profileId: string; isolated: boolean }> = [];
 let contextGate: PromiseWithResolvers<void> | null = null;
+let scratchGate: PromiseWithResolvers<void> | null = null;
+let scratchEntered = Promise.withResolvers<void>();
+let screencastGate: PromiseWithResolvers<void> | null = null;
+let screencastEntered = Promise.withResolvers<void>();
+const scratchPages: ReturnType<typeof makeContext>["page"][] = [];
 /** The text the page's frames hold from their latest copy. */
 let pageCopy = "";
 /** The text the next copy or cut key copies. */
@@ -200,6 +213,7 @@ const desktopRenders = (tabId: string) => {
   }
   return desktopTabs.has(tabId);
 };
+const desktopActivity: Array<{ tabId: string; active: boolean }> = [];
 const releasedDesktopTabs: Array<string> = [];
 const desktopConnections: Array<{ endpoint: string; context: ReturnType<typeof makeContext> }> = [];
 const testThread = {
@@ -263,6 +277,10 @@ const dependencies = Layer.mergeAll(
         Effect.sync(() => releasedDesktopTabs.push(key.tabId)),
       ),
     pointer: () => Effect.void,
+    setActivity: (key: { tabId: string }, active: boolean) =>
+      Effect.sync(() => {
+        desktopActivity.push({ tabId: key.tabId, active });
+      }),
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
@@ -303,6 +321,11 @@ beforeEach(() => {
   contexts.length = 0;
   contextRequests.length = 0;
   contextGate = null;
+  scratchGate = null;
+  scratchEntered = Promise.withResolvers<void>();
+  screencastGate = null;
+  screencastEntered = Promise.withResolvers<void>();
+  scratchPages.length = 0;
   contextFailure = null;
   pageCopy = "";
   keyCopy = "";
@@ -310,6 +333,7 @@ beforeEach(() => {
   desktopTabs.clear();
   desktopRendersNext = false;
   releasedDesktopTabs.length = 0;
+  desktopActivity.length = 0;
   desktopConnections.length = 0;
 });
 
@@ -1419,6 +1443,14 @@ it.live("drives the desktop's own page for a tab the desktop renders", () =>
         tabId: PreviewTabId.make(opened.tabId),
       });
       expect(evaluated).toMatchObject({ tabId: opened.tabId });
+      yield* broker.invoke({
+        scope: asSession("agent-desktop"),
+        operation: "evaluate",
+        input: { expression: "1" },
+        tabId: PreviewTabId.make(opened.tabId),
+      });
+      expect(desktopActivity).toEqual([{ tabId: opened.tabId, active: true }]);
+
       // Closing the session lets go of the desktop's page without closing it.
       yield* manager.close({ threadId: scope.thread.threadId, tabId: opened.tabId });
       while (releasedDesktopTabs.length === 0) yield* Effect.yieldNow;
@@ -1645,6 +1677,137 @@ it.live("a desktop page that comes back reconnects without waiting for a viewer"
       // Without a viewer or agent, the server drives the page again, so its URL keeps reaching clients.
       while (desktopConnections.length < 2) yield* Effect.yieldNow;
       expect(desktopConnections).toHaveLength(2);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live.each(["encoder", "screencast"] as const)(
+  "cancelling recording startup during %s releases capture and rendering",
+  (stage) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        desktopRendersNext = true;
+        const { broker, tabId } = yield* ready;
+        const gate = Promise.withResolvers<void>();
+        if (stage === "encoder") scratchGate = gate;
+        else screencastGate = gate;
+        yield* Effect.addFinalizer(() => Effect.sync(() => gate.resolve()));
+        const start = yield* broker
+          .invoke({ scope, tabId, operation: "recordingStart", input: {} })
+          .pipe(Effect.forkScoped);
+        yield* Effect.promise(() =>
+          stage === "encoder" ? scratchEntered.promise : screencastEntered.promise,
+        );
+        yield* Fiber.interrupt(start);
+        // Broker messages are ordered: this response proves the host consumed cancellation.
+        yield* broker.invoke({ scope, tabId, operation: "status", input: {} });
+        expect(desktopActivity.at(-1)).toEqual({ tabId, active: false });
+        gate.resolve();
+        // This control-serialized operation drains the cancelled start, unlike status.
+        yield* broker.invoke({ scope, tabId, operation: "snapshot", input: {} });
+        expect(scratchPages[0]!.close).toHaveBeenCalledOnce();
+        const sessions = desktopConnections[0]!.context.sessions;
+        if (stage === "encoder") {
+          expect(
+            sessions.some((session) =>
+              session.send.mock.calls.some(([method]) => method === "Page.startScreencast"),
+            ),
+          ).toBe(false);
+        } else {
+          expect(sessions.at(-1)!.detach).toHaveBeenCalledOnce();
+          expect(sessions.at(-1)!.send).toHaveBeenCalledWith("Page.stopScreencast");
+        }
+        const stopped = yield* broker
+          .invoke<void>({ scope, tabId, operation: "recordingStop", input: {} })
+          .pipe(Effect.flip);
+        expect(stopped).toMatchObject({
+          _tag: "PreviewAutomationExecutionError",
+          cause: { _tag: "PreviewAutomationRecordingNotActiveError" },
+        });
+        // Closing the tab must be the final inactive transition, with no recording hold left.
+        yield* broker.invoke({ scope, tabId, operation: "close", input: {} });
+        expect(desktopActivity.at(-1)).toEqual({ tabId, active: false });
+      }),
+    ).pipe(Effect.provide(layer)),
+);
+
+it.live("cancelling a queued duplicate start preserves the established recording", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      desktopRendersNext = true;
+      const { broker, tabId } = yield* ready;
+      const established = yield* broker.invoke({
+        scope,
+        tabId,
+        operation: "recordingStart",
+        input: {},
+      });
+      const gate = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      yield* Effect.addFinalizer(() => Effect.sync(() => gate.resolve()));
+      desktopConnections[0]!.context.page.evaluate.mockImplementationOnce(async () => {
+        entered.resolve();
+        await gate.promise;
+        return {
+          url: "about:blank",
+          title: "test page",
+          loading: false,
+          visibleText: "",
+          interactiveElements: [],
+        };
+      });
+      const snapshot = yield* broker
+        .invoke({ scope, tabId, operation: "snapshot", input: {} })
+        .pipe(Effect.forkScoped);
+      yield* Effect.promise(() => entered.promise);
+      const duplicate = yield* broker
+        .invoke({ scope, tabId, operation: "recordingStart", input: {} })
+        .pipe(Effect.forkScoped);
+      yield* broker.invoke({ scope, tabId, operation: "status", input: {} });
+      yield* Fiber.interrupt(duplicate);
+      yield* broker.invoke({ scope, tabId, operation: "status", input: {} });
+      gate.resolve();
+      yield* Fiber.join(snapshot);
+      const recording = yield* broker.invoke({
+        scope,
+        tabId,
+        operation: "recordingStart",
+        input: {},
+      });
+      expect(recording).toEqual(established);
+      expect(scratchPages).toHaveLength(1);
+      expect(scratchPages[0]!.close).not.toHaveBeenCalled();
+      expect(desktopConnections[0]!.context.sessions.at(-1)!.detach).not.toHaveBeenCalled();
+      expect(desktopActivity.at(-1)).toEqual({ tabId, active: true });
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("human takeover interrupts an unfinished recording without starting capture", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      desktopRendersNext = true;
+      const { browser, broker, tabId } = yield* ready;
+      const viewer = yield* browser.attachViewer(viewerInput(tabId, true));
+      scratchGate = Promise.withResolvers<void>();
+      yield* Effect.addFinalizer(() => Effect.sync(() => scratchGate?.resolve()));
+      const start = yield* broker
+        .invoke<void>({ scope, tabId, operation: "recordingStart", input: {} })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* Effect.promise(() => scratchEntered.promise);
+      const sessionCount = desktopConnections[0]!.context.sessions.length;
+      yield* Queue.clear(viewer.output);
+      const takeover = yield* viewer.input({ type: "takeControl" }).pipe(Effect.forkScoped);
+      let control = yield* Queue.take(viewer.output);
+      while (control._tag !== "control" || control.controller !== "you")
+        control = yield* Queue.take(viewer.output);
+      scratchGate.resolve();
+      const error = yield* Fiber.join(start);
+      yield* Fiber.join(takeover);
+      expect(error).toMatchObject({ _tag: "PreviewAutomationControlInterruptedError" });
+      expect(scratchPages[0]!.close).toHaveBeenCalledOnce();
+      expect(desktopConnections[0]!.context.sessions).toHaveLength(sessionCount);
+      expect(desktopActivity.at(-1)).toEqual({ tabId, active: false });
     }),
   ).pipe(Effect.provide(layer)),
 );

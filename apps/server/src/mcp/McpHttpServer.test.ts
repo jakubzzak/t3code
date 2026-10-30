@@ -113,6 +113,7 @@ const serveSnapshots = (clientId: string, result: unknown) =>
     const events = yield* broker.connect({ clientId, environmentId });
     yield* Stream.runForEach(events, (event) => {
       if (event.type === "connected") return Deferred.succeed(connected, undefined);
+      if (event.type !== "request") return Effect.void;
       inputs.push(event.request.input);
       return broker.respond({
         clientId,
@@ -161,7 +162,7 @@ it.effect.each([{}, { includeImage: false }])(
           environmentId,
         });
         yield* Stream.runForEach(events, (event) =>
-          event.type === "connected"
+          event.type !== "request"
             ? Effect.void
             : broker.respond({
                 clientId: "mcp-failure-client",
@@ -214,7 +215,7 @@ it.effect.each([
       const connected = yield* Deferred.make<void>();
       const events = yield* broker.connect({ clientId: "mcp-no-tab-client", environmentId });
       yield* Stream.runForEach(events, (event) =>
-        event.type === "connected"
+        event.type !== "request"
           ? Deferred.succeed(connected, undefined)
           : broker.respond({
               clientId: "mcp-no-tab-client",
@@ -289,6 +290,7 @@ it.effect.each([
       const events = yield* broker.connect({ clientId: "mcp-image-option-client", environmentId });
       yield* Stream.runForEach(events, (event) => {
         if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        if (event.type !== "request") return Effect.void;
         requests += 1;
         expect(event.request).toMatchObject({
           operation: "snapshot",
@@ -844,7 +846,7 @@ it.effect("registers annotated tools and preserves authenticated request context
         environmentId,
       });
       yield* Stream.runForEach(events, (event) => {
-        if (event.type === "connected") return Effect.void;
+        if (event.type !== "request") return Effect.void;
         routedRequests.push(event.request);
         return broker.respond({
           clientId: "mcp-test-client",

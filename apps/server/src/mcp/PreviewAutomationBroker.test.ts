@@ -93,6 +93,7 @@ it.effect("cleanup waits for every owning browser host and leaves other tabs alo
         yield* events.pipe(
           Stream.runForEach((event) => {
             if (event.type === "connected") return Deferred.succeed(connected, event.connectionId);
+            if (event.type !== "request") return Effect.void;
             requests.push(clientId);
             return Effect.gen(function* () {
               expect(event.request.operation).toBe("close");
@@ -304,6 +305,7 @@ const requestsFrom = (
         onConnected(event.connectionId);
         return Result.failVoid;
       }
+      if (event.type !== "request") return Result.failVoid;
       return Result.succeed({ ...event.request, connectionId: event.connectionId });
     }),
   );
@@ -546,7 +548,7 @@ it.effect("announces a live replacement stream before delivering requests", () =
         Stream.take(2),
         Stream.runForEach((event) => {
           receivedTypes.push(event.type);
-          return event.type === "connected"
+          return event.type !== "request"
             ? Effect.void
             : broker.respond({
                 clientId: "client-1",
@@ -1572,6 +1574,7 @@ it.effect("discards buffered actions before completing an evicted host stream", 
       const operations: string[] = [];
       const consumer = yield* Stream.runForEach(yield* broker.connect(makeHost()), (event) => {
         if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        if (event.type !== "request") return Effect.void;
         operations.push(event.request.operation);
         return Deferred.succeed(received, undefined).pipe(
           Effect.andThen(Deferred.await(releaseConsumer)),
@@ -1616,6 +1619,7 @@ it.effect("rejects a routed action when its generation is evicted before deliver
       const operations: string[] = [];
       const consumer = yield* Stream.runForEach(yield* broker.connect(makeHost()), (event) => {
         if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        if (event.type !== "request") return Effect.void;
         operations.push(event.request.operation);
         return Deferred.succeed(received, undefined);
       }).pipe(Effect.forkScoped);
@@ -1744,6 +1748,36 @@ it.effect("keeps the host connected when a background status read times out", ()
       expect(yield* broker.invoke({ scope, operation: "snapshot", input: {} })).toEqual({
         operation: "snapshot",
       });
+    }),
+  ),
+);
+
+it.effect("notifies the server host when the caller cancels an in-flight browser action", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const connected = yield* Deferred.make<void>();
+      const received = yield* Deferred.make<string>();
+      const cancelled: string[] = [];
+      const events = yield* broker.connect(makeHost(), { preferred: true });
+      yield* events.pipe(
+        Stream.runForEach((event) => {
+          if (event.type === "connected") return Deferred.succeed(connected, undefined);
+          if (event.type === "request") return Deferred.succeed(received, event.request.requestId);
+          return Effect.sync(() => {
+            cancelled.push(event.requestId);
+          });
+        }),
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(connected);
+      const action = yield* broker
+        .invoke({ scope, operation: "click", input: { locator: "#delayed" } })
+        .pipe(Effect.forkScoped);
+      const requestId = yield* Deferred.await(received);
+      yield* Fiber.interrupt(action);
+      yield* Effect.yieldNow;
+      expect(cancelled).toEqual([requestId]);
     }),
   ),
 );

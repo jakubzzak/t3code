@@ -39,10 +39,18 @@ export interface DesktopBrowserTabKey {
   readonly tabId: string;
 }
 
+export class DesktopBrowserActivityError extends Schema.TaggedError<DesktopBrowserActivityError>()(
+  "DesktopBrowserActivityError",
+  { cause: Schema.Defect() },
+) {}
+
 /** A tab's debugger, as the preview manager lends it to the relay. */
 export interface DesktopBrowserTabDebugger {
   readonly webContents: Electron.WebContents;
   readonly debugger: Electron.Debugger;
+  readonly setAutomationActive: (
+    active: boolean,
+  ) => Effect.Effect<void, DesktopBrowserActivityError>;
 }
 
 const keyOf = ({ threadId, tabId }: DesktopBrowserTabKey) => `${threadId}\u0000${tabId}`;
@@ -106,6 +114,7 @@ export const make = Effect.gen(function* () {
   }>(16);
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
+  let backendGeneration = 0;
   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
 
   const relayFor = (tab: AttachedTab) => {
@@ -159,6 +168,7 @@ export const make = Effect.gen(function* () {
     const tab = tabs.get(id);
     if (!tab) return;
     tabs.delete(id);
+    runFork(tab.debuggee.setAutomationActive(false).pipe(Effect.ignore));
     tab.debuggee.debugger.off("message", tab.onMessage);
     emit({ type: "detached", ...key });
   };
@@ -188,10 +198,26 @@ export const make = Effect.gen(function* () {
   };
 
   const handleCommandLine = (line: string) =>
-    Effect.sync(() => {
+    Effect.gen(function* () {
       const command = decodeCommand(line);
       if (Option.isNone(command)) return;
       const tab = tabs.get(keyOf(command.value));
+      if (command.value.type === "activity") {
+        const ok = tab
+          ? yield* tab.debuggee.setAutomationActive(command.value.active).pipe(
+              Effect.as(true),
+              Effect.orElseSucceed(() => false),
+            )
+          : false;
+        yield* PubSub.publish(outbox, {
+          type: "activity",
+          threadId: command.value.threadId,
+          tabId: command.value.tabId,
+          requestId: command.value.requestId,
+          ok,
+        });
+        return;
+      }
       if (!tab) return;
       if (command.value.type === "pointer") {
         const { threadId, tabId, phase, x, y } = command.value;
@@ -201,6 +227,7 @@ export const make = Effect.gen(function* () {
       if (command.value.type === "release") {
         // A new server connection starts with a fresh relay and fresh sessions.
         tab.relay = null;
+        yield* tab.debuggee.setAutomationActive(false).pipe(Effect.ignore);
         return;
       }
       if (AGENT_INPUT_COMMAND.test(command.value.message)) tab.agentInputAt = performance.now();
@@ -216,10 +243,12 @@ export const make = Effect.gen(function* () {
   const announceAll = Effect.suspend(() =>
     Effect.forEach(
       [...tabs.values()],
-      (tab) => {
-        tab.relay = null;
-        return PubSub.publish(outbox, { type: "attached", ...tab.key });
-      },
+      (tab) =>
+        Effect.gen(function* () {
+          tab.relay = null;
+          yield* tab.debuggee.setAutomationActive(false).pipe(Effect.ignore);
+          yield* PubSub.publish(outbox, { type: "attached", ...tab.key });
+        }),
       { discard: true },
     ),
   );
@@ -229,9 +258,22 @@ export const make = Effect.gen(function* () {
     // Subscribes before announcing, so no attach falls between the two.
     events: Stream.unwrap(
       Effect.gen(function* () {
+        const generation = ++backendGeneration;
         const subscription = yield* PubSub.subscribe(outbox);
         yield* announceAll;
-        return Stream.fromSubscription(subscription);
+        return Stream.fromSubscription(subscription).pipe(
+          Stream.ensuring(
+            Effect.suspend(() =>
+              generation === backendGeneration
+                ? Effect.forEach(
+                    [...tabs.values()],
+                    (tab) => tab.debuggee.setAutomationActive(false).pipe(Effect.ignore),
+                    { discard: true },
+                  )
+                : Effect.void,
+            ),
+          ),
+        );
       }),
     ).pipe(Stream.map((event) => lineEncoder.encode(`${encodeEvent(event)}\n`))),
     handleCommandLine,

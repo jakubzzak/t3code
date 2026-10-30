@@ -8,6 +8,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerSettings from "../../serverSettings.ts";
 
@@ -49,9 +50,30 @@ Effect.gen(function* () {
     return yield* Effect.die("The browser attach message was not received.");
   }
   yield* Fiber.join(healthy);
+  yield* browser.setActivity(key, true);
+  const rejected = yield* Effect.exit(browser.setActivity(key, false));
+  if (!Exit.isFailure(rejected)) return yield* Effect.die("A rejected activity change succeeded.");
+  const cancelled = yield* browser.setActivity(key, true).pipe(Effect.forkScoped);
+  // Parent's attached message is a barrier after reading the cancelled command.
+  if (!(yield* browser.awaitAttached({ ...key, tabId: "cancel-barrier" }, "5 seconds")))
+    return yield* Effect.die("The cancellation barrier was not received.");
+  yield* Fiber.interrupt(cancelled);
+  yield* browser.setActivity(key, false);
+  const timedOut = yield* browser.setActivity(key, true).pipe(Effect.exit, Effect.forkScoped);
+  if (!(yield* browser.awaitAttached({ ...key, tabId: "timeout-barrier" }, "5 seconds")))
+    return yield* Effect.die("The timeout barrier was not received.");
+  yield* TestClock.adjust("5 seconds");
+  if (!Exit.isFailure(yield* Fiber.join(timedOut)))
+    return yield* Effect.die("A missing activity acknowledgement succeeded.");
+  yield* browser.setActivity(key, false);
+  yield* Console.log("activity-verified");
   yield* Console.log("attached");
   yield* Fiber.join(detached);
   const endpoint = yield* Effect.exit(Effect.scoped(browser.endpoint(key)));
   if (Exit.isSuccess(endpoint)) return yield* Effect.die("A detached tab received an endpoint.");
   yield* Console.log("verified");
-}).pipe(Effect.scoped, Effect.provide(NodeServices.layer), NodeRuntime.runMain);
+}).pipe(
+  Effect.scoped,
+  Effect.provide(Layer.merge(NodeServices.layer, TestClock.layer())),
+  NodeRuntime.runMain,
+);
