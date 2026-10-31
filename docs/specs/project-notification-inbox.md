@@ -6,6 +6,8 @@ Slack messages, Linear updates, and email have become separate task lists. Black
 
 ## Scope
 
+Linear agent-thread identity, bot avatars, hidden artificial session introductions and live working indication are defined in the linked [agent-thread indication spec](inbox-agent-thread-indicators.md).
+
 Tracking exception for the reply-state change: proceed without a Linear issue, as explicitly requested on 2026-10-29.
 
 Add an optional project notification inbox, source configuration, concise AI summaries, delegation, optional suggested resolutions, and memory of previous cases. All notification browsing happens in the left sidebar. Source access is read-only in this version: read, snooze, and resolution state belongs to Blackbird. Sending replies, archiving source messages, changing Linear issues, and synchronizing state back to sources are next steps, outside this scope. Suggestions and delegation do not grant additional source-write permissions.
