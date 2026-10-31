@@ -15,7 +15,7 @@ Manual browsing includes ignored files, tests, and symbolic links regardless of 
 ### Search options
 
 - Add a search-options icon beside the existing search field and expand/collapse control. It opens a compact popover containing **Include ignored files** and **Include test files**, with the note **node_modules is always excluded**. Keep the existing refresh, Files tab, and layout controls.
-- Both switches start off in every chat. Changes apply immediately to the current filename query and remain reversible. They are temporary chat-local view state, not project defaults, persisted settings, or preferences shared with another chat/device. Closing the popover does not reset them. Assumption: a client reload resets both to off.
+- **Include ignored files** starts on and **Include test files** starts off in every chat. Changes apply immediately to the current filename query and remain reversible. They are temporary chat-local view state, not project defaults, persisted settings, or preferences shared with another chat/device. Closing the popover does not reset them. A client reload restores these defaults.
 - Indicate on the options icon when either switch is enabled. Keep the controls reachable when there are no results; support keyboard activation, named switch states, and Escape to close and return focus.
 - With **Include ignored files** off, search respects Git ignore rules. With it on, ignored files and directories become searchable, except the fixed exclusions below. Preserve ignored-file styling.
 - With **Include test files** off, exclude basenames containing literal, case-sensitive `.test.` or `.spec.`, matching the current web PR/diff default in [fileFilterStore](../../apps/web/src/fileFilterStore.ts). This applies across extensions, not to parent-directory names or arbitrary occurrences of `test` and `spec`. Turning it on removes only this exclusion.
@@ -32,9 +32,9 @@ Manual browsing includes ignored files, tests, and symbolic links regardless of 
 
 ## Acceptance criteria
 
-1. In a new chat, searching `.env` finds `.env.example` but excludes an ignored `.env`. Enabling ignored files reveals `.env`; disabling it hides that search result again. Clearing the query and manually opening the folder shows both, including when `.env` is a symbolic link.
+1. In a new chat, searching `.env` finds both `.env.example` and an ignored `.env`. Disabling ignored files hides `.env`; enabling it reveals that search result again. Clearing the query and manually opening the folder shows both, including when `.env` is a symbolic link.
 2. Searching `button` initially excludes `button.test.ts` and `button.spec.tsx`; enabling test files reveals them. `contest.ts`, `buttonXspecYts`, and `tests.spec.data/button.ts` remain eligible under the default rule. An ignored `button.test.ts` appears only with both switches on.
-3. Searching after manually visiting ignored/test files still respects both switches. A new chat and a reloaded client start with both off. Closing/reopening the popover in the current chat preserves the temporary selection.
+3. Searching after manually visiting ignored/test files still respects both switches. A new chat and a reloaded client start with ignored files on and test files off. Closing/reopening the popover in the current chat preserves the temporary selection.
 4. A large nested `node_modules` tree is never traversed by filename indexing/search, including through a differently named symlink and with both switches enabled. Manual browsing can still open it. A match elsewhere remains discoverable without waiting for dependency traversal.
 5. `.env -> ../shared/.env` previews the external target read-only, displays the bent arrow, and has a target-only tooltip. A linked external folder can be expanded and searched through its alias; write attempts through it remain rejected. Broken, inaccessible, and cyclic links do not hang discovery or disappear without explanation.
 6. Rapid query/toggle changes do not show stale or disallowed results. The same browsing, search, and external-link restrictions hold when the workspace is on a remote or tunneled environment.

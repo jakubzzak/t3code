@@ -3,7 +3,5 @@ import { Atom } from "effect/reactivity";
 
 /** Session-only view state: survives closing Files, never written to storage. */
 export const filesSearchOptionsAtom = Atom.family((_chatKey: string) =>
-  Atom.make<FilesSearchOptions>({ includeIgnored: false, includeTests: false }).pipe(
-    Atom.keepAlive,
-  ),
+  Atom.make<FilesSearchOptions>({ includeIgnored: true, includeTests: false }).pipe(Atom.keepAlive),
 );
