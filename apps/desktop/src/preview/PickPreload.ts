@@ -203,6 +203,7 @@ const applyAnnotationTheme = (
 
 const reportHumanPointerInput = (event: PointerEvent): void => {
   if (!event.isTrusted) return;
+  ipcRenderer.sendToHost("t3:preview-pointerdown");
   ipcRenderer.send(HUMAN_INPUT_CHANNEL, {
     kind: "pointer",
     x: event.clientX,
@@ -213,6 +214,17 @@ const reportHumanPointerInput = (event: PointerEvent): void => {
 
 const reportHumanKeyInput = (event: KeyboardEvent): void => {
   if (!event.isTrusted) return;
+  if (
+    event.key === "Escape" &&
+    !event.isComposing &&
+    !event.repeat &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey
+  ) {
+    ipcRenderer.sendToHost("t3:preview-escape");
+  }
   ipcRenderer.send(HUMAN_INPUT_CHANNEL, {
     kind: "key",
     key: event.key,
