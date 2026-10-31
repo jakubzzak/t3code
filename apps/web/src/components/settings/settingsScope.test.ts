@@ -1,4 +1,4 @@
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type {
@@ -6,6 +6,7 @@ import type {
   SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
 import { resolveSettingsScope, validateSettingsScopeSearch } from "./settingsScope";
+import { providerSettingsSearch } from "./providerSettingsSearch";
 
 const laptopId = EnvironmentId.make("laptop");
 const serverId = EnvironmentId.make("server");
@@ -58,6 +59,58 @@ function group(
 }
 
 const groups = [group("t3code", [first, second, third]), group("other", [other])];
+
+describe("provider recovery scope", () => {
+  const instanceId = ProviderInstanceId.make("codex");
+  it("opens only the disabled checkout, even in a multi-environment repository group", () => {
+    const search = providerSettingsSearch(
+      laptopId,
+      instanceId,
+      {
+        projectSettingsOverrides: {
+          [second.id]: { providerInstances: { [instanceId]: { enabled: false } } },
+        },
+      },
+      second,
+    );
+    const scope = resolveSettingsScope(search, groups, environments);
+    expect(scope.kind).toBe("checkout");
+    expect(scope.members.map((member) => member.id)).toEqual([second.id]);
+    expect(scope.environmentIds).toEqual([laptopId]);
+  });
+
+  it("opens machine settings when no project override disables the provider", () => {
+    const search = providerSettingsSearch(
+      laptopId,
+      instanceId,
+      { projectSettingsOverrides: {} },
+      second,
+    );
+    expect(resolveSettingsScope(search, groups, environments)).toMatchObject({
+      kind: "environment",
+      environmentId: laptopId,
+      members: [],
+    });
+  });
+
+  it("does not reuse a same-ID project from a different environment", () => {
+    const search = providerSettingsSearch(
+      serverId,
+      instanceId,
+      {
+        projectSettingsOverrides: {
+          [second.id]: { providerInstances: { [instanceId]: { enabled: false } } },
+        },
+      },
+      second,
+    );
+    expect(resolveSettingsScope(search, groups, environments)).toMatchObject({
+      kind: "environment",
+      environmentId: serverId,
+      members: [],
+    });
+  });
+});
 
 it("keeps a physical project settings link valid when repository grouping disappears", () => {
   const search = { project: first.physicalProjectKey };

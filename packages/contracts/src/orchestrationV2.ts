@@ -362,7 +362,14 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 );
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
+const AutomationFailureNotice = Schema.Struct({
+  messageId: MessageId,
+  message: TrimmedNonEmptyString,
+  occurredAt: IsoDateTime,
+});
+
 export const OrchestrationV2AppThread = Schema.Struct({
+  lastAutomationFailure: Schema.optional(AutomationFailureNotice),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -1940,6 +1947,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  lastAutomationFailure: Schema.optional(AutomationFailureNotice),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -3198,6 +3206,18 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
  * send them.
  */
 const OrchestrationV2InternalCommand = Schema.Union([
+  /** Records an automation rejected before provider execution, without starting any work. */
+  Schema.Struct({
+    type: Schema.Literal("scheduled-message.reject"),
+    ...OrchestrationV2CreationFields,
+    commandId: CommandId,
+    threadId: ThreadId,
+    messageId: MessageId,
+    scheduledTaskId: ScheduledTaskId,
+    text: Schema.String,
+    modelSelection: ModelSelection,
+    failure: OrchestrationV2ProviderFailure,
+  }),
   Schema.Struct({
     type: Schema.Literal("thread.setup-script.record"),
     commandId: CommandId,

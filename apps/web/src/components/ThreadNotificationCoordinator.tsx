@@ -7,13 +7,14 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import * as DateTime from "effect/DateTime";
 import {
   CircleAlertIcon,
   CircleCheckIcon,
   MessageCircleQuestionIcon,
   ShieldQuestionIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useEnvironmentIds } from "../state/environments";
@@ -31,9 +32,6 @@ import { toastManager } from "./ui/toast";
 export function ThreadNotificationCoordinator() {
   const environmentIds = useEnvironmentIds();
   const mode = useClientSettings((settings) => settings.notificationMode);
-  const inAppNotificationsEnabled = useClientSettings(
-    (settings) => settings.inAppNotificationsEnabled,
-  );
   const pending = useRef(
     new Map<string, { environmentId: EnvironmentId; notification: Notification }>(),
   );
@@ -81,8 +79,6 @@ export function ThreadNotificationCoordinator() {
     };
   }, [mode]);
 
-  if (mode === "off" && !inAppNotificationsEnabled) return null;
-
   return environmentIds.map((environmentId) => (
     <EnvironmentNotifications
       key={environmentId}
@@ -120,6 +116,20 @@ function EnvironmentNotifications({
     strict: false,
   });
   const previous = useRef(new Map<ThreadId, NotificationState>());
+  const notifiedAutomationFailures = useRef(new Map<ThreadId, string>());
+  const automationToasts = useRef(new Map<ThreadId, string>());
+  const [foregroundVersion, refreshForeground] = useReducer((version: number) => version + 1, 0);
+
+  useEffect(() => {
+    const toasts = automationToasts.current;
+    window.addEventListener("focus", refreshForeground);
+    document.addEventListener("visibilitychange", refreshForeground);
+    return () => {
+      window.removeEventListener("focus", refreshForeground);
+      document.removeEventListener("visibilitychange", refreshForeground);
+      for (const id of toasts.values()) toastManager.close(id);
+    };
+  }, []);
 
   useEffect(() => {
     if (threads === null) {
@@ -133,8 +143,42 @@ function EnvironmentNotifications({
       if (rawThread.lineage.relationshipToParent === "subagent") continue;
       const prior = previous.current.get(rawThread.id);
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
+      const failure = rawThread.lastAutomationFailure;
+      const failureKey = failure ? `${rawThread.id}:${failure.messageId}` : null;
+      const viewingThread =
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        activeEnvironmentId === environmentId &&
+        activeThreadId === rawThread.id;
+      if (failureKey && viewingThread)
+        notifiedAutomationFailures.current.set(rawThread.id, failureKey);
+      const unreadFailure =
+        failure &&
+        rawThread.status === "failed" &&
+        rawThread.archivedAt === null &&
+        rawThread.settledOverride !== "settled" &&
+        (rawThread.snoozedUntil == null ||
+          DateTime.toEpochMillis(rawThread.snoozedUntil) <= Date.now()) &&
+        (rawThread.lastVisitedAt == null ||
+          Date.parse(failure.occurredAt) > DateTime.toEpochMillis(rawThread.lastVisitedAt));
+      const previousToast = automationToasts.current.get(rawThread.id);
+      if (previousToast && (!unreadFailure || viewingThread)) {
+        toastManager.close(previousToast);
+        automationToasts.current.delete(rawThread.id);
+      }
+      const automationFailure =
+        failure &&
+        failureKey &&
+        unreadFailure &&
+        notifiedAutomationFailures.current.get(rawThread.id) !== failureKey
+          ? failure
+          : null;
       // The same object cannot produce a new notification.
-      if (prior?.raw === rawThread && prior.subagentRequest === subagentRequest) {
+      if (
+        prior?.raw === rawThread &&
+        prior.subagentRequest === subagentRequest &&
+        !automationFailure
+      ) {
         next.set(rawThread.id, prior);
         continue;
       }
@@ -154,16 +198,18 @@ function EnvironmentNotifications({
           ? completedAt
           : (prior?.completion ?? null);
       next.set(thread.id, { raw: rawThread, subagentRequest, attention, completion });
-      if (!prior || thread.archivedAt !== null) continue;
+      // Unread automation failures survive disconnects and can first arrive already failed.
+      if ((!prior && !automationFailure) || thread.archivedAt !== null) continue;
       const kind =
-        attention && attention !== prior.attention
+        automationFailure || (attention && attention !== prior?.attention)
           ? "input"
-          : completion !== null && (prior.completion === null || completion > prior.completion)
+          : completion !== null && (prior?.completion == null || completion > prior.completion)
             ? "completion"
             : null;
       if (!kind) continue;
-      const title =
-        kind === "completion"
+      const title = automationFailure
+        ? "Automation failed"
+        : kind === "completion"
           ? "Thread completed"
           : status === "approval"
             ? "Approval needed"
@@ -172,21 +218,28 @@ function EnvironmentNotifications({
               : status === "failed"
                 ? "Thread failed"
                 : "Input needed";
-      if (hasNotificationSound(mode)) {
+      if (
+        hasNotificationSound(mode) &&
+        (!automationFailure ||
+          prior?.raw.lastAutomationFailure?.messageId !== automationFailure.messageId)
+      ) {
         void playNotificationSound(kind, () =>
           hasNotificationSound(getClientSettings().notificationMode),
         );
       }
       if (
-        inAppNotificationsEnabled &&
+        (inAppNotificationsEnabled || automationFailure) &&
         document.visibilityState === "visible" &&
         document.hasFocus() &&
         (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
       ) {
         const toastId = toastManager.add({
           type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
+          ...(automationFailure ? { timeout: 0 } : {}),
           title,
-          description: thread.title,
+          description: automationFailure
+            ? `${thread.title}. Open the chat for the cause and recovery steps.`
+            : thread.title,
           data: {
             hideCopyButton: true,
             leadingIcon:
@@ -211,6 +264,12 @@ function EnvironmentNotifications({
             },
           },
         });
+        if (automationFailure && failureKey) {
+          const previousToast = automationToasts.current.get(rawThread.id);
+          if (previousToast) toastManager.close(previousToast);
+          automationToasts.current.set(rawThread.id, toastId);
+          notifiedAutomationFailures.current.set(rawThread.id, failureKey);
+        }
         continue;
       }
       if (
@@ -227,6 +286,8 @@ function EnvironmentNotifications({
           silent: true,
         });
         onNotification(environmentId, notification);
+        if (automationFailure && failureKey)
+          notifiedAutomationFailures.current.set(rawThread.id, failureKey);
         notification.addEventListener("click", () => {
           notification.close();
           window.focus();
@@ -239,11 +300,18 @@ function EnvironmentNotifications({
         // Some browsers expose Notification but reject desktop presentation.
       }
     }
+    for (const [threadId, toastId] of automationToasts.current) {
+      if (next.has(threadId)) continue;
+      toastManager.close(toastId);
+      automationToasts.current.delete(threadId);
+    }
     previous.current = next;
   }, [
     activeEnvironmentId,
     activeThreadId,
     environmentId,
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Focus must recheck unread failures even when the shell has not changed.
+    foregroundVersion,
     inAppNotificationsEnabled,
     mode,
     navigate,

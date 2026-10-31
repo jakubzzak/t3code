@@ -480,6 +480,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.model-selection.set":
     case "provider-session.detach":
     case "message.dispatch":
+    case "scheduled-message.reject":
     case "notification.delivery.accept":
     case "prepared-run.release":
     case "prepared-run.progress":
@@ -4583,6 +4584,140 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         } satisfies PendingOrchestrationEffectV2,
       ]);
     });
+
+  const rejectScheduledMessage = Effect.fnUntraced(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "scheduled-message.reject" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+    if (projection.thread.deletedAt !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Cannot record an automation failure in a deleted thread.",
+      });
+    }
+    const now = yield* DateTime.now;
+    const ordinal = nextRunOrdinal(projection);
+    const runId = idAllocator.derive.run({ threadId: command.threadId, ordinal });
+    const emitEvent = emit(events, command);
+    yield* emitEvent({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      occurredAt: now,
+      payload: {
+        ...projection.thread,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        unsettledAt: now,
+        snoozedUntil: null,
+        updatedAt: now,
+        lastAutomationFailure: {
+          messageId: command.messageId,
+          message: command.failure.message,
+          occurredAt: DateTime.formatIso(now),
+        },
+      },
+    });
+    // This attempt never reached a provider, so it has no session, node or checkpoint.
+    // Keeping it separate also leaves an existing active run and its queue untouched.
+    yield* emitEvent({
+      type: "run.created",
+      threadId: command.threadId,
+      runId,
+      providerInstanceId: command.modelSelection.instanceId,
+      occurredAt: now,
+      payload: {
+        id: runId,
+        threadId: command.threadId,
+        ordinal,
+        providerInstanceId: command.modelSelection.instanceId,
+        modelSelection: command.modelSelection,
+        providerThreadId: null,
+        userMessageId: command.messageId,
+        rootNodeId: null,
+        activeAttemptId: null,
+        status: "failed",
+        queuePosition: null,
+        requestedAt: now,
+        startedAt: null,
+        completedAt: now,
+        checkpointId: null,
+        contextHandoffId: null,
+      },
+    });
+    yield* emitEvent({
+      type: "message.updated",
+      threadId: command.threadId,
+      runId,
+      occurredAt: now,
+      payload: {
+        id: command.messageId,
+        threadId: command.threadId,
+        runId,
+        nodeId: null,
+        role: "user",
+        text: command.text,
+        attachments: [],
+        streaming: false,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: command.createdBy,
+        creationSource: command.creationSource,
+        scheduledTaskId: command.scheduledTaskId,
+      },
+    });
+    const item = {
+      threadId: command.threadId,
+      runId,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      title: null,
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+    };
+    const itemOrdinal = yield* nextTurnItemOrdinal(projection);
+    yield* emitEvent({
+      type: "turn-item.updated",
+      threadId: command.threadId,
+      runId,
+      occurredAt: now,
+      payload: {
+        ...item,
+        id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
+        ordinal: itemOrdinal,
+        type: "user_message",
+        status: "completed",
+        messageId: command.messageId,
+        inputIntent: "turn_start",
+        text: command.text,
+        attachments: [],
+        createdBy: command.createdBy,
+        creationSource: command.creationSource,
+        scheduledTaskId: command.scheduledTaskId,
+      },
+    });
+    yield* emitEvent({
+      type: "turn-item.updated",
+      threadId: command.threadId,
+      runId,
+      occurredAt: now,
+      payload: {
+        ...item,
+        id: idAllocator.derive.runSignalTurnItem({ runId, signal: "automation-rejected" }),
+        ordinal: itemOrdinal + 1,
+        type: "error",
+        title: "Automation failed",
+        status: "failed",
+        failure: command.failure,
+      },
+    });
+  });
 
   const dispatchMessage = (
     command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
@@ -11125,6 +11260,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       case "notification.delivery.accept":
         yield* dispatchNotificationAccepted(command, events);
+        break;
+      case "scheduled-message.reject":
+        yield* rejectScheduledMessage(command, events);
         break;
       case "prepared-run.release":
         yield* dispatchPreparedRunRelease(command, events, effects);

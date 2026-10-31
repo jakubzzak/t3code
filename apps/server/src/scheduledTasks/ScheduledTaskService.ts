@@ -166,6 +166,10 @@ export type WebhookTriggerResult =
   | { readonly _tag: "expired" };
 
 const decodeTask = Schema.decodeUnknownEffect(ScheduledTask);
+const isThreadLaunchError = Schema.is(ThreadLaunchService.ThreadLaunchError);
+const isProviderDisabledError = Schema.is(
+  ThreadManagementService.ThreadManagementProviderInstanceDisabledError,
+);
 const decodeTaskId = Schema.decodeUnknownOption(ScheduledTaskId);
 const decodeScheduleJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.schedule),
@@ -297,7 +301,7 @@ function nextRunAt(
 }
 
 function errorMessage(error: unknown): string {
-  if (Cause.isCause(error)) return Cause.pretty(error);
+  if (Cause.isCause(error)) return errorMessage(Cause.squash(error));
   if (error instanceof Error) return error.message;
   return String(error);
 }
@@ -864,6 +868,7 @@ export const layer = Layer.effect(
             : `${active.id}:webhook:${webhook.deliveryId}`;
         const commandId = CommandId.make(`scheduled-task:${fireKey}`);
         const messageId = MessageId.make(`scheduled-task-message:${fireKey}`);
+        const launchThreadId = ThreadId.make(`${commandId}:thread`);
         // Dispatch from the fresh row so prompt/model/binding edits made
         // after the poll read are honoured. A webhook prompt was rendered
         // from the row when the request arrived.
@@ -877,6 +882,7 @@ export const layer = Layer.effect(
             ? yield* Effect.exit(
                 threadLaunch.launch({
                   commandId,
+                  threadId: launchThreadId,
                   projectId: active.projectId,
                   title: active.title,
                   modelSelection: active.modelSelection,
@@ -913,7 +919,76 @@ export const layer = Layer.effect(
         const completedAt = yield* localNow;
         const runSucceeded = result._tag === "Success";
         const lastRunStatus = runSucceeded ? ("succeeded" as const) : ("failed" as const);
-        const lastRunError = runSucceeded ? null : errorMessage(result.cause);
+        let lastRunError = runSucceeded ? null : errorMessage(result.cause);
+        if (result._tag === "Failure") {
+          const error = Cause.squash<unknown>(result.cause);
+          const disabled = isThreadLaunchError(error) ? error.cause : error;
+          const providerDisabled = isProviderDisabledError(disabled);
+          if (providerDisabled) {
+            const settings = yield* serverSettings.getSettings;
+            const provider = settings.providerInstances[disabled.instanceId];
+            const providerName = provider?.displayName ?? disabled.instanceId;
+            lastRunError = `Automation couldn't start because ${providerName} is disabled for this project. Enable ${providerName} in Settings → Providers, or choose an enabled provider in this automation's settings, then use Run now to retry.`;
+          } else {
+            lastRunError = `Automation couldn't start. ${lastRunError} Check this automation's settings, then use Run now to retry.`;
+          }
+          const failureMessage = lastRunError;
+          yield* Effect.gen(function* () {
+            const bound = yield* threadManagement.getThreadShell(
+              active.threadId === null ? launchThreadId : ThreadId.make(active.threadId),
+            );
+            const threadId =
+              // A separate failure chat keeps ongoing work and its notifications intact.
+              bound !== null &&
+              bound.deletedAt === null &&
+              bound.activeRunId === null &&
+              bound.projectId === active.projectId
+                ? bound.id
+                : ThreadId.make(`${commandId}:failure`);
+            if (bound === null || threadId !== bound.id) {
+              yield* threadManagement.dispatch({
+                type: "thread.create",
+                commandId: CommandId.make(`${commandId}:failure-thread`),
+                threadId,
+                projectId: active.projectId,
+                title: active.title,
+                modelSelection: active.modelSelection,
+                runtimeMode: active.runtimeMode,
+                interactionMode: active.interactionMode,
+                branch: null,
+                worktreePath: null,
+                createdBy: active.createdBy,
+                creationSource: active.creationSource,
+              });
+            }
+            yield* threadManagement.dispatch({
+              type: "scheduled-message.reject",
+              commandId: CommandId.make(`${commandId}:failure-message`),
+              threadId,
+              messageId: MessageId.make(`${messageId}:failure`),
+              scheduledTaskId: active.id,
+              text: prompt,
+              modelSelection: active.modelSelection,
+              failure: {
+                class: "validation_error",
+                code: providerDisabled
+                  ? "automation_provider_disabled"
+                  : "automation_dispatch_failed",
+                message: failureMessage,
+                retryable: false,
+              },
+              createdBy: active.createdBy,
+              creationSource: active.creationSource,
+            });
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Could not record automation failure in chat", {
+                taskId: active.id,
+                cause,
+              }),
+            ),
+          );
+        }
         // Re-read the task so the next run is computed from the schedule as it
         // is *now* (the user may have edited or deleted it while we ran).
         const current = yield* findTask(task.id);
