@@ -94,17 +94,27 @@ async function guestMessage(channel: string) {
   await act(async () => guest.dispatchEvent(Object.assign(new Event("ipc-message"), { channel })));
 }
 
-it.each(["t3:preview-pointerdown", "t3:preview-escape"])(
-  "dismisses the host menu on %s even without a new guest focus event",
-  async (channel) => {
-    await openMenu();
-    await guestMessage(channel);
-    expect(menu()).toBeNull();
-    await openMenu();
-    await guestMessage(channel);
-    expect(menu()).toBeNull();
-  },
-);
+it("dismisses the host menu on guest pointer presses without a new focus event", async () => {
+  await openMenu();
+  await guestMessage("t3:preview-pointerdown");
+  expect(menu()).toBeNull();
+  await openMenu();
+  await guestMessage("t3:preview-pointerdown");
+  expect(menu()).toBeNull();
+});
+
+it("does not replay guest Escape into an open host menu", async () => {
+  await openMenu();
+  const key = vi.fn();
+  document.addEventListener("keydown", key);
+  try {
+    await guestMessage("t3:preview-escape");
+    expect(key).not.toHaveBeenCalled();
+    expect(menu()).not.toBeNull();
+  } finally {
+    document.removeEventListener("keydown", key);
+  }
+});
 
 it("leaves guest Escape out of host shortcuts when no menu is open", async () => {
   const key = vi.fn();
@@ -147,12 +157,30 @@ it("ignores unrelated guest messages while the menu is open", async () => {
   expect(menu()).not.toBeNull();
 });
 
-it.each(["t3:preview-pointerdown", "t3:preview-escape"])(
-  "does not let a hidden guest dismiss the active menu through %s",
-  async (channel) => {
-    await act(async () => useBrowserSurfaceStore.getState().release("tab", surfaceOwner));
-    await openMenu();
-    await guestMessage(channel);
-    expect(menu()).not.toBeNull();
-  },
-);
+it("does not let a hidden guest dismiss the active menu", async () => {
+  await act(async () => useBrowserSurfaceStore.getState().release("tab", surfaceOwner));
+  await openMenu();
+  await guestMessage("t3:preview-pointerdown");
+  expect(menu()).not.toBeNull();
+});
+
+it("closes the focused Appearance submenu before the root menu on host Escape", async () => {
+  await openMenu();
+  const appearance = document.querySelector<HTMLElement>('[data-slot="menu-sub-trigger"]')!;
+  await act(async () => {
+    appearance.focus();
+    appearance.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+    );
+  });
+  const submenu = () => document.querySelector('[data-slot="menu-sub-content"][data-open]');
+  expect(submenu()).not.toBeNull();
+  await act(async () => {
+    submenu()!.querySelector<HTMLElement>('[role="menuitemradio"]')!.focus();
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+  });
+  expect(submenu()).toBeNull();
+  expect(menu()).not.toBeNull();
+});

@@ -222,18 +222,6 @@ export function HostedBrowserWebview(props: {
         if (useBrowserSurfaceStore.getState().byTabId[runtimeTabId]?.visible) dismissHostPopups();
         return;
       }
-      if (event.channel === "t3:preview-escape") {
-        // Leave page Escape and section navigation alone without a host menu.
-        if (
-          useBrowserSurfaceStore.getState().byTabId[runtimeTabId]?.visible &&
-          document.querySelector('[data-slot="menu-popup"][data-open]')
-        ) {
-          webview.dispatchEvent(
-            new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-          );
-        }
-        return;
-      }
       if (event.channel !== "t3:release-section-focus") return;
       if (document.activeElement !== webview) return;
       releaseBrowserSectionFocus();
