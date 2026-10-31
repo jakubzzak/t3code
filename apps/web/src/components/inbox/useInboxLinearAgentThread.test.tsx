@@ -45,7 +45,7 @@ function Harness({
     notificationId: "notification",
     commentId,
     initialIdentity: preview
-      ? { rootCommentId: "root", sessionId: "session", agentId: "agent", agentName: "Tars" }
+      ? { rootCommentId: commentId, sessionId: "session", agentId: "agent", agentName: "Tars" }
       : undefined,
     element,
   });
@@ -179,3 +179,35 @@ it("uses preview identity during a pending or failed lookup without implying wor
   await act(async () => root.render(<Harness preview />));
   expect(container.textContent).toBe("Working");
 });
+
+it("preserves preview identity when reopening with a cached no-session result", async () => {
+  state.data = null;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Ordinary");
+  await act(async () => root.render(null));
+  await act(async () => vi.advanceTimersByTime(1_000));
+  state.isPending = true;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Idle");
+  state.isPending = false;
+  state.dataUpdatedAt = Date.now();
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Ordinary");
+});
+
+it.each(["agent", "no-session"])(
+  "uses the new target's preview while the previous target has a cached %s result",
+  async (result) => {
+    if (result === "no-session") state.data = null;
+    await act(async () => root.render(<Harness preview />));
+    await act(async () => vi.advanceTimersByTime(1_000));
+    state.isPending = true;
+    await act(async () => root.render(<Harness commentId="new-root" preview />));
+    expect(container.textContent).toBe("Idle");
+    state.isPending = false;
+    state.data = null;
+    state.dataUpdatedAt = Date.now();
+    await act(async () => root.render(<Harness commentId="new-root" preview />));
+    expect(container.textContent).toBe("Ordinary");
+  },
+);

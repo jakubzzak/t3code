@@ -52,8 +52,30 @@ export function useInboxLinearAgentThread({
         })
       : null,
   );
+  const [destination, setDestination] = useState({
+    environmentId,
+    projectId,
+    notificationId,
+    commentId,
+    since: 0,
+  });
+  if (
+    destination.environmentId !== environmentId ||
+    destination.projectId !== projectId ||
+    destination.notificationId !== notificationId ||
+    destination.commentId !== commentId
+  ) {
+    setDestination({
+      environmentId,
+      projectId,
+      notificationId,
+      commentId,
+      since: query.dataUpdatedAt + 1,
+    });
+  }
+  const observedSince = Math.max(visibility.since, destination.since);
   const refresh = useEffectEvent((onArrival: boolean) => {
-    if (!query.isPending && (!onArrival || query.dataUpdatedAt < visibility.since)) query.refresh();
+    if (!query.isPending && (!onArrival || query.dataUpdatedAt < observedSince)) query.refresh();
   });
   useEffect(() => {
     if (!enabled) return;
@@ -64,7 +86,7 @@ export function useInboxLinearAgentThread({
     }, 10_000);
     return () => window.clearInterval(timer);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A destination or source-thread change must replace the status timer.
-  }, [enabled, visibility.since, environmentId, projectId, notificationId, commentId]);
+  }, [enabled, observedSince, environmentId, projectId, notificationId, commentId]);
   const [expiredResponse, setExpiredResponse] = useState(0);
   useEffect(() => {
     if (!enabled || !query.dataUpdatedAt) return;
@@ -77,14 +99,13 @@ export function useInboxLinearAgentThread({
   }, [enabled, query.dataUpdatedAt]);
   // Preview identity is durable; only a fresh activity observation may indicate work.
   const observed = query.data?.commentId === commentId ? query.data : null;
-  const thread = observed ?? (!query.isSuccess && commentId ? (initialIdentity ?? null) : null);
+  const fresh = query.isSuccess && query.dataUpdatedAt >= observedSince;
+  // A cached null or another target's response cannot invalidate this preview on arrival.
+  const noSession = fresh && query.data === null;
+  const thread = observed ?? (!noSession && commentId ? (initialIdentity ?? null) : null);
   return {
     thread,
     working:
-      enabled &&
-      query.isSuccess &&
-      observed?.status === "active" &&
-      query.dataUpdatedAt >= visibility.since &&
-      query.dataUpdatedAt > expiredResponse,
+      enabled && fresh && observed?.status === "active" && query.dataUpdatedAt > expiredResponse,
   };
 }

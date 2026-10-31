@@ -29,3 +29,9 @@ Any wire additions are optional and additive. Older cached records and clients s
 ## Open questions
 
 None blocking. “Original preview” refers to the existing original source-content view, including its latest-comment preview; the compact Inbox list and AI summary are not being redesigned.
+
+## Verification findings
+
+Testit on implementation `03d808d2a5` (2026-10-31) found an acceptance-criteria 1/4 defect: a cached no-session activity result suppressed verified identity while reopening. The follow-up scopes freshness to the current preview visit and destination, preserving initial identity until a fresh result arrives. Fresh authoritative no-session results still remove the label. Regression tests cover cached agent/null results on target changes and a real query-cache lifecycle through reopening, pending refresh, fresh null and active recovery.
+
+The follow-up has 67 passing focused tests. Local browser checks cover initial identity, cached-null reopening with a synthetic 20-second activity delay, human avatars, history, keyboard interaction, narrow layout, and activity failure/recovery. Native desktop, remote/relay, live Linear, and mixed-version rollout remain unverified. The query-cache regression is automated; full client/server browser verification uses the repository's Browser workflow rather than a checked-in end-to-end test. Evidence and release instructions are maintained on PR #64.
