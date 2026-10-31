@@ -101,9 +101,9 @@ it("navigates file history before a focused shadow editor can indent the file", 
   expect((await press(editor, "[")).defaultPrevented).toBe(true);
   expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, ref)).toBe("files");
   await press(editor, "]");
-  expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, ref)?.id).toBe(
-    "file:alpha.txt",
-  );
+  expect(
+    selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, ref),
+  ).toMatchObject({ kind: "file", relativePath: "alpha.txt" });
   expect(indent).not.toHaveBeenCalled();
   expect(editor.value).toBe("Keep this file unchanged");
   expect(back).not.toHaveBeenCalled();

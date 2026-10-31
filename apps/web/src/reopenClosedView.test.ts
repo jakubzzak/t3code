@@ -45,6 +45,38 @@ beforeEach(() => {
 });
 
 describe("reopenClosedView", () => {
+  it.each(["file", "files"] as const)(
+    "restores a navigated %s tab without replacing its active peer",
+    async (kind) => {
+      const panels = useRightPanelStore.getState();
+      panels.openFile(threadRef, "peer.txt");
+      const before = selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        threadRef,
+      );
+      const surface =
+        kind === "files"
+          ? { kind, id: "file:original.txt" as const }
+          : {
+              kind,
+              id: "files" as const,
+              relativePath: "visited.txt",
+              revealLine: 7,
+              revealRequestId: 2,
+            };
+      await reopenClosedView(
+        { kind: "panel-tab", threadRef, surface },
+        { openPreview: vi.fn(), workspaceAvailable: true },
+      );
+      const after = selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        threadRef,
+      );
+      expect(after.surfaces).toEqual([...before.surfaces, surface]);
+      expect(after.activeSurfaceId).toBe(surface.id);
+    },
+  );
+
   it("restores a file tab at its line without creating a browser session", async () => {
     const openPreview = vi.fn();
     const reopened = await reopenClosedView(

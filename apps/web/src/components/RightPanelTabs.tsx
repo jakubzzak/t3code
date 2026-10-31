@@ -1312,7 +1312,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             <SortableTabList surfaces={props.surfaces} onMove={props.onMoveSurface}>
               {props.surfaces.map((surface) => {
                 const active = surface.id === props.activeSurfaceId;
-                const pending = props.pendingSurfaceIds.has(surface.id);
+                const pending =
+                  surface.kind !== "files" &&
+                  props.pendingSurfaceIds.has(
+                    surface.kind === "file" && !surface.attachment
+                      ? `file:${surface.relativePath}`
+                      : surface.id,
+                  );
                 const snapshot =
                   surface.kind === "preview" && surface.resourceId
                     ? props.previewSessions[surface.resourceId]

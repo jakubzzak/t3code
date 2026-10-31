@@ -11,6 +11,7 @@ Add file navigation history to the shared web and desktop file viewer in draft a
 ## Required behavior
 
 - From Files, open file A. Back returns to Files, Forward returns to A, and Back returns to Files again. File selection continues to open the file directly.
+- Back and Forward replace the content within the active tab. They preserve its identity and position, never add a Files/file tab or activate or modify a peer tab. Selecting another workspace file or the workspace root also reuses the active Files/file tab, including when the selected file is already displayed in a peer. Opening a file while a different kind of surface is active retains the existing open/activate behavior.
 - Record visits between files, including files opened through the file picker, workspace search, links, breadcrumbs, and existing file tabs. For Files → A → B, Back shows A, Back shows Files, and Forward shows A then B.
 - The shortcuts work with focus inside the file editor, including its text selection. They navigate once and do not indent, change, or save file content as a side effect.
 - Returning to Files retains its search query, expanded folders, selection and scroll position. The selected file can be opened again by clicking it.
@@ -29,6 +30,7 @@ Add file navigation history to the shared web and desktop file viewer in draft a
 5. Return to Files and click its already-selected file. The file opens again. Close an unrelated file and verify navigation does not reopen it unexpectedly.
 6. Check browser, terminal, composer and keybinding-capture focus: each retains its existing shortcut behavior. A custom Back/Forward binding also navigates file history while the editor has focus.
 7. Enter a query in the side explorer, explicitly open another file, close/reopen the panel, switch to another chat and return. The original query remains. A second chat starts empty and retains its own query; manually clearing either query remains effective after reopening.
+8. With file and other peer tabs open, press Back from a file to Files and Forward again. Tab count, order and active tab identity stay unchanged; only that tab's content/title change. Repeat between files and when selecting another file or the workspace root, including a file already displayed in a peer tab; that peer remains untouched. Closing/reopening a navigated tab and restored tabs continue to work.
 
 ## Constraints and decisions
 

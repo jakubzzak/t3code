@@ -11206,7 +11206,7 @@ export default function ChatView(props: ChatViewProps) {
           onPendingChange={handleFilePendingChangeStable}
           selectedFilePending={
             renderedRightPanelSurface.kind === "file" &&
-            pendingFileSurfaceIds.has(renderedRightPanelSurface.id)
+            pendingFileSurfaceIds.has(`file:${renderedRightPanelSurface.relativePath}`)
           }
           workspaceMutationId={workspaceMutationId}
         />

@@ -31,6 +31,149 @@ beforeEach(() => {
 });
 
 describe("rightPanelStore", () => {
+  it("selects a file already in a peer without switching tabs or modifying that peer", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "alpha.txt");
+    store.open(refA, "diff");
+    store.openFile(refA, "beta.txt");
+    const before = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    store.openFile(refA, "alpha.txt", 14);
+    const after = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(after.activeSurfaceId).toBe(before.activeSurfaceId);
+    expect(after.surfaces.map((surface) => surface.id)).toEqual(
+      before.surfaces.map((surface) => surface.id),
+    );
+    expect(after.surfaces.slice(0, 2)).toEqual(before.surfaces.slice(0, 2));
+    expect(after.surfaces[2]).toMatchObject({ relativePath: "alpha.txt", revealLine: 14 });
+  });
+
+  it("preserves an inactive navigated Files tab when opening an attachment", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "alpha.txt");
+    store.navigateFileHistory(refA, -1);
+    store.open(refA, "diff");
+    store.openAttachment(refA, {
+      type: "file",
+      id: "report",
+      name: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 42,
+    });
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+    ).toMatchObject([
+      { id: "file:alpha.txt", kind: "files" },
+      { id: "diff" },
+      { id: "attachment:report" },
+    ]);
+  });
+
+  it("selects files and workspace root in the same tab, preserving peers and history", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.openFile(refA, "alpha.txt");
+    const before = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    store.openFile(refA, "beta.txt", 12);
+    store.openFile(refA, ".");
+    const root = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(root.surfaces.map((surface) => surface.id)).toEqual(
+      before.surfaces.map((surface) => surface.id),
+    );
+    expect(root.activeSurfaceId).toBe(before.activeSurfaceId);
+    expect(root.surfaces[0]).toEqual(before.surfaces[0]);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+    store.navigateFileHistory(refA, -1);
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ relativePath: "beta.txt", revealLine: 12 });
+    store.navigateFileHistory(refA, -1);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual(
+      before,
+    );
+  });
+
+  it("renders prior files in the active tab without modifying or activating peer tabs", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "alpha.txt");
+    store.open(refA, "diff");
+    store.openFile(refA, "beta.txt");
+    const before = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    store.navigateFileHistory(refA, -1);
+    const back = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(back.activeSurfaceId).toBe(before.activeSurfaceId);
+    expect(back.surfaces).toEqual([
+      before.surfaces[0],
+      before.surfaces[1],
+      {
+        ...before.surfaces[0],
+        id: before.activeSurfaceId,
+      },
+    ]);
+    store.navigateFileHistory(refA, 1);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual(
+      before,
+    );
+  });
+
+  it("opens by current file path from another surface after history changed a tab's content", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "alpha.txt");
+    store.openFile(refA, "beta.txt");
+    store.navigateFileHistory(refA, -1);
+    store.open(refA, "diff");
+    store.openFile(refA, "beta.txt");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toHaveLength(3);
+    expect(new Set(state.surfaces.map((surface) => surface.id)).size).toBe(3);
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({
+      kind: "file",
+      relativePath: "beta.txt",
+    });
+    expect(state.surfaces[0]).toMatchObject({ id: "file:alpha.txt", relativePath: "alpha.txt" });
+  });
+
+  it("reopens the selected file inside the explorer tab without moving its peers", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "alpha.txt");
+    store.open(refA, "diff");
+    store.activateSurface(refA, "file:alpha.txt");
+    useRightPanelStore.setState({ fileNavigationByThreadKey: {} });
+    store.navigateFileHistory(refA, -1);
+    store.openFile(refA, "alpha.txt");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual(["file:alpha.txt", "diff"]);
+    expect(state.activeSurfaceId).toBe("file:alpha.txt");
+    expect(state.surfaces[0]).toMatchObject({ kind: "file", relativePath: "alpha.txt" });
+  });
+
+  it("keeps the same tab and its peers when returning to Files and forward again", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.openFile(refA, "README.md");
+    store.openBrowser(refA, "peer");
+    store.activateSurface(refA, "file:README.md");
+    useRightPanelStore.setState({ fileNavigationByThreadKey: {} });
+    const before = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+
+    store.navigateFileHistory(refA, -1);
+    const back = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(back.surfaces.map((surface) => surface.id)).toEqual(
+      before.surfaces.map((surface) => surface.id),
+    );
+    expect(back.activeSurfaceId).toBe(before.activeSurfaceId);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+    expect(back.surfaces[0]).toEqual(before.surfaces[0]);
+    expect(back.surfaces[2]).toEqual(before.surfaces[2]);
+
+    store.navigateFileHistory(refA, 1);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual(
+      before,
+    );
+    expect(useClosedViewStore.getState().entries).toEqual([]);
+  });
+
   it("can return to Files from a restored file tab before any new visit", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "README.md");
@@ -38,9 +181,9 @@ describe("rightPanelStore", () => {
     store.navigateFileHistory(refA, -1);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
     store.navigateFileHistory(refA, 1);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
-      "file:README.md",
-    );
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "file", relativePath: "README.md" });
   });
 
   it("bounds each thread's history and removes it with the thread", () => {
@@ -60,9 +203,9 @@ describe("rightPanelStore", () => {
     expect(store.navigateFileHistory(refA, -1)).toBe(true);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
     expect(store.navigateFileHistory(refA, 1)).toBe(true);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
-      "file:src/app.ts",
-    );
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "file", relativePath: "src/app.ts" });
     store.navigateFileHistory(refA, -1);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
     expect(useClosedViewStore.getState().entries).toEqual([]);
@@ -72,20 +215,15 @@ describe("rightPanelStore", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "src/first.ts");
     store.openFile(refA, "src/second.ts");
-    store.activateSurface(refA, "file:src/first.ts");
     store.navigateFileHistory(refA, -1);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
-      "file:src/second.ts",
-    );
-    store.navigateFileHistory(refA, -1);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
-      "file:src/first.ts",
-    );
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "file", relativePath: "src/first.ts" });
     store.openFile(refA, "src/third.ts");
     store.navigateFileHistory(refA, 1);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
-      "file:src/third.ts",
-    );
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "file", relativePath: "src/third.ts" });
     store.navigateFileHistory(refA, -1);
     store.navigateFileHistory(refA, -1);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
@@ -124,21 +262,23 @@ describe("rightPanelStore", () => {
   it("skips explicitly closed files and does not add repeated opens to history", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "first.ts");
+    store.open(refA, "diff");
     store.openFile(refA, "second.ts");
     store.openFile(refA, "second.ts", 10);
+    store.open(refA, "diff");
     store.openFile(refA, "third.ts");
     store.closeSurface(refA, "file:second.ts");
     store.navigateFileHistory(refA, -1);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
-      "file:first.ts",
-    );
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "file", relativePath: "first.ts" });
     store.navigateFileHistory(refA, -1);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
     store.navigateFileHistory(refA, 1);
     store.navigateFileHistory(refA, 1);
-    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
-      "file:third.ts",
-    );
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "file", relativePath: "third.ts" });
   });
 
   it("records single and bulk tab closes, newest first", () => {
@@ -775,43 +915,35 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("opens workspace-root links as the singleton files explorer", () => {
+  it("opens workspace-root links in the current file tab", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "README.md");
     store.openFile(refA, ".");
     store.openFile(refA, ".");
-    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
-    expect(state.activeSurfaceId).toBe("files");
-    expect(state.surfaces.map((surface) => surface.id)).toEqual(["file:README.md", "files"]);
-    store.closeSurface(refA, "files");
-    expect(
-      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).activeSurfaceId,
-    ).toBe("file:README.md");
-    store.openFile(refA, ".");
-    expect(
-      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).activeSurfaceId,
-    ).toBe("files");
-  });
-
-  it("replaces the standalone explorer with peer file surfaces", () => {
-    useRightPanelStore.getState().open(refA, "files");
-    useRightPanelStore.getState().openFile(refA, "src/index.ts");
-    useRightPanelStore.getState().openFile(refA, "src/index.ts");
-    useRightPanelStore.getState().openFile(refA, "README.md");
-
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "file:README.md",
+      surfaces: [{ id: "file:README.md", kind: "files" }],
+    });
+    store.closeSurface(refA, "file:README.md");
+    store.openFile(refA, ".");
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+    ).toEqual([{ id: "files", kind: "files" }]);
+  });
+
+  it("keeps successive file selections in the standalone explorer tab", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "files");
+    store.openFile(refA, "src/index.ts");
+    store.openFile(refA, "src/index.ts");
+    store.openFile(refA, "README.md");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "files",
       surfaces: [
         {
-          id: "file:src/index.ts",
-          kind: "file",
-          relativePath: "src/index.ts",
-          revealLine: null,
-          revealRequestId: 2,
-        },
-        {
-          id: "file:README.md",
+          id: "files",
           kind: "file",
           relativePath: "README.md",
           revealLine: null,
@@ -825,16 +957,17 @@ describe("rightPanelStore", () => {
     ["generated\\", "generated"],
     ["notes/meeting ", "notes/meeting"],
     [" notes/meeting", "notes/meeting"],
-  ])("keeps %j and %j in separate file tabs", (firstPath, secondPath) => {
+  ])("keeps %j and %j as distinct file visits", (firstPath, secondPath) => {
     useRightPanelStore.getState().openFile(refA, firstPath);
     useRightPanelStore.getState().openFile(refA, secondPath);
 
     expect(
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
-    ).toMatchObject([
-      { id: `file:${firstPath}`, relativePath: firstPath },
-      { id: `file:${secondPath}`, relativePath: secondPath },
-    ]);
+    ).toMatchObject([{ id: `file:${firstPath}`, relativePath: secondPath }]);
+    useRightPanelStore.getState().navigateFileHistory(refA, -1);
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ relativePath: firstPath });
   });
 
   it.each([
