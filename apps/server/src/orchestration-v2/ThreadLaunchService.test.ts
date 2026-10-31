@@ -388,6 +388,146 @@ it.effect.each(
   },
 );
 
+it.effect.each(
+  (["new", "existing", "settled", "archived", "busy"] as const).flatMap((target) =>
+    (["global", "project"] as const).map((scope) => ({ target, scope })),
+  ),
+)(
+  "shows a disabled-provider automation failure in a $target chat ($scope)",
+  ({ target, scope }) => {
+    const harness = makeHarness({ runSetup: () => Effect.never });
+    const layerScheduledTasks = ScheduledTasks.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          harness.layer,
+          NodeCrypto.layer,
+          Scheduler.layer,
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(EventSink.EventSinkV2)({}),
+        ),
+      ),
+    );
+    return Effect.gen(function* () {
+      const tasks = yield* ScheduledTasks.ScheduledTaskService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const existing =
+        target === "new"
+          ? null
+          : yield* launches.launch(
+              launchInput({
+                command: "command:failure-existing",
+                thread: "thread:failure-existing",
+                ...(target === "busy"
+                  ? {
+                      message: "Work already running",
+                      workspace: { type: "worktree", baseRef: "main" } as const,
+                    }
+                  : {}),
+              }),
+            );
+      yield* settings.updateSettings({
+        providerInstances: {
+          [modelSelection.instanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+            displayName: "Joel",
+            enabled: scope !== "global",
+            config: {},
+          },
+        },
+        ...(scope === "project"
+          ? {
+              projectSettingsOverrides: {
+                [projectId]: {
+                  providerInstances: { [modelSelection.instanceId]: { enabled: false } },
+                },
+              },
+            }
+          : {}),
+      });
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("scheduled-task:disabled-provider"),
+        title: "Morning brief",
+        prompt: "Prepare my morning brief.",
+        enabled: false,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId,
+        threadId: existing?.threadId ?? null,
+        workspaceStrategy: { type: "worktree", baseRef: "main" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      if (existing && (target === "settled" || target === "archived")) {
+        yield* threads.dispatch({
+          type: target === "settled" ? "thread.settle" : "thread.archive",
+          commandId: CommandId.make("command:close-before-failure"),
+          threadId: existing.threadId,
+        });
+      }
+      const result = yield* tasks.runNow({ id: task.id });
+      assert.equal(result.task.lastRunStatus, "failed");
+      if (target !== "archived") assert.include(result.task.lastRunError!, "Joel is disabled");
+      assert.include(result.task.lastRunError!, "Run now");
+      assert.notInclude(result.task.lastRunError!, "file://");
+      const shells = yield* threads.listProjectThreads({ projectId, includeSubagents: false });
+      assert.lengthOf(shells, target === "busy" ? 2 : 1);
+      const shell = shells.find((candidate) => candidate.status === "failed")!;
+      if (existing && target !== "busy") assert.equal(shell.id, existing.threadId);
+      assert.equal(shell.archivedAt, null);
+      assert.equal(shell.settledOverride, null);
+      assert.equal(shell.status, "failed");
+      assert.equal(shell.lastAutomationFailure?.message, result.task.lastRunError);
+      const projection = yield* threads.getThreadProjection(shell.id);
+      const wire = yield* encodeThreadProjection(projection);
+      assert.lengthOf(wire.runs, 1);
+      assert.equal(wire.runs[0]?.status, "failed");
+      assert.equal(wire.runs[0]?.startedAt, null);
+      assert.equal(wire.messages[0]?.text, task.prompt);
+      assert.equal(wire.messages[0]?.scheduledTaskId, task.id);
+      const error = wire.turnItems.find((item) => item.type === "error");
+      assert.equal(error?.failure.message, result.task.lastRunError);
+      assert.equal(
+        error?.failure.code,
+        target === "archived" ? "automation_dispatch_failed" : "automation_provider_disabled",
+      );
+      assert.lengthOf(wire.providerTurns, 0);
+      assert.lengthOf(wire.providerThreads, 0);
+      if (target !== "busy") assert.equal(harness.createWorktree.mock.calls.length, 0);
+      if (target === "existing" && scope === "global") {
+        const current = yield* settings.getSettings;
+        yield* settings.updateSettings({
+          providerInstances: {
+            ...current.providerInstances,
+            [modelSelection.instanceId]: {
+              ...current.providerInstances[modelSelection.instanceId]!,
+              enabled: true,
+            },
+          },
+        });
+        yield* TestClock.adjust("1 second");
+        const retried = yield* tasks.runNow({ id: task.id });
+        assert.equal(retried.task.lastRunStatus, "succeeded");
+        assert.equal(retried.task.lastRunError, null);
+        const recovered = yield* threads.getThreadProjection(shell.id);
+        assert.lengthOf(recovered.runs, 2);
+        assert.equal(recovered.runs[0]?.status, "failed");
+        assert.equal(recovered.runs[1]?.status, "starting");
+      }
+
+      if (target === "busy" && existing) {
+        const unchanged = yield* threads.getThreadProjection(existing.threadId);
+        assert.lengthOf(unchanged.runs, 1);
+        assert.equal(unchanged.runs[0]?.status, "preparing");
+        assert.equal(unchanged.messages[0]?.text, "Work already running");
+      }
+    }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
+  },
+);
+
 it.effect.each(["new", "busy"] as const)(
   "catches up a missed fixed-time automation through real thread services in a %s chat",
   (target) => {

@@ -12,6 +12,9 @@ const state = vi.hoisted(() => ({
   focused: true,
   visible: "visible",
   live: true,
+  hasThreads: true,
+  automationFailure: false,
+  visitedFailure: false,
   completedAt: null as string | null,
   archivedAt: null as string | null,
   input: false,
@@ -39,6 +42,15 @@ const SHELL_NOW = DateTime.makeUnsafe("2026-09-13T09:00:00.000Z");
 function mockThreadShell() {
   return {
     id: "thread-1",
+    ...(state.automationFailure
+      ? {
+          lastAutomationFailure: {
+            messageId: "failed-automation-message",
+            message: "Joel is disabled. Enable it and use Run now to retry.",
+            occurredAt: "2026-09-13T10:00:00.000Z",
+          },
+        }
+      : {}),
     projectId: "project-1",
     title: "Fix the login form",
     providerInstanceId: "codex",
@@ -83,7 +95,7 @@ function mockThreadShell() {
     archivedAt: state.archivedAt ? DateTime.makeUnsafe(state.archivedAt) : null,
     settledOverride: null,
     settledAt: null,
-    lastVisitedAt: null,
+    lastVisitedAt: state.visitedFailure ? DateTime.makeUnsafe("2026-09-13T11:00:00.000Z") : null,
     deletedAt: null,
   };
 }
@@ -91,6 +103,7 @@ function mockThreadShell() {
 // A delegated child changes while its parent's shell object stays the same.
 let stableParent: ReturnType<typeof mockThreadShell> | null = null;
 function mockThreads() {
+  if (!state.hasThreads) return [];
   if (state.delegatedChild === null) return [mockThreadShell()];
   stableParent ??= mockThreadShell();
   const child = {
@@ -169,6 +182,9 @@ beforeEach(() => {
     focused: true,
     visible: "visible",
     live: true,
+    hasThreads: true,
+    automationFailure: false,
+    visitedFailure: false,
     completedAt: null,
     archivedAt: null,
     input: false,
@@ -201,6 +217,97 @@ afterEach(async () => {
 });
 
 describe("thread notifications", () => {
+  it("shows unread automation failures with routine notifications off, including after reconnect", async () => {
+    state.inApp = false;
+    state.automationFailure = true;
+    state.turnError = true;
+    await render();
+    expect(state.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Automation failed",
+        timeout: 0,
+        description: expect.stringContaining("Joel is disabled"),
+      }),
+    );
+    state.live = false;
+    await render();
+    state.live = true;
+    await render();
+    expect(state.add).toHaveBeenCalledTimes(1);
+    expect(state.navigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps a missed automation failure pending until the app regains focus", async () => {
+    state.inApp = false;
+    state.automationFailure = true;
+    state.turnError = true;
+    state.focused = false;
+    await render();
+    expect(state.add).not.toHaveBeenCalled();
+    state.focused = true;
+    await act(() => window.dispatchEvent(new Event("focus")));
+    expect(state.add).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not notify again for an automation failure already read", async () => {
+    state.inApp = false;
+    state.automationFailure = true;
+    state.visitedFailure = true;
+    state.turnError = true;
+    await render();
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
+  it("clears the automation alert when the failed chat is opened from the sidebar", async () => {
+    state.inApp = false;
+    state.automationFailure = true;
+    state.turnError = true;
+    await render();
+    state.active = { environmentId: "env-1", threadId: "thread-1" };
+    await render();
+    expect(state.close).toHaveBeenCalledWith("toast-1");
+    expect(state.add).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears an automation alert when its chat leaves the active shell", async () => {
+    state.inApp = false;
+    state.automationFailure = true;
+    state.turnError = true;
+    await render();
+    state.hasThreads = false;
+    await render();
+    expect(state.close).toHaveBeenCalledWith("toast-1");
+  });
+
+  it("notifies when a newly created automation chat first appears already failed", async () => {
+    state.hasThreads = false;
+    await render();
+    state.hasThreads = true;
+    state.turnError = true;
+    state.automationFailure = true;
+    await render();
+    await render();
+    expect(state.add).toHaveBeenCalledTimes(1);
+    const toast = state.add.mock.calls[0]?.[0];
+    expect(toast).toEqual(expect.objectContaining({ title: "Automation failed", timeout: 0 }));
+    expect(state.navigate).not.toHaveBeenCalled();
+    toast?.actionProps.onClick();
+    expect(state.navigate).toHaveBeenCalledWith({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: "env-1", threadId: "thread-1" },
+    });
+  });
+
+  it("does not replay failed chats on initial connection or reconnection", async () => {
+    state.turnError = true;
+    await render();
+    state.live = false;
+    await render();
+    state.live = true;
+    await render();
+    expect(state.add).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])("keeps subagents silent with focus=%s", async (focused) => {
     state.subagent = true;
     state.focused = focused;

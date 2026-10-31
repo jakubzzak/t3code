@@ -1787,6 +1787,9 @@ function shellFromState(input: {
   readonly visibleItemCount: number;
 }): OrchestrationV2ThreadShell {
   return {
+    ...(input.state.thread.lastAutomationFailure === undefined
+      ? {}
+      : { lastAutomationFailure: input.state.thread.lastAutomationFailure }),
     createdBy: input.state.thread.createdBy,
     creationSource: input.state.thread.creationSource,
     id: input.state.thread.id,

@@ -80,6 +80,13 @@ Webhook tasks only run when their URL is called, so they can't be run
 immediately.
 On mobile, leaving an edited form asks before discarding unsaved changes.
 
+If an automation cannot start, its chat returns to the active list with the error, or a new chat
+is created if it has no available chat. A persistent in-app notification opens
+the failed chat, even with routine thread notifications turned off. Unread failures
+also appear when you return to the app. If the selected provider is
+disabled, enable it or edit the automation to use another provider, then choose
+**Run now**. Enabling a provider does not retry a failed occurrence automatically.
+
 Choose **Use an existing chat** under Workspace to continue the same conversation
 and checkout on every run. The chat picker includes resolved chats in the selected
 project; archived chats cannot be selected. Resolving a chat keeps its automation

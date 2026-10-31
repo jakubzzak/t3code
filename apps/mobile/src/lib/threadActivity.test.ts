@@ -444,6 +444,32 @@ describe("buildThreadFeed", () => {
     expect(presented.some((entry) => entry.type === "run-fold")).toBe(false);
   });
 
+  it("identifies a rejected automation with its recovery explanation", () => {
+    const message = "Joel is disabled. Enable Joel, then use Run now to retry.";
+    const entries = buildThreadFeed([
+      projected(
+        {
+          ...base("automation-failure", "2026-06-20T00:00:02.000Z", 1),
+          type: "error",
+          status: "failed",
+          title: "Automation failed",
+          failure: {
+            class: "validation_error",
+            message,
+            code: "automation_provider_disabled",
+            retryable: false,
+          },
+        },
+        0,
+      ),
+    ]);
+    const activity = entries.flatMap((entry) =>
+      entry.type === "activity-group" ? entry.activities : [],
+    )[0];
+    expect(activity).toMatchObject({ summary: "Automation failed", prominent: true });
+    expect(activity?.getFullDetail()).toContain(message);
+  });
+
   it("presents a usage-limit stop as a warning while preserving its explanation", () => {
     const message = "Plan usage limit reached. Try again after reset.";
     const entries = buildThreadFeed([
