@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import {
@@ -24,6 +24,9 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("~/assets/assetUrls", () => ({
   useAssetUrlState: () => ({ _tag: "Success", url: "/fixture-image.png" }),
+}));
+vi.mock("../media/MediaActions", () => ({
+  MediaActions: ({ children }: { children: ReactElement }) => children,
 }));
 vi.mock("~/hooks/useSettings", () => ({
   useClientSettings: (select: (settings: { timestampFormat: "locale" }) => unknown) =>
