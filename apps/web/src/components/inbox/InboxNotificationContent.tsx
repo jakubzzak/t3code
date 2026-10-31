@@ -337,14 +337,19 @@ function LinearIssueContent({
   const historyId = useId();
   const section = useRef<HTMLDivElement>(null);
   const target = notification.items.at(-1)?.replyTarget;
+  const commentId = target?.source === "linear" ? target.parentId : null;
+  const issue = loaded ?? initial;
+  const initialIdentity =
+    issue.comments.find((comment) => comment.id === commentId)?.agentThread ??
+    issue.comments.find((comment) => comment.agentThread?.rootCommentId === commentId)?.agentThread;
   const { thread: agentThread, working } = useInboxLinearAgentThread({
     environmentId,
     projectId: notification.projectId,
     notificationId: notification.id,
-    commentId: target?.source === "linear" ? target.parentId : null,
+    commentId,
+    initialIdentity,
     element: section,
   });
-  const issue = loaded ?? initial;
   const comments = issue.comments.filter((comment) => !comment.isArtificialAgentSessionRoot);
   const commentCount = issue.commentsComplete
     ? comments.length
@@ -411,7 +416,7 @@ function LinearIssueContent({
                   }
                 >
                   <BotIcon aria-hidden="true" />
-                  <span className={styles.linearAgentThreadLabel}>Agent thread</span>
+                  <span className={styles.linearAgentThreadLabel}>Agent</span>
                   <span aria-hidden="true">·</span>
                   <span className={styles.linearAgentName}>{agentThread.agentName}</span>
                   {working && <span className={styles.linearAgentWorking} aria-hidden="true" />}

@@ -31,13 +31,22 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const container = document.createElement("div");
 document.body.append(container);
 let root = createRoot(container);
-function Harness({ commentId = "root" }: { commentId?: string }) {
+function Harness({
+  commentId = "root",
+  preview = false,
+}: {
+  commentId?: string;
+  preview?: boolean;
+}) {
   const element = useRef<HTMLElement>(null);
   const { thread, working } = useInboxLinearAgentThread({
     environmentId: EnvironmentId.make("env"),
     projectId: ProjectId.make("project"),
     notificationId: "notification",
     commentId,
+    initialIdentity: preview
+      ? { rootCommentId: commentId, sessionId: "session", agentId: "agent", agentName: "Tars" }
+      : undefined,
     element,
   });
   return (
@@ -144,3 +153,61 @@ it("does not refresh or claim work while the headline is offscreen", async () =>
   );
   expect(container.textContent).toBe("Ordinary");
 });
+
+it("uses preview identity during a pending or failed lookup without implying work, and accepts a fresh no-session result", async () => {
+  state.data = null;
+  state.dataUpdatedAt = 0;
+  state.isPending = true;
+  state.isSuccess = false;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Idle");
+  state.isPending = false;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Idle");
+  state.isSuccess = true;
+  state.dataUpdatedAt = Date.now();
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Ordinary");
+  state.data = {
+    commentId: "root",
+    rootCommentId: "root",
+    sessionId: "session",
+    agentId: "agent",
+    agentName: "Tars",
+    status: "active",
+  };
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Working");
+});
+
+it("preserves preview identity when reopening with a cached no-session result", async () => {
+  state.data = null;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Ordinary");
+  await act(async () => root.render(null));
+  await act(async () => vi.advanceTimersByTime(1_000));
+  state.isPending = true;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Idle");
+  state.isPending = false;
+  state.dataUpdatedAt = Date.now();
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Ordinary");
+});
+
+it.each(["agent", "no-session"])(
+  "uses the new target's preview while the previous target has a cached %s result",
+  async (result) => {
+    if (result === "no-session") state.data = null;
+    await act(async () => root.render(<Harness preview />));
+    await act(async () => vi.advanceTimersByTime(1_000));
+    state.isPending = true;
+    await act(async () => root.render(<Harness commentId="new-root" preview />));
+    expect(container.textContent).toBe("Idle");
+    state.isPending = false;
+    state.data = null;
+    state.dataUpdatedAt = Date.now();
+    await act(async () => root.render(<Harness commentId="new-root" preview />));
+    expect(container.textContent).toBe("Ordinary");
+  },
+);

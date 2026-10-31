@@ -96,6 +96,82 @@ const notification: InboxNotification = {
   confirmedOutcome: null,
 };
 
+it.each(["Tars", "Nova"])(
+  "shows %s's identity in the original preview before activity loads and preserves it through history toggles",
+  async (agentName) => {
+    const agentThread = {
+      rootCommentId: "root",
+      sessionId: "session",
+      agentId: "agent-user",
+      agentName,
+    };
+    const comments = [
+      {
+        id: "agent-reply",
+        author: agentName,
+        authorId: "agent-user",
+        parentId: "root",
+        agentThread,
+        body: "Investigating",
+        occurredAt: "2026-10-31T10:00:00Z",
+      },
+      {
+        id: "human-reply",
+        author: "Tars",
+        authorId: "human-user",
+        parentId: "root",
+        agentThread,
+        body: "Please check",
+        occurredAt: "2026-10-31T10:01:00Z",
+      },
+    ];
+    const render = (parentId: string) =>
+      root.render(
+        <InboxSourceContent
+          notification={{
+            ...notification,
+            source: "linear",
+            items: [
+              {
+                ...notification.items[0]!,
+                source: "linear",
+                replyTarget: { source: "linear", issueId: "issue", parentId },
+              },
+            ],
+            linearIssue: {
+              id: "issue",
+              title: "Investigation",
+              description: null,
+              comments,
+              commentCount: 2,
+              commentsComplete: true,
+            },
+          }}
+        />,
+      );
+    await act(async () => render("root"));
+    const heading = container.querySelector('[role="status"]');
+    expect(heading?.textContent).toBe(`Agent·${agentName}`);
+    expect(heading?.getAttribute("aria-label")).toBe(`Agent thread with ${agentName}`);
+    expect(container.querySelector('[data-linear-comment="human-reply"] [role="img"]')).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Show all issue comments"]')!
+        .click(),
+    );
+    expect(container.querySelector(`[aria-label="${agentName} (agent)"]`)).not.toBeNull();
+    expect(container.querySelector('[data-linear-comment="human-reply"] [role="img"]')).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Show latest comment only"]')!
+        .click(),
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(`Agent·${agentName}`);
+    await act(async () => render("unrelated-root"));
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  },
+);
+
 it("hides only verified artificial session roots while preserving real comments and their count", async () => {
   const comments = [
     {

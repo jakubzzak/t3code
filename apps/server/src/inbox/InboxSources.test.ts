@@ -73,6 +73,7 @@ it.effect(
       let failLinearDetail = false;
       const linearIssue = {
         commentMetadataVersion: 1 as const,
+        agentMetadataVersion: 1 as const,
         id: "issue",
         title: "Review release",
         description: "Separated issue context",
@@ -438,6 +439,17 @@ it.effect(
         failLinearDetail = false;
         const upgraded = yield* service.get({ projectId, id: linearNotificationId });
         assert.equal(upgraded?.linearIssue?.commentMetadataVersion, 1);
+        const { agentMetadataVersion: _agentMetadataVersion, ...preIdentityIssue } = linearIssue;
+        threadNotification = { ...threadNotification!, linearIssue: preIdentityIssue };
+        const readsBeforeIdentity = linearDetailReads.length;
+        failLinearDetail = true;
+        const identityFallback = yield* service.get({ projectId, id: linearNotificationId });
+        assert.equal(identityFallback?.linearIssue?.comments[0]?.body, "Review");
+        failLinearDetail = false;
+        const withIdentity = yield* service.get({ projectId, id: linearNotificationId });
+        assert.equal(withIdentity?.linearIssue?.agentMetadataVersion, 1);
+        yield* service.get({ projectId, id: linearNotificationId });
+        assert.equal(linearDetailReads.length, readsBeforeIdentity + 2);
         threadNotification = null;
         assert.equal(yield* Ref.get(calls), 1);
         yield* settings.updateSettings({

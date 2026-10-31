@@ -5,9 +5,22 @@ import type {
   InboxLinearIssue,
   InboxLinearAgentThread,
 } from "@t3tools/contracts";
-const NativeId = Schema.NullOr(Schema.Struct({ id: Schema.String }));
+const AgentSessionIdentity = Schema.NullOr(
+  Schema.Struct({
+    id: Schema.String,
+    appUser: Schema.Struct({ id: Schema.String, name: Schema.String }),
+  }),
+);
 const CommentFields = Schema.Struct({
-  parent: Schema.optionalKey(NativeId),
+  agentSession: Schema.optionalKey(AgentSessionIdentity),
+  parent: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({
+        id: Schema.String,
+        agentSession: Schema.optionalKey(AgentSessionIdentity),
+      }),
+    ),
+  ),
   id: Schema.String,
   body: Schema.String,
   createdAt: Schema.String,
@@ -25,19 +38,34 @@ const CommentFields = Schema.Struct({
 });
 const Comment = Schema.NullOr(CommentFields);
 function formatComment(comment: typeof CommentFields.Type): InboxLinearComment {
+  const root = comment.parent ?? comment;
+  const session = root.agentSession;
   return {
     id: comment.id,
     body: comment.body,
     author: comment.user?.name || comment.botActor?.name || "Linear",
     ...(comment.user?.id ? { authorId: comment.user.id } : {}),
-    ...(comment.user?.supportsAgentSessions ? { authorIsAgent: true } : {}),
+    ...(comment.user?.supportsAgentSessions ||
+    (comment.user?.id && comment.user.id === session?.appUser.id)
+      ? { authorIsAgent: true }
+      : {}),
+    ...(session
+      ? {
+          agentThread: {
+            rootCommentId: root.id,
+            sessionId: session.id,
+            agentId: session.appUser.id,
+            agentName: session.appUser.name,
+          },
+        }
+      : {}),
     ...(comment.parent !== undefined ? { parentId: comment.parent?.id ?? null } : {}),
     ...(comment.isArtificialAgentSessionRoot ? { isArtificialAgentSessionRoot: true } : {}),
     occurredAt: comment.createdAt,
   };
 }
 const commentFields =
-  "id body createdAt user { id name supportsAgentSessions } botActor { name } parent { id } isArtificialAgentSessionRoot";
+  "id body createdAt user { id name supportsAgentSessions } botActor { name } parent { id agentSession { id appUser { id name } } } agentSession { id appUser { id name } } isArtificialAgentSessionRoot";
 /** Non-issue replies belong to their native parent thread, not every discussion on a project. */
 function commentTarget(comment: typeof CommentFields.Type) {
   return `comment:${comment.parent?.id ?? comment.id}`;
@@ -259,6 +287,7 @@ export async function readLinearInbox(
               },
               linearIssue: {
                 commentMetadataVersion: 1,
+                agentMetadataVersion: 1,
                 id: notification.issue.id,
                 title: notification.issue.title,
                 description: notification.issue.description,
@@ -354,6 +383,7 @@ export async function readLinearInbox(
                   },
                   linearIssue: {
                     commentMetadataVersion: 1,
+                    agentMetadataVersion: 1,
                     id: comment.issue.id,
                     title: comment.issue.title,
                     description: comment.issue.description,
@@ -473,6 +503,7 @@ export async function readLinearIssue(
     const commentCount = counts?.count;
     result = {
       commentMetadataVersion: 1,
+      agentMetadataVersion: 1,
       id: issue.id,
       title: issue.title,
       description: issue.description,
