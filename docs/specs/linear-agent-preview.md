@@ -18,7 +18,7 @@ Tracking: intentionally no separate Linear issue, confirmed on 2026-10-31. This 
 
 1. Opening a notification whose preview contains verified session metadata immediately shows the existing bot icon and **Agent · Tars**, before an activity response or history expansion. Another agent shows its own name.
 2. The initial agent comment uses the existing bot avatar, including when identity is supplied by the verified session. A human latest reply retains the thread label and its human avatar; same-name humans remain human.
-3. Ordinary or unrelated threads show no agent label. Missing metadata in old cached records remains readable and can recover through the existing live lookup or source refresh.
+3. Ordinary or unrelated threads show no agent label. Opening an old cached record refreshes missing identity metadata once, retains its content if that read fails, and retries on a later read. Fresh metadata then avoids repeated history reads. The existing live lookup remains a fallback.
 4. Fresh live status still controls the working indication; delayed, failed, inactive or expired status cannot make initial identity appear active. Opening/closing history and reopening the preview preserve correct identity and reply behavior.
 5. Normal and narrow layouts retain the current notification styling without overflow or an additional headline row. Inbox and Details render consistently.
 

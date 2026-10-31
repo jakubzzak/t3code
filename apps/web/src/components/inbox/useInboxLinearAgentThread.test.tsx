@@ -31,13 +31,22 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const container = document.createElement("div");
 document.body.append(container);
 let root = createRoot(container);
-function Harness({ commentId = "root" }: { commentId?: string }) {
+function Harness({
+  commentId = "root",
+  preview = false,
+}: {
+  commentId?: string;
+  preview?: boolean;
+}) {
   const element = useRef<HTMLElement>(null);
   const { thread, working } = useInboxLinearAgentThread({
     environmentId: EnvironmentId.make("env"),
     projectId: ProjectId.make("project"),
     notificationId: "notification",
     commentId,
+    initialIdentity: preview
+      ? { rootCommentId: "root", sessionId: "session", agentId: "agent", agentName: "Tars" }
+      : undefined,
     element,
   });
   return (
@@ -143,4 +152,30 @@ it("does not refresh or claim work while the headline is offscreen", async () =>
     ),
   );
   expect(container.textContent).toBe("Ordinary");
+});
+
+it("uses preview identity during a pending or failed lookup without implying work, and accepts a fresh no-session result", async () => {
+  state.data = null;
+  state.dataUpdatedAt = 0;
+  state.isPending = true;
+  state.isSuccess = false;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Idle");
+  state.isPending = false;
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Idle");
+  state.isSuccess = true;
+  state.dataUpdatedAt = Date.now();
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Ordinary");
+  state.data = {
+    commentId: "root",
+    rootCommentId: "root",
+    sessionId: "session",
+    agentId: "agent",
+    agentName: "Tars",
+    status: "active",
+  };
+  await act(async () => root.render(<Harness preview />));
+  expect(container.textContent).toBe("Working");
 });

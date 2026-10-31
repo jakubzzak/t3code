@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState, type RefObject } from "react";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, InboxLinearAgentIdentity } from "@t3tools/contracts";
 import { inboxEnvironment } from "~/state/inbox";
 import { useEnvironmentQuery } from "~/state/query";
 
@@ -9,12 +9,14 @@ export function useInboxLinearAgentThread({
   projectId,
   notificationId,
   commentId,
+  initialIdentity,
   element,
 }: {
   environmentId: EnvironmentId | undefined;
   projectId: ProjectId;
   notificationId: string;
   commentId: string | null;
+  initialIdentity?: InboxLinearAgentIdentity | undefined;
   element: RefObject<HTMLElement | null>;
 }) {
   const [visibility, setVisibility] = useState({ visible: false, since: 0 });
@@ -73,13 +75,15 @@ export function useInboxLinearAgentThread({
     );
     return () => window.clearTimeout(timer);
   }, [enabled, query.dataUpdatedAt]);
-  const thread = query.data?.commentId === commentId ? query.data : null;
+  // Preview identity is durable; only a fresh activity observation may indicate work.
+  const observed = query.data?.commentId === commentId ? query.data : null;
+  const thread = observed ?? (!query.isSuccess && commentId ? (initialIdentity ?? null) : null);
   return {
     thread,
     working:
       enabled &&
       query.isSuccess &&
-      thread?.status === "active" &&
+      observed?.status === "active" &&
       query.dataUpdatedAt >= visibility.since &&
       query.dataUpdatedAt > expiredResponse,
   };

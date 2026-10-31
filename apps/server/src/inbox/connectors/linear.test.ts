@@ -29,6 +29,58 @@ it("resolves an older notification's child comment to its actual agent-session r
   });
 });
 
+it.each(["Tars", "Nova"])(
+  "includes verified %s identity in the initial preview without an activity read",
+  async (agentName) => {
+    const session = { id: "session", appUser: { id: "agent-user", name: agentName } };
+    const calls: string[] = [];
+    const detail = await readLinearIssue(
+      async (query) => {
+        calls.push(query);
+        return {
+          data: {
+            issue: {
+              id: "issue",
+              title: "Investigation",
+              description: null,
+              latestComments: {
+                nodes: [
+                  {
+                    id: "human-reply",
+                    body: "Please check",
+                    createdAt: "2026-10-31T10:00:00Z",
+                    user: { id: "human-user", name: "Tars" },
+                    agentSession: null,
+                    parent: { id: "root", agentSession: session },
+                  },
+                ],
+              },
+              commentIndex: {
+                nodes: [{ id: "human-reply" }],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        };
+      },
+      "issue",
+      false,
+    );
+    expect(detail?.comments[0]).toMatchObject({
+      authorId: "human-user",
+      agentThread: {
+        rootCommentId: "root",
+        sessionId: "session",
+        agentId: "agent-user",
+        agentName,
+      },
+    });
+    expect(detail?.comments[0]).not.toHaveProperty("authorIsAgent", true);
+    expect(detail?.comments[0]).not.toHaveProperty("agentThread.status");
+    expect(calls).toHaveLength(1);
+  },
+);
+
 it("preserves verified agent authors and artificial session roots without classifying names or integrations", async () => {
   const detail = await readLinearIssue(
     async () => ({
@@ -166,6 +218,7 @@ it("retains non-issue notifications and the targeted comment plus its issue cont
   expect(items[0]?.content).toContain("Launch context");
   expect(items[0]?.linearIssue).toEqual({
     commentMetadataVersion: 1,
+    agentMetadataVersion: 1,
     id: "issue",
     title: "Launch",
     description: "Launch context",

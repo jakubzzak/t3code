@@ -479,6 +479,7 @@ export const make = Effect.gen(function* () {
           item.items.some((entry) => /^https:\/\/linear\.app\/[^/]+\/issue\//.test(entry.url));
         if (
           issue?.commentMetadataVersion === 1 &&
+          issue.agentMetadataVersion === 1 &&
           ((!input.loadPreviousComments && !isLegacyIssue && issue.commentCount !== undefined) ||
             issue.commentsComplete)
         )
@@ -490,6 +491,7 @@ export const make = Effect.gen(function* () {
             if (
               !current ||
               (current.linearIssue?.commentMetadataVersion === 1 &&
+                current.linearIssue.agentMetadataVersion === 1 &&
                 (current.linearIssue.commentsComplete ||
                   (!input.loadPreviousComments && current.linearIssue.commentCount !== undefined)))
             )

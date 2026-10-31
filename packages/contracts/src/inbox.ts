@@ -65,11 +65,19 @@ export const InboxSlackThread = Schema.Struct({
   nextCursor: Schema.NullOr(Schema.String),
 });
 export type InboxSlackThread = typeof InboxSlackThread.Type;
+export const InboxLinearAgentIdentity = Schema.Struct({
+  rootCommentId: Schema.String,
+  sessionId: Schema.String,
+  agentId: Schema.String,
+  agentName: Schema.String,
+});
+export type InboxLinearAgentIdentity = typeof InboxLinearAgentIdentity.Type;
 export const InboxLinearComment = Schema.Struct({
   id: Schema.String,
   author: Schema.String,
   authorId: Schema.optionalKey(Schema.String),
   authorIsAgent: Schema.optionalKey(Schema.Boolean),
+  agentThread: Schema.optionalKey(InboxLinearAgentIdentity),
   parentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   isArtificialAgentSessionRoot: Schema.optionalKey(Schema.Boolean),
   body: Schema.String,
@@ -84,16 +92,14 @@ export const InboxLinearIssue = Schema.Struct({
   commentCount: Schema.optionalKey(NonNegativeInt),
   hiddenCommentCount: Schema.optionalKey(NonNegativeInt),
   commentMetadataVersion: Schema.optionalKey(Schema.Literal(1)),
+  agentMetadataVersion: Schema.optionalKey(Schema.Literal(1)),
   commentsComplete: Schema.Boolean,
 });
 export type InboxLinearIssue = typeof InboxLinearIssue.Type;
 
 export const InboxLinearAgentThread = Schema.Struct({
+  ...InboxLinearAgentIdentity.fields,
   commentId: Schema.String,
-  rootCommentId: Schema.String,
-  sessionId: Schema.String,
-  agentId: Schema.String,
-  agentName: Schema.String,
   // Unknown future statuses remain readable, but never imply active work.
   status: Schema.String,
 });
