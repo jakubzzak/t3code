@@ -281,7 +281,7 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-.linearAgentAvatar {
+.slackAvatar.linearAgentAvatar {
   border-radius: 0.25rem;
   background: color-mix(in srgb, var(--linear-agent-color) 15%, var(--muted));
   color: var(--linear-agent-color);
