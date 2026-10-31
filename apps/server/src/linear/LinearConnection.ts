@@ -17,13 +17,18 @@ import {
   type LinearDesktopRequest,
   type LinearDesktopResult,
   type LinearConnectionEnvelope,
+  type InboxLinearAgentThread,
 } from "@t3tools/contracts";
 import { createLinearConnection } from "@t3tools/shared/linearConnection";
 import { openLinearConnection } from "@t3tools/shared/linearConnectionTransfer";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Settings from "../serverSettings.ts";
 import * as Secrets from "../auth/ServerSecretStore.ts";
-import { readLinearInbox, readLinearIssue } from "../inbox/connectors/linear.ts";
+import {
+  readLinearInbox,
+  readLinearIssue,
+  readLinearAgentThread,
+} from "../inbox/connectors/linear.ts";
 
 declare const __T3CODE_BUILD_LINEAR_CLIENT_ID__: string | undefined;
 export const LINEAR_CALLBACK_PATH = "/oauth/linear/callback";
@@ -66,6 +71,10 @@ export class LinearConnection extends Context.Service<
       issueId: string,
       includeComments: boolean,
     ) => Effect.Effect<Awaited<ReturnType<typeof readLinearIssue>>, InboxError>;
+    readonly readAgentThread: (
+      projectId: ProjectId,
+      commentId: string,
+    ) => Effect.Effect<InboxLinearAgentThread | null, InboxError>;
   }
 >()("t3/linear/LinearConnection") {}
 export const layer = Layer.effect(
@@ -369,6 +378,20 @@ export const layer = Layer.effect(
             catch: wrap,
           });
           errors.delete(projectId);
+        }),
+      readAgentThread: (projectId, commentId) =>
+        Effect.gen(function* () {
+          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
+          return yield* Effect.tryPromise({
+            try: () =>
+              readLinearAgentThread(
+                (query, variables) =>
+                  getClient(projectId, linearClientId).query(projectId, slug, query, variables),
+                commentId,
+              ),
+            catch: (cause) =>
+              new InboxError({ detail: "Could not read the Linear agent session.", cause }),
+          });
         }),
       readIssue: (projectId, issueId, includeComments) =>
         Effect.gen(function* () {

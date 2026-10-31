@@ -17,6 +17,8 @@ import {
   InboxMutationResult,
   InboxNotification,
   InboxGetInput,
+  InboxLinearAgentThread,
+  InboxLinearAgentThreadInput,
   InboxReplyInput,
   InboxReplyAttempt,
 } from "./inbox.ts";
@@ -586,6 +588,7 @@ export const WS_METHODS = {
   inboxRefreshSource: "inbox.refreshSource",
   inboxList: "inbox.list",
   inboxGet: "inbox.get",
+  inboxLinearAgentThread: "inbox.linearAgentThread",
   inboxMutate: "inbox.mutate",
   inboxReply: "inbox.reply",
   pullRequestsReviewGuide: "pullRequests.reviewGuide",
@@ -1154,6 +1157,11 @@ const WsInboxListRpc = Rpc.make(WS_METHODS.inboxList, {
 const WsInboxGetRpc = Rpc.make(WS_METHODS.inboxGet, {
   payload: InboxGetInput,
   success: Schema.NullOr(InboxNotification),
+  error: InboxError,
+});
+const WsInboxLinearAgentThreadRpc = Rpc.make(WS_METHODS.inboxLinearAgentThread, {
+  payload: InboxLinearAgentThreadInput,
+  success: Schema.NullOr(InboxLinearAgentThread),
   error: InboxError,
 });
 const WsInboxReplyRpc = Rpc.make(WS_METHODS.inboxReply, {
@@ -2251,6 +2259,7 @@ export const WsInboxRpcGroup = RpcGroup.make(
   WsInboxSuperhumanCatalogRpc,
   WsInboxListRpc,
   WsInboxGetRpc,
+  WsInboxLinearAgentThreadRpc,
   WsInboxMutateRpc,
   WsInboxReplyRpc,
   WsInboxSourcesRpc,

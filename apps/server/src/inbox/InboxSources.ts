@@ -3,6 +3,8 @@ import * as Linear from "../linear/LinearConnection.ts";
 import * as Superhuman from "./SuperhumanConnection.ts";
 import * as Redacted from "effect/Redacted";
 import * as Clock from "effect/Clock";
+import * as Cache from "effect/Cache";
+import * as Data from "effect/Data";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -22,6 +24,8 @@ import {
   type InboxGetInput,
   type InboxNotification,
   type InboxSlackThread,
+  type InboxLinearAgentThread,
+  type InboxLinearAgentThreadInput,
   ProjectId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -30,6 +34,8 @@ import * as Secrets from "../auth/ServerSecretStore.ts";
 import * as Inbox from "./InboxService.ts";
 import * as Transport from "./InboxSourceTransport.ts";
 import { inboxHistorySince } from "./inboxHistory.ts";
+class AgentThreadKey extends Data.Class<{ projectId: ProjectId; commentId: string }> {}
+
 const sources: ReadonlyArray<InboxSource> = ["slack", "linear", "superhuman"];
 const empty = (projectId: ProjectId, source: InboxSource): InboxSourceConnection => ({
   projectId,
@@ -60,6 +66,9 @@ export class InboxSources extends Context.Service<
       fileId: string;
     }) => Effect.Effect<{ bytes: Uint8Array; mimeType: string }, InboxError>;
     readonly get: (input: InboxGetInput) => Effect.Effect<InboxNotification | null, InboxError>;
+    readonly linearAgentThread: (
+      input: InboxLinearAgentThreadInput,
+    ) => Effect.Effect<InboxLinearAgentThread | null, InboxError>;
     readonly beginSlack: (
       projectId: ProjectId,
       origin: string,
@@ -98,6 +107,12 @@ export const make = Effect.gen(function* () {
   const transport = yield* Transport.InboxSourceTransport;
   const superhuman = yield* Superhuman.SuperhumanConnection;
   const linear = yield* Linear.LinearConnection;
+  const agentThreads = yield* Cache.make({
+    capacity: 128,
+    timeToLive: "5 seconds",
+    lookup: ({ projectId, commentId }: { projectId: ProjectId; commentId: string }) =>
+      linear.readAgentThread(projectId, commentId),
+  });
   const slack = yield* Slack.SlackConnection;
   const locks = new Map<string, Semaphore.Semaphore>();
   const lock = (input: { projectId: ProjectId; source: InboxSource }) => {
@@ -463,8 +478,9 @@ export const make = Effect.gen(function* () {
           !issue &&
           item.items.some((entry) => /^https:\/\/linear\.app\/[^/]+\/issue\//.test(entry.url));
         if (
-          (!input.loadPreviousComments && !isLegacyIssue && issue?.commentCount !== undefined) ||
-          issue?.commentsComplete
+          issue?.commentMetadataVersion === 1 &&
+          ((!input.loadPreviousComments && !isLegacyIssue && issue.commentCount !== undefined) ||
+            issue.commentsComplete)
         )
           return item;
         if (!issue && !isLegacyIssue) return item;
@@ -473,15 +489,25 @@ export const make = Effect.gen(function* () {
             const current = yield* inbox.get(input);
             if (
               !current ||
-              current.linearIssue?.commentsComplete ||
-              (!input.loadPreviousComments && current.linearIssue?.commentCount !== undefined)
+              (current.linearIssue?.commentMetadataVersion === 1 &&
+                (current.linearIssue.commentsComplete ||
+                  (!input.loadPreviousComments && current.linearIssue.commentCount !== undefined)))
             )
               return current;
-            const detail = yield* linear.readIssue(
-              input.projectId,
-              current.groupId,
-              !!input.loadPreviousComments || isLegacyIssue,
-            );
+            const detail = yield* linear
+              .readIssue(
+                input.projectId,
+                current.groupId,
+                !!input.loadPreviousComments || isLegacyIssue || !!issue?.commentsComplete,
+              )
+              .pipe(
+                Effect.catchTags({
+                  InboxError: (cause) =>
+                    !input.loadPreviousComments && issue
+                      ? Effect.succeed(null)
+                      : Effect.fail(cause),
+                }),
+              );
             if (!detail) return current;
             return yield* inbox.cacheLinearIssue({
               ...input,
@@ -562,6 +588,17 @@ export const make = Effect.gen(function* () {
         return yield* transport.readImage(token, image.url, notification.connectionId);
       }),
     get,
+    linearAgentThread: (input) =>
+      Effect.gen(function* () {
+        const item = yield* inbox.get(input);
+        if (item?.source !== "linear") return null;
+        const target = item.items.at(-1)?.replyTarget;
+        if (target?.source !== "linear" || !target.parentId) return null;
+        return yield* Cache.get(
+          agentThreads,
+          new AgentThreadKey({ projectId: input.projectId, commentId: target.parentId }),
+        );
+      }),
     list,
     configure,
     disconnect,

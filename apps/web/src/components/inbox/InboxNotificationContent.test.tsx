@@ -95,6 +95,71 @@ const notification: InboxNotification = {
   updatedAt: "2026-10-22T10:00:00Z",
   confirmedOutcome: null,
 };
+
+it("hides only verified artificial session roots while preserving real comments and their count", async () => {
+  const comments = [
+    {
+      id: "root",
+      author: "Linear",
+      body: "Artificial session introduction",
+      occurredAt: "2026-10-31T10:00:00Z",
+      isArtificialAgentSessionRoot: true,
+    },
+    {
+      id: "agent",
+      author: "Tars",
+      authorId: "agent",
+      authorIsAgent: true,
+      body: "Investigating",
+      occurredAt: "2026-10-31T10:01:00Z",
+    },
+    {
+      id: "human",
+      author: "Tars",
+      authorId: "human",
+      body: "This thread is for an agent session with tars.",
+      occurredAt: "2026-10-31T10:02:00Z",
+    },
+    {
+      id: "linear",
+      author: "Linear",
+      body: "Genuine workflow update",
+      occurredAt: "2026-10-31T10:03:00Z",
+    },
+  ];
+  await act(async () =>
+    root.render(
+      <InboxSourceContent
+        notification={{
+          ...notification,
+          source: "linear",
+          linearIssue: {
+            id: "issue",
+            title: "Investigation",
+            description: null,
+            comments,
+            commentCount: 4,
+            hiddenCommentCount: 1,
+            commentsComplete: true,
+          },
+        }}
+      />,
+    ),
+  );
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label="Show all issue comments"]')!
+      .click(),
+  );
+  expect(container.textContent).not.toContain("Artificial session introduction");
+  expect(container.textContent).toContain("This thread is for an agent session with tars.");
+  expect(container.textContent).toContain("Genuine workflow update");
+  expect(container.querySelectorAll("[data-linear-comment]")).toHaveLength(3);
+  expect(container.querySelector('[aria-label="Tars (agent)"]')).not.toBeNull();
+  expect(
+    container.querySelector('[data-linear-comment="human"] [aria-label="Tars (agent)"]'),
+  ).toBeNull();
+});
 it("opens a labeled Slack link through the normal shell and renders people/groups without raw tokens or remote images", async () => {
   state.open.mockResolvedValue(undefined);
   const content = slackText(

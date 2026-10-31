@@ -76,6 +76,11 @@ export function createInboxEnvironmentAtoms<R, E>(
       tag: WS_METHODS.inboxGet,
       staleTimeMs: 5_000,
     }),
+    linearAgentThread: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "inbox:linearAgentThread",
+      tag: WS_METHODS.inboxLinearAgentThread,
+      staleTimeMs: 5_000,
+    }),
     loadPreviousComments: createEnvironmentRpcCommand(runtime, {
       label: "inbox:loadPreviousComments",
       tag: WS_METHODS.inboxGet,
