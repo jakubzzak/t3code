@@ -81,7 +81,7 @@ immediately.
 On mobile, leaving an edited form asks before discarding unsaved changes.
 
 If an automation cannot start, its chat returns to the active list with the error, or a new chat
-is created if it has no available chat. A persistent in-app notification opens
+is created if it has no available chat. On web and desktop, a persistent in-app notification opens
 the failed chat, even with routine thread notifications turned off. Unread failures
 also appear when you return to the app. If the selected provider is
 disabled, enable it or edit the automation to use another provider, then choose
