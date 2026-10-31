@@ -4,6 +4,7 @@ import {
   useId,
   useMemo,
   useState,
+  useRef,
   type ComponentProps,
   type ReactNode,
 } from "react";
@@ -29,6 +30,7 @@ import {
   SparklesIcon,
   UserRoundIcon,
   UsersRoundIcon,
+  BotIcon,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { Button } from "../ui/button";
@@ -37,6 +39,7 @@ import { InboxSuggestionCallout, InboxSuggestionStatus } from "./InboxSuggestion
 
 import styles from "./inboxNotificationContent.module.css";
 import { InboxImage } from "./InboxImage";
+import { useInboxLinearAgentThread } from "./useInboxLinearAgentThread";
 
 const SlackImageContext = createContext<{
   environmentId: EnvironmentId;
@@ -319,17 +322,35 @@ type LoadComments = () => Promise<InboxSlackThread | InboxLinearIssue>;
 function LinearIssueContent({
   issue: initial,
   onLoadPrevious,
+  notification,
+  environmentId,
 }: {
   issue: InboxLinearIssue;
   onLoadPrevious?: LoadComments | undefined;
+  notification: InboxNotification;
+  environmentId?: EnvironmentId | undefined;
 }) {
   const [loaded, setLoaded] = useState<InboxLinearIssue | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const historyId = useId();
+  const section = useRef<HTMLDivElement>(null);
+  const target = notification.items.at(-1)?.replyTarget;
+  const { thread: agentThread, working } = useInboxLinearAgentThread({
+    environmentId,
+    projectId: notification.projectId,
+    notificationId: notification.id,
+    commentId: target?.source === "linear" ? target.parentId : null,
+    element: section,
+  });
   const issue = loaded ?? initial;
-  const comments = issue.comments;
+  const comments = issue.comments.filter((comment) => !comment.isArtificialAgentSessionRoot);
+  const commentCount = issue.commentsComplete
+    ? comments.length
+    : issue.commentCount === undefined
+      ? undefined
+      : Math.max(comments.length, issue.commentCount - (issue.hiddenCommentCount ?? 0));
   async function toggle() {
     if (expanded) {
       setExpanded(false);
@@ -354,7 +375,7 @@ function LinearIssueContent({
     }
   }
   return (
-    <div className={styles.slackContent}>
+    <div className={`${styles.slackContent} ${styles.linearContent}`}>
       <div className="mb-3">
         <strong>{issue.title}</strong>
       </div>
@@ -367,30 +388,67 @@ function LinearIssueContent({
         </section>
       )}
       <section className={styles.slackSection} aria-label="Comments">
-        <div className={styles.slackLabel}>
-          <span className={styles.slackThreadTitle}>
-            Comments
-            {(issue.commentCount !== undefined || issue.commentsComplete) && (
-              <span>· {issue.commentsComplete ? comments.length : issue.commentCount}</span>
+        <div
+          ref={section}
+          className={`${styles.slackLabel} ${styles.linearCommentsHeader}`}
+          data-agent-thread={!!agentThread}
+        >
+          <div className={styles.linearCommentsHeading}>
+            <span className={styles.slackThreadTitle}>
+              Comments
+              {commentCount !== undefined && <span>· {commentCount}</span>}
+            </span>
+            {agentThread && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      className={styles.linearAgentThread}
+                      role="status"
+                      tabIndex={0}
+                      aria-label={`Agent thread with ${agentThread.agentName}${working ? ", working" : ""}`}
+                    />
+                  }
+                >
+                  <BotIcon aria-hidden="true" />
+                  <span className={styles.linearAgentThreadLabel}>Agent thread</span>
+                  <span aria-hidden="true">·</span>
+                  <span className={styles.linearAgentName}>{agentThread.agentName}</span>
+                  {working && <span className={styles.linearAgentWorking} aria-hidden="true" />}
+                </TooltipTrigger>
+                <TooltipPopup>
+                  {agentThread.agentName}
+                  {working ? " is working" : " agent session"}
+                </TooltipPopup>
+              </Tooltip>
             )}
-          </span>
+          </div>
           {(!issue.commentsComplete || comments.length > 1) && (
-            <button
-              type="button"
-              className={styles.previousComments}
-              disabled={pending}
-              aria-expanded={expanded}
-              aria-controls={historyId}
-              aria-busy={pending}
-              aria-label={expanded ? "Show latest comment only" : "Show all issue comments"}
-              onClick={(event) => {
-                event.stopPropagation();
-                void toggle();
-              }}
-            >
-              {pending ? "Loading…" : error ? "Retry" : expanded ? "Latest only" : "Show all"}
-              <ChevronDownIcon aria-hidden />
-            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={styles.previousComments}
+                    disabled={pending}
+                    aria-expanded={expanded}
+                    aria-controls={historyId}
+                    aria-busy={pending}
+                    aria-label={expanded ? "Show latest comment only" : "Show all issue comments"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void toggle();
+                    }}
+                  />
+                }
+              >
+                {pending ? "Loading…" : error ? "Retry" : expanded ? "Latest only" : "Show all"}
+                <ChevronDownIcon aria-hidden />
+              </TooltipTrigger>
+              <TooltipPopup>
+                {expanded ? "Show latest comment only" : "Show all issue comments"}
+              </TooltipPopup>
+            </Tooltip>
           )}
         </div>
         {error && (
@@ -399,24 +457,38 @@ function LinearIssueContent({
           </p>
         )}
         <ol id={historyId} className={styles.slackTimeline}>
-          {(expanded ? comments : comments.slice(-1)).map((comment) => (
-            <li key={comment.id} className={styles.slackReply} data-linear-comment={comment.id}>
-              <span aria-hidden className={styles.slackAvatar}>
-                {comment.author
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((name) => name[0])
-                  .join("")}
-              </span>
-              <div className={styles.slackAuthor}>
-                <span>{comment.author}</span>
-                <InboxTimestampLabel timestamp={comment.occurredAt} />
-              </div>
-              <InboxContentPreview lines={4}>
-                <LinearMarkdown content={comment.body} />
-              </InboxContentPreview>
-            </li>
-          ))}
+          {(expanded ? comments : comments.slice(-1)).map((comment) => {
+            const agent =
+              comment.authorIsAgent ||
+              (!!comment.authorId && comment.authorId === agentThread?.agentId);
+            return (
+              <li key={comment.id} className={styles.slackReply} data-linear-comment={comment.id}>
+                <span
+                  className={`${styles.slackAvatar}${agent ? ` ${styles.linearAgentAvatar}` : ""}`}
+                  aria-hidden={agent ? undefined : true}
+                  role={agent ? "img" : undefined}
+                  aria-label={agent ? `${comment.author} (agent)` : undefined}
+                >
+                  {agent ? (
+                    <BotIcon aria-hidden="true" />
+                  ) : (
+                    comment.author
+                      .split(/\s+/)
+                      .slice(0, 2)
+                      .map((name) => name[0])
+                      .join("")
+                  )}
+                </span>
+                <div className={styles.slackAuthor}>
+                  <span>{comment.author}</span>
+                  <InboxTimestampLabel timestamp={comment.occurredAt} />
+                </div>
+                <InboxContentPreview lines={4}>
+                  <LinearMarkdown content={comment.body} />
+                </InboxContentPreview>
+              </li>
+            );
+          })}
         </ol>
         {issue.commentsComplete && comments.length === 0 && (
           <p className="text-2xs text-muted-foreground">No comments yet.</p>
@@ -773,6 +845,8 @@ export function InboxSourceContent({
           <LinearIssueContent
             key={`${notification.id}:${notification.analysisVersion}`}
             issue={{ ...issue, comments }}
+            notification={notification}
+            environmentId={environmentId}
             onLoadPrevious={onLoadPrevious}
           />
         </InboxLinkContext>

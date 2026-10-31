@@ -68,6 +68,10 @@ export type InboxSlackThread = typeof InboxSlackThread.Type;
 export const InboxLinearComment = Schema.Struct({
   id: Schema.String,
   author: Schema.String,
+  authorId: Schema.optionalKey(Schema.String),
+  authorIsAgent: Schema.optionalKey(Schema.Boolean),
+  parentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  isArtificialAgentSessionRoot: Schema.optionalKey(Schema.Boolean),
   body: Schema.String,
   occurredAt: IsoDateTime,
 });
@@ -78,9 +82,22 @@ export const InboxLinearIssue = Schema.Struct({
   description: Schema.NullOr(Schema.String),
   comments: Schema.Array(InboxLinearComment),
   commentCount: Schema.optionalKey(NonNegativeInt),
+  hiddenCommentCount: Schema.optionalKey(NonNegativeInt),
+  commentMetadataVersion: Schema.optionalKey(Schema.Literal(1)),
   commentsComplete: Schema.Boolean,
 });
 export type InboxLinearIssue = typeof InboxLinearIssue.Type;
+
+export const InboxLinearAgentThread = Schema.Struct({
+  commentId: Schema.String,
+  rootCommentId: Schema.String,
+  sessionId: Schema.String,
+  agentId: Schema.String,
+  agentName: Schema.String,
+  // Unknown future statuses remain readable, but never imply active work.
+  status: Schema.String,
+});
+export type InboxLinearAgentThread = typeof InboxLinearAgentThread.Type;
 export const InboxReplyTarget = Schema.Union([
   Schema.Struct({
     source: Schema.Literal("slack"),
@@ -386,3 +403,9 @@ export const InboxGetInput = Schema.Struct({
   loadPreviousComments: Schema.optionalKey(Schema.Boolean),
 });
 export type InboxGetInput = typeof InboxGetInput.Type;
+
+export const InboxLinearAgentThreadInput = Schema.Struct({
+  projectId: ProjectId,
+  id: Schema.String,
+});
+export type InboxLinearAgentThreadInput = typeof InboxLinearAgentThreadInput.Type;

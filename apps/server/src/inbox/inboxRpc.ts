@@ -29,6 +29,7 @@ export const layer = group.toLayer(
       [WS_METHODS.inboxSuperhumanCatalog]: (input) => sources.superhumanCatalog(input.projectId),
       [WS_METHODS.inboxList]: (input) => inbox.list(input),
       [WS_METHODS.inboxGet]: (input) => sources.get(input),
+      [WS_METHODS.inboxLinearAgentThread]: (input) => sources.linearAgentThread(input),
       [WS_METHODS.inboxReply]: (input) => inbox.reply<never, never>(input),
       [WS_METHODS.inboxMutate]: (input) => inbox.mutate<never, never>(input),
       [WS_METHODS.inboxSources]: (input) => sources.list(input.projectId),

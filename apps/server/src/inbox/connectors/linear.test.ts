@@ -1,5 +1,102 @@
 import { expect, it } from "vite-plus/test";
-import { readLinearInbox, readLinearIssue } from "./linear.ts";
+import { readLinearInbox, readLinearIssue, readLinearAgentThread } from "./linear.ts";
+
+it("resolves an older notification's child comment to its actual agent-session root", async () => {
+  const result = await readLinearAgentThread(
+    async () => ({
+      data: {
+        comment: {
+          id: "human-reply",
+          agentSession: null,
+          parent: {
+            id: "root",
+            agentSession: {
+              id: "session",
+              status: "active",
+              appUser: { id: "agent", name: "Tars" },
+            },
+          },
+        },
+      },
+    }),
+    "human-reply",
+  );
+  expect(result).toMatchObject({
+    commentId: "human-reply",
+    rootCommentId: "root",
+    agentId: "agent",
+    status: "active",
+  });
+});
+
+it("preserves verified agent authors and artificial session roots without classifying names or integrations", async () => {
+  const detail = await readLinearIssue(
+    async () => ({
+      data: {
+        issue: {
+          id: "issue",
+          title: "Agent investigation",
+          description: null,
+          comments: {
+            nodes: [
+              {
+                id: "root",
+                body: "Session introduction",
+                createdAt: "2026-10-31T10:00:00Z",
+                user: null,
+                botActor: { name: "Linear" },
+                isArtificialAgentSessionRoot: true,
+              },
+              {
+                id: "agent",
+                body: "Investigating",
+                createdAt: "2026-10-31T10:01:00Z",
+                user: { id: "agent-user", name: "Tars", supportsAgentSessions: true },
+                parent: { id: "root" },
+              },
+              {
+                id: "human",
+                body: "A human named Tars",
+                createdAt: "2026-10-31T10:02:00Z",
+                user: { id: "human-user", name: "Tars", supportsAgentSessions: false },
+                parent: { id: "root" },
+              },
+              {
+                id: "integration",
+                body: "Build complete",
+                createdAt: "2026-10-31T10:03:00Z",
+                user: null,
+                botActor: { name: "CI bot" },
+              },
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      },
+    }),
+    "issue",
+    true,
+  );
+  expect(detail?.comments.find((comment) => comment.id === "agent")).toMatchObject({
+    authorId: "agent-user",
+    authorIsAgent: true,
+    parentId: "root",
+  });
+  expect(detail?.comments.find((comment) => comment.id === "human")).not.toHaveProperty(
+    "authorIsAgent",
+    true,
+  );
+  expect(detail?.comments.find((comment) => comment.id === "integration")).not.toHaveProperty(
+    "authorIsAgent",
+    true,
+  );
+  expect(detail?.comments.find((comment) => comment.id === "root")).toHaveProperty(
+    "isArtificialAgentSessionRoot",
+    true,
+  );
+  expect(detail?.commentCount).toBe(4);
+  expect(detail).toHaveProperty("hiddenCommentCount", 1);
+});
 it("retains non-issue notifications and the targeted comment plus its issue context", async () => {
   const base = {
     id: "n",
@@ -68,6 +165,7 @@ it("retains non-issue notifications and the targeted comment plus its issue cont
   expect(items[0]?.content).toContain("Please approve the date");
   expect(items[0]?.content).toContain("Launch context");
   expect(items[0]?.linearIssue).toEqual({
+    commentMetadataVersion: 1,
     id: "issue",
     title: "Launch",
     description: "Launch context",
@@ -198,7 +296,7 @@ it("hydrates the latest comment preview without downloading history, and handles
             data: { comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
           };
         expect(query).toContain("latestComments: comments(last: 1");
-        expect(query).toContain("nodes { id } pageInfo");
+        expect(query).toContain("nodes { id isArtificialAgentSessionRoot } pageInfo");
         expect(query).not.toContain("comments(first: 50, after:");
         return { data: { issue } };
       },

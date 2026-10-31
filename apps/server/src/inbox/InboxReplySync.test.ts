@@ -138,6 +138,7 @@ it.effect.each([
               email: "me@example.com",
             },
           }),
+        readAgentThread: () => Effect.succeed(null),
         readIssue: () => Effect.succeed(null),
         read: (_project, categories, since, tracked) =>
           Effect.tryPromise({

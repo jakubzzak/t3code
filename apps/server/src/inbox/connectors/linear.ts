@@ -1,5 +1,10 @@
 import * as Schema from "effect/Schema";
-import type { InboxSourceItem, InboxLinearComment, InboxLinearIssue } from "@t3tools/contracts";
+import type {
+  InboxSourceItem,
+  InboxLinearComment,
+  InboxLinearIssue,
+  InboxLinearAgentThread,
+} from "@t3tools/contracts";
 const NativeId = Schema.NullOr(Schema.Struct({ id: Schema.String }));
 const CommentFields = Schema.Struct({
   parent: Schema.optionalKey(NativeId),
@@ -7,8 +12,13 @@ const CommentFields = Schema.Struct({
   body: Schema.String,
   createdAt: Schema.String,
   user: Schema.NullOr(
-    Schema.Struct({ id: Schema.optionalKey(Schema.String), name: Schema.String }),
+    Schema.Struct({
+      id: Schema.optionalKey(Schema.String),
+      name: Schema.String,
+      supportsAgentSessions: Schema.optionalKey(Schema.Boolean),
+    }),
   ),
+  isArtificialAgentSessionRoot: Schema.optionalKey(Schema.Boolean),
   botActor: Schema.optionalKey(
     Schema.NullOr(Schema.Struct({ name: Schema.NullOr(Schema.String) })),
   ),
@@ -19,23 +29,33 @@ function formatComment(comment: typeof CommentFields.Type): InboxLinearComment {
     id: comment.id,
     body: comment.body,
     author: comment.user?.name || comment.botActor?.name || "Linear",
+    ...(comment.user?.id ? { authorId: comment.user.id } : {}),
+    ...(comment.user?.supportsAgentSessions ? { authorIsAgent: true } : {}),
+    ...(comment.parent !== undefined ? { parentId: comment.parent?.id ?? null } : {}),
+    ...(comment.isArtificialAgentSessionRoot ? { isArtificialAgentSessionRoot: true } : {}),
     occurredAt: comment.createdAt,
   };
 }
-const commentFields = "id body createdAt user { id name } botActor { name } parent { id }";
+const commentFields =
+  "id body createdAt user { id name supportsAgentSessions } botActor { name } parent { id } isArtificialAgentSessionRoot";
 /** Non-issue replies belong to their native parent thread, not every discussion on a project. */
 function commentTarget(comment: typeof CommentFields.Type) {
   return `comment:${comment.parent?.id ?? comment.id}`;
 }
 const CommentIndex = Schema.Struct({
-  nodes: Schema.Array(Schema.Struct({ id: Schema.String })),
+  nodes: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      isArtificialAgentSessionRoot: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
   pageInfo: Schema.Struct({
     hasNextPage: Schema.Boolean,
     endCursor: Schema.NullOr(Schema.String),
   }),
 });
 const commentPreviewFields = `latestComments: comments(last: 1, orderBy: createdAt) { nodes { ${commentFields} } }
-  commentIndex: comments(first: 50, orderBy: createdAt) { nodes { id } pageInfo { hasNextPage endCursor } }`;
+  commentIndex: comments(first: 50, orderBy: createdAt) { nodes { id isArtificialAgentSessionRoot } pageInfo { hasNextPage endCursor } }`;
 const commentPreview = {
   latestComments: Schema.optionalKey(Schema.Struct({ nodes: Schema.Array(CommentFields) })),
   commentIndex: Schema.optionalKey(CommentIndex),
@@ -49,7 +69,7 @@ const decodeCommentIndex = Schema.decodeUnknownSync(
 );
 const COMMENT_COUNT_QUERY = `query BlackbirdInboxCommentCount($id: String!, $after: String) {
   issue(id: $id) { id commentIndex: comments(first: 50, after: $after, orderBy: createdAt) {
-    nodes { id } pageInfo { hasNextPage endCursor }
+    nodes { id isArtificialAgentSessionRoot } pageInfo { hasNextPage endCursor }
   } }
 }`;
 /** Linear exposes no issue comment total; count IDs without downloading earlier bodies. */
@@ -60,6 +80,11 @@ async function countComments(
 ) {
   if (!first) return undefined;
   const ids = new Set(first.nodes.map((comment) => comment.id));
+  const hidden = new Set(
+    first.nodes
+      .filter((comment) => comment.isArtificialAgentSessionRoot)
+      .map((comment) => comment.id),
+  );
   const seen = new Set<string>();
   let page = first;
   while (page.pageInfo.hasNextPage) {
@@ -71,9 +96,12 @@ async function countComments(
     if (!issue || issue.id !== id)
       throw new Error("Linear did not return the issue comment count.");
     page = issue.commentIndex;
-    for (const comment of page.nodes) ids.add(comment.id);
+    for (const comment of page.nodes) {
+      ids.add(comment.id);
+      if (comment.isArtificialAgentSessionRoot) hidden.add(comment.id);
+    }
   }
-  return ids.size;
+  return { count: ids.size, hiddenCommentCount: hidden.size };
 }
 const Notification = Schema.Struct({
   id: Schema.String,
@@ -150,7 +178,7 @@ export async function readLinearInbox(
 ): Promise<ReadonlyArray<InboxSourceItem>> {
   const items: InboxSourceItem[] = [];
   const seen = new Set<string>();
-  const issueCounts = new Map<string, number | undefined>();
+  const issueCounts = new Map<string, Awaited<ReturnType<typeof countComments>>>();
   let after: string | null = null;
   // Pre-upgrade non-issue items retained the notification ID, but not the comment root.
   const resolvedTargets = new Map<string, string>();
@@ -183,7 +211,8 @@ export async function readLinearInbox(
             query(COMMENT_COUNT_QUERY, { id: issue.id, after, since }),
           ),
         );
-      const commentCount = issue ? issueCounts.get(issue.id) : undefined;
+      const counts = issue ? issueCounts.get(issue.id) : undefined;
+      const commentCount = counts?.count;
       const comments = [
         ...new Map(
           [
@@ -222,14 +251,22 @@ export async function readLinearInbox(
               replyTarget: {
                 source: "linear" as const,
                 issueId: notification.issue.id,
-                parentId: notification.parentComment?.id ?? notification.comment?.id ?? null,
+                parentId:
+                  notification.parentComment?.id ??
+                  notification.comment?.parent?.id ??
+                  notification.comment?.id ??
+                  null,
               },
               linearIssue: {
+                commentMetadataVersion: 1,
                 id: notification.issue.id,
                 title: notification.issue.title,
                 description: notification.issue.description,
                 comments,
                 ...(commentCount !== undefined ? { commentCount } : {}),
+                ...(counts?.hiddenCommentCount
+                  ? { hiddenCommentCount: counts.hiddenCommentCount }
+                  : {}),
                 commentsComplete: commentCount !== undefined && commentCount === comments.length,
               },
             }
@@ -316,6 +353,7 @@ export async function readLinearInbox(
                     parentId: comment.parent?.id ?? comment.id,
                   },
                   linearIssue: {
+                    commentMetadataVersion: 1,
                     id: comment.issue.id,
                     title: comment.issue.title,
                     description: comment.issue.description,
@@ -427,12 +465,14 @@ export async function readLinearIssue(
     if (issue.id !== id) throw new Error("Linear returned a different issue.");
     for (const comment of issue.comments?.nodes ?? issue.latestComments?.nodes ?? [])
       comments.set(comment.id, formatComment(comment));
-    const commentCount = includeComments
+    const counts = includeComments
       ? undefined
       : await countComments(id, issue.commentIndex, (after) =>
           query(COMMENT_COUNT_QUERY, { id, after }),
         );
+    const commentCount = counts?.count;
     result = {
+      commentMetadataVersion: 1,
       id: issue.id,
       title: issue.title,
       description: issue.description,
@@ -440,6 +480,7 @@ export async function readLinearIssue(
         (a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id),
       ),
       ...(commentCount !== undefined ? { commentCount } : {}),
+      ...(counts?.hiddenCommentCount ? { hiddenCommentCount: counts.hiddenCommentCount } : {}),
       commentsComplete: includeComments || commentCount === comments.size,
     };
     after = issue.comments?.pageInfo.hasNextPage ? issue.comments.pageInfo.endCursor : null;
@@ -451,5 +492,65 @@ export async function readLinearIssue(
       throw new Error("Linear comment history could not be paginated. Open the original issue.");
     if (after) seen.add(after);
   } while (after);
-  return result && includeComments ? { ...result, commentCount: comments.size } : result;
+  if (!result || !includeComments) return result;
+  const hiddenCommentCount = [...comments.values()].filter(
+    (comment) => comment.isArtificialAgentSessionRoot,
+  ).length;
+  return {
+    ...result,
+    commentCount: comments.size,
+    ...(hiddenCommentCount ? { hiddenCommentCount } : {}),
+  };
+}
+
+const AgentSession = Schema.NullOr(
+  Schema.Struct({
+    id: Schema.String,
+    status: Schema.String,
+    appUser: Schema.Struct({ id: Schema.String, name: Schema.String }),
+  }),
+);
+const decodeAgentThread = Schema.decodeUnknownSync(
+  Schema.Struct({
+    data: Schema.Struct({
+      comment: Schema.NullOr(
+        Schema.Struct({
+          id: Schema.String,
+          agentSession: AgentSession,
+          parent: Schema.optionalKey(
+            Schema.NullOr(Schema.Struct({ id: Schema.String, agentSession: AgentSession })),
+          ),
+        }),
+      ),
+    }),
+  }),
+);
+
+/** Read only the notification's own root; an agent elsewhere on the issue is unrelated. */
+export async function readLinearAgentThread(
+  query: (query: string, variables: { id: string }) => Promise<unknown>,
+  rootCommentId: string,
+): Promise<InboxLinearAgentThread | null> {
+  const { comment } = decodeAgentThread(
+    await query(
+      `query BlackbirdInboxAgentThread($id: String!) {
+    comment(id: $id) { id agentSession { id status appUser { id name } } parent { id agentSession { id status appUser { id name } } } }
+  }`,
+      { id: rootCommentId },
+    ),
+  ).data;
+  if (!comment) return null;
+  if (comment.id !== rootCommentId) throw new Error("Linear returned a different comment thread.");
+  const root = comment.parent ?? comment;
+  const session = root.agentSession;
+  return session
+    ? {
+        commentId: rootCommentId,
+        rootCommentId: root.id,
+        sessionId: session.id,
+        agentId: session.appUser.id,
+        agentName: session.appUser.name,
+        status: session.status,
+      }
+    : null;
 }

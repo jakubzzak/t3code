@@ -235,6 +235,95 @@
   color: var(--muted-foreground);
   font-size: 0.6875rem;
 }
+.linearCommentsHeader {
+  align-items: center;
+}
+.linearContent {
+  --linear-agent-color: light-dark(var(--color-cyan-700), var(--color-cyan-300));
+  container-type: inline-size;
+}
+.linearCommentsHeading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.5rem;
+}
+.linearCommentsHeading > .slackThreadTitle {
+  flex: none;
+}
+.linearAgentThread {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.125rem;
+  color: var(--linear-agent-color);
+  font-size: 0.625rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.linearAgentThread > svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+}
+.linearAgentThreadLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.linearAgentName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 1.5rem;
+  flex-shrink: 0;
+  max-width: 6rem;
+}
+.linearAgentThread:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.linearAgentAvatar {
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--linear-agent-color) 15%, var(--muted));
+  color: var(--linear-agent-color);
+}
+.linearAgentAvatar svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+.linearAgentWorking {
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: currentColor;
+  animation: linear-agent-working 1.6s ease-in-out infinite;
+}
+@keyframes linear-agent-working {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .linearAgentWorking {
+    animation: none;
+  }
+}
+@container (max-width: 16rem) {
+  .linearCommentsHeading {
+    gap: 0.25rem;
+  }
+  .linearCommentsHeader[data-agent-thread="true"] .previousComments {
+    flex: none;
+    font-size: 0;
+    gap: 0;
+  }
+}
 .slackLabel > span {
   overflow: hidden;
   text-overflow: ellipsis;

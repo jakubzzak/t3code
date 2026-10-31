@@ -72,6 +72,7 @@ it.effect(
       const linearDetailReads: Array<{ id: string; comments: boolean }> = [];
       let failLinearDetail = false;
       const linearIssue = {
+        commentMetadataVersion: 1 as const,
         id: "issue",
         title: "Review release",
         description: "Separated issue context",
@@ -188,6 +189,7 @@ it.effect(
         Layer.provide(
           Layer.succeed(Linear.LinearConnection, {
             createComment: () => Effect.die("Not used"),
+            readAgentThread: () => Effect.succeed(null),
             readIssue: (_projectId, id, comments) =>
               Effect.gen(function* () {
                 linearDetailReads.push({ id, comments });
@@ -427,6 +429,15 @@ it.effect(
         yield* service.get({ projectId, id: linearNotificationId, loadPreviousComments: true });
         assert.equal(linearDetailReads.length, 3);
         assert.equal(threadNotification.linearIssue?.commentsComplete, true);
+        const { commentMetadataVersion: _metadataVersion, ...legacyIssue } = linearIssue;
+        threadNotification = { ...threadNotification, linearIssue: legacyIssue };
+        failLinearDetail = true;
+        const legacyFallback = yield* service.get({ projectId, id: linearNotificationId });
+        assert.equal(legacyFallback?.linearIssue?.comments[0]?.body, "Review");
+        assert.equal(legacyFallback?.linearIssue?.commentMetadataVersion, undefined);
+        failLinearDetail = false;
+        const upgraded = yield* service.get({ projectId, id: linearNotificationId });
+        assert.equal(upgraded?.linearIssue?.commentMetadataVersion, 1);
         threadNotification = null;
         assert.equal(yield* Ref.get(calls), 1);
         yield* settings.updateSettings({

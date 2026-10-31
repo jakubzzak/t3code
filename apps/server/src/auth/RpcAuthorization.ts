@@ -137,6 +137,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.inboxSources]: AuthOrchestrationReadScope,
   [WS_METHODS.inboxList]: AuthOrchestrationReadScope,
   [WS_METHODS.inboxGet]: AuthOrchestrationReadScope,
+  [WS_METHODS.inboxLinearAgentThread]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsReviewGuide]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsThreadComments]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsDiffFileContents]: AuthOrchestrationReadScope,
