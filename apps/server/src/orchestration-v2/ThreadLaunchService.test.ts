@@ -3682,3 +3682,50 @@ it.effect("unavailable project moves leave the source run and queue untouched", 
     assert.deepEqual(yield* threads.getThreadProjection(threadId), before);
   }).pipe(Effect.provide(harness.layer));
 });
+
+it.effect("successful project moves apply destination branch naming after preparation", () => {
+  const harness = makeHarness({
+    serverSettings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: {
+        [otherProjectId]: {
+          defaultThreadEnvMode: "worktree",
+          branchNamingMode: "static",
+          branchNamePrefix: "destination/",
+        },
+      },
+    },
+  });
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    yield* seedMoveDestination;
+    const threadId = yield* createMoveSource;
+    const commandId = CommandId.make("naming:move");
+    yield* threads.dispatch({
+      type: "thread.project.move",
+      commandId,
+      threadId,
+      projectId: otherProjectId,
+    });
+    const run = (yield* threads.getThreadProjection(threadId)).runs[0]!;
+    yield* launches.prepareRun({ commandId, threadId, runId: run.id });
+    const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+    yield* tracker.stream(threadId).pipe(
+      Stream.filter((snapshot) => snapshot?.phase === "done"),
+      Stream.runHead,
+    );
+    yield* threads.streamStoredEventsFrom({ threadId, eventType: "thread.metadata-updated" }).pipe(
+      Stream.filter(
+        ({ event }) =>
+          event.type === "thread.metadata-updated" && event.payload.branch === "generated-branch",
+      ),
+      Stream.runHead,
+    );
+    assert.equal(harness.generateBranchName.mock.calls.length, 1);
+    assert.equal(harness.generateBranchName.mock.calls[0]?.[0].naming?.prefix, "destination/");
+    const projection = yield* threads.getThreadProjection(threadId);
+    assert.equal(projection.thread.projectId, otherProjectId);
+    assert.equal(projection.runs[0]?.status, "starting");
+  }).pipe(Effect.provide(harness.layer));
+});

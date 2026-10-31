@@ -502,45 +502,47 @@ const make = Effect.gen(function* () {
       // that name worktrees themselves) in the background so generation latency
       // never delays provisioning or the provider turn. The temporary name
       // simply sticks if generation or the rename fails.
-      if (
-        !input.moveProject &&
-        reused === undefined &&
-        worktreePath !== null &&
-        branch !== null &&
-        initialMessage !== undefined &&
-        isTemporaryWorktreeBranch(branch)
-      ) {
-        const oldBranch = branch;
-        const worktreeCwd = worktreePath;
-        yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
-          Effect.flatMap(({ branch: newBranch, exactName }) =>
-            git.renameBranch({
-              cwd: worktreeCwd,
-              oldBranch,
-              newBranch,
-              ...(exactName ? { exactName: true } : {}),
-            }),
-          ),
-          Effect.flatMap((renamed) =>
-            threads.dispatch({
-              type: "thread.metadata.update",
-              commandId: CommandId.make(`${input.commandId}:branch-rename`),
-              threadId,
-              branch: renamed.branch,
-              worktreePath: worktreeCwd,
-            }),
-          ),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Thread worktree branch rename failed", {
-              commandId: input.commandId,
-              threadId,
-              oldBranch,
-              cause,
-            }),
-          ),
-          Effect.forkIn(preparationScope),
-        );
-      }
+      const renameTemporaryBranch = Effect.gen(function* () {
+        if (
+          (reused === undefined || input.moveProject) &&
+          worktreePath !== null &&
+          branch !== null &&
+          initialMessage !== undefined &&
+          (isTemporaryWorktreeBranch(branch) || input.moveProject)
+        ) {
+          const oldBranch = branch;
+          const worktreeCwd = worktreePath;
+          yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
+            Effect.flatMap(({ branch: newBranch, exactName }) =>
+              git.renameBranch({
+                cwd: worktreeCwd,
+                oldBranch,
+                newBranch,
+                ...(exactName ? { exactName: true } : {}),
+              }),
+            ),
+            Effect.flatMap((renamed) =>
+              threads.dispatch({
+                type: "thread.metadata.update",
+                commandId: CommandId.make(`${input.commandId}:branch-rename`),
+                threadId,
+                branch: renamed.branch,
+                worktreePath: worktreeCwd,
+                ...(input.moveProject ? { expectedWorktreePath: worktreeCwd } : {}),
+              }),
+            ),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Thread worktree branch rename failed", {
+                commandId: input.commandId,
+                threadId,
+                oldBranch,
+                cause,
+              }),
+            ),
+          );
+        }
+      });
+      if (!input.moveProject) yield* renameTemporaryBranch.pipe(Effect.forkIn(preparationScope));
 
       const cwd = worktreePath ?? project.workspaceRoot;
       if (runId !== null) {
@@ -652,6 +654,11 @@ const make = Effect.gen(function* () {
             ),
             Effect.uninterruptible,
           );
+      }
+      // Keep the reserved name until release so failed moves can find the same
+      // checkout on retry. A late rename cannot rebind a chat that moved again.
+      if (input.moveProject && runReleased) {
+        yield* renameTemporaryBranch.pipe(Effect.forkIn(preparationScope));
       }
       yield* setupTracker.stageStatus(threadId, "agent", "done");
       yield* awaitAsyncSetup;
