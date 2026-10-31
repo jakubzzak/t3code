@@ -14,6 +14,7 @@ Add file navigation history to the shared web and desktop file viewer in draft a
 - Record visits between files, including files opened through the file picker, workspace search, links, breadcrumbs, and existing file tabs. For Files → A → B, Back shows A, Back shows Files, and Forward shows A then B.
 - The shortcuts work with focus inside the file editor, including its text selection. They navigate once and do not indent, change, or save file content as a side effect.
 - Returning to Files retains its search query, expanded folders, selection and scroll position. The selected file can be opened again by clicking it.
+- Files and the side explorer share the last entered query within each environment/chat for the running client session. Changing files (including explicit opens), refreshing results, closing/reopening the panel, or switching away from and back to the chat must not clear it. Only editing or clearing the search field changes the query; other chats keep independent queries.
 - Opening another file after going back starts a new history branch. Repeated activation of the same file does not add a duplicate visit.
 - Keep histories separate for each environment and thread. Navigating within file history leaves the current thread and its app route unchanged.
 - At either end of file history, the shortcut does nothing. It must not unexpectedly leave the thread. A restored file tab can return to Files before another file has been opened.
@@ -27,6 +28,7 @@ Add file navigation history to the shared web and desktop file viewer in draft a
 4. Reach both history boundaries without leaving the thread. Reload with a file tab selected and confirm Back reaches Files. Another thread or environment keeps its own history and active file.
 5. Return to Files and click its already-selected file. The file opens again. Close an unrelated file and verify navigation does not reopen it unexpectedly.
 6. Check browser, terminal, composer and keybinding-capture focus: each retains its existing shortcut behavior. A custom Back/Forward binding also navigates file history while the editor has focus.
+7. Enter a query in the side explorer, explicitly open another file, close/reopen the panel, switch to another chat and return. The original query remains. A second chat starts empty and retains its own query; manually clearing either query remains effective after reopening.
 
 ## Constraints and decisions
 

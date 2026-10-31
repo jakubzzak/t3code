@@ -1,12 +1,15 @@
 import { useAtom } from "@effect/atom-react";
-import { filesSearchOptionsAtom } from "@t3tools/client-runtime/state/files-search-options";
+import {
+  filesSearchOptionsAtom,
+  filesSearchQueryAtom,
+} from "@t3tools/client-runtime/state/files-search-options";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
 } from "@pierre/trees";
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
-import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
+import { FileTree, useFileTree, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { ChevronsDownUp, ChevronsUpDown, SlidersHorizontal } from "lucide";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -123,7 +126,7 @@ export default function FileBrowserPanel({
     isPending,
     loadingDirectories,
   } = useDirectoryEntries(environmentId, cwd);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useAtom(filesSearchQueryAtom(chatKey));
   const [expandAll, setExpandAll] = useState(false);
   const [filesRevision, setFilesRevision] = useState("");
   const [options, setOptions] = useAtom(filesSearchOptionsAtom(chatKey));
@@ -344,7 +347,10 @@ export default function FileBrowserPanel({
     // Re-render the rows with the current options so decorations update.
     model.setComposition(model.getComposition());
   }, [loadingDirectories, unavailableLinks, model]);
-  const search = useFileTreeSearch(model);
+  useEffect(() => {
+    if (query.trim()) model.setSearch(query);
+    else model.closeSearch();
+  }, [model, query]);
   const allDirectoriesExpanded = useFileTreeSelector(model, (currentModel) =>
     areAllDirectoriesExpanded(currentModel, directoryPaths),
   );
@@ -404,11 +410,6 @@ export default function FileBrowserPanel({
     // A newer search supersedes even a reveal still waiting for its row to load.
     if (selectedPath) handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
     setQuery(value);
-    if (value.trim().length === 0) {
-      search.close();
-      return;
-    }
-    search.setValue(value);
   };
   const handleRefresh = () => {
     refresh();
@@ -444,6 +445,12 @@ export default function FileBrowserPanel({
 
   useEffect(() => {
     if (!selectedPath) return;
+    // Search belongs to the chat, not the selected file. An explicit reveal
+    // must not clear the filter or override it when the explorer remounts.
+    if (query.length > 0) {
+      handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
+      return;
+    }
     // Returning through history, hiding the explorer, and refreshing search
     // results must not replay an already handled reveal or steal search focus.
     if (handledRevealsRef.current.get(selectedPath) === selectedPathRevealId) return;
@@ -472,7 +479,6 @@ export default function FileBrowserPanel({
     handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
 
     syncingSelectionRef.current = true;
-    setQuery("");
     model.closeSearch();
     for (const path of model.getSelectedPaths()) {
       model.getItem(path)?.deselect();
@@ -497,7 +503,7 @@ export default function FileBrowserPanel({
     queueMicrotask(() => {
       syncingSelectionRef.current = false;
     });
-  }, [entryKinds, model, selectedPath, selectedPathRevealId]);
+  }, [entryKinds, model, query, selectedPath, selectedPathRevealId]);
 
   // Tag tree drags with the composer mention payload. The row is read from
   // the composed event path (the tree's shadow root is open), so this does

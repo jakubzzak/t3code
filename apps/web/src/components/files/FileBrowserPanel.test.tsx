@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { RegistryContext } from "@effect/atom-react";
+import { AtomRegistry } from "effect/reactivity";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId, type ProjectEntry } from "@t3tools/contracts";
 import { act } from "react";
@@ -30,13 +32,12 @@ vi.mock("~/state/queries", () => ({
     truncated: false,
   }),
 }));
-vi.mock("@effect/atom-react", () => ({
-  useAtom: () => [{ includeIgnored: true, includeTests: true }, vi.fn()],
-}));
 vi.mock("~/hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }));
 vi.mock("~/composerHandleContext", () => ({ useComposerHandleContext: () => null }));
 vi.mock("~/fileContextMenu", () => ({ useFileContextMenu: () => ({}) }));
 
+let registry: AtomRegistry.AtomRegistry;
+let chatKey: string;
 let root: Root;
 let mount: HTMLDivElement;
 let selectedPath: string | null;
@@ -60,6 +61,8 @@ beforeEach(() => {
     removeEventListener() {},
   }));
   Element.prototype.getAnimations ??= () => [];
+  registry = AtomRegistry.make();
+  chatKey = "file-browser-test:thread";
   fixture.pending = false;
   selectedPath = "alpha.txt";
   revealId = 1;
@@ -71,6 +74,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   mount.remove();
+  registry.dispose();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -80,16 +84,19 @@ async function render(path = selectedPath, id = revealId) {
   revealId = id;
   await act(async () =>
     root.render(
-      <FileBrowserPanel
-        chatKey="file-browser-test:thread"
-        environmentId={environmentId}
-        cwd="/workspace"
-        projectName="workspace"
-        selectedPath={selectedPath}
-        selectedPathRevealId={revealId}
-        onOpenFile={onOpenFile}
-        workspaceMutationId={null}
-      />,
+      <RegistryContext.Provider value={registry}>
+        <FileBrowserPanel
+          key={chatKey}
+          chatKey={chatKey}
+          environmentId={environmentId}
+          cwd="/workspace"
+          projectName="workspace"
+          selectedPath={selectedPath}
+          selectedPathRevealId={revealId}
+          onOpenFile={onOpenFile}
+          workspaceMutationId={null}
+        />
+      </RegistryContext.Provider>,
     ),
   );
 }
@@ -138,14 +145,14 @@ it("does not replay a handled reveal when a search response temporarily removes 
   expect(searchInput().value).toBe("a.txt");
 });
 
-it("lets a later search supersede an unloaded reveal but still handles a new explicit reveal", async () => {
+it("retains the user query even when an explicit reveal follows a pending reveal", async () => {
   await render();
   await search("beta");
   await render("alpha.txt", 2);
   await search("a.txt");
   expect(searchInput().value).toBe("a.txt");
   await render("alpha.txt", 3);
-  expect(searchInput().value).toBe("");
+  expect(searchInput().value).toBe("a.txt");
 });
 
 it("preserves search through older visits after a file has been explicitly opened again", async () => {
@@ -175,5 +182,36 @@ it("preserves search through older visits after a file has been explicitly opene
   expect(searchInput().value).toBe("a.txt");
   store.openFile(ref, "alpha.txt");
   await showActive();
+  expect(searchInput().value).toBe("a.txt");
+});
+
+it("restores the chat query after closing and remounting the side explorer", async () => {
+  await render();
+  await search("beta");
+  await act(async () => root.render(null));
+  await render("alpha.txt");
+  expect(searchInput().value).toBe("beta");
+  await search("");
+  await act(async () => root.render(null));
+  await render();
   expect(searchInput().value).toBe("");
+});
+
+it("keeps independent searches when switching chat or environment", async () => {
+  await render();
+  await search("alpha");
+  chatKey = "file-browser-test:other-thread";
+  await render();
+  expect(searchInput().value).toBe("");
+  await search("beta");
+  chatKey = "other-environment:thread";
+  await render();
+  expect(searchInput().value).toBe("");
+  await search("no-match");
+  chatKey = "file-browser-test:thread";
+  await render();
+  expect(searchInput().value).toBe("alpha");
+  chatKey = "file-browser-test:other-thread";
+  await render();
+  expect(searchInput().value).toBe("beta");
 });
