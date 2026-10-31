@@ -172,7 +172,7 @@ export default function FileBrowserPanel({
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
-  const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
+  const handledRevealsRef = useRef(new Map<string, number>());
 
   // The tree renders rows in shadow DOM and its anchor rect is unreliable, so
   // capture the right-click position ourselves; contextmenu is a composed
@@ -401,6 +401,8 @@ export default function FileBrowserPanel({
     };
   }, [load, selectedPath]);
   const handleSearchValueChange = (value: string) => {
+    // A newer search supersedes even a reveal still waiting for its row to load.
+    if (selectedPath) handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
     setQuery(value);
     if (value.trim().length === 0) {
       search.close();
@@ -441,27 +443,14 @@ export default function FileBrowserPanel({
   }, [directoryPaths, expandAll, model, query]);
 
   useEffect(() => {
-    if (!selectedPath) {
-      handledRevealRef.current = null;
-      return;
-    }
+    if (!selectedPath) return;
+    // Returning through history, hiding the explorer, and refreshing search
+    // results must not replay an already handled reveal or steal search focus.
+    if (handledRevealsRef.current.get(selectedPath) === selectedPathRevealId) return;
     const selectedKind = entryKinds.get(selectedPath);
     // An unloaded entry has no row to reveal yet; folders do, and chat links can
     // point at them.
-    if (selectedKind === undefined) {
-      handledRevealRef.current = null;
-      return;
-    }
-    const revealRequest = { path: selectedPath, revealId: selectedPathRevealId };
-    const handledReveal = handledRevealRef.current;
-    // Entry refreshes rebuild treePaths while the same preview stays open.
-    // Replaying a handled reveal would close an active tree search and steal focus.
-    if (
-      handledReveal?.path === revealRequest.path &&
-      handledReveal.revealId === revealRequest.revealId
-    ) {
-      return;
-    }
+    if (selectedKind === undefined) return;
     // Directory rows are registered with a trailing slash (see treePath).
     const selectedTreePath = selectedKind === "directory" ? `${selectedPath}/` : selectedPath;
     const selectedItem = model.getItem(selectedTreePath);
@@ -476,11 +465,11 @@ export default function FileBrowserPanel({
       .some((path) => path.replace(/\/$/, "") === selectedPath);
     if (selectedInTree && treeSelectionPathRef.current === selectedPath) {
       treeSelectionPathRef.current = null;
-      handledRevealRef.current = revealRequest;
+      handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
       return;
     }
     treeSelectionPathRef.current = null;
-    handledRevealRef.current = revealRequest;
+    handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
 
     syncingSelectionRef.current = true;
     setQuery("");
