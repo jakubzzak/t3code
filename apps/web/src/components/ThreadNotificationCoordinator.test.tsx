@@ -17,6 +17,9 @@ const state = vi.hoisted(() => ({
   visitedFailure: false,
   completedAt: null as string | null,
   archivedAt: null as string | null,
+  snoozed: false,
+  settled: false,
+  secondFailure: false,
   input: false,
   approval: false,
   sessionError: false,
@@ -93,7 +96,8 @@ function mockThreadShell() {
     latestRunStartedAt: SHELL_NOW,
     latestRunCompletedAt: state.completedAt ? DateTime.makeUnsafe(state.completedAt) : undefined,
     archivedAt: state.archivedAt ? DateTime.makeUnsafe(state.archivedAt) : null,
-    settledOverride: null,
+    settledOverride: state.settled ? "settled" : null,
+    snoozedUntil: state.snoozed ? DateTime.makeUnsafe("2099-01-01T00:00:00.000Z") : null,
     settledAt: null,
     lastVisitedAt: state.visitedFailure ? DateTime.makeUnsafe("2026-09-13T11:00:00.000Z") : null,
     deletedAt: null,
@@ -104,6 +108,11 @@ function mockThreadShell() {
 let stableParent: ReturnType<typeof mockThreadShell> | null = null;
 function mockThreads() {
   if (!state.hasThreads) return [];
+  if (state.secondFailure)
+    return [
+      mockThreadShell(),
+      { ...mockThreadShell(), id: "thread-2", title: "Portuguese practice" },
+    ];
   if (state.delegatedChild === null) return [mockThreadShell()];
   stableParent ??= mockThreadShell();
   const child = {
@@ -187,6 +196,9 @@ beforeEach(() => {
     visitedFailure: false,
     completedAt: null,
     archivedAt: null,
+    snoozed: false,
+    settled: false,
+    secondFailure: false,
     input: false,
     approval: false,
     sessionError: false,
@@ -217,6 +229,38 @@ afterEach(async () => {
 });
 
 describe("thread notifications", () => {
+  it.each(["snoozed", "settled"] as const)(
+    "clears an unread automation notice when %s",
+    async (field) => {
+      state.automationFailure = true;
+      state.turnError = true;
+      await render();
+      expect(state.add).toHaveBeenCalledTimes(1);
+      state[field] = true;
+      await render();
+      expect(state.close).toHaveBeenCalledWith("toast-1");
+      expect(state.add).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("keeps simultaneous failure notices independent", async () => {
+    state.automationFailure = true;
+    state.turnError = true;
+    state.secondFailure = true;
+    await render();
+    expect(state.add).toHaveBeenCalledTimes(2);
+    expect(state.add.mock.calls.map(([toast]) => toast.description)).toEqual([
+      "Fix the login form. Open the chat for the cause and recovery steps.",
+      "Portuguese practice. Open the chat for the cause and recovery steps.",
+    ]);
+    for (const [toast] of state.add.mock.calls) toast.actionProps.onClick();
+    expect(state.navigate.mock.calls.map(([target]) => target.params.threadId)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+    await render();
+    expect(state.add).toHaveBeenCalledTimes(2);
+  });
   it("shows unread automation failures with routine notifications off, including after reconnect", async () => {
     state.inApp = false;
     state.automationFailure = true;
@@ -226,7 +270,7 @@ describe("thread notifications", () => {
       expect.objectContaining({
         title: "Automation failed",
         timeout: 0,
-        description: expect.stringContaining("Joel is disabled"),
+        description: "Fix the login form. Open the chat for the cause and recovery steps.",
       }),
     );
     state.live = false;

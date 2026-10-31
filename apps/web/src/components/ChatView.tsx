@@ -159,6 +159,7 @@ import {
   usageLimitRunPresentedAsLatest,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { providerSettingsSearch } from "./settings/providerSettingsSearch";
 import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import { truncate } from "@t3tools/shared/String";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
@@ -5410,7 +5411,7 @@ export default function ChatView(props: ChatViewProps) {
   const openProviderSetup = (instanceId: ProviderInstanceId) => {
     void navigate({
       to: "/settings/providers",
-      search: { environmentId, instanceId },
+      search: providerSettingsSearch(environmentId, instanceId, settings, activeProject ?? null),
     });
   };
   const openProviderSetupStable = useStableCallback(openProviderSetup);

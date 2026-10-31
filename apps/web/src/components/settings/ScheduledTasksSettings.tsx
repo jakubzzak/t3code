@@ -818,7 +818,7 @@ function WebhookDeliveryMode({ environmentId }: { readonly environmentId: Enviro
   );
 }
 
-function ScheduledTaskEditorDialog({
+export function ScheduledTaskEditorDialog({
   initialEnvironmentId,
   task,
   onClose,
@@ -919,11 +919,13 @@ function ScheduledTaskEditorDialog({
   // is exactly how the draft stores its selection.
   const firstInstance = instanceEntries[0];
   const draftSelection = draft.modelKey ? splitModelKey(draft.modelKey) : null;
+  // Availability may change after a task is saved. Only an explicit picker choice
+  // should replace its provider, model, or provider options.
   const activeSelection =
-    draftSelection &&
-    instanceEntries.some((entry) => entry.instanceId === draftSelection.instanceId && entry.enabled)
-      ? draftSelection
-      : scheduledTaskDefaultModel(settings, selectedProject ?? null, instanceEntries);
+    draftSelection ?? scheduledTaskDefaultModel(settings, selectedProject ?? null, instanceEntries);
+  const selectedInstance = instanceEntries.find(
+    (entry) => entry.instanceId === activeSelection?.instanceId,
+  );
   const activeInstanceId =
     activeSelection?.instanceId ?? firstInstance?.instanceId ?? ("" as ProviderInstanceId);
   const activeModel = activeSelection?.model ?? "";
@@ -1311,6 +1313,13 @@ function ScheduledTaskEditorDialog({
                   }
                 />
               </div>
+              {activeSelection && !selectedInstance?.enabled ? (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {selectedInstance?.displayName ?? "The saved provider"} is disabled or unavailable
+                  for this project. Saving keeps this selection. Enable it in Settings → Providers,
+                  or choose an enabled provider before running the automation.
+                </p>
+              ) : null}
             </Field>
 
             <div className="space-y-3">

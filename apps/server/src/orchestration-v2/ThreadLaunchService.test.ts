@@ -389,7 +389,7 @@ it.effect.each(
 );
 
 it.effect.each(
-  (["new", "existing", "settled", "archived", "busy"] as const).flatMap((target) =>
+  (["new", "existing", "settled", "archived", "snoozed", "busy"] as const).flatMap((target) =>
     (["global", "project"] as const).map((scope) => ({ target, scope })),
   ),
 )(
@@ -468,6 +468,14 @@ it.effect.each(
           threadId: existing.threadId,
         });
       }
+      if (existing && target === "snoozed") {
+        yield* threads.dispatch({
+          type: "thread.snooze",
+          commandId: CommandId.make("command:snooze-before-failure"),
+          threadId: existing.threadId,
+          snoozedUntil: "2099-01-01T00:00:00.000Z",
+        });
+      }
       const result = yield* tasks.runNow({ id: task.id });
       assert.equal(result.task.lastRunStatus, "failed");
       if (target !== "archived") assert.include(result.task.lastRunError!, "Joel is disabled");
@@ -479,6 +487,7 @@ it.effect.each(
       if (existing && target !== "busy") assert.equal(shell.id, existing.threadId);
       assert.equal(shell.archivedAt, null);
       assert.equal(shell.settledOverride, null);
+      assert.equal(shell.snoozedUntil, null);
       assert.equal(shell.status, "failed");
       assert.equal(shell.lastAutomationFailure?.message, result.task.lastRunError);
       const projection = yield* threads.getThreadProjection(shell.id);

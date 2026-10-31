@@ -238,7 +238,7 @@ function EnvironmentNotifications({
           ...(automationFailure ? { timeout: 0 } : {}),
           title,
           description: automationFailure
-            ? `${thread.title}: ${automationFailure.message}`
+            ? `${thread.title}. Open the chat for the cause and recovery steps.`
             : thread.title,
           data: {
             hideCopyButton: true,
