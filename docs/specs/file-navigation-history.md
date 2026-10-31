@@ -6,7 +6,7 @@ Selecting a file from Files or file search opens its preview immediately, but re
 
 ## Scope
 
-Add file navigation history to the shared web and desktop file viewer. Reuse the existing configurable navigation commands: `Cmd+[` and `Cmd+]` on macOS, and their existing Ctrl equivalents on Windows/Linux. Native mobile navigation, browser-page history, and changes to file editing or saving are outside this feature's scope.
+Add file navigation history to the shared web and desktop file viewer in draft and saved threads. Reuse the existing configurable navigation commands: `Cmd+[` and `Cmd+]` on macOS, and their existing Ctrl equivalents on Windows/Linux. Native mobile navigation, browser-page history, and changes to file editing or saving are outside this feature's scope.
 
 ## Required behavior
 
@@ -35,4 +35,4 @@ Add file navigation history to the shared web and desktop file viewer. Reuse the
 - File read failures remain visible through the existing viewer error behavior; Back and Forward remain available for recovery.
 - Working assumptions: explicitly closed file tabs are skipped by history, and thread attachments keep their existing navigation behavior. These do not change workspace-file navigation.
 
-No blocking product questions remain. Linear tracking is being resolved separately before implementation publication.
+No blocking product questions remain. Jakub explicitly chose to proceed without a Linear issue on 2026-10-31; this spec and its PR track the work.

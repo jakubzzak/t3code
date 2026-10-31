@@ -1120,6 +1120,10 @@ export default function FilePreviewPanel({
     explorerOpen,
     attachmentOpen: attachment !== undefined,
   });
+  const [explorerMounted, setExplorerMounted] = useState(showExplorer);
+  // Keep a visited tree mounted so history restores its search and expanded
+  // folders, without loading a tree for every file opened directly.
+  if (showExplorer && !explorerMounted) setExplorerMounted(true);
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
@@ -1501,10 +1505,11 @@ export default function FilePreviewPanel({
             )
           ) : null}
         </div>
-        {showExplorer ? (
+        {explorerMounted && !isHostFile ? (
           <aside
             className={cn(
               "flex min-h-0 shrink-0 bg-background",
+              !showExplorer && "hidden",
               previewPath
                 ? "w-[min(22rem,46%)] min-w-64 border-l border-border/60"
                 : "min-w-0 flex-1",
@@ -1516,7 +1521,7 @@ export default function FilePreviewPanel({
               chatKey={`${environmentId}:${typeof composerDraftTarget === "string" ? composerDraftTarget : composerDraftTarget.threadId}`}
               cwd={cwd}
               projectName={projectName}
-              selectedPath={relativePath}
+              selectedPath={showExplorer ? relativePath : null}
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
               workspaceMutationId={workspaceMutationId}

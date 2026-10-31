@@ -334,7 +334,8 @@ export default function FileBrowserPanel({
             }
           : null,
     search: false,
-    onSearchChange: (value) => setQuery(value ?? ""),
+    // The external field owns the query. Pierre closes its internal search
+    // after a row click; that must not erase the explorer's history context.
     unsafeCSS: PIERRE_TREE_UNSAFE_CSS + FILE_LINK_CSS,
   });
   useEffect(() => {
@@ -553,6 +554,28 @@ export default function FileBrowserPanel({
       ref={panelRef}
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-file-browser-panel={`${environmentId}:${cwd}`}
+      onClickCapture={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+          return;
+        const row = event.nativeEvent
+          .composedPath()
+          .find(
+            (target): target is HTMLElement =>
+              target instanceof HTMLElement && target.hasAttribute("data-item-path"),
+          );
+        const path = row?.getAttribute("data-item-path");
+        // Back preserves the selection. Clicking that row again emits no
+        // selection change, but still needs to reopen the file.
+        if (
+          path &&
+          path !== selectedPath &&
+          row?.getAttribute("aria-selected") === "true" &&
+          entryKinds.get(path) === "file"
+        ) {
+          treeSelectionPathRef.current = path;
+          onOpenFile(path);
+        }
+      }}
     >
       <div
         className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
@@ -562,7 +585,7 @@ export default function FileBrowserPanel({
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
-          value={search.value}
+          value={query}
           onValueChange={handleSearchValueChange}
         />
         <Popover>

@@ -123,6 +123,9 @@ export interface ThreadPanelVisibility {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
+  /** Session-only visits to the explorer and workspace files, independent of route history. */
+  fileNavigationByThreadKey: Record<string, FileNavigationHistory>;
+  navigateFileHistory: (ref: ScopedThreadRef, direction: -1 | 1) => boolean;
   /**
    * A thread whose right panel should open maximized the next time it shows,
    * such as one started for a link the OS opened. Its view consumes it once.
@@ -212,6 +215,37 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
   inlineOpen: true,
   popoverOpen: false,
 };
+
+type FileNavigationSurface = Extract<RightPanelSurface, { kind: "files" | "file" }>;
+interface FileNavigationHistory {
+  entries: FileNavigationSurface[];
+  index: number;
+}
+
+function selectedFileNavigationSurface(state: ThreadRightPanelState) {
+  const surface = state.surfaces.find((entry) => entry.id === state.activeSurfaceId);
+  return surface?.kind === "files" || (surface?.kind === "file" && !surface.attachment)
+    ? surface
+    : null;
+}
+
+function recordFileNavigation(
+  history: FileNavigationHistory | undefined,
+  current: ThreadRightPanelState,
+  next: ThreadRightPanelState,
+): FileNavigationHistory | undefined {
+  const destination = selectedFileNavigationSurface(next);
+  if (!next.isOpen || !destination) return history;
+  const origin = selectedFileNavigationSurface(current);
+  if (current.isOpen && origin?.id === destination.id) return history;
+  const entries = history
+    ? history.entries.slice(0, history.index + 1)
+    : [origin ?? { id: "files" as const, kind: "files" as const }];
+  if (entries.at(-1)?.id === destination.id) return history;
+  entries.push(destination);
+  const bounded = entries.slice(-100);
+  return { entries: bounded, index: bounded.length - 1 };
+}
 
 const singletonSurface = (
   kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
@@ -405,8 +439,9 @@ const userAction = (
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
   closesView = false,
-): Partial<RightPanelStoreState> => ({
-  ...updateThread(state, threadKey, (current) => {
+): Partial<RightPanelStoreState> => {
+  const current = state.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+  const update = updateThread(state, threadKey, (current) => {
     const next = updater(current);
     if (next === current) return current;
     const removedDevices = current.surfaces.filter(
@@ -423,20 +458,35 @@ const userAction = (
         ]),
       ],
     };
-  }),
-  userActionRevisionByThreadKey: {
-    ...state.userActionRevisionByThreadKey,
-    [threadKey]: (state.userActionRevisionByThreadKey[threadKey] ?? 0) + 1,
-  },
-  ...(closesView
-    ? {
-        closeRevisionByThreadKey: {
-          ...state.closeRevisionByThreadKey,
-          [threadKey]: (state.closeRevisionByThreadKey[threadKey] ?? 0) + 1,
-        },
-      }
-    : {}),
-});
+  });
+  const history = state.fileNavigationByThreadKey[threadKey];
+  const nextHistory = closesView
+    ? history
+    : recordFileNavigation(history, current, update.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE);
+  return {
+    ...update,
+    ...(nextHistory && nextHistory !== history
+      ? {
+          fileNavigationByThreadKey: {
+            ...state.fileNavigationByThreadKey,
+            [threadKey]: nextHistory,
+          },
+        }
+      : {}),
+    userActionRevisionByThreadKey: {
+      ...state.userActionRevisionByThreadKey,
+      [threadKey]: (state.userActionRevisionByThreadKey[threadKey] ?? 0) + 1,
+    },
+    ...(closesView
+      ? {
+          closeRevisionByThreadKey: {
+            ...state.closeRevisionByThreadKey,
+            [threadKey]: (state.closeRevisionByThreadKey[threadKey] ?? 0) + 1,
+          },
+        }
+      : {}),
+  };
+};
 
 const closeAction = (
   state: RightPanelStoreState,
@@ -602,6 +652,55 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
+      fileNavigationByThreadKey: {},
+      navigateFileHistory: (ref, direction) => {
+        const threadKey = scopedThreadKey(ref);
+        const state = get();
+        const current = state.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+        // Consume both directions at the ends too: a file shortcut must never
+        // unexpectedly navigate away from the thread.
+        const active = selectedFileNavigationSurface(current);
+        if (!current.isOpen || !active) return false;
+        const history = state.fileNavigationByThreadKey[threadKey] ?? {
+          entries:
+            active.kind === "file" ? [{ id: "files", kind: "files" } as const, active] : [active],
+          index: active.kind === "file" ? 1 : 0,
+        };
+        for (
+          let index = history.index + direction;
+          index >= 0 && index < history.entries.length;
+          index += direction
+        ) {
+          const destination = history.entries[index]!;
+          if (destination.id === current.activeSurfaceId) continue;
+          // Explicitly closed file tabs stay closed; Files is replaced as part
+          // of opening a file, so its history entry can restore the explorer.
+          if (
+            destination.kind === "file" &&
+            !current.surfaces.some((surface) => surface.id === destination.id)
+          )
+            continue;
+          set((state) => ({
+            ...userAction(state, threadKey, (current) =>
+              upsertSurface(
+                {
+                  ...current,
+                  surfaces: current.surfaces.filter(
+                    (surface) => destination.kind !== "file" || surface.kind !== "files",
+                  ),
+                },
+                destination,
+              ),
+            ),
+            fileNavigationByThreadKey: {
+              ...state.fileNavigationByThreadKey,
+              [threadKey]: { ...history, index },
+            },
+          }));
+          break;
+        }
+        return true;
+      },
       pendingMaximizeThreadKey: null,
       requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
       consumeMaximizeRequest: (ref) => {
@@ -1034,7 +1133,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             !(threadKey in state.byThreadKey) &&
             !(threadKey in state.threadPanelVisibilityByThreadKey) &&
             !(threadKey in state.userActionRevisionByThreadKey) &&
-            !(threadKey in state.closeRevisionByThreadKey)
+            !(threadKey in state.closeRevisionByThreadKey) &&
+            !(threadKey in state.fileNavigationByThreadKey)
           ) {
             return state;
           }
@@ -1045,11 +1145,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             state.userActionRevisionByThreadKey;
           const { [threadKey]: _closeRevision, ...closeRevisionByThreadKey } =
             state.closeRevisionByThreadKey;
+          const { [threadKey]: _fileNavigation, ...fileNavigationByThreadKey } =
+            state.fileNavigationByThreadKey;
           return {
             byThreadKey,
             threadPanelVisibilityByThreadKey,
             userActionRevisionByThreadKey,
             closeRevisionByThreadKey,
+            fileNavigationByThreadKey,
           };
         }),
     }),

@@ -23,6 +23,7 @@ beforeEach(() => {
   useClosedViewStore.setState({ entries: [] });
   useRightPanelStore.setState({
     byThreadKey: {},
+    fileNavigationByThreadKey: {},
     threadPanelVisibilityByThreadKey: {},
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
@@ -30,6 +31,116 @@ beforeEach(() => {
 });
 
 describe("rightPanelStore", () => {
+  it("can return to Files from a restored file tab before any new visit", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "README.md");
+    useRightPanelStore.setState({ fileNavigationByThreadKey: {} });
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+    store.navigateFileHistory(refA, 1);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:README.md",
+    );
+  });
+
+  it("bounds each thread's history and removes it with the thread", () => {
+    const store = useRightPanelStore.getState();
+    for (let index = 0; index < 110; index++) store.openFile(refA, `${index}.ts`);
+    const history = Object.values(useRightPanelStore.getState().fileNavigationByThreadKey)[0]!;
+    expect(history.entries).toHaveLength(100);
+    expect(history.index).toBe(99);
+    store.removeThread(refA);
+    expect(useRightPanelStore.getState().fileNavigationByThreadKey).toEqual({});
+  });
+
+  it("navigates back to Files and forward to the selected file repeatedly", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "files");
+    store.openFile(refA, "src/app.ts");
+    expect(store.navigateFileHistory(refA, -1)).toBe(true);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+    expect(store.navigateFileHistory(refA, 1)).toBe(true);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:src/app.ts",
+    );
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+    expect(useClosedViewStore.getState().entries).toEqual([]);
+  });
+
+  it("remembers file visits and branches history after navigating back", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "src/first.ts");
+    store.openFile(refA, "src/second.ts");
+    store.activateSurface(refA, "file:src/first.ts");
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:src/second.ts",
+    );
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:src/first.ts",
+    );
+    store.openFile(refA, "src/third.ts");
+    store.navigateFileHistory(refA, 1);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:src/third.ts",
+    );
+    store.navigateFileHistory(refA, -1);
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+  });
+
+  it("opens Files behind a search result and keeps thread and environment histories separate", () => {
+    const store = useRightPanelStore.getState();
+    const otherEnvironment = scopeThreadRef("env-2" as EnvironmentId, refA.threadId);
+    store.openFile(refA, "src/app.ts");
+    store.openFile(refB, "README.md");
+    store.openFile(otherEnvironment, "other.ts");
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refB)?.id).toBe(
+      "file:README.md",
+    );
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, otherEnvironment)
+        ?.id,
+    ).toBe("file:other.ts");
+  });
+
+  it("consumes file history boundaries but leaves other surfaces to route navigation", () => {
+    const store = useRightPanelStore.getState();
+    expect(store.navigateFileHistory(refA, -1)).toBe(false);
+    store.open(refA, "files");
+    expect(store.navigateFileHistory(refA, -1)).toBe(true);
+    expect(store.navigateFileHistory(refA, 1)).toBe(true);
+    store.open(refA, "diff");
+    expect(store.navigateFileHistory(refA, -1)).toBe(false);
+    store.openFile(refA, "src/app.ts");
+    store.close(refA);
+    expect(store.navigateFileHistory(refA, -1)).toBe(false);
+  });
+
+  it("skips explicitly closed files and does not add repeated opens to history", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "first.ts");
+    store.openFile(refA, "second.ts");
+    store.openFile(refA, "second.ts", 10);
+    store.openFile(refA, "third.ts");
+    store.closeSurface(refA, "file:second.ts");
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:first.ts",
+    );
+    store.navigateFileHistory(refA, -1);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("files");
+    store.navigateFileHistory(refA, 1);
+    store.navigateFileHistory(refA, 1);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:third.ts",
+    );
+  });
+
   it("records single and bulk tab closes, newest first", () => {
     const store = useRightPanelStore.getState();
     const pr = pullRequestSurface({
