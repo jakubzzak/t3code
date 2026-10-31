@@ -1,3 +1,4 @@
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import { withThreadTurnLease } from "../process/threadResourceLease.ts";
 import { CommandId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -91,6 +92,7 @@ export const layerExecutor: Layer.Layer<
   | ThreadTitleRegenerationService.ThreadTitleRegenerationService
   | ThreadManagementService.ThreadManagementService
   | ServerSettings.ServerSettingsService
+  | ThreadLaunchService.ThreadLaunchService
 > = Layer.effect(
   OrchestrationEffectExecutorV2,
   Effect.gen(function* () {
@@ -105,10 +107,17 @@ export const layerExecutor: Layer.Layer<
       yield* ThreadTitleRegenerationService.ThreadTitleRegenerationService;
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const settings = yield* ServerSettings.ServerSettingsService;
+    const launches = yield* ThreadLaunchService.ThreadLaunchService;
     return OrchestrationEffectExecutorV2.of({
       execute: (effect, options) => {
         const willRetry = options?.willRetry ?? false;
         switch (effect.request.type) {
+          case "workspace.prepare":
+            return launches.prepareRun({
+              commandId: effect.commandId,
+              threadId: effect.threadId,
+              runId: effect.request.runId,
+            });
           case "provider-runtime.continue": {
             const sourceRunId = effect.request.sourceRunId;
             return continueRestartedRun({ threadId: effect.threadId, sourceRunId }).pipe(

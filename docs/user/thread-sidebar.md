@@ -43,6 +43,19 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Move a chat to another project
+
+On web or desktop, click the current project's name in the chat header, or choose
+**Move chat to project…** in the command palette. Select another project on the
+same server. The move starts immediately: an active run stops, the destination
+uses its usual checkout or new-worktree and setup settings, and the agent continues
+automatically there.
+
+The chat keeps its history, queued messages, and bound scheduled tasks. Files and
+worktrees stay in the source project. If destination setup fails, the chat stays
+in its source project and offers a retry. Moving back uses that project's defaults
+again; it does not restore the previous worktree.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

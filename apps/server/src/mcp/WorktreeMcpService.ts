@@ -1,3 +1,4 @@
+import type { WorktreeMcpProjectHandoffInput } from "@t3tools/contracts";
 import {
   CommandId,
   MessageId,
@@ -28,6 +29,10 @@ import type { McpInvocationScope, McpThreadInvocationScope } from "./McpInvocati
 export class WorktreeMcpService extends Context.Service<
   WorktreeMcpService,
   {
+    readonly moveProject: (
+      scope: McpInvocationScope,
+      input: WorktreeMcpProjectHandoffInput,
+    ) => Effect.Effect<{ accepted: true }, WorktreeMcpFailure>;
     readonly handoff: (
       scope: McpInvocationScope,
       input: WorktreeMcpHandoffInput,
@@ -442,6 +447,24 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const moveProject: WorktreeMcpService["Service"]["moveProject"] = Effect.fn(
+    "WorktreeMcpService.moveProject",
+  )(function* (callerScope, input) {
+    yield* requireCapability(callerScope);
+    const scope = yield* requireThreadScope(callerScope);
+    yield* threadManagement
+      .dispatch({
+        type: "thread.project.move",
+        threadId: scope.thread.threadId,
+        projectId: input.projectId,
+        commandId: CommandId.make(
+          `project-handoff:${scope.thread.threadId}:${input.clientRequestId}`,
+        ),
+      })
+      .pipe(asOperationFailed("Could not move chat to project"));
+    return { accepted: true as const };
+  });
+
   const handoff: WorktreeMcpService["Service"]["handoff"] = Effect.fn("WorktreeMcpService.handoff")(
     function* (callerScope, input) {
       yield* requireCapability(callerScope);
@@ -492,7 +515,7 @@ const make = Effect.gen(function* () {
     },
   );
 
-  return WorktreeMcpService.of({ handoff, status });
+  return WorktreeMcpService.of({ handoff, status, moveProject });
 });
 
 export const layer: Layer.Layer<

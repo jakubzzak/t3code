@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { ProjectId } from "./baseSchemas.ts";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
@@ -10,6 +11,12 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
  * session, so the current turn ends shortly after the handoff is recorded;
  * the conversation continues inside the worktree on the thread's next run.
  */
+export const WorktreeMcpProjectHandoffInput = Schema.Struct({
+  projectId: ProjectId,
+  clientRequestId: TrimmedNonEmptyString,
+});
+export type WorktreeMcpProjectHandoffInput = typeof WorktreeMcpProjectHandoffInput.Type;
+
 export const WorktreeMcpHandoffInput = Schema.Struct({
   branch: TrimmedNonEmptyString.annotate({
     description: "Branch name to create for the worktree (e.g. 'feature/my-change').",

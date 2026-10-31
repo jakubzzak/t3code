@@ -1849,6 +1849,22 @@ const layerWsRpc = (
         [WS_METHODS.threadCleanupSubscribe]: (input) => threadCleanup.subscribe(input.threadId),
         [WS_METHODS.linearIssueSelect]: (input) => linearIssues.select(input),
         [WS_METHODS.reviewGenerateFileFilter]: (input) => fileFilter.generate(input),
+        [ORCHESTRATION_V2_WS_METHODS.moveThreadProject]: (input) =>
+          startup
+            .enqueueCommand(threadManagement.dispatch({ ...input, type: "thread.project.move" }))
+            .pipe(
+              Effect.map((result) => ({ sequence: result.sequence })),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationV2DispatchCommandError({
+                    commandId: input.commandId,
+                    commandType: "thread.project.move",
+                    message:
+                      userFacingDispatchErrorMessage(cause) ?? "Could not move chat to project.",
+                    cause,
+                  }),
+              ),
+            ),
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,

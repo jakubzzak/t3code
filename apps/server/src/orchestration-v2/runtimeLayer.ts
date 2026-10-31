@@ -1,3 +1,4 @@
+import * as ProjectFiles from "../project/T3ProjectFileLoader.ts";
 import * as InboxContext from "../inbox/InboxContextService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -262,6 +263,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
     Layer.mergeAll(
       layerProjectService,
       layerProjectSetupScriptRunner,
+      ProjectFiles.layer,
       layerManagedProjectFoldersProvided,
       layerThreadManagementProvided,
       layerCommandReceiptStoreProvided,
@@ -352,7 +354,7 @@ export const layer = Layer.mergeAll(
 );
 
 export const layerProduction = Layer.mergeAll(
-  layer.pipe(Layer.provide(layerProjectService)),
+  layer.pipe(Layer.provide(Layer.merge(layerProjectService, layerThreadLaunchProvided))),
   layerProjectService,
   layerManagedProjectFoldersProvided,
   layerThreadLaunchProvided,

@@ -354,6 +354,10 @@ const layerBase: Layer.Layer<
         // Pause in the archive transaction: a committed archive must never leave
         // recurring work enabled, including when initiated by another client or agent.
         for (const { event } of storedEvents) {
+          if (event.type === "thread.metadata-updated") {
+            yield* sql`UPDATE scheduled_tasks SET project_id = ${event.payload.projectId}
+              WHERE thread_id = ${event.threadId} AND project_id <> ${event.payload.projectId}`;
+          }
           if (event.type !== "thread.archived") continue;
           yield* sql`
             UPDATE scheduled_tasks

@@ -1067,3 +1067,38 @@ describe("WorktreeMcpHandoffInput schema", () => {
     }),
   );
 });
+
+describe("t3_project_handoff", () => {
+  it.effect(
+    "uses the shared move lifecycle with a stable retry identity, including from a worktree",
+    () => {
+      const harness = makeHarness({ thread: { worktreePath: "/source-tree", branch: "source" } });
+      return Effect.gen(function* () {
+        const service = yield* resolveService(harness);
+        const input = { projectId: ProjectId.make("destination"), clientRequestId: "move-1" };
+        expect(yield* service.moveProject(harness.scope, input)).toEqual({ accepted: true });
+        yield* service.moveProject(harness.scope, input);
+        expect(harness.dispatch.mock.calls[0]?.[0]).toEqual(harness.dispatch.mock.calls[1]?.[0]);
+        expect(harness.dispatch).toHaveBeenCalledWith({
+          type: "thread.project.move",
+          threadId,
+          projectId: input.projectId,
+          commandId: `project-handoff:${threadId}:move-1`,
+        });
+        expect(harness.createWorktree).not.toHaveBeenCalled();
+        expect(harness.removeWorktree).not.toHaveBeenCalled();
+      });
+    },
+  );
+  it.effect("rejects an agent without the workspace capability before dispatch", () => {
+    const harness = makeHarness({ capabilities: new Set(["preview"]) });
+    return Effect.gen(function* () {
+      const service = yield* resolveService(harness);
+      const result = yield* Effect.exit(
+        service.moveProject(harness.scope, { projectId, clientRequestId: "denied" }),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+      expect(harness.dispatch).not.toHaveBeenCalled();
+    });
+  });
+});

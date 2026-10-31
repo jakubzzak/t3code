@@ -1,5 +1,6 @@
 import {
   CommandId,
+  type ProjectId,
   MessageId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ScheduledTask,
@@ -1145,6 +1146,32 @@ export const layer = Layer.effect(
                 taskError("Could not subscribe to automation changes.", { cause }),
               ),
             );
+          let boundProjects = new Map<ThreadId, ProjectId>();
+          const refresh = list().pipe(
+            Effect.tap(({ tasks }) =>
+              Effect.sync(() => {
+                boundProjects = new Map(
+                  tasks.flatMap((task) =>
+                    task.threadId === null ? [] : [[task.threadId, task.projectId]],
+                  ),
+                );
+              }),
+            ),
+          );
+          const moves = eventSink
+            .stream({ eventType: "thread.metadata-updated", afterSequence })
+            .pipe(
+              Stream.filter(
+                ({ event }) =>
+                  event.type === "thread.metadata-updated" &&
+                  boundProjects.has(event.threadId) &&
+                  boundProjects.get(event.threadId) !== event.payload.projectId,
+              ),
+              Stream.map(() => undefined),
+              Stream.mapError((cause) =>
+                taskError("Could not subscribe to automation changes.", { cause }),
+              ),
+            );
           const archives = eventSink.stream({ eventType: "thread.archived", afterSequence }).pipe(
             Stream.map(() => undefined),
             Stream.mapError((cause) =>
@@ -1152,9 +1179,9 @@ export const layer = Layer.effect(
             ),
           );
           return Stream.concat(
-            Stream.fromEffect(list()),
-            Stream.merge(Stream.fromSubscription(subscription), archives).pipe(
-              Stream.mapEffect(() => list()),
+            Stream.fromEffect(refresh),
+            Stream.merge(Stream.fromSubscription(subscription), Stream.merge(archives, moves)).pipe(
+              Stream.mapEffect(() => refresh),
             ),
           );
         }),
