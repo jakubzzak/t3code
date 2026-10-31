@@ -18,6 +18,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { useClosedViewStore } from "./closedViewStore";
 import { resolveStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
 import type { ChatFileAttachment } from "./types";
 
@@ -40,6 +41,8 @@ export interface DeviceTabTarget {
   name: string;
 }
 
+type FileTabId = "files" | `file:${string}`;
+
 export type RightPanelSurface =
   | { id: `browser:${string}`; kind: "preview"; resourceId: string }
   | { id: "browser:new"; kind: "preview"; resourceId: null }
@@ -53,9 +56,9 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
-  | { id: "files"; kind: "files" }
+  | { id: FileTabId; kind: "files" }
   | {
-      id: `file:${string}` | `attachment:${string}`;
+      id: FileTabId | `attachment:${string}`;
       kind: "file";
       /** Workspace-relative, or absolute for a host file outside the workspace. */
       relativePath: string;
@@ -123,6 +126,9 @@ export interface ThreadPanelVisibility {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
+  /** Session-only visits to the explorer and workspace files, independent of route history. */
+  fileNavigationByThreadKey: Record<string, FileNavigationHistory>;
+  navigateFileHistory: (ref: ScopedThreadRef, direction: -1 | 1) => boolean;
   /**
    * A thread whose right panel should open maximized the next time it shows,
    * such as one started for a link the OS opened. Its view consumes it once.
@@ -152,6 +158,7 @@ interface RightPanelStoreState {
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
+  restoreFileTab: (ref: ScopedThreadRef, surface: FileNavigationSurface) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
     ref: ScopedThreadRef,
@@ -213,6 +220,59 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
   popoverOpen: false,
 };
 
+type FileNavigationSurface = Extract<RightPanelSurface, { kind: "files" | "file" }>;
+interface FileNavigationHistory {
+  entries: FileNavigationSurface[];
+  index: number;
+}
+
+function selectedFileNavigationSurface(state: ThreadRightPanelState) {
+  const surface = state.surfaces.find((entry) => entry.id === state.activeSurfaceId);
+  return surface?.kind === "files" || (surface?.kind === "file" && !surface.attachment)
+    ? surface
+    : null;
+}
+
+function sameFileLocation(left: FileNavigationSurface, right: FileNavigationSurface) {
+  return left.kind === "files"
+    ? right.kind === "files"
+    : right.kind === "file" && left.relativePath === right.relativePath;
+}
+
+function explorerSurface(
+  current: ThreadRightPanelState,
+): Extract<RightPanelSurface, { kind: "files" }> {
+  const active = selectedFileNavigationSurface(current);
+  if (active) return { id: active.id as FileTabId, kind: "files" };
+  return (
+    current.surfaces.find((surface) => surface.kind === "files") ?? {
+      id: current.surfaces.some((surface) => surface.id === "files")
+        ? `file:tab:${randomUUID()}`
+        : "files",
+      kind: "files",
+    }
+  );
+}
+
+function recordFileNavigation(
+  history: FileNavigationHistory | undefined,
+  current: ThreadRightPanelState,
+  next: ThreadRightPanelState,
+): FileNavigationHistory | undefined {
+  const destination = selectedFileNavigationSurface(next);
+  if (!next.isOpen || !destination) return history;
+  const origin = selectedFileNavigationSurface(current);
+  if (current.isOpen && origin && sameFileLocation(origin, destination)) return history;
+  const entries = history
+    ? history.entries.slice(0, history.index + 1)
+    : [origin ?? { id: "files" as const, kind: "files" as const }];
+  const last = entries.at(-1);
+  if (last && sameFileLocation(last, destination)) return history;
+  entries.push(destination);
+  const bounded = entries.slice(-100);
+  return { entries: bounded, index: bounded.length - 1 };
+}
+
 const singletonSurface = (
   kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
 ): RightPanelSurface => {
@@ -237,7 +297,7 @@ const fileSurface = (
   relativePath: string,
   revealLine: number | null,
   revealRequestId: number,
-): RightPanelSurface => ({
+): Extract<RightPanelSurface, { kind: "file" }> => ({
   id: `file:${relativePath}`,
   kind: "file",
   relativePath,
@@ -311,6 +371,17 @@ const upsertSurface = (
     : [...current.surfaces, surface],
   activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
 });
+
+const openFileExplorer = (current: ThreadRightPanelState): ThreadRightPanelState => {
+  const surface = explorerSurface(current);
+  return upsertSurface(
+    {
+      ...current,
+      surfaces: current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry)),
+    },
+    surface,
+  );
+};
 
 const updateThreadStateMap = (
   byThreadKey: Record<string, ThreadRightPanelState>,
@@ -405,8 +476,9 @@ const userAction = (
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
   closesView = false,
-): Partial<RightPanelStoreState> => ({
-  ...updateThread(state, threadKey, (current) => {
+): Partial<RightPanelStoreState> => {
+  const current = state.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+  const update = updateThread(state, threadKey, (current) => {
     const next = updater(current);
     if (next === current) return current;
     const removedDevices = current.surfaces.filter(
@@ -423,20 +495,35 @@ const userAction = (
         ]),
       ],
     };
-  }),
-  userActionRevisionByThreadKey: {
-    ...state.userActionRevisionByThreadKey,
-    [threadKey]: (state.userActionRevisionByThreadKey[threadKey] ?? 0) + 1,
-  },
-  ...(closesView
-    ? {
-        closeRevisionByThreadKey: {
-          ...state.closeRevisionByThreadKey,
-          [threadKey]: (state.closeRevisionByThreadKey[threadKey] ?? 0) + 1,
-        },
-      }
-    : {}),
-});
+  });
+  const history = state.fileNavigationByThreadKey[threadKey];
+  const nextHistory = closesView
+    ? history
+    : recordFileNavigation(history, current, update.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE);
+  return {
+    ...update,
+    ...(nextHistory && nextHistory !== history
+      ? {
+          fileNavigationByThreadKey: {
+            ...state.fileNavigationByThreadKey,
+            [threadKey]: nextHistory,
+          },
+        }
+      : {}),
+    userActionRevisionByThreadKey: {
+      ...state.userActionRevisionByThreadKey,
+      [threadKey]: (state.userActionRevisionByThreadKey[threadKey] ?? 0) + 1,
+    },
+    ...(closesView
+      ? {
+          closeRevisionByThreadKey: {
+            ...state.closeRevisionByThreadKey,
+            [threadKey]: (state.closeRevisionByThreadKey[threadKey] ?? 0) + 1,
+          },
+        }
+      : {}),
+  };
+};
 
 const closeAction = (
   state: RightPanelStoreState,
@@ -602,6 +689,52 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
+      fileNavigationByThreadKey: {},
+      navigateFileHistory: (ref, direction) => {
+        const threadKey = scopedThreadKey(ref);
+        const state = get();
+        const current = state.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+        // Consume both directions at the ends too: a file shortcut must never
+        // unexpectedly navigate away from the thread.
+        const active = selectedFileNavigationSurface(current);
+        if (!current.isOpen || !active) return false;
+        const history = state.fileNavigationByThreadKey[threadKey] ?? {
+          entries:
+            active.kind === "file" ? [{ id: "files", kind: "files" } as const, active] : [active],
+          index: active.kind === "file" ? 1 : 0,
+        };
+        for (
+          let index = history.index + direction;
+          index >= 0 && index < history.entries.length;
+          index += direction
+        ) {
+          const destination = history.entries[index]!;
+          if (sameFileLocation(destination, active)) continue;
+          // Explicitly closed file tabs stay closed; Files is replaced as part
+          // of opening a file, so its history entry can restore the explorer.
+          if (
+            destination.kind === "file" &&
+            !current.surfaces.some((surface) => surface.id === destination.id)
+          )
+            continue;
+          set((state) => ({
+            ...userAction(state, threadKey, (current) => ({
+              ...current,
+              // A visit changes the current tab's content, never its identity
+              // or the other tabs. File paths are not tab identities after Back.
+              surfaces: current.surfaces.map((surface) =>
+                surface.id === active.id ? { ...destination, id: active.id as FileTabId } : surface,
+              ),
+            })),
+            fileNavigationByThreadKey: {
+              ...state.fileNavigationByThreadKey,
+              [threadKey]: { ...history, index },
+            },
+          }));
+          break;
+        }
+        return true;
+      },
       pendingMaximizeThreadKey: null,
       requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
       consumeMaximizeRequest: (ref) => {
@@ -644,7 +777,9 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               const existing = current.surfaces.find((surface) => surface.kind === "preview");
               return upsertSurface(current, existing ?? browserSurface(null));
             }
-            return upsertSurface(current, singletonSurface(kind));
+            return kind === "files"
+              ? openFileExplorer(current)
+              : upsertSurface(current, singletonSurface(kind));
           }),
         ),
       openDevice: (ref, target, automatic = false) =>
@@ -710,42 +845,53 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
             if (requestedPath === ".") {
-              return upsertSurface(current, singletonSurface("files"));
+              return openFileExplorer(current);
             }
             // Workspace entry paths use '/', including on Windows.
             const relativePath = /^[A-Za-z]:\/+$/.test(requestedPath)
               ? requestedPath
               : requestedPath.replace(/\/+$/, "") || requestedPath;
-            const withoutStandaloneExplorer = current.surfaces.filter(
-              (surface) => surface.kind !== "files",
-            );
-            const surfaceId = `file:${relativePath}` as const;
-            const existing = withoutStandaloneExplorer.find(
+            const existing = current.surfaces.find(
               (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
-                surface.id === surfaceId && surface.kind === "file",
+                surface.kind === "file" &&
+                !surface.attachment &&
+                surface.relativePath === relativePath,
             );
-            const surface = fileSurface(
-              relativePath,
-              normalizeRevealLine(line),
-              (existing?.revealRequestId ?? 0) + 1,
-            );
+            const active = selectedFileNavigationSurface(current);
+            const targetId =
+              active?.id ??
+              existing?.id ??
+              (current.surfaces.some((surface) => surface.id === `file:${relativePath}`)
+                ? (`file:tab:${randomUUID()}` as const)
+                : (`file:${relativePath}` as const));
+            const surface = {
+              ...fileSurface(
+                relativePath,
+                normalizeRevealLine(line),
+                (existing?.revealRequestId ?? 0) + 1,
+              ),
+              id: targetId,
+            };
             return {
               ...current,
               isOpen: true,
               activeSurfaceId: surface.id,
-              surfaces: existing
-                ? withoutStandaloneExplorer.map((entry) =>
-                    entry.id === surface.id ? surface : entry,
-                  )
-                : [...withoutStandaloneExplorer, surface],
+              surfaces:
+                active || existing
+                  ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+                  : [...current.surfaces, surface],
             };
           }),
+        ),
+      restoreFileTab: (ref, surface) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => upsertSurface(current, surface)),
         ),
       openAttachment: (ref, attachment) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
             const withoutStandaloneExplorer = current.surfaces.filter(
-              (surface) => surface.kind !== "files",
+              (surface) => surface.kind !== "files" || surface.id !== current.activeSurfaceId,
             );
             return upsertSurface(
               { ...current, surfaces: withoutStandaloneExplorer },
@@ -1002,7 +1148,9 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               const existing = current.surfaces.find((surface) => surface.kind === "preview");
               return upsertSurface(current, existing ?? browserSurface(null));
             }
-            return upsertSurface(current, singletonSurface(kind));
+            return kind === "files"
+              ? openFileExplorer(current)
+              : upsertSurface(current, singletonSurface(kind));
           }),
         ),
       setThreadPanelOpen: (ref, presentation, open) =>
@@ -1034,7 +1182,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             !(threadKey in state.byThreadKey) &&
             !(threadKey in state.threadPanelVisibilityByThreadKey) &&
             !(threadKey in state.userActionRevisionByThreadKey) &&
-            !(threadKey in state.closeRevisionByThreadKey)
+            !(threadKey in state.closeRevisionByThreadKey) &&
+            !(threadKey in state.fileNavigationByThreadKey)
           ) {
             return state;
           }
@@ -1045,11 +1194,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             state.userActionRevisionByThreadKey;
           const { [threadKey]: _closeRevision, ...closeRevisionByThreadKey } =
             state.closeRevisionByThreadKey;
+          const { [threadKey]: _fileNavigation, ...fileNavigationByThreadKey } =
+            state.fileNavigationByThreadKey;
           return {
             byThreadKey,
             threadPanelVisibilityByThreadKey,
             userActionRevisionByThreadKey,
             closeRevisionByThreadKey,
+            fileNavigationByThreadKey,
           };
         }),
     }),

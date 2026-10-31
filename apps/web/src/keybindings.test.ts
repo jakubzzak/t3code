@@ -1160,6 +1160,13 @@ describe("resolveShortcutCommand", () => {
       "navigation.back",
     );
     assert.strictEqual(
+      resolveShortcutCommand(back, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { editableFocus: true },
+      }),
+      "navigation.back",
+    );
+    assert.strictEqual(
       resolveShortcutCommand(forward, DEFAULT_RESOLVED_KEYBINDINGS, { platform: "Linux" }),
       "navigation.forward",
     );

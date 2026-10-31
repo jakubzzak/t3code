@@ -39,6 +39,13 @@ on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
 
+## File navigation
+
+While Files or a workspace file is open, use `mod+[` to go back and `mod+]` to go
+forward through the explorer and files you visited in that thread. These shortcuts
+also work while editing a file. Returning to Files keeps your search and expanded
+folders. Outside the file viewer, the same shortcuts navigate app history.
+
 ## Copy pull request references
 
 With a PR open in the right panel or on the Pull Requests page, use `mod+shift+c`

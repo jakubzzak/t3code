@@ -1,12 +1,15 @@
 import { useAtom } from "@effect/atom-react";
-import { filesSearchOptionsAtom } from "@t3tools/client-runtime/state/files-search-options";
+import {
+  filesSearchOptionsAtom,
+  filesSearchQueryAtom,
+} from "@t3tools/client-runtime/state/files-search-options";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
 } from "@pierre/trees";
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
-import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
+import { FileTree, useFileTree, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { ChevronsDownUp, ChevronsUpDown, SlidersHorizontal } from "lucide";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -123,7 +126,7 @@ export default function FileBrowserPanel({
     isPending,
     loadingDirectories,
   } = useDirectoryEntries(environmentId, cwd);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useAtom(filesSearchQueryAtom(chatKey));
   const [expandAll, setExpandAll] = useState(false);
   const [filesRevision, setFilesRevision] = useState("");
   const [options, setOptions] = useAtom(filesSearchOptionsAtom(chatKey));
@@ -172,7 +175,7 @@ export default function FileBrowserPanel({
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
-  const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
+  const handledRevealsRef = useRef(new Map<string, number>());
 
   // The tree renders rows in shadow DOM and its anchor rect is unreliable, so
   // capture the right-click position ourselves; contextmenu is a composed
@@ -334,7 +337,8 @@ export default function FileBrowserPanel({
             }
           : null,
     search: false,
-    onSearchChange: (value) => setQuery(value ?? ""),
+    // The external field owns the query. Pierre closes its internal search
+    // after a row click; that must not erase the explorer's history context.
     unsafeCSS: PIERRE_TREE_UNSAFE_CSS + FILE_LINK_CSS,
   });
   useEffect(() => {
@@ -343,7 +347,10 @@ export default function FileBrowserPanel({
     // Re-render the rows with the current options so decorations update.
     model.setComposition(model.getComposition());
   }, [loadingDirectories, unavailableLinks, model]);
-  const search = useFileTreeSearch(model);
+  useEffect(() => {
+    if (query.trim()) model.setSearch(query);
+    else model.closeSearch();
+  }, [model, query]);
   const allDirectoriesExpanded = useFileTreeSelector(model, (currentModel) =>
     areAllDirectoriesExpanded(currentModel, directoryPaths),
   );
@@ -400,12 +407,9 @@ export default function FileBrowserPanel({
     };
   }, [load, selectedPath]);
   const handleSearchValueChange = (value: string) => {
+    // A newer search supersedes even a reveal still waiting for its row to load.
+    if (selectedPath) handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
     setQuery(value);
-    if (value.trim().length === 0) {
-      search.close();
-      return;
-    }
-    search.setValue(value);
   };
   const handleRefresh = () => {
     refresh();
@@ -440,27 +444,20 @@ export default function FileBrowserPanel({
   }, [directoryPaths, expandAll, model, query]);
 
   useEffect(() => {
-    if (!selectedPath) {
-      handledRevealRef.current = null;
+    if (!selectedPath) return;
+    // Search belongs to the chat, not the selected file. An explicit reveal
+    // must not clear the filter or override it when the explorer remounts.
+    if (query.length > 0) {
+      handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
       return;
     }
+    // Returning through history, hiding the explorer, and refreshing search
+    // results must not replay an already handled reveal or steal search focus.
+    if (handledRevealsRef.current.get(selectedPath) === selectedPathRevealId) return;
     const selectedKind = entryKinds.get(selectedPath);
     // An unloaded entry has no row to reveal yet; folders do, and chat links can
     // point at them.
-    if (selectedKind === undefined) {
-      handledRevealRef.current = null;
-      return;
-    }
-    const revealRequest = { path: selectedPath, revealId: selectedPathRevealId };
-    const handledReveal = handledRevealRef.current;
-    // Entry refreshes rebuild treePaths while the same preview stays open.
-    // Replaying a handled reveal would close an active tree search and steal focus.
-    if (
-      handledReveal?.path === revealRequest.path &&
-      handledReveal.revealId === revealRequest.revealId
-    ) {
-      return;
-    }
+    if (selectedKind === undefined) return;
     // Directory rows are registered with a trailing slash (see treePath).
     const selectedTreePath = selectedKind === "directory" ? `${selectedPath}/` : selectedPath;
     const selectedItem = model.getItem(selectedTreePath);
@@ -475,14 +472,13 @@ export default function FileBrowserPanel({
       .some((path) => path.replace(/\/$/, "") === selectedPath);
     if (selectedInTree && treeSelectionPathRef.current === selectedPath) {
       treeSelectionPathRef.current = null;
-      handledRevealRef.current = revealRequest;
+      handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
       return;
     }
     treeSelectionPathRef.current = null;
-    handledRevealRef.current = revealRequest;
+    handledRevealsRef.current.set(selectedPath, selectedPathRevealId);
 
     syncingSelectionRef.current = true;
-    setQuery("");
     model.closeSearch();
     for (const path of model.getSelectedPaths()) {
       model.getItem(path)?.deselect();
@@ -507,7 +503,7 @@ export default function FileBrowserPanel({
     queueMicrotask(() => {
       syncingSelectionRef.current = false;
     });
-  }, [entryKinds, model, selectedPath, selectedPathRevealId]);
+  }, [entryKinds, model, query, selectedPath, selectedPathRevealId]);
 
   // Tag tree drags with the composer mention payload. The row is read from
   // the composed event path (the tree's shadow root is open), so this does
@@ -553,6 +549,28 @@ export default function FileBrowserPanel({
       ref={panelRef}
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-file-browser-panel={`${environmentId}:${cwd}`}
+      onClickCapture={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+          return;
+        const row = event.nativeEvent
+          .composedPath()
+          .find(
+            (target): target is HTMLElement =>
+              target instanceof HTMLElement && target.hasAttribute("data-item-path"),
+          );
+        const path = row?.getAttribute("data-item-path");
+        // Back preserves the selection. Clicking that row again emits no
+        // selection change, but still needs to reopen the file.
+        if (
+          path &&
+          path !== selectedPath &&
+          row?.getAttribute("aria-selected") === "true" &&
+          entryKinds.get(path) === "file"
+        ) {
+          treeSelectionPathRef.current = path;
+          onOpenFile(path);
+        }
+      }}
     >
       <div
         className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
@@ -562,7 +580,7 @@ export default function FileBrowserPanel({
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
-          value={search.value}
+          value={query}
           onValueChange={handleSearchValueChange}
         />
         <Popover>
