@@ -86,6 +86,7 @@ import {
   CANCEL_PICK_CHANNEL,
   ELEMENT_PICKED_CHANNEL,
   HUMAN_INPUT_CHANNEL,
+  HOST_POINTER_DOWN_CHANNEL,
   MOUSE_NAVIGATE_CHANNEL,
   RECORDING_CURSOR_CHANNEL,
   RECORDING_INPUT_CHANNEL,
@@ -1535,6 +1536,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const humanInput = (_event: unknown, rawSignal?: unknown): void => {
       runFork(handleHumanInput(rawSignal));
     };
+    // Native input includes frame presses that do not bubble to the top page.
+    const beforeMouse = (_event: Electron.Event, mouse: Electron.MouseInputEvent): void => {
+      if (mouse.type === "mouseDown") wc.send(HOST_POINTER_DOWN_CHANNEL);
+    };
     const mouseNavigate = (_event: unknown, payload?: unknown): void => {
       const direction =
         typeof payload === "object" && payload !== null && "direction" in payload
@@ -1655,6 +1660,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.off("audio-state-changed", audioStateChanged);
         wc.off("did-create-window", windowCreated);
         wc.off("before-input-event", beforeInput);
+        wc.off("before-mouse-event", beforeMouse);
         wc.ipc.off(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.off(RECORDING_INPUT_CHANNEL, recordingInput);
         wc.ipc.off(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
@@ -1719,6 +1725,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         });
         wc.on("did-create-window", windowCreated);
         wc.on("before-input-event", beforeInput);
+        wc.on("before-mouse-event", beforeMouse);
       });
       yield* Ref.update(attachedRef, (attached) =>
         replaceMap(attached, (copy) => {

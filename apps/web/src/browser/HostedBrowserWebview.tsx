@@ -209,16 +209,20 @@ export function HostedBrowserWebview(props: {
         }
       }, recovery.delayMs);
     };
-    // A click inside the guest only reaches this document as a webview focus
-    // event, so open menus and popovers never see the outside press that
-    // would dismiss them. Replay it as a pointerdown on the webview itself.
+    // Guest input does not bubble into the host document. Relay presses even
+    // when the guest already has focus, so host popups can dismiss normally.
     const dismissHostPopups = () => {
       webview.dispatchEvent(
         new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }),
       );
     };
     const onGuestMessage = (event: Event) => {
-      if (!("channel" in event) || event.channel !== "t3:release-section-focus") return;
+      if (!("channel" in event)) return;
+      if (event.channel === "t3:preview-pointerdown") {
+        if (useBrowserSurfaceStore.getState().byTabId[runtimeTabId]?.visible) dismissHostPopups();
+        return;
+      }
+      if (event.channel !== "t3:release-section-focus") return;
       if (document.activeElement !== webview) return;
       releaseBrowserSectionFocus();
     };

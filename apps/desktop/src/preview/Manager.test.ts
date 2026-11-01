@@ -811,6 +811,34 @@ describe("PreviewManager", () => {
       ),
   );
 
+  effectIt.effect(
+    "relays native mouse presses without consuming page input and removes the listener on detach",
+    () =>
+      Effect.gen(function* () {
+        const preview = makeFaviconWebContents();
+        const beforeMouse = yield* withManager((manager) =>
+          Effect.gen(function* () {
+            fromId.mockReturnValue(preview.webContents);
+            yield* manager.createTab("tab_host_pointer");
+            yield* manager.registerWebview("tab_host_pointer", 42);
+            const listener = preview.listeners.get("before-mouse-event");
+            expect(listener).toBeTypeOf("function");
+            webviewSend.mockClear();
+            const preventDefault = vi.fn();
+            for (const type of ["mouseMove", "mouseUp", "mouseWheel"]) {
+              listener!({ preventDefault } as never, { type } as never);
+            }
+            expect(webviewSend).not.toHaveBeenCalled();
+            listener!({ preventDefault } as never, { type: "mouseDown", x: 20, y: 30 } as never);
+            expect(webviewSend).toHaveBeenCalledExactlyOnceWith("preview:host-pointerdown");
+            expect(preventDefault).not.toHaveBeenCalled();
+            return listener;
+          }),
+        );
+        expect(preview.off).toHaveBeenCalledWith("before-mouse-event", beforeMouse);
+      }),
+  );
+
   effectIt.effect("keeps preview shortcuts out of the host window", () =>
     withManager((manager) =>
       Effect.gen(function* () {

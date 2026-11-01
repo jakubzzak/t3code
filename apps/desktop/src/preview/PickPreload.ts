@@ -26,6 +26,7 @@ import {
   CANCEL_PICK_CHANNEL,
   ELEMENT_PICKED_CHANNEL,
   HUMAN_INPUT_CHANNEL,
+  HOST_POINTER_DOWN_CHANNEL,
   MOUSE_NAVIGATE_CHANNEL,
   RECORDING_CURSOR_CHANNEL,
   RECORDING_POINTER_CHANNEL,
@@ -200,6 +201,10 @@ const applyAnnotationTheme = (
     host.style.setProperty(name, value);
   }
 };
+
+ipcRenderer.on(HOST_POINTER_DOWN_CHANNEL, () => {
+  ipcRenderer.sendToHost("t3:preview-pointerdown");
+});
 
 const reportHumanPointerInput = (event: PointerEvent): void => {
   if (!event.isTrusted) return;
