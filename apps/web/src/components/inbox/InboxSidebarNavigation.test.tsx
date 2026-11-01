@@ -8,6 +8,7 @@ import {
   ProjectId,
   ThreadId,
   type InboxNotification,
+  type InboxSourceConnection,
 } from "@t3tools/contracts";
 import { InboxSidebarLayout } from "./InboxSidebarLayout";
 import { installSectionNavigation } from "~/sectionNavigation";
@@ -18,6 +19,7 @@ import { dismissContextMenu } from "~/contextMenuFallback";
 
 const state = vi.hoisted(() => ({
   items: [] as InboxNotification[],
+  connections: [] as InboxSourceConnection[],
   navigate: vi.fn(),
   wait: vi.fn(),
   mutate: vi.fn(),
@@ -55,7 +57,7 @@ vi.mock("@effect/atom-react", async () => {
             {
               environmentId: "env",
               result: AsyncResult.success(state.items),
-              connections: AsyncResult.success([]),
+              connections: AsyncResult.success(state.connections),
             },
           ],
   };
@@ -151,6 +153,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   root = createRoot(container);
   vi.clearAllMocks();
+  state.connections = [];
   state.summary = false;
   state.resolutions = false;
   useComposerDraftStore.getState().setPrompt({ environmentId, threadId }, "");
@@ -790,3 +793,48 @@ it.each(["Meta", "Control"])(
     });
   },
 );
+
+it("keeps integration diagnostics out of the list and the status cue out of tab navigation", async () => {
+  state.items = [notification];
+  state.connections = [
+    {
+      projectId,
+      source: "slack",
+      enabled: true,
+      connected: true,
+      categories: [],
+      accounts: [],
+      initialLookbackDays: 7,
+      lastSyncAt: new Date(Date.now() - 14 * 60_000).toISOString(),
+      error: "Slack rate limit reached. Retry after 10 seconds.",
+      retryAt: null,
+    },
+  ];
+  useInboxNavigation.setState({ tab: "chats", revealId: null, revealed: null });
+  const render = () =>
+    root.render(
+      <InboxSidebarLayout
+        projects={[{ environmentId, projectId }]}
+        threadRef={null}
+        chatCount={0}
+        chatHeader={null}
+      >
+        <div>Current chat</div>
+      </InboxSidebarLayout>,
+    );
+  await act(async () => render());
+  expect(container.textContent).not.toContain("rate limit reached");
+  const status = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Integration updates delayed"]',
+  );
+  expect(status).not.toBeNull();
+  await act(async () => status!.click());
+  expect(useInboxNavigation.getState().tab).toBe("chats");
+  expect(state.navigate).not.toHaveBeenCalled();
+  expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain(
+    "Slack updates delayed · Last synced 14m ago",
+  );
+  state.connections = [];
+  await act(async () => render());
+  expect(container.querySelector('button[aria-label="Integration updates delayed"]')).toBeNull();
+});
