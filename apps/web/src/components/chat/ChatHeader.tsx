@@ -1,3 +1,4 @@
+import { useMoveThreadToProject } from "../../hooks/useMoveThreadToProject";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -207,6 +208,10 @@ export const ChatHeader = memo(function ChatHeader({
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
   });
+  const projectMove = useMoveThreadToProject(
+    isServerThread ? activeThreadRef : null,
+    activeProject?.id ?? null,
+  );
   const titleButtonRef = useRef<HTMLButtonElement | null>(null);
   const titleMenuTimerRef = useRef<number | null>(null);
   const cancelPendingTitleMenu = useCallback(() => {
@@ -321,8 +326,17 @@ export const ChatHeader = memo(function ChatHeader({
                   render={
                     <button
                       type="button"
-                      aria-label={`New thread in ${activeProjectName}`}
-                      onClick={onNewThreadInProject}
+                      aria-label={
+                        isServerThread
+                          ? `Move chat to project from ${activeProjectName}`
+                          : `New thread in ${activeProjectName}`
+                      }
+                      aria-haspopup={isServerThread ? "menu" : undefined}
+                      onClick={(event) => {
+                        if (!isServerThread) return onNewThreadInProject();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        void projectMove.openMenu({ x: rect.left, y: rect.bottom + 4 });
+                      }}
                       className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     />
                   }
@@ -332,7 +346,9 @@ export const ChatHeader = memo(function ChatHeader({
                     {activeProjectName}
                   </WorkspaceBreadcrumbText>
                 </TooltipTrigger>
-                <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
+                <TooltipPopup side="top">
+                  {isServerThread ? "Move chat to project…" : `New thread in ${activeProjectName}`}
+                </TooltipPopup>
               </Tooltip>
             </WorkspaceBreadcrumbItem>
             <WorkspaceBreadcrumbSeparator>

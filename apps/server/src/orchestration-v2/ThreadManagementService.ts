@@ -687,6 +687,16 @@ const make = Effect.gen(function* () {
   // at each caller) is the one place "off" is enforced.
   const assertDispatchTargetEnabled = (command: OrchestrationV2ServerCommand) => {
     switch (command.type) {
+      case "thread.project.move":
+        return orchestrator.getThreadRecords(command.threadId, []).pipe(
+          Effect.flatMap((projection) =>
+            assertProviderInstanceEnabled({
+              projectId: command.projectId,
+              commandId: command.commandId,
+              instanceId: projection.thread.modelSelection.instanceId,
+            }),
+          ),
+        );
       case "message.dispatch":
         return orchestrator.getThreadRecords(command.threadId, []).pipe(
           Effect.flatMap((projection) =>

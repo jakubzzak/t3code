@@ -123,6 +123,7 @@ export interface CheckpointServiceV2Shape {
     readonly providerThreadId: ProviderThreadId;
     readonly cwd: string;
     readonly createdAt: DateTime.Utc;
+    readonly existingScopes: ReadonlyArray<OrchestrationV2CheckpointScope>;
   }) => Effect.Effect<OrchestrationV2CheckpointScope, CheckpointServiceV2Error>;
   readonly ensureScope: (
     scope: OrchestrationV2CheckpointScope,
@@ -192,12 +193,21 @@ function makeRootRunScope(input: {
   readonly providerThreadId: ProviderThreadId;
   readonly cwd: string;
   readonly createdAt: DateTime.Utc;
+  readonly existingScopes: ReadonlyArray<OrchestrationV2CheckpointScope>;
 }) {
   return Effect.gen(function* () {
-    const scopeId = yield* input.idAllocator.allocate.checkpointScope({
-      threadId: input.threadId,
-      name: ROOT_CHECKPOINT_SCOPE_NAME,
-    });
+    const existing = input.existingScopes.find(
+      (scope) => scope.kind === "root_run" && scope.cwd === input.cwd,
+    );
+    // Keep legacy refs in place, but never reassign their scope to another checkout.
+    const scopeId =
+      existing?.id ??
+      (yield* input.idAllocator.allocate.checkpointScope({
+        threadId: input.threadId,
+        name: input.existingScopes.some((scope) => scope.kind === "root_run")
+          ? `${ROOT_CHECKPOINT_SCOPE_NAME}:${input.cwd}`
+          : ROOT_CHECKPOINT_SCOPE_NAME,
+      }));
     return {
       id: scopeId,
       threadId: input.threadId,

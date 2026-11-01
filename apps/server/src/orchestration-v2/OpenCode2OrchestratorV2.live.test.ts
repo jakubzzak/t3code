@@ -1,3 +1,4 @@
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 /**
  * Runs OpenCode 2 through the whole orchestrator with the real driver: the
  * driver probes the binary, spawns `opencode serve`, and routes to the 2.x
@@ -206,20 +207,28 @@ const layerProviderInstanceRegistry = ProviderInstanceRegistryHydration.layer.pi
     ),
   ),
 );
-const layerOrchestration = RuntimeLayer.layer.pipe(
-  Layer.provide(ProviderTurnStartServiceTestkit.layer),
-  Layer.provide(layerMcpRegistry),
-  Layer.provide(SqlitePersistence.layerMemory),
-  Layer.provide(CheckpointStore.layer.pipe(Layer.provide(layerVcsDriverRegistry))),
-  Layer.provide(layerServerConfig),
-  Layer.provide(layerServerSettings),
-  // Merged, not only provided: the test reads the same instance the orchestrator uses.
-  Layer.provideMerge(layerProviderInstanceRegistry),
-  Layer.provide(ResetCreditCoordinator.layer),
-  Layer.provide(layerBackgroundPolicy),
-  Layer.provide(layerPlatformTest),
-  Layer.provide(McpProviderSessions.layer),
-);
+const layerOrchestration = RuntimeLayer.layer
+  .pipe(
+    Layer.provide(
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+        prepareRun: () => Effect.die("Unexpected workspace preparation"),
+      }),
+    ),
+  )
+  .pipe(
+    Layer.provide(ProviderTurnStartServiceTestkit.layer),
+    Layer.provide(layerMcpRegistry),
+    Layer.provide(SqlitePersistence.layerMemory),
+    Layer.provide(CheckpointStore.layer.pipe(Layer.provide(layerVcsDriverRegistry))),
+    Layer.provide(layerServerConfig),
+    Layer.provide(layerServerSettings),
+    // Merged, not only provided: the test reads the same instance the orchestrator uses.
+    Layer.provideMerge(layerProviderInstanceRegistry),
+    Layer.provide(ResetCreditCoordinator.layer),
+    Layer.provide(layerBackgroundPolicy),
+    Layer.provide(layerPlatformTest),
+    Layer.provide(McpProviderSessions.layer),
+  );
 
 // Starts the continuation run a provider wake asks for, as the production layer does.
 const layerContinuationWorker = ProviderContinuationService.layer.pipe(

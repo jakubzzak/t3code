@@ -38,6 +38,7 @@ function makeProjection(): ProjectionCheckpointContext {
         scopeId: secondScopeId,
         runId: secondRunId,
         appRunOrdinal: 2,
+        ordinalWithinScope: 2,
         status: "ready",
         ref: secondRef,
       },
@@ -225,3 +226,51 @@ it.effect("preserves the typed missing-baseline-ref error contract", () => {
     );
   }).pipe(Effect.provide(layer));
 });
+
+it.effect.each([0, 1])(
+  "uses the destination baseline for a moved turn (from=%s)",
+  (fromTurnCount) => {
+    const projection = makeProjection();
+    const destinationBaseline = CheckpointRef.make("refs/t3/destination/baseline");
+    const diffCheckpoints = vi.fn((_input: CheckpointStore.DiffCheckpointsInput) =>
+      Effect.succeed("destination diff"),
+    );
+    return Effect.gen(function* () {
+      const query = yield* CheckpointDiffQuery.CheckpointDiffQuery;
+      yield* query.getTurnDiff({ threadId, fromTurnCount, toTurnCount: 2 });
+      assert.equal(diffCheckpoints.mock.calls[0]?.[0].cwd, "/destination");
+      assert.equal(diffCheckpoints.mock.calls[0]?.[0].fromCheckpointRef, destinationBaseline);
+    }).pipe(
+      Effect.provide(
+        layerFor({
+          projection: Effect.succeed({
+            ...projection,
+            checkpointScopes: projection.checkpointScopes.map((scope) =>
+              scope.id === secondScopeId ? { ...scope, cwd: "/destination" } : scope,
+            ),
+            checkpoints: [
+              {
+                scopeId: firstScopeId,
+                runId: firstRunId,
+                appRunOrdinal: 1,
+                ordinalWithinScope: 1,
+                status: "ready",
+                ref: CheckpointRef.make("refs/t3/source/1"),
+              },
+              {
+                scopeId: secondScopeId,
+                runId: null,
+                appRunOrdinal: null,
+                ordinalWithinScope: 1,
+                status: "ready",
+                ref: destinationBaseline,
+              },
+              { ...projection.checkpoints[0]!, ordinalWithinScope: 2 },
+            ],
+          }),
+          diffCheckpoints,
+        }),
+      ),
+    );
+  },
+);

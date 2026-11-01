@@ -1,3 +1,4 @@
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -150,6 +151,11 @@ function layerExecutorFor(input: {
     ),
   );
   return EffectWorker.layerExecutor.pipe(
+    Layer.provide(
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+        prepareRun: () => Effect.die("Unexpected workspace preparation"),
+      }),
+    ),
     Layer.provide(
       Layer.mergeAll(
         layerDependencies,

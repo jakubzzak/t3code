@@ -1,3 +1,4 @@
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -113,19 +114,27 @@ const layerProviderInstanceRegistry = ProviderInstanceRegistryHydration.layer.pi
   ),
 );
 
-const layerLive = RuntimeLayer.layer.pipe(
-  Layer.provide(ProviderTurnStartServiceTestkit.layer),
-  Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provide(SqlitePersistence.layerMemory),
-  Layer.provide(layerCheckpointStore),
-  Layer.provide(layerServerConfig),
-  Layer.provide(layerServerSettings),
-  Layer.provide(layerProviderInstanceRegistry),
-  Layer.provide(ResetCreditCoordinator.layer),
-  Layer.provide(layerBackgroundPolicy),
-  Layer.provide(layerPlatformTest),
-  Layer.provide(McpProviderSessions.layer),
-);
+const layerLive = RuntimeLayer.layer
+  .pipe(
+    Layer.provide(
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+        prepareRun: () => Effect.die("Unexpected workspace preparation"),
+      }),
+    ),
+  )
+  .pipe(
+    Layer.provide(ProviderTurnStartServiceTestkit.layer),
+    Layer.provide(McpSessionRegistryTestkit.layer),
+    Layer.provide(SqlitePersistence.layerMemory),
+    Layer.provide(layerCheckpointStore),
+    Layer.provide(layerServerConfig),
+    Layer.provide(layerServerSettings),
+    Layer.provide(layerProviderInstanceRegistry),
+    Layer.provide(ResetCreditCoordinator.layer),
+    Layer.provide(layerBackgroundPolicy),
+    Layer.provide(layerPlatformTest),
+    Layer.provide(McpProviderSessions.layer),
+  );
 
 const waitForIdle = Effect.fn("GrokOrchestratorV2Live.waitForIdle")(function* (threadId: ThreadId) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;

@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 import {
   WS_METHODS,
+  ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
   type OrchestrationV2ShellSnapshot,
 } from "@t3tools/contracts";
@@ -249,6 +250,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     markUnread: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:mark-unread",
       execute: (input: MarkThreadUnreadInput) => markThreadUnread(input),
+      scheduler,
+      concurrency,
+    }),
+    moveToProject: createEnvironmentRpcCommand(runtime, {
+      label: "Move chat to project",
+      tag: ORCHESTRATION_V2_WS_METHODS.moveThreadProject,
       scheduler,
       concurrency,
     }),

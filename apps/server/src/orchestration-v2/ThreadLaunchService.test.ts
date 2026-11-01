@@ -95,6 +95,7 @@ const otherProject = {
   ...project,
   id: otherProjectId,
   title: "Other",
+  workspaceRoot: "/tmp",
 } as const;
 
 const adapter = {
@@ -185,6 +186,14 @@ function makeHarness(options: HarnessOptions = {}) {
     }),
     Layer.mock(GitWorkflow.GitWorkflowService)({
       createWorktree,
+      listRefs: () =>
+        Effect.succeed({
+          refs: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
+          isRepo: true,
+          hasPrimaryRemote: true,
+          nextCursor: null,
+          totalCount: 1,
+        }),
       renameBranch,
       fetchRemote: options.fetchRemote ?? (() => Effect.void),
       hasCommit: options.hasCommit ?? (() => Effect.succeed(false)),
@@ -211,6 +220,7 @@ function makeHarness(options: HarnessOptions = {}) {
       }),
   );
   const layerLaunch = ThreadLaunch.layer.pipe(
+    Layer.provide(Layer.mock(ProjectFiles.T3ProjectFileLoader)({ load: () => Effect.succeedNone })),
     Layer.provide(
       Layer.mergeAll(
         layerExternalServices,
@@ -3316,3 +3326,414 @@ it.effect.each([true, false])(
       );
     }).pipe(Effect.scoped),
 );
+
+it.effect("queues one project move without changing the source before preparation", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({ command: "move:create", thread: "move:thread" }),
+    );
+    yield* launches.launch({
+      ...launchInput({ command: "move:other", thread: "move:other" }),
+      projectId: otherProjectId,
+    });
+    const command = {
+      type: "thread.project.move",
+      commandId: CommandId.make("move:request"),
+      threadId: launched.threadId,
+      projectId: otherProjectId,
+    } as const;
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+      VALUES (${otherProjectId}, 'Other', '/tmp', '[]', '2026-10-31', '2026-10-31')`;
+    yield* threads.dispatch(command);
+    yield* threads.dispatch(command);
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.equal(projection.thread.projectId, projectId);
+    assert.lengthOf(projection.runs, 1);
+    assert.equal(projection.runs[0]?.status, "preparing");
+    assert.equal(projection.runs[0]?.projectMove?.projectId, otherProjectId);
+    assert.include(projection.messages[0]?.text, "destination");
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+const createMoveSource = Effect.gen(function* () {
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const threadId = ThreadId.make("move:thread");
+  yield* threads.dispatch({
+    ...launchInput({ command: "move:create", thread: threadId }),
+    type: "thread.create",
+    threadId,
+    branch: null,
+    worktreePath: null,
+  });
+  return threadId;
+});
+
+const seedMoveDestination = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+    VALUES (${otherProjectId}, 'Other', '/tmp', '[]', '2026-10-31', '2026-10-31')`;
+});
+
+it.effect.each(["local", "worktree"] as const)(
+  "project move prepares %s defaults before committing and preserves queues and schedules",
+  (mode) =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const allowSetup = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        serverSettings: {
+          ...DEFAULT_SERVER_SETTINGS,
+          projectSettingsOverrides: { [otherProjectId]: { defaultThreadEnvMode: mode } },
+        },
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(
+            Effect.andThen(Deferred.await(allowSetup)),
+            Effect.as({ status: "no-script" as const }),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const sql = yield* SqlClient.SqlClient;
+        yield* seedMoveDestination;
+        const threadId = yield* createMoveSource;
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("move:source-worktree"),
+          threadId,
+          branch: "source",
+          worktreePath: "/source-tree",
+        });
+        yield* threads.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("move:source-run"),
+          threadId,
+          messageId: MessageId.make("move:source-message"),
+          text: "Existing work",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "start_immediately" },
+        });
+        yield* threads.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("move:queue"),
+          threadId,
+          messageId: MessageId.make("move:queued-message"),
+          text: "Keep this follow-up",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "queue_after_active" },
+        });
+        for (const binding of [threadId, null])
+          yield* sql`INSERT INTO scheduled_tasks
+        (task_id,title,prompt,enabled,schedule_json,project_id,thread_id,workspace_strategy_json,model_selection_json,runtime_mode,interaction_mode,created_by,creation_source,created_at,updated_at,last_run_status,run_count)
+        VALUES (${binding ?? "unbound"},'Daily','Keep schedule prompt',1,'{"type":"interval","everyMs":60000}',${projectId},${binding},'{"type":"root"}',${JSON.stringify(modelSelection)},'full-access','default','user','web','2026-10-31','2026-10-31','idle',0)`;
+        const beforeTasks = yield* sql`SELECT * FROM scheduled_tasks ORDER BY task_id`;
+        const sourceScopes = (yield* threads.getThreadProjection(threadId)).checkpointScopes;
+        const command = {
+          type: "thread.project.move" as const,
+          commandId: CommandId.make("move:handoff"),
+          threadId,
+          projectId: otherProjectId,
+        };
+        yield* threads.dispatch(command);
+        yield* threads.dispatch({ ...command, commandId: CommandId.make("move:double-click") });
+        let projection = yield* threads.getThreadProjection(threadId);
+        const moveRun = projection.runs.find((run) => run.projectMove !== undefined)!;
+        assert.equal(projection.runs[0]?.status, "interrupted");
+        assert.equal(projection.runs.filter((run) => run.projectMove !== undefined).length, 1);
+        yield* launches.prepareRun({ commandId: command.commandId, threadId, runId: moveRun.id });
+        yield* Deferred.await(setupEntered);
+        projection = yield* threads.getThreadProjection(threadId);
+        assert.equal(projection.thread.projectId, projectId);
+        assert.equal(projection.thread.worktreePath, "/source-tree");
+        assert.equal(
+          projection.runs.find((run) => run.userMessageId === "move:queued-message")?.status,
+          "queued",
+        );
+        assert.deepEqual(yield* sql`SELECT * FROM scheduled_tasks ORDER BY task_id`, beforeTasks);
+        // A schedule becoming due while setup runs enters the same queue behind user input.
+        yield* threads.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("move:due"),
+          threadId,
+          messageId: MessageId.make("move:due-message"),
+          scheduledTaskId: ScheduledTaskId.make(threadId),
+          text: "Keep schedule prompt",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "queue_after_active" },
+        });
+        yield* Deferred.succeed(allowSetup, undefined);
+        yield* threads.streamStoredEventsFrom({ threadId, eventType: "run.updated" }).pipe(
+          Stream.filter(
+            ({ event }) =>
+              event.type === "run.updated" &&
+              event.payload.id === moveRun.id &&
+              event.payload.status === "starting",
+          ),
+          Stream.runHead,
+        );
+        projection = yield* threads.getThreadProjection(threadId);
+        for (const sourceScope of sourceScopes) {
+          assert.equal(
+            projection.checkpointScopes.find((scope) => scope.id === sourceScope.id)?.cwd,
+            sourceScope.cwd,
+          );
+        }
+        assert.isAbove(projection.checkpointScopes.length, sourceScopes.length);
+        assert.equal(projection.thread.projectId, otherProjectId);
+        assert.equal(
+          projection.thread.worktreePath,
+          mode === "worktree" ? "/repo-worktrees/feature" : null,
+        );
+        assert.deepEqual(
+          projection.runs.filter((run) => run.status === "queued").map((run) => run.userMessageId),
+          ["move:queued-message", "move:due-message"],
+        );
+        assert.isTrue(
+          projection.runs
+            .filter((run) => run.status === "queued")
+            .every((run) => run.queueHeld !== true),
+        );
+        assert.deepEqual(
+          yield* sql`SELECT * FROM scheduled_tasks ORDER BY task_id`,
+          beforeTasks.map((task) =>
+            task.thread_id === threadId ? { ...task, project_id: otherProjectId } : task,
+          ),
+        );
+        assert.equal(harness.createWorktree.mock.calls.length, mode === "worktree" ? 1 : 0);
+        assert.equal(harness.removeWorktree.mock.calls.length, 0);
+        assert.equal(harness.runSetup.mock.calls[0]?.[0].projectId, otherProjectId);
+        assert.equal(harness.runSetup.mock.calls[0]?.[0].projectCwd, "/tmp");
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect("project move preparation failure keeps the source worktree and queued input", () => {
+  const harness = makeHarness({
+    runSetup: () => Effect.fail(new Error("Destination setup failed") as never),
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    yield* seedMoveDestination;
+    const threadId = yield* createMoveSource;
+    yield* threads.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("fail:source"),
+      threadId,
+      branch: "source",
+      worktreePath: "/source-tree",
+    });
+    yield* threads.dispatch({
+      type: "thread.project.move",
+      commandId: CommandId.make("fail:move"),
+      threadId,
+      projectId: otherProjectId,
+    });
+    const run = (yield* threads.getThreadProjection(threadId)).runs[0]!;
+    yield* threads.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("fail:queue"),
+      threadId,
+      messageId: MessageId.make("fail:message"),
+      text: "Keep me",
+      attachments: [],
+      createdBy: "user",
+      creationSource: "web",
+      dispatchMode: { type: "queue_after_active" },
+    });
+    yield* launches.prepareRun({ commandId: CommandId.make("fail:move"), threadId, runId: run.id });
+    yield* threads.streamStoredEventsFrom({ threadId, eventType: "run.updated" }).pipe(
+      Stream.filter(
+        ({ event }) =>
+          event.type === "run.updated" &&
+          event.payload.id === run.id &&
+          event.payload.status === "failed",
+      ),
+      Stream.runHead,
+    );
+    const projection = yield* threads.getThreadProjection(threadId);
+    assert.equal(projection.thread.projectId, projectId);
+    assert.equal(projection.thread.worktreePath, "/source-tree");
+    assert.equal(projection.runs[1]?.status, "queued");
+    assert.equal(harness.removeWorktree.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("project move retries reuse the destination worktree without touching the source", () => {
+  let branch: string | undefined;
+  let attempts = 0;
+  const harness = makeHarness({
+    serverSettings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: { [otherProjectId]: { defaultThreadEnvMode: "worktree" } },
+    },
+    createWorktree: (input) =>
+      Effect.sync(() => {
+        branch = input.newRefName;
+        return {
+          worktree: { path: "/destination-tree", refName: branch!, headSha: "abc" },
+        } as never;
+      }),
+    git: {
+      listRefs: () =>
+        Effect.succeed({
+          refs: [
+            { name: "main", current: true, isDefault: true, worktreePath: null },
+            ...(branch
+              ? [
+                  {
+                    name: branch,
+                    current: false,
+                    isDefault: false,
+                    worktreePath: "/destination-tree",
+                  },
+                ]
+              : []),
+          ],
+          isRepo: true,
+          hasPrimaryRemote: true,
+          nextCursor: null,
+          totalCount: branch ? 2 : 1,
+        }),
+    },
+    runSetup: () =>
+      ++attempts === 1
+        ? Effect.fail(new Error("Fix setup and retry") as never)
+        : Effect.succeed({ status: "no-script" as const }),
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    yield* seedMoveDestination;
+    const threadId = yield* createMoveSource;
+    yield* threads.dispatch({
+      type: "thread.project.move",
+      commandId: CommandId.make("retry:move"),
+      threadId,
+      projectId: otherProjectId,
+    });
+    const run = (yield* threads.getThreadProjection(threadId)).runs[0]!;
+    yield* launches.prepareRun({
+      commandId: CommandId.make("retry:move"),
+      threadId,
+      runId: run.id,
+    });
+    yield* threads.streamStoredEventsFrom({ threadId, eventType: "run.updated" }).pipe(
+      Stream.filter(
+        ({ event }) =>
+          event.type === "run.updated" &&
+          event.payload.id === run.id &&
+          event.payload.status === "failed",
+      ),
+      Stream.runHead,
+    );
+    assert.equal(harness.removeWorktree.mock.calls.length, 0);
+    yield* launches.retryPreparation({
+      commandId: CommandId.make("retry:again"),
+      threadId,
+      runId: run.id,
+    });
+    yield* threads.streamStoredEventsFrom({ threadId, eventType: "run.updated" }).pipe(
+      Stream.filter(
+        ({ event }) =>
+          event.type === "run.updated" &&
+          event.payload.id === run.id &&
+          event.payload.status === "starting",
+      ),
+      Stream.runHead,
+    );
+    const projection = yield* threads.getThreadProjection(threadId);
+    assert.equal(projection.thread.projectId, otherProjectId);
+    assert.equal(projection.thread.worktreePath, "/destination-tree");
+    assert.equal(harness.createWorktree.mock.calls.length, 1);
+    assert.lengthOf(projection.runs, 1);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("unavailable project moves leave the source run and queue untouched", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const threadId = yield* createMoveSource;
+    yield* threads.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("missing:message"),
+      threadId,
+      messageId: MessageId.make("missing:message"),
+      text: "Existing work",
+      attachments: [],
+      createdBy: "user",
+      creationSource: "web",
+      dispatchMode: { type: "start_immediately" },
+    });
+    const before = yield* threads.getThreadProjection(threadId);
+    const result = yield* threads
+      .dispatch({
+        type: "thread.project.move",
+        commandId: CommandId.make("missing:move"),
+        threadId,
+        projectId: ProjectId.make("does-not-exist"),
+      })
+      .pipe(Effect.exit);
+    assert.isTrue(Exit.isFailure(result));
+    assert.deepEqual(yield* threads.getThreadProjection(threadId), before);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("successful project moves apply destination branch naming after preparation", () => {
+  const harness = makeHarness({
+    serverSettings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: {
+        [otherProjectId]: {
+          defaultThreadEnvMode: "worktree",
+          branchNamingMode: "static",
+          branchNamePrefix: "destination/",
+        },
+      },
+    },
+  });
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    yield* seedMoveDestination;
+    const threadId = yield* createMoveSource;
+    const commandId = CommandId.make("naming:move");
+    yield* threads.dispatch({
+      type: "thread.project.move",
+      commandId,
+      threadId,
+      projectId: otherProjectId,
+    });
+    const run = (yield* threads.getThreadProjection(threadId)).runs[0]!;
+    yield* launches.prepareRun({ commandId, threadId, runId: run.id });
+    const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+    yield* tracker.stream(threadId).pipe(
+      Stream.filter((snapshot) => snapshot?.phase === "done"),
+      Stream.runHead,
+    );
+    yield* threads.streamStoredEventsFrom({ threadId, eventType: "thread.metadata-updated" }).pipe(
+      Stream.filter(
+        ({ event }) =>
+          event.type === "thread.metadata-updated" && event.payload.branch === "generated-branch",
+      ),
+      Stream.runHead,
+    );
+    assert.equal(harness.generateBranchName.mock.calls.length, 1);
+    assert.equal(harness.generateBranchName.mock.calls[0]?.[0].naming?.prefix, "destination/");
+    const projection = yield* threads.getThreadProjection(threadId);
+    assert.equal(projection.thread.projectId, otherProjectId);
+    assert.equal(projection.runs[0]?.status, "starting");
+  }).pipe(Effect.provide(harness.layer));
+});

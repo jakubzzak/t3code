@@ -4,6 +4,7 @@ import {
   VcsListRefsInput,
   VcsListRefsResult,
   WorktreeMcpHandoffInput,
+  WorktreeMcpProjectHandoffInput,
   WorktreeMcpHandoffResult,
   WorktreeMcpStatusResult,
   ThreadId,
@@ -39,6 +40,21 @@ const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, true);
+
+const ProjectHandoffTool = Tool.make("t3_project_handoff", {
+  description:
+    "Move this chat to another registered project on this server using its default local checkout or new worktree and setup. Queues the move, interrupts the current turn, and automatically continues in the destination with history and bound schedules preserved. Source files stay untouched. Call as the last action of the turn. Reuse clientRequestId when retrying the same request.",
+  parameters: WorktreeMcpProjectHandoffInput,
+  success: Schema.Struct({ accepted: Schema.Literal(true) }),
+  failure: WorktreeToolFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Move chat to project")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, true);
 
 const WorktreeStatusTool = Tool.make("t3_worktree_status", {
@@ -84,6 +100,7 @@ const WorktreeListTool = Tool.make("t3_worktree_list", {
   .annotate(Tool.Destructive, false);
 export const WorktreeToolkit = Toolkit.make(
   WorktreeHandoffTool,
+  ProjectHandoffTool,
   WorktreeStatusTool,
   WorktreeListTool,
 );

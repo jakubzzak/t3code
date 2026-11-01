@@ -1,5 +1,7 @@
 "use client";
 
+import { FolderInputIcon } from "lucide-react";
+import { useMoveThreadToProject, MOVE_CHAT_SEARCH_TERMS } from "../hooks/useMoveThreadToProject";
 import { useAgenticSearch } from "~/hooks/useAgenticSearch";
 import {
   AGENTIC_SEARCH_SCOPES,
@@ -1096,6 +1098,14 @@ function OpenCommandPaletteDialog(props: {
   const currentProjectEnvironmentId =
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  const moveEnvironmentId = activeThread?.environmentId;
+  const moveThreadId = activeThread?.id;
+  const moveThreadRef = useMemo(
+    () =>
+      moveEnvironmentId && moveThreadId ? scopeThreadRef(moveEnvironmentId, moveThreadId) : null,
+    [moveEnvironmentId, moveThreadId],
+  );
+  const projectMove = useMoveThreadToProject(moveThreadRef, activeThread?.projectId ?? null);
   // Where "without a project" threads start: the current environment when it
   // offers them, otherwise the first connected one that does.
   const scratchTargetEnvironmentId = scratchEnvironmentId(
@@ -1884,6 +1894,32 @@ function OpenCommandPaletteDialog(props: {
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+    });
+  }
+
+  if (activeThread && projectMove.canMove) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:move-chat-to-project",
+      title: "Move chat to project…",
+      searchTerms: MOVE_CHAT_SEARCH_TERMS,
+      icon: <FolderInputIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <FolderInputIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "move-projects",
+          label: "Projects",
+          items: projectMove.destinations.map((project) => ({
+            kind: "action" as const,
+            value: `move-project:${project.id}`,
+            title: project.title,
+            description: project.workspaceRoot,
+            searchTerms: [project.title, project.workspaceRoot],
+            icon: projectFaviconIcon(project),
+            run: () => projectMove.move(project.id),
+          })),
+        },
+      ],
     });
   }
 

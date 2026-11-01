@@ -594,6 +594,8 @@ export const OrchestrationV2Run = Schema.Struct({
   delegatedCompletion: Schema.optional(OrchestrationV2DelegatedCompletionCohort),
   /** How a launch prepares this run's workspace; prepared-run.retry repeats it. */
   workspacePreparation: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
+  /** Destination held until workspace preparation commits the move. */
+  projectMove: Schema.optional(Schema.Struct({ projectId: ProjectId })),
 });
 export type OrchestrationV2Run = typeof OrchestrationV2Run.Type;
 
@@ -2873,9 +2875,16 @@ export const OrchestrationV2Command = Schema.Union([
     worktreePath: TrimmedNonEmptyString,
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.project.move"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    projectId: ProjectId,
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.metadata.update"),
     commandId: CommandId,
     threadId: ThreadId,
+    projectId: Schema.optional(ProjectId),
     title: Schema.optional(TrimmedNonEmptyString),
     /** Kick off (true) or abandon (false) an async title regeneration. */
     regenerateTitle: Schema.optional(Schema.Boolean),
@@ -3317,6 +3326,7 @@ export type OrchestrationV2ServerCommand = OrchestrationV2Command | Orchestratio
 
 export const ORCHESTRATION_V2_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
+  moveThreadProject: "orchestration.moveThreadProject",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   searchThreads: "orchestration.searchThreads",
@@ -3816,6 +3826,10 @@ export const OrchestrationV2RpcSchemas = {
   searchThread: {
     input: OrchestrationV2SearchThreadInput,
     output: OrchestrationV2SearchThreadResult,
+  },
+  moveThreadProject: {
+    input: Schema.Struct({ commandId: CommandId, threadId: ThreadId, projectId: ProjectId }),
+    output: OrchestrationV2DispatchCommandResult,
   },
   dispatchCommand: {
     input: OrchestrationV2Command,

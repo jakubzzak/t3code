@@ -151,6 +151,7 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.mark-unread":
     case "thread.message.code-language.set":
     case "thread.linear-issue.select":
+    case "thread.project.move":
     case "thread.metadata.update":
     case "thread.pull-request.link":
     case "thread.pull-request.unlink":

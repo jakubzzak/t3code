@@ -467,6 +467,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.setup-script.record":
     case "thread.message.code-language.set":
     case "thread.linear-issue.select":
+    case "thread.project.move":
     case "thread.metadata.update":
     case "thread.pull-request.link":
     case "thread.pull-request.unlink":
@@ -1345,8 +1346,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           : undefined;
       const worktreeMissing =
         failedRun?.id === options?.endedRunId &&
-        failedRun?.workspacePreparation?.type === "worktree" &&
-        projection.thread.worktreePath === null;
+        ((failedRun?.workspacePreparation?.type === "worktree" &&
+          projection.thread.worktreePath === null) ||
+          (failedRun?.projectMove !== undefined &&
+            projection.thread.projectId !== failedRun.projectMove.projectId));
       // A project can turn a provider off while a message waits in the queue,
       // including between a run ending and this check, or while the queue is
       // held and someone clicks resume. Neither path may start that run. Only
@@ -1618,6 +1621,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .pipe(
             Effect.flatMap((resolvedRuntimePolicy) =>
               checkpointService.prepareRootRunScope({
+                existingScopes: projection.checkpointScopes,
                 threadId,
                 runId: queuedRun.id,
                 rootNodeId: rootNode.id,
@@ -2473,6 +2477,32 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           }),
       ),
     );
+    if (command.type === "thread.metadata.update" && command.projectId !== undefined) {
+      const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+      const destination = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
+      if (
+        Option.isNone(destination) ||
+        destination.value.deletedAt !== null ||
+        !projection.runs.some(
+          (run) => run.status === "preparing" && run.projectMove?.projectId === command.projectId,
+        )
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "A project change requires an active project handoff.",
+        });
+      }
+      const directory = yield* fileSystem
+        .stat(destination.value.workspaceRoot)
+        .pipe(mapDispatchError(command));
+      if (directory.type !== "Directory")
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The destination project directory is unavailable.",
+        });
+    }
     if (command.type === "thread.metadata.update" && command.linkedLinearIssue !== undefined) {
       const shell = yield* projectionStore
         .getThreadShell(command.threadId)
@@ -2749,8 +2779,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command.type === "thread.archive" ||
       command.type === "thread.settle" ||
       (command.type === "thread.metadata.update" &&
-        command.worktreePath !== undefined &&
-        command.worktreePath !== thread.worktreePath);
+        ((command.worktreePath !== undefined && command.worktreePath !== thread.worktreePath) ||
+          (command.projectId !== undefined && command.projectId !== thread.projectId)));
     const providerContext = needsProviderState
       ? yield* projectionStore
           .getThreadProviderContext(
@@ -3031,6 +3061,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(command.linkedLinearIssue === undefined
               ? {}
               : { linkedLinearIssue: command.linkedLinearIssue }),
+            ...(command.projectId === undefined
+              ? {}
+              : { projectId: command.projectId, branchPullRequest: null }),
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
@@ -3453,8 +3486,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command.type === "thread.archive" || command.type === "thread.settle"
         ? (providerContext?.providerSessions ?? []).map((session) => session.id)
         : command.type === "thread.metadata.update" &&
-            command.worktreePath !== undefined &&
-            command.worktreePath !== thread.worktreePath
+            ((command.worktreePath !== undefined && command.worktreePath !== thread.worktreePath) ||
+              (command.projectId !== undefined && command.projectId !== thread.projectId))
           ? (providerContext?.providerSessions ?? []).map((session) => session.id)
           : command.type === "thread.runtime-mode.set"
             ? (providerContext?.providerSessions ?? [])
@@ -3867,6 +3900,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>;
     readonly projection: Pick<
       OrchestrationV2ThreadProjection,
+      | "checkpointScopes"
       | "runs"
       | "messages"
       | "providerSessions"
@@ -4374,6 +4408,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         );
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          existingScopes: input.projection.checkpointScopes,
           threadId: input.command.threadId,
           runId: targetRun.id,
           rootNodeId: nextRootNodeId,
@@ -4723,6 +4758,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    projectMove?: OrchestrationV2Run["projectMove"],
   ) =>
     Effect.gen(function* () {
       let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
@@ -5121,13 +5157,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         activeRun === undefined &&
         dispatchMode.type === "queue_after_active" &&
         (latestRun?.status === "failed" || latestRun?.status === "interrupted") &&
-        latestRun.workspacePreparation?.type === "worktree" &&
-        projection.thread.worktreePath === null
+        ((latestRun.workspacePreparation?.type === "worktree" &&
+          projection.thread.worktreePath === null) ||
+          (latestRun.projectMove !== undefined &&
+            projection.thread.projectId !== latestRun.projectMove.projectId))
           ? latestRun
           : undefined;
       const queueBehindRun = activeRun ?? worktreeMissingRun;
       const pendingMergeBackTransfers = pendingMergeBackTransfersForThread(projection);
       const shouldQueue =
+        projectMove === undefined &&
         queueBehindRun !== undefined &&
         (dispatchMode.type === "defer_start" ||
           dispatchMode.type === "start_immediately" ||
@@ -5208,6 +5247,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : yield* runtimePolicy.resolve({ thread: projection.thread, modelSelection }).pipe(
                 Effect.flatMap((resolvedRuntimePolicy) =>
                   checkpointService.prepareRootRunScope({
+                    existingScopes: projection.checkpointScopes,
                     threadId: command.threadId,
                     runId,
                     rootNodeId,
@@ -5568,6 +5608,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   mapDispatchError(command),
                   Effect.flatMap((resolvedRuntimePolicy) =>
                     checkpointService.prepareRootRunScope({
+                      existingScopes: projection.checkpointScopes,
                       threadId: command.threadId,
                       runId,
                       rootNodeId,
@@ -5591,6 +5632,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           userMessageId: command.messageId,
           rootNodeId,
           activeAttemptId: attemptId,
+          ...(projectMove === undefined ? {} : { projectMove }),
           status: dispatchMode.type === "defer_start" ? "preparing" : "starting",
           queuePosition: null,
           requestedAt: now,
@@ -6252,6 +6294,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               );
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          existingScopes: projection.checkpointScopes,
           threadId: command.threadId,
           runId,
           rootNodeId,
@@ -7785,6 +7828,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .getThreadRecords(
           command.threadId,
           [
+            "checkpointScopes",
             "runs",
             "nodes",
             "attempts",
@@ -8291,7 +8335,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     Effect.gen(function* () {
       const projection = yield* loadProjectionForCommand(
         command,
-        ["runs", "attempts", "nodes", "providerThreads", "turnItems"],
+        ["runs", "attempts", "nodes", "providerThreads", "turnItems", "checkpointScopes"],
         { turnItemTypes: ["command_execution"], turnItemRunId: command.runId },
       );
       const state = preparedRunState(command, projection);
@@ -8303,11 +8347,52 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
       const now = yield* DateTime.now;
+      if (state.run.projectMove !== undefined) {
+        if (
+          projection.thread.projectId !== state.run.projectMove.projectId ||
+          projection.runs.some((run) => run.id !== state.run.id && isBlockingRun(run))
+        ) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause:
+              "The previous run must stop and the destination must be ready before continuing.",
+          });
+        }
+        for (const queued of projection.runs.filter((run) => run.status === "queued")) {
+          yield* emit(
+            events,
+            command,
+          )({
+            type: "run.updated",
+            threadId: command.threadId,
+            runId: queued.id,
+            providerInstanceId: queued.providerInstanceId,
+            occurredAt: now,
+            payload: { ...queued, queueHeld: false },
+          });
+          const node = projection.nodes.find((node) => node.id === queued.rootNodeId);
+          if (node)
+            yield* emit(
+              events,
+              command,
+            )({
+              type: "node.updated",
+              threadId: command.threadId,
+              runId: queued.id,
+              nodeId: node.id,
+              providerInstanceId: queued.providerInstanceId,
+              occurredAt: now,
+              payload: { ...node, checkpointScopeId: null },
+            });
+        }
+      }
       const resolvedRuntimePolicy = yield* runtimePolicy
         .resolve({ thread: projection.thread, modelSelection: state.run.modelSelection })
         .pipe(mapDispatchError(command));
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          existingScopes: projection.checkpointScopes,
           threadId: command.threadId,
           runId: state.run.id,
           rootNodeId: state.rootNode.id,
@@ -11237,6 +11322,122 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
         break;
+      case "thread.project.move": {
+        const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+        const destination = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
+        if (
+          Option.isNone(destination) ||
+          destination.value.deletedAt !== null ||
+          projection.thread.deletedAt !== null ||
+          projection.thread.archivedAt !== null ||
+          isProviderNativeSubagentThread(projection.thread)
+        ) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "This chat or destination project is unavailable.",
+          });
+        }
+        const directory = yield* fileSystem
+          .stat(destination.value.workspaceRoot)
+          .pipe(mapDispatchError(command));
+        if (directory.type !== "Directory")
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "The destination project directory is unavailable.",
+          });
+        const pending = projection.runs.find((run) => run.status === "preparing");
+        if (
+          pending?.projectMove?.projectId === command.projectId ||
+          projection.thread.projectId === command.projectId
+        )
+          break;
+        if (pending !== undefined) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Wait for the current workspace preparation to finish.",
+          });
+        }
+        const active = projection.runs.findLast(
+          (run) => run.status === "running" || run.status === "starting",
+        );
+        cancelUnsettledEffects =
+          active === undefined
+            ? yield* dispatchThreadStop(
+                { ...command, type: "thread.stop", reason: "Moving chat to another project." },
+                events,
+                effects,
+              )
+            : yield* dispatchRunInterrupt(
+                {
+                  type: "run.interrupt",
+                  commandId: command.commandId,
+                  threadId: command.threadId,
+                  runId: active.id,
+                  holdQueue: true,
+                  reason: "Moving chat to another project.",
+                },
+                events,
+                effects,
+              );
+        yield* Ref.update(effects, (existing) => [
+          ...existing,
+          {
+            id: `effect:${command.commandId}:delegated-tasks.stop`,
+            commandId: command.commandId,
+            threadId: command.threadId,
+            request: { type: "delegated-tasks.stop", reason: "Moving chat to another project." },
+          } satisfies PendingOrchestrationEffectV2,
+        ]);
+        for (const session of projection.providerSessions) {
+          if (session.status === "stopped" || session.status === "error") continue;
+          yield* dispatchProviderSessionDetach(
+            {
+              type: "provider-session.detach",
+              commandId: command.commandId,
+              threadId: command.threadId,
+              providerSessionId: session.id,
+            },
+            events,
+            effects,
+          );
+        }
+        yield* dispatchMessage(
+          {
+            type: "message.dispatch",
+            commandId: command.commandId,
+            threadId: command.threadId,
+            messageId: MessageId.make(`${command.commandId}:continuation`),
+            createdBy: "user",
+            creationSource: "web",
+            attachments: [],
+            text: `The chat is moving to destination project ${destination.value.title} (${destination.value.workspaceRoot}). Use the new workspace directory and read its instructions before continuing. Resume unfinished work, or briefly acknowledge the switch if nothing remains. Do not move or copy files from the previous project.`,
+            dispatchMode: { type: "defer_start", workspaceStrategy: { type: "root" } },
+          },
+          events,
+          effects,
+          { projectId: command.projectId },
+        );
+        const prepared = (yield* getProjectionWithPendingEvents(
+          command.threadId,
+          events,
+        )).runs.find(
+          (run) => run.projectMove?.projectId === command.projectId && run.status === "preparing",
+        );
+        if (prepared !== undefined)
+          yield* Ref.update(effects, (existing) => [
+            ...existing,
+            {
+              id: `effect:${command.commandId}:workspace.prepare`,
+              commandId: command.commandId,
+              threadId: command.threadId,
+              request: { type: "workspace.prepare", runId: prepared.id },
+            } satisfies PendingOrchestrationEffectV2,
+          ]);
+        break;
+      }
       case "message.dispatch": {
         // The provider owns a native subagent's conversation, so a sent
         // message has nowhere to go. Answers to a subagent's questions never
@@ -11499,6 +11700,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         planned.events.length > 0 ||
         command.type === "thread.background-work.settle" ||
         command.type === "thread.stop" ||
+        command.type === "thread.project.move" ||
         command.type === "subagent.stop"
           ? Effect.succeed(planned)
           : Effect.fail(
@@ -11630,6 +11832,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ? [...new Set([command.threadId, ...command.takeoverThreadIds])].sort()
           : [commandThreadId(command)];
       const admitsWork = [
+        "thread.project.move",
         "message.dispatch",
         "prepared-run.release",
         "prepared-run.retry",
