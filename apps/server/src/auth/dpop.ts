@@ -55,11 +55,13 @@ export const mapDpopReplayStoreError = (
 
 export const verifyRequestDpopProof = (input: {
   readonly request: HttpServerRequest.HttpServerRequest;
+  /** Overrides the `DPoP` header for requests that cannot carry one, such as a WebSocket upgrade. */
+  readonly proof?: string;
   readonly expectedThumbprint?: string;
   readonly expectedAccessToken?: string;
 }) =>
   Effect.gen(function* () {
-    const proof = input.request.headers.dpop;
+    const proof = input.proof ?? input.request.headers.dpop;
     const url = HttpServerRequest.toURL(input.request);
     if (Option.isNone(url)) {
       return yield* new ServerAuthInvalidCredentialError({

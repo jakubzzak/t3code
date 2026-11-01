@@ -1,14 +1,24 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync or sign.
+import * as NodeCrypto from "node:crypto";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   authScopeResponse,
   AuthAdministrativeScopes,
   AuthStandardClientScopes,
 } from "@t3tools/contracts";
+import {
+  computeDpopAccessTokenHash,
+  computeDpopJwkThumbprint,
+  type DpopPublicJwk,
+} from "@t3tools/shared/dpop";
 import { expect, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
@@ -17,6 +27,7 @@ import * as PersistenceErrors from "../persistence/Errors.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
+import * as AuthHttp from "./http.ts";
 
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -79,6 +90,36 @@ const requestMetadata = {
   os: "macOS",
   browser: "Chrome",
   ipAddress: "192.168.1.23",
+};
+
+const makeDpopKey = () => {
+  const { privateKey, publicKey } = NodeCrypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const publicJwk = publicKey.export({ format: "jwk" }) as DpopPublicJwk;
+  let proofCount = 0;
+  return {
+    thumbprint: computeDpopJwkThumbprint(publicJwk),
+    sign: (input: {
+      readonly method: string;
+      readonly url: string;
+      readonly token: string;
+      readonly iat: number;
+    }) => {
+      const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+      const header = encode({ typ: "dpop+jwt", alg: "ES256", jwk: publicJwk });
+      const payload = encode({
+        htm: input.method,
+        htu: input.url,
+        jti: `proof-${++proofCount}`,
+        iat: input.iat,
+        ath: computeDpopAccessTokenHash(input.token),
+      });
+      const signature = NodeCrypto.sign("sha256", Buffer.from(`${header}.${payload}`), {
+        key: privateKey,
+        dsaEncoding: "ieee-p1363",
+      }).toString("base64url");
+      return `${header}.${payload}.${signature}`;
+    },
+  };
 };
 
 it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
@@ -632,11 +673,14 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       const pairing = yield* serverAuth.issuePairingCredential();
       const exchanged = yield* serverAuth.createBrowserSession(pairing.credential, requestMetadata);
       const upgrade = (headers: Record<string, string>) =>
-        serverAuth.authenticateWebSocketUpgrade({
-          url: "/ws",
-          cookies: { [sessions.cookieName]: exchanged.sessionToken },
-          headers: { host: "192.168.1.50:3773", ...headers },
-        } as never);
+        serverAuth.authenticateWebSocketUpgrade(
+          {
+            url: "/ws",
+            cookies: { [sessions.cookieName]: exchanged.sessionToken },
+            headers: { host: "192.168.1.50:3773", ...headers },
+          } as never,
+          "rpc",
+        );
 
       // Same host, a proxy-reported host, a trusted app origin, or no browser at all.
       yield* upgrade({ origin: "http://192.168.1.50:3773" });
@@ -696,16 +740,143 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const bearer = yield* serverAuth.issueSession();
-      const verified = yield* serverAuth.authenticateWebSocketUpgrade({
-        url: "/ws",
-        cookies: {},
-        headers: {
-          host: "192.168.1.50:3773",
-          origin: "http://192.168.1.50:8080",
-          authorization: `Bearer ${bearer.token}`,
-        },
-      } as never);
+      const verified = yield* serverAuth.authenticateWebSocketUpgrade(
+        {
+          url: "/ws",
+          cookies: {},
+          headers: {
+            host: "192.168.1.50:3773",
+            origin: "http://192.168.1.50:8080",
+            authorization: `Bearer ${bearer.token}`,
+          },
+        } as never,
+        "rpc",
+      );
       expect(verified.sessionId).toBe(bearer.sessionId);
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
+  );
+
+  it.effect("binds a DPoP session's RPC socket ticket to its proof key", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const key = makeDpopKey();
+      const other = makeDpopKey();
+      const exchanged = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        "desktop-bootstrap-token",
+        ["orchestration:read"],
+        requestMetadata,
+        { proofKeyThumbprint: key.thumbprint },
+      );
+      const session = yield* sessions.verify(exchanged.access_token);
+      const host = "192.168.1.50:3773";
+      const socketUrl = `http://${host}/ws`;
+      const iat = Math.floor((yield* DateTime.now).epochMilliseconds / 1_000);
+      const upgrade = (ticket: string, use: "rpc" | "media", proof?: string) =>
+        serverAuth.authenticateWebSocketUpgrade(
+          {
+            method: "GET",
+            url: `/ws?orchestrationProtocol=2&wsTicket=${ticket}${proof ? `&dpop=${proof}` : ""}`,
+            cookies: {},
+            headers: { host },
+          } as never,
+          use,
+        );
+
+      const rpc = yield* serverAuth.issueWebSocketTicket(session, { use: "rpc" });
+      const bare = yield* Effect.flip(upgrade(rpc.ticket, "rpc"));
+      expect(bare._tag).toBe("ServerAuthInvalidCredentialError");
+      const signed = yield* upgrade(
+        rpc.ticket,
+        "rpc",
+        key.sign({ method: "GET", url: socketUrl, token: rpc.ticket, iat }),
+      );
+      expect(signed.sessionId).toBe(session.sessionId);
+
+      const wrongKey = yield* Effect.flip(
+        upgrade(
+          rpc.ticket,
+          "rpc",
+          other.sign({ method: "GET", url: socketUrl, token: rpc.ticket, iat }),
+        ),
+      );
+      expect(wrongKey._tag).toBe("ServerAuthInvalidCredentialError");
+      const onMedia = yield* Effect.flip(
+        upgrade(
+          rpc.ticket,
+          "media",
+          key.sign({ method: "GET", url: socketUrl, token: rpc.ticket, iat }),
+        ),
+      );
+      expect(onMedia._tag).toBe("ServerAuthInvalidCredentialError");
+
+      const media = yield* serverAuth.issueWebSocketTicket(session, { use: "media" });
+      expect((yield* upgrade(media.ticket, "media")).sessionId).toBe(session.sessionId);
+      const mediaOnRpc = yield* Effect.flip(upgrade(media.ticket, "rpc"));
+      expect(mediaOnRpc._tag).toBe("ServerAuthInvalidCredentialError");
+
+      // Clients that predate ticket binding still connect with the unbound ticket they mint.
+      const legacy = yield* serverAuth.issueWebSocketTicket(session);
+      expect((yield* upgrade(legacy.ticket, "rpc")).sessionId).toBe(session.sessionId);
+      expect((yield* upgrade(legacy.ticket, "media")).sessionId).toBe(session.sessionId);
+
+      const mediaRequest = HttpServerRequest.fromWeb(
+        new Request(`http://${host}/api/preview-stream/ws?wsTicket=${media.ticket}`),
+      );
+      const readStream = AuthHttp.authenticateMediaRequest("orchestration:read").pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, mediaRequest),
+      );
+      // One media ticket serves multiple stream requests without a DPoP proof.
+      expect((yield* readStream).sessionId).toBe(session.sessionId);
+      expect((yield* readStream).sessionId).toBe(session.sessionId);
+      const missingScope = yield* Effect.flip(
+        AuthHttp.authenticateMediaRequest("preview:operate").pipe(
+          Effect.provideService(HttpServerRequest.HttpServerRequest, mediaRequest),
+        ),
+      );
+      expect(missingScope._tag).toBe("EnvironmentScopeRequiredError");
+
+      yield* serverAuth.revokeSession(session.sessionId);
+      const revoked = yield* Effect.flip(readStream);
+      expect(revoked._tag).toBe("EnvironmentAuthInvalidError");
+    }).pipe(
+      Effect.provide(layerEnvironmentAuth({ desktopBootstrapToken: "desktop-bootstrap-token" })),
+    ),
+  );
+
+  it.effect("rejects a replayed proof on a bound RPC socket ticket", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const key = makeDpopKey();
+      const exchanged = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        "desktop-bootstrap-token",
+        ["orchestration:read"],
+        requestMetadata,
+        { proofKeyThumbprint: key.thumbprint },
+      );
+      const session = yield* sessions.verify(exchanged.access_token);
+      const rpc = yield* serverAuth.issueWebSocketTicket(session, { use: "rpc" });
+      const request = {
+        method: "GET",
+        url: `/ws?wsTicket=${rpc.ticket}&dpop=${key.sign({
+          method: "GET",
+          url: "http://192.168.1.50:3773/ws",
+          token: rpc.ticket,
+          iat: Math.floor((yield* DateTime.now).epochMilliseconds / 1_000),
+        })}`,
+        cookies: {},
+        headers: { host: "192.168.1.50:3773" },
+      } as never;
+
+      yield* serverAuth.authenticateWebSocketUpgrade(request, "rpc");
+      const replayed = yield* Effect.flip(serverAuth.authenticateWebSocketUpgrade(request, "rpc"));
+      expect(replayed._tag).toBe("ServerAuthInvalidCredentialError");
+      if (replayed._tag === "ServerAuthInvalidCredentialError") {
+        expect(replayed.dpopFailureReason).toBe("replay");
+      }
+    }).pipe(
+      Effect.provide(layerEnvironmentAuth({ desktopBootstrapToken: "desktop-bootstrap-token" })),
+    ),
   );
 });
