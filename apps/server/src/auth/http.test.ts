@@ -237,3 +237,73 @@ it.effect("exports only verified T3 Connect requests", () =>
     expect(localSpans).toEqual(["EnvironmentAuth.authenticateHttpRequest", "environment.handler"]);
   }).pipe(Effect.scoped),
 );
+
+it.effect("issues scoped stream tickets and retains the legacy ticket endpoint", () =>
+  Effect.gen(function* () {
+    const crypto = yield* Crypto.Crypto;
+    const secretStore = yield* ServerSecretStore.ServerSecretStore;
+    const requestContext = Context.make(Crypto.Crypto, crypto).pipe(
+      Context.add(ServerSecretStore.ServerSecretStore, secretStore),
+    );
+    return yield* Effect.acquireUseRelease(
+      Effect.sync(() => HttpRouter.toWebHandler(layerRoutes, { disableLogger: true })),
+      ({ handler }) =>
+        Effect.tryPromise(async () => {
+          const tokenResponse = await handler(
+            new Request("http://127.0.0.1/oauth/token", {
+              method: "POST",
+              body: new URLSearchParams({
+                grant_type: AuthTokenExchangeGrantType,
+                subject_token: DEV_TOKEN,
+                subject_token_type: AuthEnvironmentBootstrapTokenType,
+                requested_token_type: AuthAccessTokenType,
+                scope: "orchestration:read",
+              }),
+            }),
+            requestContext,
+          );
+          expect(tokenResponse.status).toBe(200);
+          const token = (await tokenResponse.json()) as { access_token: string };
+          const headers = { authorization: `Bearer ${token.access_token}` };
+
+          for (const suffix of ["/media", "/rpc", ""]) {
+            const response = await handler(
+              new Request(`http://127.0.0.1/api/auth/websocket-ticket${suffix}`, {
+                method: "POST",
+                headers,
+              }),
+              requestContext,
+            );
+            expect(response.status).toBe(200);
+            expect(await response.json()).toMatchObject({
+              ticket: expect.any(String),
+              expiresAt: expect.any(String),
+            });
+          }
+
+          const anonymous = await handler(
+            new Request("http://127.0.0.1/api/auth/websocket-ticket/media", { method: "POST" }),
+            requestContext,
+          );
+          expect(anonymous.status).toBe(401);
+
+          const invalidUse = await handler(
+            new Request("http://127.0.0.1/api/auth/websocket-ticket/unknown", {
+              method: "POST",
+              headers,
+            }),
+            requestContext,
+          );
+          expect(invalidUse.status).toBe(400);
+        }),
+      ({ dispose }) => Effect.promise(dispose),
+    );
+  }).pipe(
+    Effect.provide(
+      ServerSecretStore.layer.pipe(
+        Layer.provide(layerConfig),
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+  ),
+);
