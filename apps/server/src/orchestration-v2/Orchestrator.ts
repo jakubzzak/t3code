@@ -1621,6 +1621,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .pipe(
             Effect.flatMap((resolvedRuntimePolicy) =>
               checkpointService.prepareRootRunScope({
+                existingScopes: projection.checkpointScopes,
                 threadId,
                 runId: queuedRun.id,
                 rootNodeId: rootNode.id,
@@ -3899,6 +3900,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>;
     readonly projection: Pick<
       OrchestrationV2ThreadProjection,
+      | "checkpointScopes"
       | "runs"
       | "messages"
       | "providerSessions"
@@ -4406,6 +4408,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         );
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          existingScopes: input.projection.checkpointScopes,
           threadId: input.command.threadId,
           runId: targetRun.id,
           rootNodeId: nextRootNodeId,
@@ -5244,6 +5247,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : yield* runtimePolicy.resolve({ thread: projection.thread, modelSelection }).pipe(
                 Effect.flatMap((resolvedRuntimePolicy) =>
                   checkpointService.prepareRootRunScope({
+                    existingScopes: projection.checkpointScopes,
                     threadId: command.threadId,
                     runId,
                     rootNodeId,
@@ -5604,6 +5608,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   mapDispatchError(command),
                   Effect.flatMap((resolvedRuntimePolicy) =>
                     checkpointService.prepareRootRunScope({
+                      existingScopes: projection.checkpointScopes,
                       threadId: command.threadId,
                       runId,
                       rootNodeId,
@@ -6289,6 +6294,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               );
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          existingScopes: projection.checkpointScopes,
           threadId: command.threadId,
           runId,
           rootNodeId,
@@ -7822,6 +7828,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .getThreadRecords(
           command.threadId,
           [
+            "checkpointScopes",
             "runs",
             "nodes",
             "attempts",
@@ -8328,7 +8335,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     Effect.gen(function* () {
       const projection = yield* loadProjectionForCommand(
         command,
-        ["runs", "attempts", "nodes", "providerThreads", "turnItems"],
+        ["runs", "attempts", "nodes", "providerThreads", "turnItems", "checkpointScopes"],
         { turnItemTypes: ["command_execution"], turnItemRunId: command.runId },
       );
       const state = preparedRunState(command, projection);
@@ -8385,6 +8392,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .pipe(mapDispatchError(command));
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          existingScopes: projection.checkpointScopes,
           threadId: command.threadId,
           runId: state.run.id,
           rootNodeId: state.rootNode.id,

@@ -56,6 +56,11 @@ worktrees stay in the source project. If destination setup fails, the chat stays
 in its source project and offers a retry. Moving back uses that project's defaults
 again; it does not restore the previous worktree.
 
+Past turn diffs stay attached to their original checkout. The full diff shows
+changes within the selected checkout; checkpoints from another checkout cannot
+be restored into the current one. If the agent fails after the move, the chat
+stays in the destination and you can send another message there.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

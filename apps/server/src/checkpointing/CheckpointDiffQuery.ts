@@ -182,22 +182,36 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      // The root scope is shared by every run in this thread. Its runId
-      // tracks the latest owner, while ordinal zero stays the baseline.
-      const firstScope =
+      const fromCheckpoint = readyCheckpoints.find(
+        (checkpoint) => checkpoint.appRunOrdinal === input.fromTurnCount,
+      );
+      const baselines = projection.checkpoints.filter(
+        (checkpoint) =>
+          checkpoint.scopeId === toScope.id &&
+          checkpoint.runId === null &&
+          checkpoint.status === "ready",
+      );
+      // A move starts a baseline in the destination. Never compare its refs with
+      // another repository's refs, even for the first turn after the move.
+      const baseline =
         input.fromTurnCount === 0
-          ? projection.checkpointScopes.find((scope) => scope.kind === "root_run")
-          : undefined;
+          ? baselines.toSorted((a, b) => a.ordinalWithinScope - b.ordinalWithinScope)[0]
+          : baselines.find((checkpoint) => checkpoint.ordinalWithinScope === input.fromTurnCount);
+      const firstScope = projection.checkpointScopes.find(
+        (scope) => scope.kind === "root_run" && scope.cwd === toScope.cwd,
+      );
       const fromCheckpointRef =
         input.fromTurnCount === 0
-          ? firstScope === undefined
-            ? undefined
-            : yield* checkpointRefForScopeOrdinal({
-                scopeId: firstScope.id,
-                ordinalWithinScope: 0,
-              }).pipe(Effect.provideService(Crypto.Crypto, crypto))
-          : readyCheckpoints.find((checkpoint) => checkpoint.appRunOrdinal === input.fromTurnCount)
-              ?.ref;
+          ? (baseline?.ref ??
+            (firstScope === undefined
+              ? undefined
+              : yield* checkpointRefForScopeOrdinal({
+                  scopeId: firstScope.id,
+                  ordinalWithinScope: 0,
+                }).pipe(Effect.provideService(Crypto.Crypto, crypto))))
+          : fromCheckpoint?.scopeId === toScope.id
+            ? fromCheckpoint.ref
+            : baseline?.ref;
       if (fromCheckpointRef === undefined) {
         return yield* new CheckpointRefUnavailableError({
           operation,

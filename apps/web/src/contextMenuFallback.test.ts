@@ -69,6 +69,14 @@ class FakeElement {
     this.attributes.set(name, value);
   }
 
+  getAttribute(name: string) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  click() {
+    this.dispatchEvent(new FakeDomEvent("click"));
+  }
+
   dispatchEvent(event: FakeDomEvent) {
     for (const listener of this.listeners.get(event.type) ?? []) {
       listener(event);
@@ -176,6 +184,10 @@ class FakeDocument {
 
   querySelectorAll(tagName: string) {
     return this.body.querySelectorAll(tagName);
+  }
+
+  dispatchEvent(event: FakeDomEvent) {
+    for (const listener of this.listeners.get(event.type) ?? []) listener(event);
   }
 }
 
@@ -359,5 +371,52 @@ describe("dismissContextMenu", () => {
 
     dismissContextMenu();
     await expect(secondPromise).resolves.toBeNull();
+  });
+});
+
+describe("menu keyboard navigation", () => {
+  it("skips disabled options, wraps, selects and restores focus", async () => {
+    const doc = document as unknown as FakeDocument;
+    const invoker = doc.createElement("button");
+    doc.body.appendChild(invoker);
+    invoker.focus();
+    const selection = showContextMenuFallback([
+      { id: "alpha", label: "Alpha" },
+      { id: "disabled", label: "Unavailable", disabled: true },
+      { id: "beta", label: "Beta" },
+    ]);
+    const press = (key: string) => doc.dispatchEvent(new FakeDomEvent("keydown", { key }));
+    expect(doc.activeElement).toBe(findButton("Alpha"));
+    press("ArrowDown");
+    expect(doc.activeElement).toBe(findButton("Beta"));
+    press("ArrowDown");
+    expect(doc.activeElement).toBe(findButton("Alpha"));
+    press("End");
+    expect(doc.activeElement).toBe(findButton("Beta"));
+    press("Home");
+    expect(doc.activeElement).toBe(findButton("Alpha"));
+    press("ArrowUp");
+    expect(doc.activeElement).toBe(findButton("Beta"));
+    expect(findButton("Beta")?.attributes.get("role")).toBe("menuitem");
+    expect(doc.querySelectorAll("div").some((el) => el.attributes.get("role") === "menu")).toBe(
+      true,
+    );
+    press("Enter");
+    await expect(selection).resolves.toBe("beta");
+    expect(doc.activeElement).toBe(invoker);
+  });
+
+  it("opens and closes submenus with arrows and cancels with Escape", async () => {
+    const doc = document as unknown as FakeDocument;
+    const selection = showContextMenuFallback([
+      { id: "parent", label: "Parent", children: [{ id: "child", label: "Child" }] },
+    ]);
+    doc.dispatchEvent(new FakeDomEvent("keydown", { key: "ArrowRight" }));
+    expect(doc.activeElement).toBe(findButton("Child"));
+    doc.dispatchEvent(new FakeDomEvent("keydown", { key: "ArrowLeft" }));
+    expect(findButton("Child")).toBeUndefined();
+    expect(doc.activeElement).toBe(findButton("Parent"));
+    doc.dispatchEvent(new FakeDomEvent("keydown", { key: "Escape" }));
+    await expect(selection).resolves.toBeNull();
   });
 });

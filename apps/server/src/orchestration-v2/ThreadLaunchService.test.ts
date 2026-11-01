@@ -3436,6 +3436,7 @@ it.effect.each(["local", "worktree"] as const)(
         (task_id,title,prompt,enabled,schedule_json,project_id,thread_id,workspace_strategy_json,model_selection_json,runtime_mode,interaction_mode,created_by,creation_source,created_at,updated_at,last_run_status,run_count)
         VALUES (${binding ?? "unbound"},'Daily','Keep schedule prompt',1,'{"type":"interval","everyMs":60000}',${projectId},${binding},'{"type":"root"}',${JSON.stringify(modelSelection)},'full-access','default','user','web','2026-10-31','2026-10-31','idle',0)`;
         const beforeTasks = yield* sql`SELECT * FROM scheduled_tasks ORDER BY task_id`;
+        const sourceScopes = (yield* threads.getThreadProjection(threadId)).checkpointScopes;
         const command = {
           type: "thread.project.move" as const,
           commandId: CommandId.make("move:handoff"),
@@ -3482,6 +3483,13 @@ it.effect.each(["local", "worktree"] as const)(
           Stream.runHead,
         );
         projection = yield* threads.getThreadProjection(threadId);
+        for (const sourceScope of sourceScopes) {
+          assert.equal(
+            projection.checkpointScopes.find((scope) => scope.id === sourceScope.id)?.cwd,
+            sourceScope.cwd,
+          );
+        }
+        assert.isAbove(projection.checkpointScopes.length, sourceScopes.length);
         assert.equal(projection.thread.projectId, otherProjectId);
         assert.equal(
           projection.thread.worktreePath,

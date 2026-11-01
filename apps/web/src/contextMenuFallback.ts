@@ -259,6 +259,45 @@ export function showContextMenuFallback<T extends string>(
       if (event.key === "Escape") {
         event.preventDefault();
         cleanup(null);
+        return;
+      }
+      if (event.key === "Tab") {
+        cleanup(null);
+        return;
+      }
+      const level = menuStack.findIndex((menu) =>
+        isNodeWithinMenuStack(document.activeElement, [menu]),
+      );
+      const menu = menuStack[level];
+      if (!menu) return;
+      const buttons = [...menu.querySelectorAll<HTMLButtonElement>("button")].filter(
+        (button) => !button.disabled,
+      );
+      const index = buttons.findIndex((button) => button === document.activeElement);
+      const button = buttons[index];
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && buttons.length > 0) {
+        event.preventDefault();
+        closeMenusFromLevel(level + 1);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? buttons.length - 1
+              : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      } else if (event.key === "ArrowLeft" && level > 0) {
+        event.preventDefault();
+        const trigger = submenuTriggerStack[level];
+        closeMenusFromLevel(level);
+        trigger?.focus();
+      } else if (
+        button &&
+        (event.key === "Enter" ||
+          event.key === " " ||
+          (event.key === "ArrowRight" && button.getAttribute("aria-haspopup") === "menu"))
+      ) {
+        event.preventDefault();
+        button.click();
       }
     };
 
@@ -294,6 +333,8 @@ export function showContextMenuFallback<T extends string>(
       closeMenusFromLevel(level);
 
       const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.tabIndex = -1;
       menu.className =
         "dropdown-glass fixed z-[10000] min-w-32 max-w-sm overflow-hidden rounded-lg bg-clip-padding text-popover-foreground outline-none";
       menu.style.cssText =
@@ -335,6 +376,8 @@ export function showContextMenuFallback<T extends string>(
 
         const button = document.createElement("button");
         button.type = "button";
+        button.setAttribute("role", "menuitem");
+        button.tabIndex = -1;
         const isDisabled = item.disabled === true;
         button.disabled = isDisabled;
         const rowBase =
@@ -425,6 +468,9 @@ export function showContextMenuFallback<T extends string>(
             updateHighlight();
           });
           button.addEventListener("focus", () => {
+            for (const sibling of inner.querySelectorAll<HTMLButtonElement>("button"))
+              sibling.tabIndex = -1;
+            button.tabIndex = 0;
             isFocused = true;
             updateHighlight();
           });
@@ -494,6 +540,9 @@ export function showContextMenuFallback<T extends string>(
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("contextmenu", onContextMenu, true);
     openMenu(items, position?.x ?? 0, position?.y ?? 0, 0);
+    [...menuStack[0]!.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => !button.disabled)
+      ?.focus();
     // Only one fallback menu can be open at a time: a new show must dismiss
     // any prior one, or its DOM and listeners leak and close() can only ever
     // reach the newest menu.

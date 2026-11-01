@@ -155,3 +155,53 @@ it.effect("settles checkpoints as missing without capture when Git is unavailabl
     assert.equal(lookup.mock.calls.length, 0);
   }).pipe(Effect.provide(layer));
 });
+
+it.effect("keeps historical workspace scope identity across project moves and returns", () =>
+  Effect.gen(function* () {
+    const service = yield* CheckpointService.CheckpointServiceV2;
+    const input = {
+      threadId: ThreadId.make("moving-thread"),
+      runId: RunId.make("moving-run-1"),
+      rootNodeId: NodeId.make("moving-node-1"),
+      providerThreadId: ProviderThreadId.make("moving-provider-thread"),
+      cwd: "/source",
+      createdAt: DateTime.makeUnsafe("2026-11-01T00:00:00Z"),
+      existingScopes: [],
+    };
+    const source = yield* service.prepareRootRunScope(input);
+    const destination = yield* service.prepareRootRunScope({
+      ...input,
+      cwd: "/destination",
+      runId: RunId.make("moving-run-2"),
+      existingScopes: [source],
+    });
+    assert.notEqual(destination.id, source.id);
+    const next = yield* service.prepareRootRunScope({
+      ...input,
+      cwd: "/destination",
+      runId: RunId.make("moving-run-3"),
+      existingScopes: [source, destination],
+    });
+    assert.equal(next.id, destination.id);
+    const back = yield* service.prepareRootRunScope({
+      ...input,
+      runId: RunId.make("moving-run-4"),
+      existingScopes: [source, next],
+    });
+    assert.equal(back.id, source.id);
+    assert.equal(source.cwd, "/source");
+    assert.equal(destination.cwd, "/destination");
+  }).pipe(
+    Effect.provide(
+      CheckpointService.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            NodeCrypto.layer,
+            Layer.mock(CheckpointStore.CheckpointStore)({}),
+          ),
+        ),
+      ),
+    ),
+  ),
+);

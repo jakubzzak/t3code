@@ -36,6 +36,7 @@ it.effect.each([
   "project",
   "provider",
   "scope",
+  "previous-project",
   "sibling",
   "stopped-provider",
   "errored-provider",
@@ -98,7 +99,7 @@ it.effect.each([
       nodes: [],
       attempts: [],
       checkpoints: [{ id: checkpointId, scopeId, status: "ready", appRunOrdinal: null }],
-      checkpointScopes: [{ id: scopeId, cwd }],
+      checkpointScopes: [{ id: scopeId, cwd: owner === "previous-project" ? sibling : cwd }],
       runs: [{ id: "later-run", ordinal: 1, status: "completed", rootNodeId: null }],
     } as unknown as OrchestrationV2ThreadProjection;
     const layerTest = CheckpointRollbackService.layer.pipe(
