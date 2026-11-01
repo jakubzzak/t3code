@@ -735,3 +735,48 @@ it("bounds retries, rotates denied threads and excludes another account's pendin
   expect(attempted[0]).toBe("C50");
   expect(second.slackRetryThreads).toEqual([pending[49]]);
 });
+
+it.each([
+  ["Jakub Zak - changed status to Done for PROD-1", true, "update"],
+  ["*Jakub Zak* - changed status to *Done* for PROD-1", true, "update"],
+  ["<@UME> - changed status to Done for PROD-1", true, "update"],
+  ["Someone Else - changed status to Done for PROD-1", false, "update"],
+  ["Tars replied with the investigation", false, undefined],
+])("classifies relayed Linear status activity: %s", async (text, isSelf, kind) => {
+  const root = {
+    ts: "1792620000.000000",
+    user: "Alex",
+    text: "Please fix PROD-1",
+    reply_count: 1,
+    latest_reply: "1792620002.000000",
+  };
+  const result = await readSlackBatch(
+    async (method) => {
+      if (method === "auth.test") return { ok: true, user_id: "UME", team_id: "T1" };
+      if (method === "users.info")
+        return {
+          user: {
+            name: "jakub",
+            real_name: "Jakub Zak",
+            profile: { display_name: "Jakub", real_name: "Jakub Zak" },
+          },
+        };
+      if (method === "conversations.list")
+        return { ok: true, channels: [{ id: "D1", user: "Alex", is_im: true }] };
+      if (method === "search.messages")
+        return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
+      if (method === "conversations.history") return { ok: true, messages: [root] };
+      if (method === "conversations.replies")
+        return {
+          ok: true,
+          messages: [root, { ts: root.latest_reply, username: "Linear Asks", text }],
+        };
+      throw new Error(method);
+    },
+    ["dms"],
+    "2026-10-01T00:00:00Z",
+  );
+  const activity = result.items[0]?.replyActivity?.at(-1);
+  expect(activity?.isSelf).toBe(isSelf);
+  expect(activity?.kind).toBe(kind);
+});

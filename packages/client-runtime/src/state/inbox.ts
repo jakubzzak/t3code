@@ -1,10 +1,11 @@
-import { WS_METHODS } from "@t3tools/contracts";
+import { type EnvironmentId, WS_METHODS } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 export function createInboxEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
+  options: { refreshTrigger?: (environmentId: EnvironmentId) => Atom.Atom<unknown> } = {},
 ) {
   return {
     linearRequest: createEnvironmentRpcCommand(runtime, {
@@ -67,6 +68,7 @@ export function createInboxEnvironmentAtoms<R, E>(
       tag: WS_METHODS.inboxRefreshSource,
     }),
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
+      refreshTrigger: ({ environmentId }) => options.refreshTrigger?.(environmentId),
       label: "inbox:list",
       tag: WS_METHODS.inboxList,
       staleTimeMs: 5_000,

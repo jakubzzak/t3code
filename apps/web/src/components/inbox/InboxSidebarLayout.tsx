@@ -1,4 +1,5 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
+import { isInboxNotificationVisible } from "@t3tools/shared/inboxVisibility";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { inboxSuggestedPrompt } from "@t3tools/shared/inboxSuggestions";
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -508,7 +509,7 @@ export function InboxSidebarLayout({
         project.projectId === revealed.notification.projectId,
     );
   const revealedOverride = revealed ? overrides[keyOf(revealed)] : undefined;
-  const entries =
+  const unfilteredEntries =
     revealedInScope && !loadedEntries.some((entry) => keyOf(entry) === keyOf(revealed))
       ? [
           ...loadedEntries,
@@ -521,6 +522,9 @@ export function InboxSidebarLayout({
           },
         ]
       : loadedEntries;
+  const entries = unfilteredEntries.filter(({ environmentId, notification }) =>
+    isInboxNotificationVisible(notification, serverConfigs.get(environmentId)?.settings),
+  );
   function openSettings(section: "features" | "integrations") {
     const focused = entries.find((entry) => keyOf(entry) === focusedKey);
     const projectId = focused?.notification.projectId ?? projects[0]?.projectId;

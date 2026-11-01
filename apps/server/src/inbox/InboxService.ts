@@ -967,6 +967,8 @@ const make = Effect.gen(function* () {
             const items = yield* repository.list(input.projectId, {
               ...input,
               summaryReady: config.inboxSummaryEnabled,
+              showSelfUpdates: input.threadId ? true : config.inboxShowSelfUpdates,
+              showSelfReplies: input.threadId ? true : config.inboxShowSelfReplies,
             });
             const result: InboxNotification[] = [];
             for (const item of items) {

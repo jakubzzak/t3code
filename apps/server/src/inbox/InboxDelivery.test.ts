@@ -10,6 +10,7 @@ import {
   InboxError,
   ProjectId,
   ProviderInstanceId,
+  ThreadId,
   type InboxSourceItem,
 } from "@t3tools/contracts";
 import * as Inbox from "./InboxService.ts";
@@ -332,4 +333,202 @@ it.effect.each([5000, 33000])(
         assert.isAtMost(saved!.items[0]!.content.length, 32000);
       }).pipe(Effect.provide(f.layer));
     }),
+);
+
+it.effect(
+  "immediately filters retained self activity independently without mutating summaries or placement",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(1);
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        for (const [id, isSelf, kind] of [
+          ["own-update", true, "update"],
+          ["own-reply", true, "reply"],
+          ["tars", false, "reply"],
+          ["security", false, "reply"],
+        ] as const) {
+          yield* repository.put({
+            ...ingestInboxItem(projectId, {
+              ...item,
+              id,
+              groupId: id,
+              replyActivity: [{ id, occurredAt: item.occurredAt, isSelf, kind }],
+            }),
+            processingError: "AI summary not available",
+            analysisAttempts: 3,
+          });
+        }
+        const original = yield* repository.get(
+          projectId,
+          (yield* service.list({ projectId }))[0]!.id,
+        );
+        assert.equal((yield* service.list({ projectId })).length, 4);
+        yield* settings.updateSettings({ inboxShowSelfReplies: false });
+        assert.deepEqual((yield* service.list({ projectId })).map((n) => n.groupId).sort(), [
+          "own-update",
+          "security",
+          "tars",
+        ]);
+        yield* settings.updateSettings({ inboxShowSelfUpdates: false });
+        assert.deepEqual((yield* service.list({ projectId })).map((n) => n.groupId).sort(), [
+          "security",
+          "tars",
+        ]);
+        assert.deepEqual(yield* service.list({ projectId, search: "own" }), []);
+        yield* settings.updateSettings({ inboxShowSelfReplies: true });
+        assert.deepEqual((yield* service.list({ projectId })).map((n) => n.groupId).sort(), [
+          "own-reply",
+          "security",
+          "tars",
+        ]);
+        yield* settings.updateSettings({ inboxShowSelfUpdates: true });
+        assert.equal((yield* service.list({ projectId })).length, 4);
+        assert.deepEqual(yield* repository.get(projectId, original!.id), original);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "filters self replies before pagination and keeps hidden notifications in summary processing",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(1);
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({ inboxShowSelfReplies: false });
+        for (let index = 0; index < 105; index++) {
+          yield* repository.put({
+            ...ingestInboxItem(projectId, {
+              ...item,
+              id: String(index),
+              groupId: String(index),
+              replyActivity: [{ id: String(index), occurredAt: item.occurredAt, isSelf: true }],
+            }),
+            processingError: "AI summary not available",
+          });
+        }
+        const ready = ingestInboxItem(projectId, {
+          ...item,
+          id: "incoming",
+          groupId: "incoming",
+          occurredAt: "2026-10-21T10:00:00Z",
+        });
+        yield* repository.put({ ...ready, processingError: "AI summary not available" });
+        assert.deepEqual(
+          (yield* service.list({ projectId, limit: 1 })).map((n) => n.id),
+          [ready.id],
+        );
+        const hidden = ingestInboxItem(projectId, {
+          ...item,
+          id: "summarize-hidden",
+          groupId: "summarize-hidden",
+          replyActivity: [{ id: "self", occurredAt: item.occurredAt, isSelf: true }],
+        });
+        yield* repository.put(hidden);
+        yield* service.drainAnalysis;
+        assert.equal(
+          (yield* repository.get(projectId, hidden.id))?.analysis?.summary,
+          "Send the report today.",
+        );
+        assert.equal((yield* Ref.get(f.calls)).length, 1);
+        yield* settings.updateSettings({ inboxShowSelfReplies: true });
+        assert.equal((yield* service.list({ projectId, search: "report" })).length, 100);
+        assert.equal((yield* Ref.get(f.calls)).length, 1);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect.each(["slack", "linear", "superhuman"] as const)(
+  "%s: external self replies hide settled items and later incoming replies restore the same item",
+  (source) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          inboxShowSelfReplies: false,
+          projectSettingsOverrides: {
+            [projectId]: { inboxEnabled: true, inboxSummaryEnabled: false },
+          },
+        });
+        const initial = ingestInboxItem(projectId, {
+          ...item,
+          source,
+          replyActivity: [{ id: "root", occurredAt: item.occurredAt, isSelf: false }],
+        });
+        yield* repository.put({ ...initial, state: { ...initial.state, placement: "resolved" } });
+        const selfReply = {
+          ...item,
+          source,
+          id: "own",
+          occurredAt: "2026-10-22T11:00:00Z",
+          replyActivity: [{ id: "own", occurredAt: "2026-10-22T11:00:00Z", isSelf: true }],
+        };
+        yield* service.ingest(projectId, [selfReply]);
+        assert.deepEqual(yield* service.list({ projectId }), []);
+        assert.equal(
+          (yield* service.get({ projectId, id: initial.id }))?.state.placement,
+          "resolved",
+        );
+        yield* settings.updateSettings({ inboxShowSelfReplies: true });
+        assert.equal((yield* service.list({ projectId }))[0]?.state.placement, "resolved");
+        yield* settings.updateSettings({ inboxShowSelfReplies: false });
+        yield* service.ingest(projectId, [
+          {
+            ...item,
+            source,
+            id: "incoming",
+            occurredAt: "2026-10-22T12:00:00Z",
+            replyActivity: [{ id: "incoming", occurredAt: "2026-10-22T12:00:00Z", isSelf: false }],
+          },
+        ]);
+        const [resurfaced] = yield* service.list({ projectId });
+        assert.equal(resurfaced?.id, initial.id);
+        assert.equal(resurfaced?.state.placement, "active");
+        yield* service.ingest(projectId, [selfReply]);
+        assert.equal((yield* service.list({ projectId }))[0]?.replyCursor?.id, "incoming");
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect("applies visibility globally while retaining linked-chat detail access", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    yield* Effect.gen(function* () {
+      const repository = yield* Repository.InboxRepository;
+      const service = yield* Inbox.InboxService;
+      const settings = yield* Settings.ServerSettingsService;
+      const second = ProjectId.make("second");
+      yield* settings.updateSettings({
+        inboxShowSelfReplies: false,
+        projectSettingsOverrides: {
+          [projectId]: { inboxEnabled: true, inboxSummaryEnabled: false },
+          [second]: { inboxEnabled: true, inboxSummaryEnabled: false },
+        },
+      });
+      const threadId = ThreadId.make("linked");
+      for (const project of [projectId, second]) {
+        const notification = ingestInboxItem(project, {
+          ...item,
+          replyActivity: [{ id: "own", occurredAt: item.occurredAt, isSelf: true }],
+        });
+        yield* repository.put({ ...notification, state: { ...notification.state, threadId } });
+        assert.deepEqual(yield* service.list({ projectId: project }), []);
+        assert.equal(
+          (yield* service.list({ projectId: project, threadId }))[0]?.id,
+          notification.id,
+        );
+      }
+      yield* settings.updateSettings({ inboxShowSelfReplies: true });
+      for (const project of [projectId, second])
+        assert.equal((yield* service.list({ projectId: project })).length, 1);
+    }).pipe(Effect.provide(f.layer));
+  }).pipe(Effect.scoped),
 );

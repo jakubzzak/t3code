@@ -127,22 +127,30 @@ export function ingestInboxItem(
       ? compareReplyActivity(reply, acknowledged) > 0
       : !previous || Date.parse(reply.occurredAt) > Date.parse(previous.updatedAt),
   );
+  // Normal source sync may identify the actor of an already acknowledged notice.
+  // Enrich the cursor without replaying read/settlement transitions or summary work.
+  const observed =
+    acknowledged && replies.find((reply) => compareReplyActivity(reply, acknowledged) === 0);
+  const current =
+    previous && observed?.kind && !NodeUtil.isDeepStrictEqual(observed, previous.replyCursor)
+      ? { ...previous, replyCursor: observed, revision: previous.revision + 1 }
+      : previous;
   const latestReply = fresh.at(-1);
   if (
-    previous &&
+    current &&
     existing &&
     !latestReply &&
     !confirmed &&
     Date.parse(item.occurredAt) < Date.parse(existing.occurredAt)
   )
-    return previous;
+    return current;
   const latestIncoming = fresh.findLast((reply) => !reply.isSelf);
-  const replyCursor = latestReply ?? acknowledged;
+  const replyCursor = latestReply ?? (observed?.kind ? observed : acknowledged);
   const thread = incomingThread
-    ? mergeSlackThread(previous?.slackThread, incomingThread)
-    : previous?.slackThread;
+    ? mergeSlackThread(current?.slackThread, incomingThread)
+    : current?.slackThread;
   const sameLatest =
-    (previous?.slackThread?.latestReplyTs ?? null) === (thread?.latestReplyTs ?? null);
+    (current?.slackThread?.latestReplyTs ?? null) === (thread?.latestReplyTs ?? null);
   if (
     !latestReply &&
     !confirmed &&
@@ -150,29 +158,29 @@ export function ingestInboxItem(
     NodeUtil.isDeepStrictEqual(existing, body) &&
     sameLatest
   ) {
-    return NodeUtil.isDeepStrictEqual(previous?.slackThread, thread)
-      ? previous!
-      : { ...previous!, slackThread: thread!, revision: previous!.revision + 1 };
+    return NodeUtil.isDeepStrictEqual(current?.slackThread, thread)
+      ? current!
+      : { ...current!, slackThread: thread!, revision: current!.revision + 1 };
   }
-  const items = [...(previous?.items ?? []).filter((candidate) => candidate.id !== item.id), body]
+  const items = [...(current?.items ?? []).filter((candidate) => candidate.id !== item.id), body]
     .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id))
     .slice(-50);
   // An older delivery can be absent because it was evicted, not because it is new.
   if (
     !latestReply &&
     !confirmed &&
-    previous &&
+    current &&
     sameLatest &&
-    NodeUtil.isDeepStrictEqual(previous.items, items)
+    NodeUtil.isDeepStrictEqual(current.items, items)
   )
-    return NodeUtil.isDeepStrictEqual(previous.slackThread, thread)
-      ? previous
-      : { ...previous, slackThread: thread!, revision: previous.revision + 1 };
+    return NodeUtil.isDeepStrictEqual(current.slackThread, thread)
+      ? current
+      : { ...current, slackThread: thread!, revision: current.revision + 1 };
   if (!latestReply && existing?.source === "linear" && body.linearIssue) {
     const { linearIssue: _oldIssue, ...oldContent } = existing;
     const { linearIssue: _newIssue, ...newContent } = body;
     if (NodeUtil.isDeepStrictEqual(oldContent, newContent))
-      return { ...previous!, items, revision: previous!.revision + 1 };
+      return { ...current!, items, revision: current!.revision + 1 };
   }
   const formattingOnly =
     existing?.source === "slack" &&
@@ -187,43 +195,43 @@ export function ingestInboxItem(
     groupId: item.groupId,
     ...(thread ? { slackThread: thread } : {}),
     ...(replyCursor ? { replyCursor } : {}),
-    revision: (previous?.revision ?? -1) + 1,
+    revision: (current?.revision ?? -1) + 1,
     state:
       replyActivity !== undefined
         ? {
-            ...(previous?.state ?? {
+            ...(current?.state ?? {
               read: false,
               placement: "active",
               snoozedUntil: null,
               threadId: null,
             }),
             ...(latestReply ? { read: latestReply.isSelf } : {}),
-            ...(latestIncoming && previous?.state.placement === "resolved"
+            ...(latestIncoming && current?.state.placement === "resolved"
               ? { placement: "active", snoozedUntil: null }
               : {}),
           }
-        : previous
+        : current
           ? formattingOnly
-            ? previous.state
-            : { ...previous.state, read: false }
+            ? current.state
+            : { ...current.state, read: false }
           : { read: false, placement: "active", snoozedUntil: null, threadId: null },
     items,
     analysis: null,
     analysisAttempts: 0,
     analysisRetryAt: null,
     processingError: null,
-    analysisVersion: (previous?.analysisVersion ?? -1) + 1,
-    agentStatus: previous?.agentStatus ?? "idle",
-    agentError: previous?.agentError ?? null,
-    agentAttempt: previous?.agentAttempt ?? 0,
-    agentIntent: previous?.agentIntent ?? null,
-    linkedChatSettled: previous?.linkedChatSettled ?? false,
+    analysisVersion: (current?.analysisVersion ?? -1) + 1,
+    agentStatus: current?.agentStatus ?? "idle",
+    agentError: current?.agentError ?? null,
+    agentAttempt: current?.agentAttempt ?? 0,
+    agentIntent: current?.agentIntent ?? null,
+    linkedChatSettled: current?.linkedChatSettled ?? false,
     updatedAt:
       replyActivity !== undefined
-        ? (latestIncoming?.occurredAt ?? previous?.updatedAt ?? items.at(-1)!.occurredAt)
+        ? (latestIncoming?.occurredAt ?? current?.updatedAt ?? items.at(-1)!.occurredAt)
         : items.at(-1)!.occurredAt,
-    confirmedOutcome: previous?.confirmedOutcome ?? null,
-    ...(previous?.replyAttempt ? { replyAttempt: previous.replyAttempt } : {}),
+    confirmedOutcome: current?.confirmedOutcome ?? null,
+    ...(current?.replyAttempt ? { replyAttempt: current.replyAttempt } : {}),
   };
 }
 export function restoreInboxState(

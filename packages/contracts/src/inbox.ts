@@ -160,6 +160,7 @@ export class InboxReplyError extends Schema.TaggedError<InboxReplyError>()("Inbo
   }
 }
 export const InboxReplyActivity = Schema.Struct({
+  kind: Schema.optionalKey(Schema.Literals(["reply", "update"])),
   id: TrimmedNonEmptyString,
   occurredAt: IsoDateTime,
   isSelf: Schema.Boolean,

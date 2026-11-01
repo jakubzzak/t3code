@@ -154,6 +154,15 @@ applies when the project and environment are both on **Inherit**.
 
 ## Notification inbox
 
+In **Settings → Features**, select **All projects** to configure **Show updates
+caused by me** and **Show conversations where the last reply is mine**. Both are
+on by default and apply to every project's Inbox on the selected environments.
+Turning either off immediately hides matching notifications; turning it back on
+reveals retained items in their existing sections. Hidden notifications keep
+receiving AI summaries when enabled. Replies you send in the source app are
+recognized on the next normal sync; someone else's later reply can bring the
+conversation back. Your own replies do not reopen settled items.
+
 Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
 **Settings → Integrations**. Connections and relevance filters are configured explicitly for
 each project. Linear, Slack and Superhuman have separate integration groups. The general view

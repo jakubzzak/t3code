@@ -183,6 +183,20 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["shell launcher PATH cli t3 . install remove command"],
   },
   {
+    id: "inbox-show-self-updates",
+    title: "Show updates caused by me",
+    to: "/settings/features",
+    scope: "environment-defaults",
+    searchTerms: ["inbox notifications filters hide own self actions status resolved integration"],
+  },
+  {
+    id: "inbox-show-self-replies",
+    title: "Show conversations where the last reply is mine",
+    to: "/settings/features",
+    scope: "environment-defaults",
+    searchTerms: ["inbox notifications filters hide answered own self replies Slack Linear email"],
+  },
+  {
     id: "notification-inbox",
     title: "Inbox",
     to: "/settings/features",

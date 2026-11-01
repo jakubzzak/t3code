@@ -101,3 +101,9 @@ Classification mechanism is an implementation choice; an additional AI model,
 prompt editor, or user-defined category system has not been agreed. **Assumption
 to validate during implementation:** retain visibility when the actor or last
 reply cannot be determined reliably. No blocking product questions remain.
+
+Compatibility: new settings default to on when absent, and activity kind metadata
+is optional on retained records and wire payloads. No destructive data migration
+is required. Older clients may lack the controls; upgrade the environment and
+clients together for consistent immediate updates. Reverting the application
+keeps retained content and placement; older versions ignore the added metadata.
