@@ -70,6 +70,7 @@ export class InboxService extends Context.Service<
       id: string;
       issue: InboxLinearIssue;
       expectedAnalysisVersion: number;
+      expectedRevision: number;
     }) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly ingest: (
       projectId: ProjectId,
@@ -1043,7 +1044,11 @@ const make = Effect.gen(function* () {
             return yield* new InboxError({
               detail: "This issue does not belong to this notification.",
             });
-          if (current.analysisVersion !== input.expectedAnalysisVersion) return current;
+          if (
+            current.analysisVersion !== input.expectedAnalysisVersion ||
+            current.revision !== input.expectedRevision
+          )
+            return current;
           const next = { ...current, linearIssue: input.issue };
           yield* repository.put(next);
           return next;

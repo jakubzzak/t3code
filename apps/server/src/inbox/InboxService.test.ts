@@ -681,6 +681,7 @@ it.effect(
           id: original.id,
           issue,
           expectedAnalysisVersion: original.analysisVersion,
+          expectedRevision: original.revision,
         });
         assert.deepEqual(cached?.state, original.state);
         assert.equal(cached?.analysisVersion, original.analysisVersion);
@@ -700,6 +701,7 @@ it.effect(
           id: original.id,
           issue,
           expectedAnalysisVersion: original.analysisVersion,
+          expectedRevision: original.revision,
         });
         assert.equal(raced?.linearIssue, undefined);
         assert.equal(
@@ -709,6 +711,7 @@ it.effect(
               id: original.id,
               issue: { ...issue, id: "foreign" },
               expectedAnalysisVersion: next.analysisVersion,
+              expectedRevision: next.revision,
             }),
           ))._tag,
           "Failure",
@@ -1234,6 +1237,73 @@ it.effect("keeps an unresolved sent image visible without hiding later source ac
             text: "",
             images: [{ id: "F1", name: "shot.png", url: "https://files.slack.com/shot.png" }],
             occurredAt: "2026-10-29T08:02:00Z",
+          }),
+      }),
+    );
+  }).pipe(Effect.scoped),
+);
+
+it.effect("does not let history fetched before an accepted reply overwrite that reply", () =>
+  Effect.gen(function* () {
+    const fixture = yield* scenario;
+    yield* Effect.gen(function* () {
+      const service = yield* Inbox.InboxService;
+      const issue = {
+        id: "issue",
+        title: "Agent discussion",
+        description: null,
+        comments: [
+          { id: "old", author: "Tars", body: "Earlier reply", occurredAt: item.occurredAt },
+        ],
+        commentsComplete: true,
+        commentCount: 1,
+      };
+      const target = { source: "linear" as const, issueId: "issue", parentId: null };
+      yield* service.ingest(projectId, [{ ...item, linearIssue: issue, replyTarget: target }]);
+      const [before] = yield* service.list({ projectId });
+      assert.ok(before);
+      yield* service.cacheLinearIssue({
+        projectId,
+        id: before.id,
+        issue,
+        expectedAnalysisVersion: before.analysisVersion,
+        expectedRevision: before.revision,
+      });
+      const input = {
+        projectId,
+        id: before.id,
+        itemId: item.id,
+        target,
+        commandId: CommandId.make("history-race"),
+        text: "Accepted reply",
+      };
+      assert.equal((yield* service.reply(input)).status, "sent");
+      const cached = yield* service.cacheLinearIssue({
+        projectId,
+        id: before.id,
+        issue,
+        expectedAnalysisVersion: before.analysisVersion,
+        expectedRevision: before.revision,
+      });
+      assert.deepEqual(
+        cached?.linearIssue?.comments.map((c) => c.id),
+        ["old", "accepted"],
+      );
+      assert.equal(cached?.linearIssue?.commentCount, 2);
+      assert.equal((yield* service.reply(input)).status, "sent");
+      assert.equal(
+        (yield* service.get({ projectId, id: before.id }))?.linearIssue?.comments.length,
+        2,
+      );
+    }).pipe(
+      Effect.provide(fixture.layer),
+      Effect.provideService(ReplyTransport.InboxReplyTransport, {
+        send: () =>
+          Effect.succeed({
+            id: "accepted",
+            author: "Jakub",
+            text: "Accepted reply",
+            occurredAt: "2026-10-29T08:00:00Z",
           }),
       }),
     );

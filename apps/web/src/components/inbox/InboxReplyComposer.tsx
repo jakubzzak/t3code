@@ -190,7 +190,7 @@ export function InboxReplyComposer({
           "Could not confirm delivery. Check the original conversation. Send checks this attempt without posting again.",
       }));
     }
-    refresh();
+    if (!AsyncResult.isSuccess(result) || result.value.status !== "sent") refresh();
   }
   async function cancel() {
     const result = await mutate({

@@ -90,6 +90,13 @@ or changes to OS/push notification preferences.
    client: the saved global value applies consistently. With both switches off,
    enabling one leaves notifications matching the other disabled category hidden.
 
+7. A reply accepted through Blackbird appears immediately in the notification,
+   including an expanded Linear agent conversation and its linked chat details,
+   without waiting for source intake or manually refetching. An older history
+   response cannot replace the accepted reply. Repeated acceptance/source echoes
+   do not duplicate the message, and failed sends do not create one. Existing
+   visibility settings still apply as soon as the reply is accepted.
+
 ## Constraints and open questions
 
 Use the existing settings, source identity, reply chronology, and Inbox service
