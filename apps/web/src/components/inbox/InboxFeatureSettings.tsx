@@ -259,3 +259,47 @@ export function InboxFeatureSettings() {
     </div>
   );
 }
+
+/** Global visibility controls are edited at environment scope, never as project overrides. */
+export function InboxVisibilitySettings() {
+  const settings = useScopedSettings();
+  const update = useUpdateScopedSettings();
+  const updatesMixed = useScopedSettingsMixed(["inboxShowSelfUpdates"]);
+  const repliesMixed = useScopedSettingsMixed(["inboxShowSelfReplies"]);
+  return (
+    <>
+      <SettingsRow
+        id="inbox-show-self-updates"
+        title="Show updates caused by me"
+        description="Include updates caused by your own actions, including integration status notices. Applies to all projects. Hidden notifications continue to receive AI summaries."
+        serverScoped
+        mixed={updatesMixed}
+        settingKeys={["inboxShowSelfUpdates"]}
+        control={
+          <Switch
+            aria-label="Show updates caused by me"
+            mixed={updatesMixed}
+            checked={!updatesMixed && settings.inboxShowSelfUpdates}
+            onCheckedChange={(inboxShowSelfUpdates) => update({ inboxShowSelfUpdates })}
+          />
+        }
+      />
+      <SettingsRow
+        id="inbox-show-self-replies"
+        title="Show conversations where the last reply is mine"
+        description="Include conversations you last replied to in Blackbird or the source app. Applies to all projects. Changing this takes effect immediately."
+        serverScoped
+        mixed={repliesMixed}
+        settingKeys={["inboxShowSelfReplies"]}
+        control={
+          <Switch
+            aria-label="Show conversations where the last reply is mine"
+            mixed={repliesMixed}
+            checked={!repliesMixed && settings.inboxShowSelfReplies}
+            onCheckedChange={(inboxShowSelfReplies) => update({ inboxShowSelfReplies })}
+          />
+        }
+      />
+    </>
+  );
+}

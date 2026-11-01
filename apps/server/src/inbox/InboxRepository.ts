@@ -54,6 +54,8 @@ export class InboxRepository extends Context.Service<
         search?: string;
         threadId?: ThreadId;
         summaryReady?: boolean;
+        showSelfUpdates?: boolean;
+        showSelfReplies?: boolean;
       },
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly history: (
@@ -136,6 +138,8 @@ const make = Effect.gen(function* () {
       const search = page?.search?.toLowerCase() ?? "";
       return rows(sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId}
         AND (${page?.summaryReady ?? false}=0 OR json_extract(payload_json, '$.analysis') IS NOT NULL OR json_extract(payload_json, '$.processingError') IS NOT NULL)
+        AND (${page?.showSelfUpdates ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'), 0)=0 OR coalesce(json_extract(payload_json, '$.replyCursor.kind'), 'reply') <> 'update')
+        AND (${page?.showSelfReplies ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'), 0)=0 OR coalesce(json_extract(payload_json, '$.replyCursor.kind'), 'reply') <> 'reply')
         AND (${page?.threadId ?? null} IS NULL OR thread_id=${page?.threadId ?? null})
         AND (${search}='' OR instr(lower(coalesce(json_extract(payload_json, '$.analysis.summary'), '')), ${search}) > 0 OR EXISTS (
           SELECT 1 FROM json_each(inbox_notifications.payload_json, '$.items') AS item

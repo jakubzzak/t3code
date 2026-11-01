@@ -70,6 +70,7 @@ export class InboxService extends Context.Service<
       id: string;
       issue: InboxLinearIssue;
       expectedAnalysisVersion: number;
+      expectedRevision: number;
     }) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly ingest: (
       projectId: ProjectId,
@@ -967,6 +968,8 @@ const make = Effect.gen(function* () {
             const items = yield* repository.list(input.projectId, {
               ...input,
               summaryReady: config.inboxSummaryEnabled,
+              showSelfUpdates: input.threadId ? true : config.inboxShowSelfUpdates,
+              showSelfReplies: input.threadId ? true : config.inboxShowSelfReplies,
             });
             const result: InboxNotification[] = [];
             for (const item of items) {
@@ -1041,7 +1044,11 @@ const make = Effect.gen(function* () {
             return yield* new InboxError({
               detail: "This issue does not belong to this notification.",
             });
-          if (current.analysisVersion !== input.expectedAnalysisVersion) return current;
+          if (
+            current.analysisVersion !== input.expectedAnalysisVersion ||
+            current.revision !== input.expectedRevision
+          )
+            return current;
           const next = { ...current, linearIssue: input.issue };
           yield* repository.put(next);
           return next;

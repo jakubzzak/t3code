@@ -609,3 +609,38 @@ it.each(["projectUpdate", "project"])(
     });
   },
 );
+
+it.each(["me", "other"])(
+  "retains actor identity for non-comment Linear updates (%s)",
+  async (actor) => {
+    const [item] = await readLinearInbox(
+      async () => ({
+        data: {
+          viewer: { id: "me" },
+          organization: { id: "org" },
+          notifications: {
+            nodes: [
+              {
+                id: "status",
+                type: "issueStatusChanged",
+                category: "issue",
+                title: "Issue completed",
+                subtitle: "PROD-1",
+                url: "https://linear.app/test",
+                groupingKey: "group",
+                createdAt: "2026-10-31T10:00:00Z",
+                actor: { id: actor, name: actor },
+              },
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      }),
+      ["all"],
+      "2026-10-01T00:00:00Z",
+    );
+    expect(item?.replyActivity).toEqual([
+      { id: "status", occurredAt: "2026-10-31T10:00:00Z", isSelf: actor === "me", kind: "update" },
+    ]);
+  },
+);

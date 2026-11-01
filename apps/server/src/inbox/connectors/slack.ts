@@ -137,15 +137,25 @@ export async function readSlackInbox(
     groups: {},
   };
   const profiles = new Map<string, Promise<string>>();
+  const viewerNames = new Set([identity.user_id]);
   let profilesAvailable = true;
   const displayName = (id: string): Promise<string> => {
-    if (names.users[id]) return Promise.resolve(names.users[id]!);
+    if (names.users[id] && (id !== identity.user_id || viewerNames.size > 1))
+      return Promise.resolve(names.users[id]!);
     if (!/^[UW][A-Z0-9]+$/.test(id) || !profilesAvailable) return Promise.resolve(id);
     let profile = profiles.get(id);
     if (!profile) {
       profile = read("users.info", { user: id })
         .then((result) => {
           const user = decodeUser(result).user;
+          if (id === identity.user_id)
+            for (const name of [
+              user.name,
+              user.real_name,
+              user.profile?.display_name,
+              user.profile?.real_name,
+            ])
+              if (name?.trim()) viewerNames.add(name.trim());
           return (names.users[id] =
             user.profile?.display_name?.trim() ||
             user.profile?.real_name?.trim() ||
@@ -169,6 +179,20 @@ export async function readSlackInbox(
     }
     return profile;
   };
+  // Linear Asks relays the actor in a status notice; it is not itself the actor.
+  const updateActor = (author: string | undefined, content: string) =>
+    author === "Linear Asks"
+      ? content.match(/^(.+?)\s+-\s+changed status to .+? for\s+\S+/)?.[1]?.trim()
+      : undefined;
+  const activity = (entry: { authorId?: string; author?: string; content: string }) => {
+    const actor = updateActor(entry.author, entry.content);
+    return {
+      isSelf: actor
+        ? actor === `<@${identity.user_id}>` || viewerNames.has(actor.replace(/^@/, ""))
+        : entry.authorId === identity.user_id,
+      ...(actor ? { kind: "update" as const } : {}),
+    };
+  };
   const append = async (
     channel: string,
     location: string,
@@ -177,6 +201,14 @@ export async function readSlackInbox(
     url?: string,
   ) => {
     const id = `${channel}:${message.ts}`;
+    if (
+      updateActor(
+        message.username ?? message.bot_profile?.name ?? undefined,
+        messageText(message),
+      ) ||
+      thread?.messages.some((entry) => updateActor(entry.author, entry.content))
+    )
+      await displayName(identity.user_id).catch(() => identity.user_id);
     const context = (thread ? [thread.root, ...thread.messages] : [])
       .filter((entry) => entry.ts !== message.ts)
       .map((entry) => `${entry.author}: ${entry.content}`)
@@ -225,7 +257,11 @@ export async function readSlackInbox(
           {
             id,
             occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
-            isSelf: message.user === identity.user_id,
+            ...activity({
+              ...(message.user ? { authorId: message.user } : {}),
+              author: message.username ?? message.bot_profile?.name ?? "",
+              content: messageText(message),
+            }),
           },
           ...(thread?.messages ?? [])
             .filter(
@@ -234,7 +270,7 @@ export async function readSlackInbox(
             .map((entry) => ({
               id: `${channel}:${entry.ts}`,
               occurredAt: entry.occurredAt,
-              isSelf: entry.authorId === identity.user_id,
+              ...activity(entry),
             })),
         ],
       },
