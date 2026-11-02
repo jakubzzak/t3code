@@ -59,7 +59,7 @@ separately. Signing out of T3 Connect does not stop or uninstall the service.
 ## Keep a Mac awake with the desktop app
 
 In the macOS desktop app, enable **Keep awake** in **Settings → Features**, then
-choose **Configure** to complete the one-time administrator setup and adjust
+open **Settings → Keep awake** to complete the one-time administrator setup and adjust
 battery/heat safeguards. The feature applies to the whole desktop instance and
 all its projects; there is no per-project override. The Keep awake settings page
 uses the same switch. The Mac stays awake
