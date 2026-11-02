@@ -85,6 +85,7 @@ import { InboxActionStrip } from "./InboxActionStrip";
 import { InboxReplyComposer } from "./InboxReplyComposer";
 import { inboxReplyTarget, openInboxReply } from "./inboxReplyDraft";
 import styles from "./inboxSidebar.module.css";
+import { InboxIntegrationStatus } from "./InboxIntegrationStatus";
 
 type Entry = { environmentId: EnvironmentId; notification: InboxNotification };
 const keyOf = (entry: Entry) => `${entry.environmentId}:${entry.notification.id}`;
@@ -901,6 +902,9 @@ export function InboxSidebarLayout({
             {
               value: "inbox",
               label: "Inbox",
+              endAdornment: sourceErrors.length ? (
+                <InboxIntegrationStatus connections={sourceErrors} />
+              ) : undefined,
               count: entries.filter((entry) => entry.notification.state.placement === "active")
                 .length,
               icon: <InboxIcon className="size-3.5" />,
@@ -1018,15 +1022,6 @@ export function InboxSidebarLayout({
                   }}
                   className="flex flex-1 flex-col outline-none"
                 >
-                  {sourceErrors.map((connection) => (
-                    <p
-                      role="alert"
-                      key={`${connection.projectId}:${connection.source}`}
-                      className="px-2 py-2 text-xs text-destructive"
-                    >
-                      {connection.source}: {connection.error}
-                    </p>
-                  ))}
                   {!entries.length &&
                     !results.some(({ connections }) =>
                       (Option.getOrNull(AsyncResult.value(connections)) ?? []).some(
