@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   ArchiveIcon,
+  CoffeeIcon,
   BlocksIcon,
   BotIcon,
   createLucideIcon,
@@ -52,6 +53,7 @@ import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchIte
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 import { resolveSettingsScope } from "./settingsScope";
 import { useEnvironments } from "../../state/environments";
+import { useClientSettings } from "../../hooks/useSettings";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { validateSettingsScopeSearch } from "./settingsScope";
@@ -89,6 +91,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
+  "/settings/awake": CoffeeIcon,
   "/settings/providers": BotIcon,
   "/settings/integrations": BlocksIcon,
   "/settings/scheduled-tasks": CalendarClockIcon,
@@ -119,9 +122,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const navigate = useNavigate();
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
+  const awakeEnabled = useClientSettings((settings) => settings.awakeEnabled);
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
   const navItems = SETTINGS_NAV_ITEMS.filter(
-    (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
+    (item) =>
+      (item.to !== "/settings/awake" || awakeEnabled) &&
+      (item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch)),
   );
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const searchInputRef = useRef<HTMLInputElement>(null);

@@ -21,6 +21,7 @@ export type SettingsPath =
   | "/settings/appearance"
   | "/settings/keybindings"
   | "/settings/snap-shot"
+  | "/settings/awake"
   | "/settings/providers"
   | "/settings/integrations"
   | "/settings/scheduled-tasks"
@@ -49,7 +50,7 @@ export interface SettingsSearchItem {
   readonly targetId?: string;
   /** Descriptions, option labels, and aliases people may remember instead of the title. */
   readonly searchTerms?: ReadonlyArray<string>;
-  readonly scope?: SettingsSearchScope;
+  readonly scope?: SettingsSearchScope | null;
   // Its row only renders in the desktop app, so a browser result would land on
   // an anchor that isn't there.
   readonly desktopOnly?: boolean;
@@ -102,6 +103,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
+  "/settings/awake": "Keep awake",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
   "/settings/scheduled-tasks": "Scheduled Tasks",
@@ -226,6 +228,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/integrations",
     scope: "project",
     searchTerms: ["connection oauth email accounts splits labels important mail"],
+  },
+  {
+    id: "feature-keep-awake",
+    title: "Keep awake",
+    to: "/settings/features",
+    scope: null,
+    searchTerms: ["feature enable disable instance sleep lid power caffeine"],
   },
   {
     id: "linear-workspace",
@@ -718,6 +727,38 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   ...KEYBINDING_SEARCH_ITEMS,
   {
+    id: "awake-enabled",
+    title: "Keep this Mac awake",
+    to: "/settings/awake",
+    searchTerms: ["sleep lid closed power prevent running caffeine"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
+    id: "awake-low-power",
+    title: "Low Power Mode below",
+    to: "/settings/awake",
+    searchTerms: ["battery threshold energy"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
+    id: "awake-sleep-below",
+    title: "Allow sleep below",
+    to: "/settings/awake",
+    searchTerms: ["battery threshold percent"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
+    id: "awake-heat",
+    title: "Heat safeguards",
+    to: "/settings/awake",
+    searchTerms: ["temperature thermal hot"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
     id: "snap-shot-enabled",
     title: "SnapShots",
     searchTerms: ["window capture screenshot"],
@@ -1134,6 +1175,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/general": null,
   "/settings/appearance": null,
   "/settings/snap-shot": null,
+  "/settings/awake": null,
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
@@ -1155,7 +1197,7 @@ export function getSettingsSearchTargetScope(targetId: string) {
   return item
     ? {
         title: item.title,
-        scope: item.scope ?? SETTINGS_CATEGORY_SCOPES[item.to],
+        scope: item.scope === undefined ? SETTINGS_CATEGORY_SCOPES[item.to] : item.scope,
         ...(item.requiresThreadAutoSettlement ? { requiresThreadAutoSettlement: true } : {}),
       }
     : null;
