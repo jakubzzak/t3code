@@ -1,11 +1,30 @@
-import { WS_METHODS } from "@t3tools/contracts";
+import { type EnvironmentId, type ProjectId, WS_METHODS } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 import { Atom } from "effect/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 export function createInboxEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
+  options: { refreshTrigger?: (environmentId: EnvironmentId) => Atom.Atom<unknown> } = {},
 ) {
+  const acceptedReplies = Atom.family((_key: string) => Atom.make(0).pipe(Atom.keepAlive));
+  const projectKey = (environmentId: EnvironmentId, projectId: ProjectId) =>
+    JSON.stringify([environmentId, projectId]);
+  const changes = Atom.family((key: string) =>
+    Atom.make((get) => {
+      const [environmentId] = JSON.parse(key) as [EnvironmentId, ProjectId];
+      const external = options.refreshTrigger?.(environmentId);
+      return [get(acceptedReplies(key)), external ? get(external) : undefined];
+    }),
+  );
+  const refreshTrigger = ({
+    environmentId,
+    input,
+  }: {
+    environmentId: EnvironmentId;
+    input: { projectId: ProjectId };
+  }) => changes(projectKey(environmentId, input.projectId));
   return {
     linearRequest: createEnvironmentRpcCommand(runtime, {
       label: "linear:request",
@@ -67,11 +86,13 @@ export function createInboxEnvironmentAtoms<R, E>(
       tag: WS_METHODS.inboxRefreshSource,
     }),
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
+      refreshTrigger,
       label: "inbox:list",
       tag: WS_METHODS.inboxList,
       staleTimeMs: 5_000,
     }),
     get: createEnvironmentRpcQueryAtomFamily(runtime, {
+      refreshTrigger,
       label: "inbox:get",
       tag: WS_METHODS.inboxGet,
       staleTimeMs: 5_000,
@@ -88,6 +109,15 @@ export function createInboxEnvironmentAtoms<R, E>(
     reply: createEnvironmentRpcCommand(runtime, {
       label: "inbox:reply",
       tag: WS_METHODS.inboxReply,
+      onSuccess: ({ environmentId, input }, registry, result) =>
+        Effect.sync(() => {
+          if (result.status === "sent") {
+            registry.update(
+              acceptedReplies(projectKey(environmentId, input.projectId)),
+              (n) => n + 1,
+            );
+          }
+        }),
     }),
     mutate: createEnvironmentRpcCommand(runtime, {
       label: "inbox:mutate",

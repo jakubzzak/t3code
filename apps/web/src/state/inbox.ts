@@ -2,9 +2,18 @@ import { createInboxEnvironmentAtoms } from "@t3tools/client-runtime/state/inbox
 import { connectionAtomRuntime } from "../connection/runtime";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { AtomRegistry } from "effect/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-export const inboxEnvironment = createInboxEnvironmentAtoms(connectionAtomRuntime);
+import { serverEnvironment } from "./server";
+const visibilityChanges = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get) => {
+    const settings = get(serverEnvironment.settingsValueAtom(environmentId));
+    return `${settings?.inboxShowSelfUpdates ?? true}:${settings?.inboxShowSelfReplies ?? true}`;
+  }),
+);
+export const inboxEnvironment = createInboxEnvironmentAtoms(connectionAtomRuntime, {
+  refreshTrigger: visibilityChanges,
+});
 
 /** Read full notification detail for a composer handoff, without fetching source history. */
 export function readInboxNotification(

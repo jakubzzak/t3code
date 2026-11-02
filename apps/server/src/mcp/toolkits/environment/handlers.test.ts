@@ -55,7 +55,11 @@ it.effect("updates preferences for a thread caller through the /mcp registration
     const result = yield* server
       .callTool({
         name: "t3_environment_preferences_update",
-        arguments: { newWorktreesStartFromOrigin: true },
+        arguments: {
+          newWorktreesStartFromOrigin: true,
+          inboxShowSelfUpdates: false,
+          inboxShowSelfReplies: false,
+        },
       })
       .pipe(
         Effect.provideService(McpInvocationContext.McpInvocationContext, caller),
@@ -76,7 +80,11 @@ it.effect("updates preferences for a thread caller through the /mcp registration
         ),
       );
     expect(result.isError).toBe(false);
-    expect(result.structuredContent).toMatchObject({ newWorktreesStartFromOrigin: true });
+    expect(result.structuredContent).toMatchObject({
+      newWorktreesStartFromOrigin: true,
+      inboxShowSelfUpdates: false,
+      inboxShowSelfReplies: false,
+    });
   }).pipe(
     Effect.provide(
       McpHttpServer.layerEnvironmentToolkit.pipe(

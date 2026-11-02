@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { AGENTIC_SEARCH_LABELS, DEFAULT_AGENTIC_SEARCH_PROMPTS } from "~/agenticSearch";
 import { Textarea } from "~/components/ui/textarea";
 import { useServerConfigs } from "~/state/entities";
-import { InboxFeatureSettings } from "~/components/inbox/InboxFeatureSettings";
+import {
+  InboxFeatureSettings,
+  InboxVisibilitySettings,
+} from "~/components/inbox/InboxFeatureSettings";
 import { createFileRoute } from "@tanstack/react-router";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { isElectron } from "~/env";
@@ -126,6 +129,7 @@ function FeaturesSettings() {
         >
           {projectSelected && !inboxMixed && settings.inboxEnabled && <InboxFeatureSettings />}
         </SettingsRow>
+        <InboxVisibilitySettings />
       </SettingsSection>
     </SettingsPageContainer>
   );

@@ -356,3 +356,19 @@ it("reconciles confirmed uploads by file ID before classifying replayed activity
   expect(later.state.read).toBe(false);
   expect(later.state.placement).toBe("active");
 });
+
+it("upgrades a retained activity's actor classification during normal sync without replaying state transitions", () => {
+  const event = { id: "status", occurredAt: message.occurredAt, isSelf: false };
+  const before = ingestInboxItem(project, { ...message, replyActivity: [event] });
+  const settled = {
+    ...before,
+    state: { ...before.state, placement: "resolved" as const, read: false },
+  };
+  const after = ingestInboxItem(
+    project,
+    { ...message, replyActivity: [{ ...event, isSelf: true, kind: "update" }] },
+    settled,
+  );
+  expect(after.replyCursor).toMatchObject({ isSelf: true, kind: "update" });
+  expect(after.state).toEqual(settled.state);
+});

@@ -10,6 +10,8 @@ import { EnvironmentToolkit } from "./tools.ts";
 
 export function preferences(settings: ServerSettings) {
   const {
+    inboxShowSelfUpdates,
+    inboxShowSelfReplies,
     defaultThreadEnvMode,
     newWorktreesStartFromOrigin,
     enableProviderUpdateChecks,
@@ -18,6 +20,8 @@ export function preferences(settings: ServerSettings) {
   } = settings;
   const characters = Array.from(sourceControlWritingStyle.customInstructions);
   return {
+    inboxShowSelfUpdates,
+    inboxShowSelfReplies,
     defaultThreadEnvMode,
     newWorktreesStartFromOrigin,
     enableProviderUpdateChecks,

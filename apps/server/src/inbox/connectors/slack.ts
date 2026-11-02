@@ -1,6 +1,12 @@
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-import { Message, History, messageText, messageImages } from "./slackMessages.ts";
+import {
+  Message,
+  History,
+  messageText,
+  messageImages,
+  linearAsksUpdateActor,
+} from "./slackMessages.ts";
 import { readSlackThread } from "./slackThread.ts";
 import { readableSlackItem } from "../notificationContent.ts";
 import type { InboxSourceItem, InboxSourceConnection } from "@t3tools/contracts";
@@ -79,6 +85,18 @@ const User = Schema.Struct({
     ),
   }),
 });
+const Members = Schema.Struct({
+  ok: Schema.Boolean,
+  members: Schema.Array(Schema.Struct({ id: Schema.String, ...User.fields.user.fields })),
+  response_metadata: Schema.optionalKey(
+    Schema.Struct({ next_cursor: Schema.optionalKey(Schema.String) }),
+  ),
+});
+const decodeMembers = Schema.decodeUnknownSync(Members);
+const userNames = (user: (typeof User.Type)["user"]) =>
+  [user.name, user.real_name, user.profile?.display_name, user.profile?.real_name].flatMap(
+    (name) => (name?.trim() ? [name.trim()] : []),
+  );
 const decodeUser = Schema.decodeUnknownSync(User);
 const decodeIdentity = Schema.decodeUnknownSync(Identity);
 const decodeHistory = Schema.decodeUnknownSync(History);
@@ -89,6 +107,7 @@ export type SlackRead = (method: string, params: Record<string, string>) => Prom
 export const SLACK_READ_METHODS = new Set([
   "auth.test",
   "users.info",
+  "users.list",
   "conversations.list",
   "conversations.history",
   "conversations.replies",
@@ -169,6 +188,27 @@ export async function readSlackInbox(
     }
     return profile;
   };
+  let directory: Promise<typeof Members.Type | null> | undefined;
+  const isSelfUpdate = async (actor: string) => {
+    const mention = actor.match(/^<@([UW][A-Z0-9]+)(?:\|[^>]+)?>$/);
+    if (mention) return mention[1] === identity.user_id;
+    // A plain name is insufficient when it is shared or the directory is incomplete.
+    // Bound this optional lookup to one page per intake; uncertain notices stay visible.
+    directory ??= read("users.list", { limit: "200", team_id: identity.team_id })
+      .then(decodeMembers)
+      .catch(() => null);
+    const users = await directory;
+    if (!users?.ok || users.response_metadata?.next_cursor) return false;
+    const matches = users.members.filter((user) => userNames(user).includes(actor));
+    return matches.length === 1 && matches[0]!.id === identity.user_id;
+  };
+  const activity = async (entry: { authorId?: string; relayedUpdateActor?: string }) => ({
+    isSelf: entry.relayedUpdateActor
+      ? await isSelfUpdate(entry.relayedUpdateActor)
+      : entry.authorId === identity.user_id,
+    // Explicit reply metadata also corrects legacy name-only classification on normal sync.
+    kind: entry.relayedUpdateActor ? ("update" as const) : ("reply" as const),
+  });
   const append = async (
     channel: string,
     location: string,
@@ -177,6 +217,7 @@ export async function readSlackInbox(
     url?: string,
   ) => {
     const id = `${channel}:${message.ts}`;
+    const relayedUpdateActor = linearAsksUpdateActor(message);
     const context = (thread ? [thread.root, ...thread.messages] : [])
       .filter((entry) => entry.ts !== message.ts)
       .map((entry) => `${entry.author}: ${entry.content}`)
@@ -225,17 +266,22 @@ export async function readSlackInbox(
           {
             id,
             occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
-            isSelf: message.user === identity.user_id,
-          },
-          ...(thread?.messages ?? [])
-            .filter(
-              (entry) => entry.ts !== message.ts && Date.parse(entry.occurredAt) >= sinceMillis,
-            )
-            .map((entry) => ({
-              id: `${channel}:${entry.ts}`,
-              occurredAt: entry.occurredAt,
-              isSelf: entry.authorId === identity.user_id,
+            ...(await activity({
+              ...(message.user ? { authorId: message.user } : {}),
+              ...(relayedUpdateActor ? { relayedUpdateActor } : {}),
             })),
+          },
+          ...(await Promise.all(
+            (thread?.messages ?? [])
+              .filter(
+                (entry) => entry.ts !== message.ts && Date.parse(entry.occurredAt) >= sinceMillis,
+              )
+              .map(async (entry) => ({
+                id: `${channel}:${entry.ts}`,
+                occurredAt: entry.occurredAt,
+                ...(await activity(entry)),
+              })),
+          )),
         ],
       },
       names,

@@ -46,6 +46,7 @@ export const InboxSlackMessage = Schema.Struct({
   ...slackPresentation,
   ts: Schema.String,
   authorId: Schema.optionalKey(Schema.String),
+  relayedUpdateActor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
   author: Schema.String,
   content: Schema.String,
   formattedContent: Schema.String,
@@ -160,6 +161,7 @@ export class InboxReplyError extends Schema.TaggedError<InboxReplyError>()("Inbo
   }
 }
 export const InboxReplyActivity = Schema.Struct({
+  kind: Schema.optionalKey(Schema.Literals(["reply", "update"])),
   id: TrimmedNonEmptyString,
   occurredAt: IsoDateTime,
   isSelf: Schema.Boolean,

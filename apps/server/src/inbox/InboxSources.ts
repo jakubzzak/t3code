@@ -515,6 +515,7 @@ export const make = Effect.gen(function* () {
               ...input,
               issue: detail,
               expectedAnalysisVersion: current.analysisVersion,
+              expectedRevision: current.revision,
             });
           }),
         );

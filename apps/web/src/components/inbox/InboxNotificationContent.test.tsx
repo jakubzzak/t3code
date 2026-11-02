@@ -36,6 +36,10 @@ vi.mock("~/hooks/useSettings", () => ({
 }));
 vi.mock("~/browser/previewRuntime", () => ({ isPreviewAvailableFor: () => true }));
 vi.mock("~/state/session", () => ({ readEnvironmentScope: () => true }));
+vi.mock("~/state/server", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return { serverEnvironment: { settingsValueAtom: () => Atom.make(null) } };
+});
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => state.preview }));
 vi.mock("~/browser/openFileInPreview", () => ({
   openUrlInPreview: (...args: unknown[]) => state.preview(...args),
@@ -1183,5 +1187,74 @@ it.each(["sent", "synced", "legacy", "pending"])(
     expect(container.querySelector(`[data-slack-reply="${own.ts}"]`)!.textContent).toContain(
       own.author,
     );
+  },
+);
+
+it.each(["loaded", "pending"])(
+  "shows an accepted Linear reply immediately while older history is %s",
+  async (historyState) => {
+    const oldComments = [0, 1, 2].map((index) => ({
+      id: `old-${index}`,
+      author: "Tars",
+      body: `Earlier agent message ${index}`,
+      occurredAt: `2026-11-01T10:0${index}:00Z`,
+    }));
+    const issue = {
+      id: "issue",
+      title: "Agent discussion",
+      description: null,
+      comments: [oldComments[2]!],
+      commentCount: 3,
+      commentsComplete: false,
+    };
+    let finishHistory!: (value: typeof issue) => void;
+    const load = vi.fn(
+      () =>
+        new Promise<typeof issue>((resolve) => {
+          finishHistory = resolve;
+        }),
+    );
+    const render = (accepted = false) =>
+      root.render(
+        <InboxSourceContent
+          notification={{
+            ...notification,
+            source: "linear",
+            revision: accepted ? 1 : 0,
+            linearIssue: accepted
+              ? {
+                  ...issue,
+                  commentCount: 4,
+                  comments: [
+                    ...issue.comments,
+                    {
+                      id: "accepted",
+                      author: "Jakub",
+                      body: "Accepted reply to Tars",
+                      occurredAt: "2026-11-01T10:03:00Z",
+                    },
+                  ],
+                }
+              : issue,
+          }}
+          onLoadPrevious={load}
+        />,
+      );
+    await act(async () => render());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Show all issue comments"]')!
+        .click(),
+    );
+    if (historyState === "pending") await act(async () => render(true));
+    await act(async () =>
+      finishHistory({ ...issue, comments: oldComments, commentsComplete: true }),
+    );
+    if (historyState === "loaded") await act(async () => render(true));
+    expect(container.textContent).toContain("Accepted reply to Tars");
+    expect(container.querySelectorAll("[data-linear-comment]")).toHaveLength(4);
+    expect(container.textContent).toContain("Earlier agent message 0");
+    expect(container.querySelector('button[aria-label="Show latest comment only"]')).not.toBeNull();
+    expect(load).toHaveBeenCalledTimes(1);
   },
 );

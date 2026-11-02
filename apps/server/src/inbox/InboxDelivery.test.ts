@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
@@ -10,6 +11,7 @@ import {
   InboxError,
   ProjectId,
   ProviderInstanceId,
+  ThreadId,
   type InboxSourceItem,
 } from "@t3tools/contracts";
 import * as Inbox from "./InboxService.ts";
@@ -20,6 +22,7 @@ import * as Agent from "./InboxAgent.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import { readSuperhumanInbox } from "./connectors/superhuman.ts";
+import { readSlackInbox } from "./connectors/slack.ts";
 import { inboxContext } from "./notificationContext.ts";
 import { ingestInboxItem } from "./inboxState.ts";
 const projectId = ProjectId.make("delivery");
@@ -332,4 +335,322 @@ it.effect.each([5000, 33000])(
         assert.isAtMost(saved!.items[0]!.content.length, 32000);
       }).pipe(Effect.provide(f.layer));
     }),
+);
+
+it.effect(
+  "immediately filters retained self activity independently without mutating summaries or placement",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(1);
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        for (const [id, isSelf, kind] of [
+          ["own-update", true, "update"],
+          ["own-reply", true, "reply"],
+          ["tars", false, "reply"],
+          ["security", false, "reply"],
+        ] as const) {
+          yield* repository.put({
+            ...ingestInboxItem(projectId, {
+              ...item,
+              id,
+              groupId: id,
+              replyActivity: [{ id, occurredAt: item.occurredAt, isSelf, kind }],
+            }),
+            processingError: "AI summary not available",
+            analysisAttempts: 3,
+          });
+        }
+        const original = yield* repository.get(
+          projectId,
+          (yield* service.list({ projectId }))[0]!.id,
+        );
+        assert.equal((yield* service.list({ projectId })).length, 4);
+        yield* settings.updateSettings({ inboxShowSelfReplies: false });
+        assert.deepEqual((yield* service.list({ projectId })).map((n) => n.groupId).sort(), [
+          "own-update",
+          "security",
+          "tars",
+        ]);
+        yield* settings.updateSettings({ inboxShowSelfUpdates: false });
+        assert.deepEqual((yield* service.list({ projectId })).map((n) => n.groupId).sort(), [
+          "security",
+          "tars",
+        ]);
+        assert.deepEqual(yield* service.list({ projectId, search: "own" }), []);
+        yield* settings.updateSettings({ inboxShowSelfReplies: true });
+        assert.deepEqual((yield* service.list({ projectId })).map((n) => n.groupId).sort(), [
+          "own-reply",
+          "security",
+          "tars",
+        ]);
+        yield* settings.updateSettings({ inboxShowSelfUpdates: true });
+        assert.equal((yield* service.list({ projectId })).length, 4);
+        assert.deepEqual(yield* repository.get(projectId, original!.id), original);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "filters self replies before pagination and keeps hidden notifications in summary processing",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(1);
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({ inboxShowSelfReplies: false });
+        for (let index = 0; index < 105; index++) {
+          yield* repository.put({
+            ...ingestInboxItem(projectId, {
+              ...item,
+              id: String(index),
+              groupId: String(index),
+              replyActivity: [{ id: String(index), occurredAt: item.occurredAt, isSelf: true }],
+            }),
+            processingError: "AI summary not available",
+          });
+        }
+        const ready = ingestInboxItem(projectId, {
+          ...item,
+          id: "incoming",
+          groupId: "incoming",
+          occurredAt: "2026-10-21T10:00:00Z",
+        });
+        yield* repository.put({ ...ready, processingError: "AI summary not available" });
+        assert.deepEqual(
+          (yield* service.list({ projectId, limit: 1 })).map((n) => n.id),
+          [ready.id],
+        );
+        const hidden = ingestInboxItem(projectId, {
+          ...item,
+          id: "summarize-hidden",
+          groupId: "summarize-hidden",
+          replyActivity: [{ id: "self", occurredAt: item.occurredAt, isSelf: true }],
+        });
+        yield* repository.put(hidden);
+        yield* service.drainAnalysis;
+        assert.equal(
+          (yield* repository.get(projectId, hidden.id))?.analysis?.summary,
+          "Send the report today.",
+        );
+        assert.equal((yield* Ref.get(f.calls)).length, 1);
+        yield* settings.updateSettings({ inboxShowSelfReplies: true });
+        assert.equal((yield* service.list({ projectId, search: "report" })).length, 100);
+        assert.equal((yield* Ref.get(f.calls)).length, 1);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect.each(["slack", "linear", "superhuman"] as const)(
+  "%s: external self replies hide settled items and later incoming replies restore the same item",
+  (source) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          inboxShowSelfReplies: false,
+          projectSettingsOverrides: {
+            [projectId]: { inboxEnabled: true, inboxSummaryEnabled: false },
+          },
+        });
+        const initial = ingestInboxItem(projectId, {
+          ...item,
+          source,
+          replyActivity: [{ id: "root", occurredAt: item.occurredAt, isSelf: false }],
+        });
+        yield* repository.put({ ...initial, state: { ...initial.state, placement: "resolved" } });
+        const selfReply = {
+          ...item,
+          source,
+          id: "own",
+          occurredAt: "2026-10-22T11:00:00Z",
+          replyActivity: [{ id: "own", occurredAt: "2026-10-22T11:00:00Z", isSelf: true }],
+        };
+        yield* service.ingest(projectId, [selfReply]);
+        assert.deepEqual(yield* service.list({ projectId }), []);
+        assert.equal(
+          (yield* service.get({ projectId, id: initial.id }))?.state.placement,
+          "resolved",
+        );
+        yield* settings.updateSettings({ inboxShowSelfReplies: true });
+        assert.equal((yield* service.list({ projectId }))[0]?.state.placement, "resolved");
+        yield* settings.updateSettings({ inboxShowSelfReplies: false });
+        yield* service.ingest(projectId, [
+          {
+            ...item,
+            source,
+            id: "incoming",
+            occurredAt: "2026-10-22T12:00:00Z",
+            replyActivity: [{ id: "incoming", occurredAt: "2026-10-22T12:00:00Z", isSelf: false }],
+          },
+        ]);
+        const [resurfaced] = yield* service.list({ projectId });
+        assert.equal(resurfaced?.id, initial.id);
+        assert.equal(resurfaced?.state.placement, "active");
+        yield* service.ingest(projectId, [selfReply]);
+        assert.equal((yield* service.list({ projectId }))[0]?.replyCursor?.id, "incoming");
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect("applies visibility globally while retaining linked-chat detail access", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    yield* Effect.gen(function* () {
+      const repository = yield* Repository.InboxRepository;
+      const service = yield* Inbox.InboxService;
+      const settings = yield* Settings.ServerSettingsService;
+      const second = ProjectId.make("second");
+      yield* settings.updateSettings({
+        inboxShowSelfReplies: false,
+        projectSettingsOverrides: {
+          [projectId]: { inboxEnabled: true, inboxSummaryEnabled: false },
+          [second]: { inboxEnabled: true, inboxSummaryEnabled: false },
+        },
+      });
+      const threadId = ThreadId.make("linked");
+      for (const project of [projectId, second]) {
+        const notification = ingestInboxItem(project, {
+          ...item,
+          replyActivity: [{ id: "own", occurredAt: item.occurredAt, isSelf: true }],
+        });
+        yield* repository.put({ ...notification, state: { ...notification.state, threadId } });
+        assert.deepEqual(yield* service.list({ projectId: project }), []);
+        assert.equal(
+          (yield* service.list({ projectId: project, threadId }))[0]?.id,
+          notification.id,
+        );
+      }
+      yield* settings.updateSettings({ inboxShowSelfReplies: true });
+      for (const project of [projectId, second])
+        assert.equal((yield* service.list({ projectId: project })).length, 1);
+    }).pipe(Effect.provide(f.layer));
+  }).pipe(Effect.scoped),
+);
+
+it.effect.each(["disabled", "failed", "waiting"] as const)(
+  "%s: hiding and revealing retains the summary retry budget without starting model work",
+  (mode) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          inboxShowSelfReplies: false,
+          projectSettingsOverrides: {
+            [projectId]: { inboxEnabled: true, inboxSummaryEnabled: mode !== "disabled" },
+          },
+        });
+        const now = yield* Clock.currentTimeMillis;
+        const notification = {
+          ...ingestInboxItem(projectId, {
+            ...item,
+            replyActivity: [{ id: "own", occurredAt: item.occurredAt, isSelf: true }],
+          }),
+          analysisAttempts: mode === "failed" ? 3 : 2,
+          processingError: mode === "failed" ? "AI summary not available" : null,
+          analysisRetryAt:
+            mode === "waiting" ? DateTime.formatIso(DateTime.makeUnsafe(now + 60_000)) : null,
+        };
+        yield* repository.put(notification);
+        for (const show of [false, true, false, true]) {
+          yield* settings.updateSettings({ inboxShowSelfReplies: show });
+          yield* service.list({ projectId });
+          yield* service.drainAnalysis;
+          const saved = (yield* repository.get(projectId, notification.id))!;
+          assert.equal(saved.analysisAttempts, notification.analysisAttempts);
+          assert.equal(saved.analysisRetryAt, notification.analysisRetryAt);
+          assert.equal(saved.processingError, notification.processingError);
+          assert.equal(saved.analysisVersion, notification.analysisVersion);
+          assert.deepEqual(saved.state, notification.state);
+        }
+        assert.equal((yield* Ref.get(f.calls)).length, 0);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect.each(["UMAYA", "UELENA"])(
+  "verifies relay identity for connected user %s and repairs retained spoof classification",
+  (viewerId) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const repository = yield* Repository.InboxRepository;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          inboxShowSelfUpdates: false,
+          inboxShowSelfReplies: false,
+          projectSettingsOverrides: {
+            [projectId]: { inboxEnabled: true, inboxSummaryEnabled: false },
+          },
+        });
+        const actor = `${viewerId} Person`;
+        let appId = "A04RHP43AKH";
+        const intake = () =>
+          Effect.promise(() =>
+            readSlackInbox(
+              async (method) => {
+                if (method === "auth.test") return { ok: true, team_id: "T1", user_id: viewerId };
+                if (method === "users.list")
+                  return { ok: true, members: [{ id: viewerId, real_name: actor }] };
+                if (method === "conversations.list")
+                  return { ok: true, channels: [{ id: "D1", is_im: true }] };
+                if (method === "conversations.history")
+                  return {
+                    ok: true,
+                    messages: [
+                      {
+                        ts: "1792620000.000000",
+                        username: "Linear Asks",
+                        app_id: appId,
+                        text: `${actor} - changed status to Done for PROD-1`,
+                      },
+                    ],
+                  };
+                if (method === "search.messages")
+                  return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
+                throw new Error(method);
+              },
+              ["dms"],
+              "2026-10-01T00:00:00Z",
+            ),
+          );
+        const trusted = yield* intake();
+        const original = ingestInboxItem(projectId, {
+          ...trusted.items[0]!,
+          replyActivity: [
+            { id: "earlier-incoming", occurredAt: "2026-10-21T21:59:59Z", isSelf: false },
+          ],
+        });
+        yield* repository.put(original);
+        yield* service.ingest(projectId, trusted.items);
+        assert.equal((yield* service.list({ projectId })).length, 0);
+        const saved = (yield* repository.get(projectId, original.id))!;
+        assert.equal(saved.replyCursor?.isSelf, true);
+        // Model a retained notice classified by the old display-name-only implementation.
+        appId = "AUNTRUSTED";
+        const safe = yield* intake();
+        yield* service.ingest(projectId, safe.items);
+        const repaired = (yield* repository.get(projectId, saved.id))!;
+        assert.equal((yield* service.list({ projectId })).length, 1);
+        assert.deepEqual(repaired.replyCursor, {
+          id: saved.replyCursor!.id,
+          occurredAt: saved.replyCursor!.occurredAt,
+          isSelf: false,
+          kind: "reply",
+        });
+        assert.deepEqual(repaired.state, saved.state);
+        assert.equal(repaired.analysisVersion, saved.analysisVersion);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
 );

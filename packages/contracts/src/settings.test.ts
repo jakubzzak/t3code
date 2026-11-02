@@ -1360,3 +1360,18 @@ describe("Inbox refresh interval", () => {
     }
   });
 });
+
+describe("Inbox visibility settings", () => {
+  it("includes both categories by default for existing settings", () => {
+    expect(decodeServerSettings({})).toMatchObject({
+      inboxShowSelfUpdates: true,
+      inboxShowSelfReplies: true,
+    });
+  });
+
+  it("round-trips global visibility preferences without project overrides", () => {
+    const patch = { inboxShowSelfUpdates: false, inboxShowSelfReplies: false };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
+  });
+});

@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./inboxVisibility": {
+      "types": "./src/inboxVisibility.ts",
+      "import": "./src/inboxVisibility.ts"
+    },
     "./inboxSuggestions": {
       "types": "./src/inboxSuggestions.ts",
       "import": "./src/inboxSuggestions.ts"

@@ -140,7 +140,9 @@ const Notification = Schema.Struct({
   url: Schema.String,
   groupingKey: Schema.String,
   createdAt: Schema.String,
-  actor: Schema.NullOr(Schema.Struct({ name: Schema.String })),
+  actor: Schema.NullOr(
+    Schema.Struct({ id: Schema.optionalKey(Schema.String), name: Schema.String }),
+  ),
   issue: Schema.optionalKey(
     Schema.Struct({
       id: Schema.String,
@@ -177,7 +179,7 @@ const decodePage = Schema.decodeUnknownSync(Page);
 export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: DateTimeOrDuration!, $notificationIds: [ID!]!) {
   viewer { id } organization { id }
   notifications(first: 50, after: $after, orderBy: updatedAt, filter: { or: [{ createdAt: { gte: $since } }, { id: { in: $notificationIds } }] }) {
-    nodes { id type category title subtitle url groupingKey createdAt actor { name }
+    nodes { id type category title subtitle url groupingKey createdAt actor { id name }
       ... on IssueNotification { issue { id identifier title description ${commentPreviewFields} } comment { ${commentFields} } parentComment { ${commentFields} } }
       ... on ProjectNotification { project { id name description } comment { ${commentFields} } parentComment { ${commentFields} } }
       ... on InitiativeNotification { comment { ${commentFields} } parentComment { ${commentFields} } }
@@ -312,7 +314,28 @@ export async function readLinearInbox(
                   isSelf: comment.user?.id === viewer,
                 })),
             }
-          : {}),
+          : notification.actor?.id
+            ? {
+                replyActivity: [
+                  {
+                    id: notification.id,
+                    occurredAt: notification.createdAt,
+                    isSelf: notification.actor.id === viewer,
+                    kind: "update" as const,
+                  },
+                  ...(issue?.latestComments?.nodes ?? [])
+                    .filter(
+                      (comment) =>
+                        Date.parse(comment.createdAt) > Date.parse(notification.createdAt),
+                    )
+                    .map((comment) => ({
+                      id: comment.id,
+                      occurredAt: comment.createdAt,
+                      isSelf: comment.user?.id === viewer,
+                    })),
+                ],
+              }
+            : {}),
       });
     }
     after = page.data.notifications.pageInfo.hasNextPage

@@ -70,6 +70,7 @@ export class InboxService extends Context.Service<
       id: string;
       issue: InboxLinearIssue;
       expectedAnalysisVersion: number;
+      expectedRevision: number;
     }) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly ingest: (
       projectId: ProjectId,
@@ -967,6 +968,8 @@ const make = Effect.gen(function* () {
             const items = yield* repository.list(input.projectId, {
               ...input,
               summaryReady: config.inboxSummaryEnabled,
+              showSelfUpdates: input.threadId ? true : config.inboxShowSelfUpdates,
+              showSelfReplies: input.threadId ? true : config.inboxShowSelfReplies,
             });
             const result: InboxNotification[] = [];
             for (const item of items) {
@@ -1042,7 +1045,33 @@ const make = Effect.gen(function* () {
               detail: "This issue does not belong to this notification.",
             });
           if (current.analysisVersion !== input.expectedAnalysisVersion) return current;
-          const next = { ...current, linearIssue: input.issue };
+          let issue = input.issue;
+          if (current.revision !== input.expectedRevision) {
+            if (!issue.commentsComplete) return current;
+            // Replies and triage can advance the revision while older history is loading.
+            // Keep that local context while completing the requested history snapshot.
+            const cached =
+              current.linearIssue ??
+              current.items.findLast((item) => item.linearIssue)?.linearIssue;
+            const comments = [
+              ...new Map(
+                [...(cached?.comments ?? []), ...issue.comments].map((comment) => [
+                  comment.id,
+                  comment,
+                ]),
+              ).values(),
+            ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
+            issue = {
+              ...issue,
+              comments,
+              commentCount: Math.max(
+                issue.commentCount ?? 0,
+                cached?.commentCount ?? 0,
+                comments.length,
+              ),
+            };
+          }
+          const next = { ...current, linearIssue: issue };
           yield* repository.put(next);
           return next;
         }),

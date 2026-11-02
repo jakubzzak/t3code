@@ -1195,6 +1195,8 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INBOX_SUMMARY_PROMPT)),
   ),
   inboxSummaryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  inboxShowSelfUpdates: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  inboxShowSelfReplies: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   inboxMemoryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   inboxAgentPrompt: Schema.String.check(Schema.isMaxLength(8000)).pipe(
     Schema.withDecodingDefault(
@@ -1606,6 +1608,8 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  inboxShowSelfUpdates: Schema.optionalKey(Schema.Boolean),
+  inboxShowSelfReplies: Schema.optionalKey(Schema.Boolean),
   inboxEnabled: Schema.optionalKey(Schema.Boolean),
   inboxInitialHistoryDays: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),

@@ -338,7 +338,22 @@ function LinearIssueContent({
   const section = useRef<HTMLDivElement>(null);
   const target = notification.items.at(-1)?.replyTarget;
   const commentId = target?.source === "linear" ? target.parentId : null;
-  const issue = loaded ?? initial;
+  const issue = useMemo(() => {
+    if (!loaded || initial.commentsComplete) return initial;
+    // Older history enriches the current snapshot; it must not mask accepted replies.
+    const comments = [
+      ...new Map(
+        [...loaded.comments, ...initial.comments].map((comment) => [comment.id, comment]),
+      ).values(),
+    ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
+    return {
+      ...loaded,
+      ...initial,
+      comments,
+      commentsComplete: loaded.commentsComplete,
+      commentCount: Math.max(loaded.commentCount ?? 0, initial.commentCount ?? 0, comments.length),
+    };
+  }, [initial, loaded]);
   const initialIdentity =
     issue.comments.find((comment) => comment.id === commentId)?.agentThread ??
     issue.comments.find((comment) => comment.agentThread?.rootCommentId === commentId)?.agentThread;
