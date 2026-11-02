@@ -7,7 +7,7 @@ Slack, Superhuman and Linear failures currently put raw red error messages above
 ## Required behavior
 
 - Show one small dot when an enabled source in the current project/environment scope has an error. Keep the cue visible while Chats is selected too. Remove the raw source-error rows from the Inbox list; preserve notification content and existing Settings diagnostics.
-- Hovering or keyboard-focusing the dot shows a tooltip without navigation. Clicking or tapping it must not select a different tab or open Settings. Support touch disclosure and Escape dismissal.
+- Hovering or keyboard-focusing the dot shows a tooltip without navigation. Clicking or tapping it must not select a different tab or open Settings. Support touch disclosure and Escape dismissal. Keep the tooltip open when the pointer moves onto its text; use the existing small icon-button hit area around the subtle dot.
 - Use concise text: `Slack updates delayed · Last synced 14m ago`, substituting the affected service and elapsed time since its last successful sync. Use compact hours/minutes for older times.
 - Keep the dot yellow through 30 minutes. Between 30 and 120 minutes, interpolate continuously through orange to red. At and after 120 minutes, keep it fully red. The color changes with elapsed time without a reload or a continuous animation.
 - Clear the cue when the error clears or the source leaves the enabled/current scope. An old sync timestamp by itself is not an error.
@@ -31,3 +31,7 @@ Slack, Superhuman and Linear failures currently put raw red error messages above
 Web and the shared desktop UI, including remotely connected environments. Native mobile has no equivalent notification Inbox. No changes to sync/retry behavior, authentication, agent providers, MCP, schemas or storage; existing clients and servers remain compatible. No migrations are required.
 
 Tracking: intentionally no Linear issue, per the standing Blackbird/T3 Code preference. The implementation PR owns this work.
+
+## Verification notes — 2026-11-02
+
+The follow-up implementation for PR #69 addresses the previous testit's F001 hover dismissal and G001 regression coverage: the popup accepts pointer hover, with retained focus/Escape and project-scoped query/pagination/recovery tests. The invisible hit area now uses the existing icon-xs button (24px desktop, 28px narrow layout), addressing U001 while keeping the visual dot at 6px. The built-in Browser verified hover persistence, dismissal, keyboard activation without tab switching and the 320px layout; 112 focused tests and web typecheck pass. CSS hit testing is verified in the browser because jsdom does not model it. Native Electron, real remote connections, physical touch/screen-reader checks and CI remain unverified; this note does not mark full product acceptance complete.

@@ -39,7 +39,7 @@ export function SegmentedViewTabs({
             value={item.value}
             className={cn(
               "relative flex w-full items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-xs whitespace-nowrap text-muted-foreground outline-none data-active:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
-              item.endAdornment && "pr-6",
+              item.endAdornment && "pr-9 sm:pr-8",
             )}
           >
             {item.icon}
@@ -53,7 +53,9 @@ export function SegmentedViewTabs({
             </span>
           </Tabs.Tab>
           {item.endAdornment && (
-            <div className="absolute right-1 top-1/2 -translate-y-1/2">{item.endAdornment}</div>
+            <div className="absolute right-1 top-1/2 flex -translate-y-1/2">
+              {item.endAdornment}
+            </div>
           )}
         </div>
       ))}

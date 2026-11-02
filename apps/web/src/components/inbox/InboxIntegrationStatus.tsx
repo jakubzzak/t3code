@@ -34,7 +34,7 @@ export function InboxIntegrationStatus({
       <TooltipTrigger
         id={triggerId}
         closeOnClick={false}
-        render={<Button variant="ghost" size="icon-tiny" />}
+        render={<Button variant="ghost" size="icon-xs" />}
         aria-label="Integration updates delayed"
         aria-describedby={open ? `${triggerId}-tooltip` : undefined}
         onClick={() => setOpen(true)}
@@ -45,7 +45,7 @@ export function InboxIntegrationStatus({
           style={{ backgroundColor: status.color }}
         />
       </TooltipTrigger>
-      <TooltipPopup side="bottom" role="tooltip" id={`${triggerId}-tooltip`}>
+      <TooltipPopup side="bottom" role="tooltip" id={`${triggerId}-tooltip`} hoverable>
         <div className="text-wrap text-2xs leading-relaxed">
           {status.lines.map((line) => (
             <div key={line}>{line}</div>

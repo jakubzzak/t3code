@@ -63,3 +63,90 @@ it("ages a visible failed connection without refetching and refreshes after retu
   await act(async () => root.render(<InboxIntegrationStatus connections={[]} />));
   expect(container.querySelector("button")).toBeNull();
 });
+
+it("reveals the status on focus, dismisses with Escape and reopens without moving focus", async () => {
+  const connection: InboxSourceConnection = {
+    projectId: ProjectId.make("keyboard"),
+    source: "slack",
+    enabled: true,
+    connected: true,
+    categories: [],
+    accounts: [],
+    initialLookbackDays: 7,
+    lastSyncAt: new Date(Date.now() - 14 * 60_000).toISOString(),
+    error: "rate limit",
+    retryAt: null,
+  };
+  await act(async () => root.render(<InboxIntegrationStatus connections={[connection]} />));
+  const button = container.querySelector("button")!;
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    button.focus();
+  });
+  expect(document.activeElement).toBe(button);
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(
+    "Slack updates delayed",
+  );
+  expect(document.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toContain(
+    "Last synced 14m ago",
+  );
+  await act(async () =>
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  expect(button.getAttribute("aria-describedby")).toBeNull();
+  expect(document.activeElement).toBe(button);
+  await act(async () => button.click());
+  expect(button.getAttribute("aria-describedby")).not.toBeNull();
+  expect(document.activeElement).toBe(button);
+  await act(async () => {
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(button.getAttribute("aria-describedby")).toBeNull();
+});
+
+it("keeps a hover disclosure open over its text and closes it on Escape", async () => {
+  vi.useFakeTimers();
+  const connection: InboxSourceConnection = {
+    projectId: ProjectId.make("hover"),
+    source: "linear",
+    enabled: true,
+    connected: true,
+    categories: [],
+    accounts: [],
+    initialLookbackDays: 7,
+    lastSyncAt: null,
+    error: "temporarily unavailable",
+    retryAt: null,
+  };
+  await act(async () => root.render(<InboxIntegrationStatus connections={[connection]} />));
+  const button = container.querySelector("button")!;
+  vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 20, 24, 24));
+  await act(async () => {
+    button.dispatchEvent(new MouseEvent("mouseenter", { clientX: 20, clientY: 30 }));
+    button.dispatchEvent(new MouseEvent("mousemove", { clientX: 20, clientY: 30, bubbles: true }));
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  const popup = document.querySelector<HTMLElement>('[role="tooltip"]')!;
+  expect(popup.textContent).toBe("Linear updates delayed · Never synced");
+  vi.spyOn(popup, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 48, 200, 32));
+  // jsdom has no hit testing; the built-in Browser pass also checks that CSS lets the pointer reach this popup.
+  await act(async () => {
+    button.dispatchEvent(
+      new MouseEvent("mouseleave", { relatedTarget: popup, clientX: 20, clientY: 50 }),
+    );
+    popup.dispatchEvent(
+      new MouseEvent("mouseenter", { relatedTarget: button, clientX: 20, clientY: 50 }),
+    );
+    popup.dispatchEvent(new MouseEvent("mousemove", { clientX: 20, clientY: 50, bubbles: true }));
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(button.getAttribute("aria-describedby")).not.toBeNull();
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+    "Linear updates delayed · Never synced",
+  );
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(document.querySelector('[role="tooltip"]')).toBeNull();
+});

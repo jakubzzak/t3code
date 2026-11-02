@@ -112,6 +112,7 @@ function TooltipPopup({
   sideOffset = 4,
   side = "top",
   variant = "default",
+  hoverable = false,
   anchor,
   children,
   ...props
@@ -121,6 +122,8 @@ function TooltipPopup({
   sideOffset?: TooltipPrimitive.Positioner.Props["sideOffset"];
   /** `code` renders monospace content that breaks anywhere, for paths and commands. */
   variant?: "default" | "glass" | "code";
+  /** Allow the pointer onto informational text without dismissing its tooltip. */
+  hoverable?: boolean;
   anchor?: TooltipPrimitive.Positioner.Props["anchor"];
 }) {
   return (
@@ -136,6 +139,7 @@ function TooltipPopup({
             variant === "code"
               ? "max-w-120 wrap-anywhere text-left font-mono text-[11px] leading-relaxed"
               : "max-w-80 wrap-anywhere whitespace-normal leading-snug",
+            hoverable && "pointer-events-auto",
             className,
           )}
           data-slot="tooltip-popup"
