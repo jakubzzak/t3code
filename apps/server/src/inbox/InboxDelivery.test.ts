@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
@@ -531,4 +532,47 @@ it.effect("applies visibility globally while retaining linked-chat detail access
         assert.equal((yield* service.list({ projectId: project })).length, 1);
     }).pipe(Effect.provide(f.layer));
   }).pipe(Effect.scoped),
+);
+
+it.effect.each(["disabled", "failed", "waiting"] as const)(
+  "%s: hiding and revealing retains the summary retry budget without starting model work",
+  (mode) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const repository = yield* Repository.InboxRepository;
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          inboxShowSelfReplies: false,
+          projectSettingsOverrides: {
+            [projectId]: { inboxEnabled: true, inboxSummaryEnabled: mode !== "disabled" },
+          },
+        });
+        const now = yield* Clock.currentTimeMillis;
+        const notification = {
+          ...ingestInboxItem(projectId, {
+            ...item,
+            replyActivity: [{ id: "own", occurredAt: item.occurredAt, isSelf: true }],
+          }),
+          analysisAttempts: mode === "failed" ? 3 : 2,
+          processingError: mode === "failed" ? "AI summary not available" : null,
+          analysisRetryAt:
+            mode === "waiting" ? DateTime.formatIso(DateTime.makeUnsafe(now + 60_000)) : null,
+        };
+        yield* repository.put(notification);
+        for (const show of [false, true, false, true]) {
+          yield* settings.updateSettings({ inboxShowSelfReplies: show });
+          yield* service.list({ projectId });
+          yield* service.drainAnalysis;
+          const saved = (yield* repository.get(projectId, notification.id))!;
+          assert.equal(saved.analysisAttempts, notification.analysisAttempts);
+          assert.equal(saved.analysisRetryAt, notification.analysisRetryAt);
+          assert.equal(saved.processingError, notification.processingError);
+          assert.equal(saved.analysisVersion, notification.analysisVersion);
+          assert.deepEqual(saved.state, notification.state);
+        }
+        assert.equal((yield* Ref.get(f.calls)).length, 0);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
 );

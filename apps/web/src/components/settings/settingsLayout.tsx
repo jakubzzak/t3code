@@ -13,6 +13,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useState,
 } from "react";
@@ -287,6 +288,7 @@ export function SettingsRow({
   children?: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLDivElement>(rowProps.id);
+  const unavailableDescriptionId = useId();
   const primarySettingsAvailable = usePrimarySettingsAvailable();
   const context = useOptionalSettingsScope();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -368,6 +370,9 @@ export function SettingsRow({
   ) : (
     resetAction
   );
+  const inheritedValue =
+    settingKeys.length === 1 ? context?.targets[0]?.settings[settingKeys[0]!] : undefined;
+  const inheritedBoolean = typeof inheritedValue === "boolean";
   const inertControl = (message: string) => (
     <Tooltip>
       <TooltipTrigger
@@ -375,6 +380,11 @@ export function SettingsRow({
           // Focusable so keyboard users can still reach the explanation.
           <span
             tabIndex={0}
+            role={inheritedBoolean ? "switch" : "group"}
+            aria-label={typeof title === "string" ? title : "Unavailable setting"}
+            aria-checked={inheritedBoolean ? (mixed ? "mixed" : inheritedValue) : undefined}
+            aria-readonly={inheritedBoolean ? true : undefined}
+            aria-describedby={unavailableDescriptionId}
             className="flex w-full items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @min-[32rem]/settings-row:w-auto"
           />
         }
@@ -386,6 +396,9 @@ export function SettingsRow({
           {control}
         </div>
       </TooltipTrigger>
+      <span id={unavailableDescriptionId} className="sr-only">
+        {message}
+      </span>
       <TooltipPopup side="top">{message}</TooltipPopup>
     </Tooltip>
   );
@@ -409,7 +422,7 @@ export function SettingsRow({
               : PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
         )
       : environmentWide && control
-        ? inertControl("Environment-wide setting. Select an environment to change it.")
+        ? inertControl("Environment-wide setting. Select All projects to change it.")
         : control;
   // Server rows get an indicator beside the title that opens the resolution
   // chain per target at every scope; client rows keep a plain status only.

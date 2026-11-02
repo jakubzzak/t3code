@@ -1248,15 +1248,19 @@ it.effect("does not let history fetched before an accepted reply overwrite that 
     const fixture = yield* scenario;
     yield* Effect.gen(function* () {
       const service = yield* Inbox.InboxService;
+      const comments = [0, 1, 2].map((index) => ({
+        id: `old-${index}`,
+        author: "Tars",
+        body: `Earlier reply ${index}`,
+        occurredAt: `2026-10-22T10:0${index}:00Z`,
+      }));
       const issue = {
         id: "issue",
         title: "Agent discussion",
         description: null,
-        comments: [
-          { id: "old", author: "Tars", body: "Earlier reply", occurredAt: item.occurredAt },
-        ],
-        commentsComplete: true,
-        commentCount: 1,
+        comments: [comments[2]!],
+        commentsComplete: false,
+        commentCount: 3,
       };
       const target = { source: "linear" as const, issueId: "issue", parentId: null };
       yield* service.ingest(projectId, [{ ...item, linearIssue: issue, replyTarget: target }]);
@@ -1281,19 +1285,20 @@ it.effect("does not let history fetched before an accepted reply overwrite that 
       const cached = yield* service.cacheLinearIssue({
         projectId,
         id: before.id,
-        issue,
+        issue: { ...issue, comments, commentsComplete: true },
         expectedAnalysisVersion: before.analysisVersion,
         expectedRevision: before.revision,
       });
       assert.deepEqual(
         cached?.linearIssue?.comments.map((c) => c.id),
-        ["old", "accepted"],
+        ["old-0", "old-1", "old-2", "accepted"],
       );
-      assert.equal(cached?.linearIssue?.commentCount, 2);
+      assert.equal(cached?.linearIssue?.commentCount, 4);
+      assert.equal(cached?.linearIssue?.commentsComplete, true);
       assert.equal((yield* service.reply(input)).status, "sent");
       assert.equal(
         (yield* service.get({ projectId, id: before.id }))?.linearIssue?.comments.length,
-        2,
+        4,
       );
     }).pipe(
       Effect.provide(fixture.layer),

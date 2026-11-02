@@ -1044,12 +1044,34 @@ const make = Effect.gen(function* () {
             return yield* new InboxError({
               detail: "This issue does not belong to this notification.",
             });
-          if (
-            current.analysisVersion !== input.expectedAnalysisVersion ||
-            current.revision !== input.expectedRevision
-          )
-            return current;
-          const next = { ...current, linearIssue: input.issue };
+          if (current.analysisVersion !== input.expectedAnalysisVersion) return current;
+          let issue = input.issue;
+          if (current.revision !== input.expectedRevision) {
+            if (!issue.commentsComplete) return current;
+            // Replies and triage can advance the revision while older history is loading.
+            // Keep that local context while completing the requested history snapshot.
+            const cached =
+              current.linearIssue ??
+              current.items.findLast((item) => item.linearIssue)?.linearIssue;
+            const comments = [
+              ...new Map(
+                [...(cached?.comments ?? []), ...issue.comments].map((comment) => [
+                  comment.id,
+                  comment,
+                ]),
+              ).values(),
+            ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
+            issue = {
+              ...issue,
+              comments,
+              commentCount: Math.max(
+                issue.commentCount ?? 0,
+                cached?.commentCount ?? 0,
+                comments.length,
+              ),
+            };
+          }
+          const next = { ...current, linearIssue: issue };
           yield* repository.put(next);
           return next;
         }),
