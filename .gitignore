@@ -49,3 +49,8 @@ node_modules/
 
 # Local agent automation artifacts (reports, state, private chat excerpts).
 /.automations/
+
+# Shared delivery skill source; not generated build output.
+!.agents/skills/build/
+!.agents/skills/build/**
+.agents/skills/build/**/__pycache__/

@@ -162,3 +162,13 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Shared personal delivery skills
+
+This repository owns the cross-project [Shape](.agents/skills/shape/SKILL.md),
+[Build](.agents/skills/build/SKILL.md) and [Ship](.agents/skills/ship/SKILL.md) definitions.
+They preserve task scope and this repository's restrictions, including explicit PR permission.
+Use Build's investigation-first bug mode for legacy `$fixit` requests; do not add a fourth
+workflow. Incident memory is private and suggestions are saved only after approval.
+See [installation and scope](docs/operations/agent-workflows.md). Editing these skills does
+not execute a delivery workflow or authorize merge, release or production writes.

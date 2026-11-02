@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ship"
+  short_description: "Verify deployment, observe use and recover safely"
+  default_prompt: "Use $ship for this task, respecting the agreed scope and relevant incident history."
+policy:
+  allow_implicit_invocation: true

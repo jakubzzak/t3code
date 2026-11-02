@@ -1,0 +1,6 @@
+interface:
+  display_name: "Shape"
+  short_description: "Agree a clear brief and validation before building"
+  default_prompt: "Use $shape for this task, respecting the agreed scope and relevant incident history."
+policy:
+  allow_implicit_invocation: true
