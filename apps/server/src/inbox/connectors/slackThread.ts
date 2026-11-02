@@ -3,7 +3,13 @@ import * as DateTime from "effect/DateTime";
 import { slackText, slackMentions, type SlackNames } from "@t3tools/shared/slackText";
 import { slackEmojis } from "../slackEmoji.ts";
 import type { InboxSlackMessage, InboxSlackThread } from "@t3tools/contracts";
-import { History, Message, messageText, messageImages } from "./slackMessages.ts";
+import {
+  History,
+  Message,
+  messageText,
+  messageImages,
+  linearAsksUpdateActor,
+} from "./slackMessages.ts";
 import type { SlackRead } from "./slack.ts";
 
 const decode = Schema.decodeUnknownSync(History);
@@ -138,26 +144,30 @@ export async function readSlackThread(
   Object.assign(names.users ?? {}, users);
   Object.assign(names.groups ?? {}, groups);
   const options = { ...names, users, groups, emojis: slackEmojis };
-  const format = (message: typeof Message.Type): InboxSlackMessage => ({
-    images: messageImages(message),
-    ts: message.ts,
-    ...(message.user ? { authorId: message.user } : {}),
-    author:
-      (message.user && users[message.user]) ||
-      message.username ||
-      message.bot_profile?.name ||
-      message.user ||
-      "Slack",
-    content: slackText(messageText(message), options, "text").slice(0, 32000),
-    formattedContent: slackText(messageText(message), options, "rich").slice(0, 32000),
-    formattedTitle: slackText(
-      messageText(message).split("\n")[0]!.slice(0, 250),
-      options,
-      "rich",
-    ).slice(0, 2000),
-    slackMentions: slackMentions(messageText(message), options),
-    occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
-  });
+  const format = (message: typeof Message.Type): InboxSlackMessage => {
+    const relayedUpdateActor = linearAsksUpdateActor(message);
+    return {
+      images: messageImages(message),
+      ts: message.ts,
+      ...(message.user ? { authorId: message.user } : {}),
+      ...(relayedUpdateActor ? { relayedUpdateActor } : {}),
+      author:
+        (message.user && users[message.user]) ||
+        message.username ||
+        message.bot_profile?.name ||
+        message.user ||
+        "Slack",
+      content: slackText(messageText(message), options, "text").slice(0, 32000),
+      formattedContent: slackText(messageText(message), options, "rich").slice(0, 32000),
+      formattedTitle: slackText(
+        messageText(message).split("\n")[0]!.slice(0, 250),
+        options,
+        "rich",
+      ).slice(0, 2000),
+      slackMentions: slackMentions(messageText(message), options),
+      occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
+    };
+  };
   const messages = new Map(cached?.messages.map((message) => [message.ts, message]));
   for (const message of raw) if (message.ts !== ts) messages.set(message.ts, format(message));
   return {

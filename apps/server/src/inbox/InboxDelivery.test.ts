@@ -22,6 +22,7 @@ import * as Agent from "./InboxAgent.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import { readSuperhumanInbox } from "./connectors/superhuman.ts";
+import { readSlackInbox } from "./connectors/slack.ts";
 import { inboxContext } from "./notificationContext.ts";
 import { ingestInboxItem } from "./inboxState.ts";
 const projectId = ProjectId.make("delivery");
@@ -573,6 +574,83 @@ it.effect.each(["disabled", "failed", "waiting"] as const)(
           assert.deepEqual(saved.state, notification.state);
         }
         assert.equal((yield* Ref.get(f.calls)).length, 0);
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);
+
+it.effect.each(["UMAYA", "UELENA"])(
+  "verifies relay identity for connected user %s and repairs retained spoof classification",
+  (viewerId) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const repository = yield* Repository.InboxRepository;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          inboxShowSelfUpdates: false,
+          inboxShowSelfReplies: false,
+          projectSettingsOverrides: {
+            [projectId]: { inboxEnabled: true, inboxSummaryEnabled: false },
+          },
+        });
+        const actor = `${viewerId} Person`;
+        let appId = "A04RHP43AKH";
+        const intake = () =>
+          Effect.promise(() =>
+            readSlackInbox(
+              async (method) => {
+                if (method === "auth.test") return { ok: true, team_id: "T1", user_id: viewerId };
+                if (method === "users.list")
+                  return { ok: true, members: [{ id: viewerId, real_name: actor }] };
+                if (method === "conversations.list")
+                  return { ok: true, channels: [{ id: "D1", is_im: true }] };
+                if (method === "conversations.history")
+                  return {
+                    ok: true,
+                    messages: [
+                      {
+                        ts: "1792620000.000000",
+                        username: "Linear Asks",
+                        app_id: appId,
+                        text: `${actor} - changed status to Done for PROD-1`,
+                      },
+                    ],
+                  };
+                if (method === "search.messages")
+                  return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
+                throw new Error(method);
+              },
+              ["dms"],
+              "2026-10-01T00:00:00Z",
+            ),
+          );
+        const trusted = yield* intake();
+        const original = ingestInboxItem(projectId, {
+          ...trusted.items[0]!,
+          replyActivity: [
+            { id: "earlier-incoming", occurredAt: "2026-10-21T21:59:59Z", isSelf: false },
+          ],
+        });
+        yield* repository.put(original);
+        yield* service.ingest(projectId, trusted.items);
+        assert.equal((yield* service.list({ projectId })).length, 0);
+        const saved = (yield* repository.get(projectId, original.id))!;
+        assert.equal(saved.replyCursor?.isSelf, true);
+        // Model a retained notice classified by the old display-name-only implementation.
+        appId = "AUNTRUSTED";
+        const safe = yield* intake();
+        yield* service.ingest(projectId, safe.items);
+        const repaired = (yield* repository.get(projectId, saved.id))!;
+        assert.equal((yield* service.list({ projectId })).length, 1);
+        assert.deepEqual(repaired.replyCursor, {
+          id: saved.replyCursor!.id,
+          occurredAt: saved.replyCursor!.occurredAt,
+          isSelf: false,
+          kind: "reply",
+        });
+        assert.deepEqual(repaired.state, saved.state);
+        assert.equal(repaired.analysisVersion, saved.analysisVersion);
       }).pipe(Effect.provide(f.layer));
     }).pipe(Effect.scoped),
 );

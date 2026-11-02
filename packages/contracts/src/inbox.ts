@@ -46,6 +46,7 @@ export const InboxSlackMessage = Schema.Struct({
   ...slackPresentation,
   ts: Schema.String,
   authorId: Schema.optionalKey(Schema.String),
+  relayedUpdateActor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
   author: Schema.String,
   content: Schema.String,
   formattedContent: Schema.String,

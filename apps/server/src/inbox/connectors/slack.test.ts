@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { SlackReadError, readSlackInbox as readSlackBatch } from "./slack.ts";
 it("loads a parent thread identified by reply_count even without thread_ts", async () => {
   const root = {
@@ -537,7 +537,7 @@ it("observes self and unmentioned incoming replies on a tracked channel thread",
   );
   expect(items).toHaveLength(1);
   expect(items[0]?.replyActivity).toEqual([
-    { id: `C1:${own.ts}`, occurredAt: items[0]?.occurredAt, isSelf: true },
+    { id: `C1:${own.ts}`, occurredAt: items[0]?.occurredAt, isSelf: true, kind: "reply" },
   ]);
   expect(items[0]?.slackThread?.messages.at(-1)?.content).toBe("Done");
   expect(
@@ -736,47 +736,170 @@ it("bounds retries, rotates denied threads and excludes another account's pendin
   expect(second.slackRetryThreads).toEqual([pending[49]]);
 });
 
-it.each([
-  ["Jakub Zak - changed status to Done for PROD-1", true, "update"],
-  ["*Jakub Zak* - changed status to *Done* for PROD-1", true, "update"],
-  ["<@UME> - changed status to Done for PROD-1", true, "update"],
-  ["Someone Else - changed status to Done for PROD-1", false, "update"],
-  ["Tars replied with the investigation", false, undefined],
-])("classifies relayed Linear status activity: %s", async (text, isSelf, kind) => {
+const relayBatch = async ({
+  viewerId = "UMAYA",
+  viewerName = "Maya Chen",
+  notice = {},
+  directory,
+  asRoot = false,
+}: {
+  viewerId?: string;
+  viewerName?: string;
+  notice?: Record<string, unknown>;
+  directory?: unknown;
+  asRoot?: boolean;
+} = {}) => {
   const root = {
     ts: "1792620000.000000",
-    user: "Alex",
+    user: "UOTHER",
     text: "Please fix PROD-1",
     reply_count: 1,
     latest_reply: "1792620002.000000",
   };
-  const result = await readSlackBatch(
-    async (method) => {
-      if (method === "auth.test") return { ok: true, user_id: "UME", team_id: "T1" };
-      if (method === "users.info")
-        return {
-          user: {
-            name: "jakub",
-            real_name: "Jakub Zak",
-            profile: { display_name: "Jakub", real_name: "Jakub Zak" },
-          },
-        };
-      if (method === "conversations.list")
-        return { ok: true, channels: [{ id: "D1", user: "Alex", is_im: true }] };
-      if (method === "search.messages")
-        return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
-      if (method === "conversations.history") return { ok: true, messages: [root] };
-      if (method === "conversations.replies")
-        return {
+  const update = {
+    ts: root.latest_reply,
+    username: "Linear Asks",
+    app_id: "A04RHP43AKH",
+    text: `${viewerName} - changed status to Done for PROD-1`,
+    ...notice,
+  };
+  const read = vi.fn(async (method: string, params: Record<string, string>) => {
+    if (method === "auth.test") return { ok: true, user_id: viewerId, team_id: "T1" };
+    if (method === "users.info")
+      return {
+        user:
+          params.user === viewerId
+            ? { name: "connected-user", real_name: viewerName }
+            : { profile: { display_name: "Linear Asks" } },
+      };
+    if (method === "users.list") {
+      expect(params).toEqual({ limit: "200", team_id: "T1" });
+      if (directory instanceof Error) throw directory;
+      return (
+        directory ?? {
           ok: true,
-          messages: [root, { ts: root.latest_reply, username: "Linear Asks", text }],
-        };
-      throw new Error(method);
+          members: [
+            { id: viewerId, real_name: viewerName },
+            { id: "UOTHER", real_name: "Someone Else" },
+          ],
+        }
+      );
+    }
+    if (method === "conversations.list")
+      return { ok: true, channels: [{ id: "D1", user: "UOTHER", is_im: true }] };
+    if (method === "search.messages")
+      return { ok: true, messages: { matches: [], paging: { pages: 1 } } };
+    if (method === "conversations.history")
+      return { ok: true, messages: asRoot ? [update] : [root] };
+    if (method === "conversations.replies") return { ok: true, messages: [root, update] };
+    throw new Error(method);
+  });
+  for (const key of Object.keys(update))
+    if (update[key as keyof typeof update] === undefined)
+      delete (update as Record<string, unknown>)[key];
+  const batch = await readSlackBatch(read, ["dms"], "2026-10-01T00:00:00Z");
+  return { batch, read };
+};
+
+it.each([
+  ["UMAYA", "Maya Chen"],
+  ["UELENA", "Elena García"],
+])("recognizes the connected user dynamically: %s", async (viewerId, viewerName) => {
+  const { batch } = await relayBatch({ viewerId, viewerName });
+  expect(batch.items[0]?.replyActivity?.at(-1)).toMatchObject({ isSelf: true, kind: "update" });
+});
+
+it.each([false, true])("rejects spoofed relay identity, root=%s", async (asRoot) => {
+  for (const notice of [
+    { app_id: "AOTHERAPP" },
+    { app_id: undefined, user: "UIMPERSONATOR" },
+    { app_id: undefined },
+    { app_id: "AOTHERAPP", bot_profile: { name: "Linear Asks", app_id: "A04RHP43AKH" } },
+    { app_id: "A04RHP43AKH", bot_profile: { name: "Linear Asks", app_id: "AOTHERAPP" } },
+  ]) {
+    const { batch, read } = await relayBatch({ asRoot, notice });
+    expect(batch.items[0]?.replyActivity?.at(-1)).toMatchObject({ isSelf: false, kind: "reply" });
+    expect(read.mock.calls.some(([method]) => method === "users.list")).toBe(false);
+  }
+});
+
+it.each(["<@UMAYA>", "*<@UMAYA>*", "<@UMAYA|Maya Chen>"])(
+  "preserves the native actor reference before display formatting: %s",
+  async (actor) => {
+    const { batch, read } = await relayBatch({
+      notice: { text: `${actor} - changed status to Done for PROD-1` },
+      directory: new Error("missing_scope"),
+    });
+    expect(batch.items[0]?.replyActivity?.at(-1)).toMatchObject({ isSelf: true, kind: "update" });
+    expect(read.mock.calls.some(([method]) => method === "users.list")).toBe(false);
+  },
+);
+
+it.each([
+  {
+    name: "another native user with the same display label",
+    notice: { text: "<@UOTHER|Maya Chen> - changed status to Done for PROD-1" },
+  },
+  {
+    name: "another person's status",
+    notice: { text: "Someone Else - changed status to Done for PROD-1" },
+  },
+  {
+    name: "ambiguous plain actor",
+    directory: {
+      ok: true,
+      members: [
+        { id: "UMAYA", real_name: "Maya Chen" },
+        { id: "UOTHER", real_name: "Maya Chen" },
+      ],
     },
-    ["dms"],
-    "2026-10-01T00:00:00Z",
-  );
-  const activity = result.items[0]?.replyActivity?.at(-1);
-  expect(activity?.isSelf).toBe(isSelf);
-  expect(activity?.kind).toBe(kind);
+  },
+  {
+    name: "incomplete directory",
+    directory: {
+      ok: true,
+      members: [{ id: "UMAYA", real_name: "Maya Chen" }],
+      response_metadata: { next_cursor: "more" },
+    },
+  },
+  { name: "denied directory", directory: new Error("missing_scope") },
+  { name: "malformed directory", directory: { ok: true } },
+  {
+    name: "missing connected identity",
+    directory: { ok: true, members: [{ id: "UOTHER", real_name: "Maya Chen" }] },
+  },
+])("keeps an uncertain or incoming actor visible: $name", async ({ name: _name, ...options }) => {
+  const { batch } = await relayBatch(options);
+  expect(batch.items[0]?.replyActivity?.at(-1)?.isSelf).toBe(false);
+});
+
+it.each([false, true])(
+  "uses verified app identity independently of its name, root=%s",
+  async (asRoot) => {
+    const { batch } = await relayBatch({
+      asRoot,
+      notice: {
+        username: "Renamed app",
+        text: "*Maya Chen* - changed status to *Done* for PROD-1",
+      },
+    });
+    expect(batch.items[0]?.replyActivity?.at(-1)).toMatchObject({ isSelf: true, kind: "update" });
+  },
+);
+
+it("keeps an incoming agent reply and an old hard-coded name visible for a different connected user", async () => {
+  for (const text of [
+    "Tars replied with the investigation",
+    "Jakub Zak - changed status to Done for PROD-1",
+  ]) {
+    const { batch } = await relayBatch({ notice: { text } });
+    expect(batch.items[0]?.replyActivity?.at(-1)?.isSelf).toBe(false);
+  }
+});
+
+it("recognizes the app identity supplied in Slack's bot profile", async () => {
+  const { batch } = await relayBatch({
+    notice: { app_id: undefined, bot_profile: { name: "Renamed relay", app_id: "A04RHP43AKH" } },
+  });
+  expect(batch.items[0]?.replyActivity?.at(-1)).toMatchObject({ isSelf: true, kind: "update" });
 });

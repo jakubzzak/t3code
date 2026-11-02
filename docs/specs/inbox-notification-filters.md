@@ -45,6 +45,11 @@ or changes to OS/push notification preferences.
 - Recognize the user's own actions even when an integration relays them. For
   example, “Jakub Zak changed status to Done” posted by Linear Asks is an update
   caused by the connected user. The bot sender alone does not identify the actor.
+  Verify the relay's stable source identity rather than its display name, and
+  resolve the actor against the currently connected source user dynamically.
+  Native actor IDs take precedence over display labels. Plain actor names must
+  identify that user uniquely; missing, ambiguous or incomplete identity data
+  keeps the notification included. No person's name is built into classification.
 - When the last reply is the connected user's, the second switch controls
   visibility whether that reply was sent through Blackbird, Slack, Linear, or
   another supported source application's normal interface. An already active

@@ -1,6 +1,12 @@
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-import { Message, History, messageText, messageImages } from "./slackMessages.ts";
+import {
+  Message,
+  History,
+  messageText,
+  messageImages,
+  linearAsksUpdateActor,
+} from "./slackMessages.ts";
 import { readSlackThread } from "./slackThread.ts";
 import { readableSlackItem } from "../notificationContent.ts";
 import type { InboxSourceItem, InboxSourceConnection } from "@t3tools/contracts";
@@ -79,6 +85,18 @@ const User = Schema.Struct({
     ),
   }),
 });
+const Members = Schema.Struct({
+  ok: Schema.Boolean,
+  members: Schema.Array(Schema.Struct({ id: Schema.String, ...User.fields.user.fields })),
+  response_metadata: Schema.optionalKey(
+    Schema.Struct({ next_cursor: Schema.optionalKey(Schema.String) }),
+  ),
+});
+const decodeMembers = Schema.decodeUnknownSync(Members);
+const userNames = (user: (typeof User.Type)["user"]) =>
+  [user.name, user.real_name, user.profile?.display_name, user.profile?.real_name].flatMap(
+    (name) => (name?.trim() ? [name.trim()] : []),
+  );
 const decodeUser = Schema.decodeUnknownSync(User);
 const decodeIdentity = Schema.decodeUnknownSync(Identity);
 const decodeHistory = Schema.decodeUnknownSync(History);
@@ -89,6 +107,7 @@ export type SlackRead = (method: string, params: Record<string, string>) => Prom
 export const SLACK_READ_METHODS = new Set([
   "auth.test",
   "users.info",
+  "users.list",
   "conversations.list",
   "conversations.history",
   "conversations.replies",
@@ -137,25 +156,15 @@ export async function readSlackInbox(
     groups: {},
   };
   const profiles = new Map<string, Promise<string>>();
-  const viewerNames = new Set([identity.user_id]);
   let profilesAvailable = true;
   const displayName = (id: string): Promise<string> => {
-    if (names.users[id] && (id !== identity.user_id || viewerNames.size > 1))
-      return Promise.resolve(names.users[id]!);
+    if (names.users[id]) return Promise.resolve(names.users[id]!);
     if (!/^[UW][A-Z0-9]+$/.test(id) || !profilesAvailable) return Promise.resolve(id);
     let profile = profiles.get(id);
     if (!profile) {
       profile = read("users.info", { user: id })
         .then((result) => {
           const user = decodeUser(result).user;
-          if (id === identity.user_id)
-            for (const name of [
-              user.name,
-              user.real_name,
-              user.profile?.display_name,
-              user.profile?.real_name,
-            ])
-              if (name?.trim()) viewerNames.add(name.trim());
           return (names.users[id] =
             user.profile?.display_name?.trim() ||
             user.profile?.real_name?.trim() ||
@@ -179,20 +188,27 @@ export async function readSlackInbox(
     }
     return profile;
   };
-  // Linear Asks relays the actor in a status notice; it is not itself the actor.
-  const updateActor = (author: string | undefined, content: string) =>
-    author === "Linear Asks"
-      ? content.match(/^(.+?)\s+-\s+changed status to .+? for\s+\S+/)?.[1]?.trim()
-      : undefined;
-  const activity = (entry: { authorId?: string; author?: string; content: string }) => {
-    const actor = updateActor(entry.author, entry.content);
-    return {
-      isSelf: actor
-        ? actor === `<@${identity.user_id}>` || viewerNames.has(actor.replace(/^@/, ""))
-        : entry.authorId === identity.user_id,
-      ...(actor ? { kind: "update" as const } : {}),
-    };
+  let directory: Promise<typeof Members.Type | null> | undefined;
+  const isSelfUpdate = async (actor: string) => {
+    const mention = actor.match(/^<@([UW][A-Z0-9]+)(?:\|[^>]+)?>$/);
+    if (mention) return mention[1] === identity.user_id;
+    // A plain name is insufficient when it is shared or the directory is incomplete.
+    // Bound this optional lookup to one page per intake; uncertain notices stay visible.
+    directory ??= read("users.list", { limit: "200", team_id: identity.team_id })
+      .then(decodeMembers)
+      .catch(() => null);
+    const users = await directory;
+    if (!users?.ok || users.response_metadata?.next_cursor) return false;
+    const matches = users.members.filter((user) => userNames(user).includes(actor));
+    return matches.length === 1 && matches[0]!.id === identity.user_id;
   };
+  const activity = async (entry: { authorId?: string; relayedUpdateActor?: string }) => ({
+    isSelf: entry.relayedUpdateActor
+      ? await isSelfUpdate(entry.relayedUpdateActor)
+      : entry.authorId === identity.user_id,
+    // Explicit reply metadata also corrects legacy name-only classification on normal sync.
+    kind: entry.relayedUpdateActor ? ("update" as const) : ("reply" as const),
+  });
   const append = async (
     channel: string,
     location: string,
@@ -201,14 +217,7 @@ export async function readSlackInbox(
     url?: string,
   ) => {
     const id = `${channel}:${message.ts}`;
-    if (
-      updateActor(
-        message.username ?? message.bot_profile?.name ?? undefined,
-        messageText(message),
-      ) ||
-      thread?.messages.some((entry) => updateActor(entry.author, entry.content))
-    )
-      await displayName(identity.user_id).catch(() => identity.user_id);
+    const relayedUpdateActor = linearAsksUpdateActor(message);
     const context = (thread ? [thread.root, ...thread.messages] : [])
       .filter((entry) => entry.ts !== message.ts)
       .map((entry) => `${entry.author}: ${entry.content}`)
@@ -257,21 +266,22 @@ export async function readSlackInbox(
           {
             id,
             occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(message.ts) * 1000)),
-            ...activity({
+            ...(await activity({
               ...(message.user ? { authorId: message.user } : {}),
-              author: message.username ?? message.bot_profile?.name ?? "",
-              content: messageText(message),
-            }),
-          },
-          ...(thread?.messages ?? [])
-            .filter(
-              (entry) => entry.ts !== message.ts && Date.parse(entry.occurredAt) >= sinceMillis,
-            )
-            .map((entry) => ({
-              id: `${channel}:${entry.ts}`,
-              occurredAt: entry.occurredAt,
-              ...activity(entry),
+              ...(relayedUpdateActor ? { relayedUpdateActor } : {}),
             })),
+          },
+          ...(await Promise.all(
+            (thread?.messages ?? [])
+              .filter(
+                (entry) => entry.ts !== message.ts && Date.parse(entry.occurredAt) >= sinceMillis,
+              )
+              .map(async (entry) => ({
+                id: `${channel}:${entry.ts}`,
+                occurredAt: entry.occurredAt,
+                ...(await activity(entry)),
+              })),
+          )),
         ],
       },
       names,

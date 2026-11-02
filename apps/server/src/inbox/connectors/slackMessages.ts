@@ -14,7 +14,12 @@ export const Message = Schema.Struct({
   text: Schema.optionalKey(Schema.NullOr(Schema.String)),
   user: Schema.optionalKey(Schema.NullOr(Schema.String)),
   username: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  bot_profile: Schema.optionalKey(Schema.NullOr(Schema.Struct({ name: Schema.String }))),
+  app_id: Schema.optionalKey(Schema.String),
+  bot_profile: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({ name: Schema.String, app_id: Schema.optionalKey(Schema.String) }),
+    ),
+  ),
   thread_ts: Schema.optionalKey(Schema.String),
   reply_count: Schema.optionalKey(Schema.Number),
   latest_reply: Schema.optionalKey(Schema.String),
@@ -87,4 +92,19 @@ export function messageText(message: typeof Message.Type) {
   return [main, attachments && !main.includes(attachments) ? attachments : ""]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/** Slack assigns app IDs; display names and message text cannot establish relay identity. */
+export function linearAsksUpdateActor(message: typeof Message.Type) {
+  // https://slack.com/marketplace/A04RHP43AKH-linear-asks
+  const appId = message.app_id ?? message.bot_profile?.app_id;
+  if (
+    appId !== "A04RHP43AKH" ||
+    (message.bot_profile?.app_id && message.bot_profile.app_id !== appId)
+  )
+    return undefined;
+  return messageText(message)
+    .match(/^(.{1,200}?)\s+-\s+changed status to .+? for\s+\S+/)?.[1]
+    ?.trim()
+    .replace(/^\*+|\*+$/g, "");
 }

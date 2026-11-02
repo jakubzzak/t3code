@@ -162,6 +162,8 @@ reveals retained items in their existing sections. Hidden notifications keep
 receiving AI summaries when enabled. Replies you send in the source app are
 recognized on the next normal sync; someone else's later reply can bring the
 conversation back. Your own replies do not reopen settled items.
+Slack integration notices stay visible when the integration or the person who
+caused the update cannot be verified, including ambiguous names.
 
 Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
 **Settings → Integrations**. Connections and relevance filters are configured explicitly for
