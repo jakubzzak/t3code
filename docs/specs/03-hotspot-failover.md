@@ -171,6 +171,11 @@ A scoped lease makes cancellation reach the app that LaunchServices launched,
 not merely the `open` launcher. Check the lease before network mutations and
 poll it while blocked. Native deadlines remain a fallback.
 
+The launcher's exit status is not the helper's exit status. Validate each mode's
+structured result; a return succeeds only when the helper confirms the requested
+SSID. Empty, malformed, or mismatched results must retain owned-hotspot state,
+show failure, and apply the candidate cooldown rather than claim a successful return.
+
 Sign the helper with hardened runtime and its Location entitlement, including
 when release signing replaces the development signature. Keep existing signing
 options for other application components. Missing private Sharing.framework
@@ -228,6 +233,15 @@ Passing one category cannot be reported as passing another.
 
 ## Verification and release gates
 
+**Open security finding S1:** the current helper accepts commands from any caller
+running as the same macOS user with an existing lease file. Once the helper has
+Location permission, another local app can invoke it to obtain network names or
+request hotspot/network changes under that grant. Passwords are not returned.
+The lease provides cancellation, not caller authentication. This risk has not
+been accepted. Before release, authenticate the caller or obtain explicit user
+acceptance for a defined personal-use scope; an ordinary user-readable nonce
+file does not establish a boundary against another process running as that user.
+
 At implementation revision `ae29b9d20ee8a5ff0dc938c295bf1a859d8bac37`, 398 focused
 tests across twelve files pass, along with scoped desktop/web typechecks and the
 desktop build. Coverage includes settings compatibility, retry/return policy,
@@ -235,6 +249,13 @@ power-loop independence, process argument/lease handling, native ownership guard
 three-architecture helper builds, and helper-specific signing configuration.
 The actual settings page was exercised at 1280px and 800px with a simulated
 desktop bridge; this is renderer evidence, not an installed-device test.
+
+Second review found B1: `open -W` reports success even when the launched helper
+fails, and the return adapter originally ignored its output. Three regression
+cases (empty, malformed, and wrong-network output) reproduced the false success.
+The adapter now requires a decoded matching SSID; all 29 focused adapter,
+monitor, policy, and power-coordinator tests pass after the correction. The
+previous 398-test result describes the earlier revision, not this follow-up.
 
 The following remain release gates rather than completed acceptance:
 

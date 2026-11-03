@@ -53,7 +53,16 @@ const fixture = (pending = false, result = '{"authorized":true,"name":"iPhone"}'
         resolveResourcePathCandidates: () => [directory],
       } as unknown as DesktopEnvironment["Service"]),
     );
-    return { system, started, args: () => args, lease: () => lease, fs };
+    return {
+      system,
+      started,
+      args: () => args,
+      lease: () => lease,
+      fs,
+      result: (value: string) => {
+        result = value;
+      },
+    };
   });
 
 describe("hotspot OS adapter", () => {
@@ -67,10 +76,23 @@ describe("hotspot OS adapter", () => {
       expect(h.args().slice(-1)).toEqual(["status"]);
       expect(yield* h.system.join).toBe("iPhone");
       expect(h.args().slice(-1)).toEqual(["join"]);
+      h.result(JSON.stringify({ name: "Home $(not-a-command)" }));
       yield* h.system.joinKnown("Home $(not-a-command)", "iPhone");
       expect(h.args().slice(-3)).toEqual(["join-known", "Home $(not-a-command)", "iPhone"]);
       expect(yield* h.fs.exists(h.lease())).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.each(["", "private-native-details", '{"name":"Another network"}'])(
+    "rejects an unconfirmed Wi-Fi return even when the launcher exits zero: %s",
+    (output) =>
+      Effect.gen(function* () {
+        const h = yield* fixture(false, output);
+        const error = yield* h.system.joinKnown("Home", "iPhone").pipe(Effect.flip);
+        expect(error.message).toContain("Could not return to saved Wi-Fi");
+        expect(error.message).not.toContain("private-native-details");
+        expect(yield* h.fs.exists(h.lease())).toBe(false);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
   it.effect("revokes the native lease on cancellation even when open never exits", () =>

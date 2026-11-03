@@ -104,6 +104,7 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((app) => {
         // Every mode uses the helper's Launch Services identity for Location permission.
         // Removing this scoped lease cancels the launched app, not just /usr/bin/open.
+        // open -W does not propagate the app's exit code: every caller must validate its result.
         return Effect.scoped(
           Effect.gen(function* () {
             const directory = yield* fs.makeTempDirectoryScoped({ prefix: "blackbird-hotspot-" });
@@ -229,7 +230,12 @@ export const make = Effect.gen(function* () {
     ),
     joinKnown: (name, expectedHotspot) =>
       native(["join-known", name, expectedHotspot], "65 seconds").pipe(
-        Effect.asVoid,
+        Effect.flatMap(decodeJoin),
+        Effect.flatMap((result) =>
+          result.name === name
+            ? Effect.void
+            : Effect.fail(error("The hotspot helper did not confirm the requested Wi-Fi network.")),
+        ),
         Effect.mapError(() =>
           error(
             "Could not return to saved Wi-Fi. Blackbird will try another network or retry later.",
