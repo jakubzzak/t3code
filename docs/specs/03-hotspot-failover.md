@@ -1,9 +1,10 @@
 # 03 — Proactive iPhone hotspot failover
 
-**Status:** Implemented locally; device acceptance and release verification pending.
+**Status:** Implemented in draft PR; device acceptance and release verification pending.
 
 User guide: [Reconnect through your iPhone](../user/background-service.md#reconnect-through-your-iphone).
 Implementation branch: `feat/hotspot-failover`.
+Pull request: [#71](https://github.com/jakubzzak/t3code/pull/71).
 
 This is the behavior and acceptance contract for porting Joel Wohlhauser’s
 app-managed hotspot feature into this fork. The user requested more proactive
@@ -261,6 +262,22 @@ The adapter now requires a decoded matching SSID; all 29 focused adapter,
 monitor, policy, and power-coordinator tests pass after the correction. The
 previous 398-test result describes the earlier revision, not this follow-up.
 
+After integrating main `c15d1dde4ac64cd9c29e601688309a0ac15ca6b1`, candidate
+`c37e3e235db6370c24f8ea16fc58159dbe8769fa` passes 409 focused tests in thirteen
+files and scoped desktop/web typechecks. Independent final code review reports
+no new blocking findings and confirms B1 is fixed and S1's accepted exposure has
+not expanded. Two sanitized actual-profile settings shapes preserve legacy
+values and default the new preference to off; four explicit-value round-trips
+pass. [Validation and UI evidence](https://github.com/jakubzzak/t3code/pull/71#issuecomment-6609986828)
+distinguish simulated desktop interaction from remaining device acceptance.
+
+A local macOS arm64 archive was built from that candidate with SHA-256
+`632d33641a9b9ff7b2472c347f6678cceaa7525b4474a62ecefe2f97fbbf31c6`.
+The helper extracted from the archive passes strict signature verification and
+contains the Location entitlement and arm64 executable. This verifies local
+packaging; the archive is not a Developer ID signed/notarized release and has
+not been installed or used for a live reconnection test.
+
 The following remain release gates rather than completed acceptance:
 
 - Real Location permission attribution and cancellation through LaunchServices.
@@ -272,12 +289,13 @@ The following remain release gates rather than completed acceptance:
   during a pending initial join. Do not infer those outcomes from mocked scans.
 - Developer ID signed/notarized packaged artifact verification, including the
   nested helper’s final entitlements and the installed app’s actual version.
-- Completion and disposition of independent code/security review. No risk is
-  accepted merely because the implementation compiles or this spec exists.
+- Recheck changed code or exposure after the reviewed candidate. The current
+  code review is complete; S1 remains accepted only for personal use. No other
+  risk is accepted merely because the implementation compiles or this spec exists.
 
-Implementation and this specification are authorized locally. No PR, merge,
-installation, live network interruption, or deployment has been performed as
-part of this work. A live reconnect test must be coordinated with the user
+The user's explicit Build invocation authorized feature-branch publication and
+draft PR preparation. No merge, installation, live network interruption, or
+deployment has been performed as part of this work. A live reconnect test must be coordinated with the user
 because it can interrupt the connection they are using. To recover from an
 unsuccessful test, disable failover and manually reconnect through macOS; there
 is no destructive saved-network migration to reverse.
