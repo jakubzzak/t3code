@@ -271,6 +271,7 @@ export function SettingsRow({
   serverScoped = false,
   settingKeys = EMPTY_SETTING_KEYS,
   mixed: mixedOverride,
+  inheritedChecked,
   children,
   className,
   ...rowProps
@@ -285,6 +286,8 @@ export function SettingsRow({
   serverScoped?: boolean;
   settingKeys?: readonly (keyof ServerSettings)[];
   mixed?: boolean;
+  /** The displayed boolean when a control intentionally inverts its stored setting. */
+  inheritedChecked?: boolean;
   children?: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLDivElement>(rowProps.id);
@@ -382,7 +385,13 @@ export function SettingsRow({
             tabIndex={0}
             role={inheritedBoolean ? "switch" : "group"}
             aria-label={typeof title === "string" ? title : "Unavailable setting"}
-            aria-checked={inheritedBoolean ? (mixed ? "mixed" : inheritedValue) : undefined}
+            aria-checked={
+              inheritedBoolean
+                ? mixed
+                  ? "mixed"
+                  : (inheritedChecked ?? inheritedValue)
+                : undefined
+            }
             aria-readonly={inheritedBoolean ? true : undefined}
             aria-describedby={unavailableDescriptionId}
             className="flex w-full items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @min-[32rem]/settings-row:w-auto"

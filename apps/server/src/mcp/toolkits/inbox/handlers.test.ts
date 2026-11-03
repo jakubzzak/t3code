@@ -50,6 +50,7 @@ it.effect(
                 return { ...input, status: "sent" as const };
               }),
             list: () => Effect.succeed([notification]),
+            references: () => Effect.succeed([]),
             get: () => Effect.succeed(notification),
             mutate: (_, check) =>
               Effect.gen(function* () {
@@ -68,13 +69,17 @@ it.effect(
           .handle("inbox_read", { projectId, id: notification.id })
           .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
         expect(read.at(-1)?.result).toMatchObject({ id: notification.id });
+        const references = yield* toolkit
+          .handle("inbox_references", { projectId })
+          .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        expect(references.at(-1)?.result).toEqual([]);
         const write = yield* toolkit
           .handle("inbox_update", {
             projectId,
             id: notification.id,
             commandId: CommandId.make("triage"),
             expectedRevision: 0,
-            action: { type: "resolve", resolved: true },
+            action: { type: "irrelevant", irrelevant: true },
           })
           .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
         const reply = yield* toolkit

@@ -190,7 +190,33 @@ export const InboxSourceItem = Schema.Struct({
   occurredAt: IsoDateTime,
 });
 export type InboxSourceItem = typeof InboxSourceItem.Type;
+export const InboxIrrelevanceConfidence = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: 100 }),
+);
+export const InboxRelevance = Schema.Struct({
+  version: NonNegativeInt,
+  threshold: Schema.Int.check(Schema.isBetween({ minimum: 75, maximum: 100 })),
+  status: Schema.Literals(["pending", "complete", "unavailable"]),
+  confidence: Schema.NullOr(InboxIrrelevanceConfidence),
+  irrelevant: Schema.Boolean,
+});
+export type InboxRelevance = typeof InboxRelevance.Type;
+export const InboxIrrelevanceReference = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  notificationId: TrimmedNonEmptyString,
+  projectId: ProjectId,
+  source: InboxSource,
+  content: Schema.String.check(Schema.isMaxLength(4000)),
+  irrelevant: Schema.Boolean,
+  createdAt: IsoDateTime,
+});
+export type InboxIrrelevanceReference = typeof InboxIrrelevanceReference.Type;
+export const InboxReferencesInput = Schema.Struct({
+  projectId: ProjectId,
+  offset: Schema.optionalKey(NonNegativeInt),
+});
 export const InboxAnalysisContent = Schema.Struct({
+  irrelevanceConfidence: Schema.optionalKey(InboxIrrelevanceConfidence),
   description: Schema.String.check(Schema.isMaxLength(300)),
   summary: Schema.String.check(Schema.isMaxLength(2000)),
   suggestions: Schema.Array(Schema.String.check(Schema.isMaxLength(4000))).check(
@@ -200,6 +226,7 @@ export const InboxAnalysisContent = Schema.Struct({
 });
 export type InboxAnalysisContent = typeof InboxAnalysisContent.Type;
 export const InboxAnalysis = Schema.Struct({
+  irrelevanceConfidence: Schema.optionalKey(InboxIrrelevanceConfidence),
   replyDraft: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMaxLength(4000)))),
   description: Schema.String,
   summary: Schema.String,
@@ -234,6 +261,8 @@ export const InboxSuggestionResearch = Schema.Struct({
   retryAt: Schema.NullOr(IsoDateTime),
 });
 export const InboxState = Schema.Struct({
+  irrelevanceReferenceId: Schema.optionalKey(CommandId),
+  irrelevant: Schema.optionalKey(Schema.Boolean),
   read: Schema.Boolean,
   placement: InboxPlacement,
   snoozedUntil: Schema.NullOr(IsoDateTime),
@@ -241,6 +270,7 @@ export const InboxState = Schema.Struct({
 });
 export type InboxState = typeof InboxState.Type;
 export const InboxNotification = Schema.Struct({
+  relevance: Schema.optionalKey(InboxRelevance),
   replyAttempt: Schema.optionalKey(InboxReplyAttempt),
   id: TrimmedNonEmptyString,
   projectId: ProjectId,
@@ -278,6 +308,7 @@ export const InboxNotification = Schema.Struct({
 });
 export type InboxNotification = typeof InboxNotification.Type;
 export const InboxListInput = Schema.Struct({
+  visibility: Schema.optionalKey(Schema.Literals(["visible", "filtered", "all"])),
   projectId: ProjectId,
   offset: Schema.optionalKey(NonNegativeInt),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 101 }))),
@@ -285,6 +316,7 @@ export const InboxListInput = Schema.Struct({
   threadId: Schema.optionalKey(ThreadId),
 });
 export const InboxMutation = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("irrelevant"), irrelevant: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("ignore-reply") }),
   Schema.Struct({ type: Schema.Literal("read"), read: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("snooze"), until: Schema.NullOr(IsoDateTime) }),

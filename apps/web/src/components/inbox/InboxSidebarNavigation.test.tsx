@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
   read: vi.fn(),
   summary: false,
   resolutions: false,
+  canWrite: true,
 }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => ({ navigate: state.navigate }) }));
 vi.mock("~/state/entities", () => ({
@@ -52,7 +53,7 @@ vi.mock("@effect/atom-react", async () => {
   return {
     useAtomValue: (atom: unknown) =>
       atom === null
-        ? true
+        ? state.canWrite
         : [
             {
               environmentId: "env",
@@ -62,7 +63,9 @@ vi.mock("@effect/atom-react", async () => {
           ],
   };
 });
-vi.mock("~/rpc/atomRegistry", () => ({ appAtomRegistry: { get: () => true, refresh: vi.fn() } }));
+vi.mock("~/rpc/atomRegistry", () => ({
+  appAtomRegistry: { get: () => state.canWrite, refresh: vi.fn() },
+}));
 vi.mock("~/state/inbox", () => ({
   readInboxNotification: (...args: unknown[]) => state.read(...args),
   inboxEnvironment: {
@@ -156,6 +159,7 @@ afterEach(async () => {
   state.connections = [];
   state.summary = false;
   state.resolutions = false;
+  state.canWrite = true;
   useComposerDraftStore.getState().setPrompt({ environmentId, threadId }, "");
 });
 
@@ -837,4 +841,117 @@ it("keeps integration diagnostics out of the list and the status cue out of tab 
   state.connections = [];
   await act(async () => render());
   expect(container.querySelector('button[aria-label="Integration updates delayed"]')).toBeNull();
+});
+
+it.each(["Meta", "Control"])(
+  "%s+I hides the selected notification without resolving and Undo restores it",
+  async (modifier) => {
+    state.items = [
+      notification,
+      { ...notification, id: "second", updatedAt: "2026-10-23T09:00:00Z" },
+    ];
+    state.mutate.mockImplementation(async ({ input }) => ({
+      _tag: "Success",
+      value: {
+        notification: {
+          ...notification,
+          revision: input.action.type === "undo" ? 2 : 1,
+          state: {
+            ...notification.state,
+            ...(input.action.type === "undo" ? {} : { irrelevant: true }),
+          },
+        },
+        openThread: false,
+        undoCommandId: input.action.type === "undo" ? null : input.commandId,
+      },
+    }));
+    useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+    await act(async () =>
+      root.render(
+        <InboxSidebarLayout
+          projects={[{ environmentId, projectId }]}
+          threadRef={null}
+          chatCount={0}
+          chatHeader={null}
+        >
+          <div>Current chat</div>
+        </InboxSidebarLayout>,
+      ),
+    );
+    const row = container.querySelector<HTMLElement>('[data-inbox-row="env:notification"]')!;
+    await act(async () => row.focus());
+    const key = (target: HTMLElement, value: string) =>
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: value,
+          metaKey: modifier === "Meta",
+          ctrlKey: modifier === "Control",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    await act(async () => {
+      key(row, "i");
+    });
+    expect(state.mutate.mock.calls[0]?.[0].input.action).toEqual({
+      type: "irrelevant",
+      irrelevant: true,
+    });
+    expect(container.querySelector('[data-inbox-row="env:notification"]')).toBeNull();
+    const next = container.querySelector<HTMLElement>('[data-inbox-row="env:second"]')!;
+    expect(document.activeElement).toBe(next);
+    expect(
+      state.mutate.mock.calls.some(([request]) => request.input.action.type === "resolve"),
+    ).toBe(false);
+    await act(async () => {
+      key(next, "z");
+    });
+    expect(state.mutate.mock.calls[1]?.[0].input.action.type).toBe("undo");
+    expect(container.querySelector('[data-inbox-row="env:notification"]')).not.toBeNull();
+  },
+);
+
+it("does not mark irrelevant outside a row, while editing, or without destination permission", async () => {
+  state.items = [notification];
+  state.canWrite = false;
+  useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+  await act(async () =>
+    root.render(
+      <InboxSidebarLayout
+        projects={[{ environmentId, projectId }]}
+        threadRef={null}
+        chatCount={0}
+        chatHeader={null}
+      >
+        <div>Current chat</div>
+      </InboxSidebarLayout>,
+    ),
+  );
+  const row = container.querySelector<HTMLElement>("[data-inbox-row]")!;
+  await act(async () => row.focus());
+  const press = (element: HTMLElement) =>
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "i", metaKey: true, bubbles: true, cancelable: true }),
+    );
+  await act(async () => {
+    press(row);
+  });
+  expect(state.mutate).not.toHaveBeenCalled();
+  state.canWrite = true;
+  for (const editor of [document.createElement("textarea"), document.createElement("div")]) {
+    editor.setAttribute("contenteditable", "plaintext-only");
+    row.append(editor);
+    await act(async () => {
+      editor.focus();
+      press(editor);
+    });
+    expect(state.mutate).not.toHaveBeenCalled();
+  }
+  const toolbar = document.createElement("button");
+  row.parentElement!.append(toolbar);
+  await act(async () => {
+    toolbar.focus();
+    press(toolbar);
+  });
+  expect(state.mutate).not.toHaveBeenCalled();
 });

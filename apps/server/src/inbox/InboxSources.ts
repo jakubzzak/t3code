@@ -310,6 +310,13 @@ export const make = Effect.gen(function* () {
                           retryBoundaries.get(`${item.connectionId}/${item.groupId}`) ?? since;
                         return Date.parse(item.occurredAt) >= Date.parse(boundary);
                       }),
+                      {
+                        // Imports and expanded history are summarized, but only activity after
+                        // this collection checkpoint may acquire a new relevance decision.
+                        relevanceSince: connection.lastSyncAt
+                          ? Math.max(Date.parse(connection.lastSyncAt), Date.parse(enabledAt))
+                          : now,
+                      },
                     )
                     .pipe(Effect.as(batch));
                 }),

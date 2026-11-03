@@ -12,6 +12,7 @@ import {
   InboxReplyAttempt,
   InboxMutationResult,
   InboxNotification,
+  InboxIrrelevanceReference,
   InboxState,
   ProjectId,
   type ThreadId,
@@ -56,8 +57,15 @@ export class InboxRepository extends Context.Service<
         summaryReady?: boolean;
         showSelfUpdates?: boolean;
         showSelfReplies?: boolean;
+        filterIrrelevant?: boolean;
+        visibility?: "visible" | "filtered" | "all";
       },
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
+    readonly relevanceSince: Effect.Effect<number, InboxError>;
+    readonly references: (
+      projectId: ProjectId,
+      offset?: number,
+    ) => Effect.Effect<ReadonlyArray<InboxIrrelevanceReference>, InboxError>;
     readonly history: (
       projectId: ProjectId,
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
@@ -74,6 +82,7 @@ export class InboxRepository extends Context.Service<
       notification: InboxNotification,
       receipt: Receipt,
       undone?: CommandId,
+      reference?: InboxIrrelevanceReference,
     ) => Effect.Effect<void, InboxError>;
   }
 >()("t3/inbox/InboxRepository") {}
@@ -103,9 +112,33 @@ const make = Effect.gen(function* () {
       Effect.asVoid,
       Effect.mapError(failed),
     );
+  const decodeReference = Schema.decodeUnknownEffect(
+    Schema.fromJsonString(InboxIrrelevanceReference),
+  );
+  const encodeReference = Schema.encodeEffect(Schema.fromJsonString(InboxIrrelevanceReference));
   const decodeReply = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxReplyAttempt));
   const encodeReply = Schema.encodeEffect(Schema.fromJsonString(InboxReplyAttempt));
   return InboxRepository.of({
+    relevanceSince: sql<{
+      started_at: number;
+    }>`SELECT started_at FROM inbox_relevance_epoch WHERE id=1`.pipe(
+      Effect.map((rows) => rows[0]!.started_at),
+      Effect.mapError(failed),
+    ),
+    references: (projectId, offset = 0) =>
+      sql<{
+        payload_json: string;
+      }>`SELECT current.payload_json FROM inbox_irrelevance_references AS current
+      WHERE current.project_id=${projectId} AND NOT EXISTS (
+        SELECT 1 FROM inbox_irrelevance_references AS newer WHERE newer.project_id=current.project_id
+        AND newer.notification_id=current.notification_id AND newer.content_version=current.content_version
+        AND newer.rowid>current.rowid
+      ) ORDER BY current.rowid DESC LIMIT 100 OFFSET ${offset}`.pipe(
+        Effect.flatMap((records) =>
+          Effect.forEach(records, (row) => decodeReference(row.payload_json)),
+        ),
+        Effect.mapError(failed),
+      ),
     replyReceipt: (commandId) =>
       sql<{
         result_json: string;
@@ -138,8 +171,13 @@ const make = Effect.gen(function* () {
       const search = page?.search?.toLowerCase() ?? "";
       return rows(sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId}
         AND (${page?.summaryReady ?? false}=0 OR json_extract(payload_json, '$.analysis') IS NOT NULL OR json_extract(payload_json, '$.processingError') IS NOT NULL)
-        AND (${page?.showSelfUpdates ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'), 0)=0 OR coalesce(json_extract(payload_json, '$.replyCursor.kind'), 'reply') <> 'update')
-        AND (${page?.showSelfReplies ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'), 0)=0 OR coalesce(json_extract(payload_json, '$.replyCursor.kind'), 'reply') <> 'reply')
+        AND (${page?.visibility === "all"}=1 OR coalesce((
+          coalesce(json_extract(payload_json, '$.state.irrelevant'),0)=1
+          OR (${page?.filterIrrelevant ?? true}=1 AND json_extract(payload_json, '$.state.irrelevant') IS NOT 0
+            AND json_extract(payload_json, '$.relevance.status')='complete' AND json_extract(payload_json, '$.relevance.irrelevant')=1)
+          OR (${page?.showSelfUpdates ?? true}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='update')
+          OR (${page?.showSelfReplies ?? true}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='reply')
+        ),0) IS ${page?.visibility === "filtered" ? 1 : 0})
         AND (${page?.threadId ?? null} IS NULL OR thread_id=${page?.threadId ?? null})
         AND (${search}='' OR instr(lower(coalesce(json_extract(payload_json, '$.analysis.summary'), '')), ${search}) > 0 OR EXISTS (
           SELECT 1 FROM json_each(inbox_notifications.payload_json, '$.items') AS item
@@ -191,7 +229,7 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError(failed),
       ),
-    commit: (notification, receipt, undone) =>
+    commit: (notification, receipt, undone, reference) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -201,7 +239,15 @@ const make = Effect.gen(function* () {
             const after = yield* encodeState(receipt.after);
             yield* sql`INSERT INTO inbox_commands(command_id, project_id, notification_id, before_json, after_json, result_json)
         VALUES(${receipt.commandId}, ${receipt.projectId}, ${receipt.notificationId}, ${before}, ${after}, ${json})`;
-            if (undone) yield* sql`UPDATE inbox_commands SET undone=1 WHERE command_id=${undone}`;
+            if (reference) {
+              const referenceJson = yield* encodeReference(reference);
+              yield* sql`INSERT INTO inbox_irrelevance_references(command_id,project_id,notification_id,content_version,payload_json)
+                VALUES(${receipt.commandId},${notification.projectId},${notification.id},${notification.analysisVersion},${referenceJson})`;
+            }
+            if (undone) {
+              yield* sql`UPDATE inbox_commands SET undone=1 WHERE command_id=${undone}`;
+              yield* sql`DELETE FROM inbox_irrelevance_references WHERE command_id=${undone} AND project_id=${notification.projectId}`;
+            }
           }),
         )
         .pipe(Effect.mapError(failed)),

@@ -53,7 +53,10 @@ describe("runMigrations", () => {
         const sql = yield* SqlClient.SqlClient;
         yield* runMigrations({ toMigrationInclusive: 66 });
         yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES('p','slack','{"connected":true}')`;
-        assert.deepStrictEqual(yield* runMigrations(), [[67, "SlackSendAttempts"]]);
+        assert.deepStrictEqual(yield* runMigrations(), [
+          [67, "SlackSendAttempts"],
+          [68, "InboxRelevance"],
+        ]);
         assert.deepStrictEqual(
           yield* sql`SELECT payload_json FROM inbox_sources WHERE project_id='p'`,
           [{ payload_json: '{"connected":true}' }],

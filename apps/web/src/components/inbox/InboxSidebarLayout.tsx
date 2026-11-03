@@ -87,6 +87,7 @@ import { InboxReplyComposer } from "./InboxReplyComposer";
 import { inboxReplyTarget, openInboxReply } from "./inboxReplyDraft";
 import styles from "./inboxSidebar.module.css";
 import { InboxIntegrationStatus } from "./InboxIntegrationStatus";
+import { InboxNotificationIndicators } from "./InboxNotificationIndicators";
 
 type Entry = { environmentId: EnvironmentId; notification: InboxNotification };
 const keyOf = (entry: Entry) => `${entry.environmentId}:${entry.notification.id}`;
@@ -231,7 +232,12 @@ export function InboxRow({
         onFocus();
       }}
       onClick={(event) => {
-        if (!(event.target instanceof Element && event.target.closest("button,a,input,textarea")))
+        if (
+          !(
+            event.target instanceof Element &&
+            event.target.closest("button,a,input,textarea,[data-inbox-indicators]")
+          )
+        )
           event.currentTarget.focus();
       }}
       onKeyDown={(event) => {
@@ -254,12 +260,21 @@ export function InboxRow({
         event.preventDefault();
         event.currentTarget.focus();
         void readLocalApi()
-          ?.contextMenu.show([{ id: "unread", label: "Mark as unread", disabled: !canWrite }], {
-            x: event.clientX,
-            y: event.clientY,
-          })
+          ?.contextMenu.show(
+            [
+              { id: "unread", label: "Mark as unread", disabled: !canWrite },
+              { id: "irrelevant", label: "Mark irrelevant", disabled: !canWrite || pending },
+              { id: "relevant", label: "Keep relevant", disabled: !canWrite || pending },
+            ],
+            {
+              x: event.clientX,
+              y: event.clientY,
+            },
+          )
           .then((id) => {
             if (id === "unread") onAction({ type: "read", read: false });
+            if (id === "irrelevant" || id === "relevant")
+              onAction({ type: "irrelevant", irrelevant: id === "irrelevant" });
           });
       }}
       className={`my-1 rounded-lg px-2.5 py-2 text-sidebar-foreground outline-none transition-colors ${focused ? "bg-sidebar-row-hover ring-1 ring-inset ring-primary/25" : "hover:bg-sidebar-row-hover/60"}`}
@@ -275,10 +290,7 @@ export function InboxRow({
       <div
         className={`mt-1.5 flex items-start gap-1.5 ${n.state.read ? "font-normal" : "font-semibold"}`}
       >
-        <span
-          aria-hidden
-          className={`mt-1.5 size-1.5 shrink-0 rounded-full ${n.state.read ? "bg-transparent" : "bg-primary"}`}
-        />
+        <InboxNotificationIndicators notification={n} />
         <InboxSummary
           threadRef={threadRef}
           notification={content}
@@ -410,6 +422,7 @@ export function InboxSidebarLayout({
   const pages = paging.query === debouncedQuery ? paging.pages : 1;
   const [selectedSources, setSources] = useState(sources);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [visibility, setVisibility] = useState<"visible" | "filtered" | "all">("visible");
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const focusedRef = useRef<string | null>(null);
   const [hints, setHints] = useState(false);
@@ -433,6 +446,7 @@ export function InboxSidebarLayout({
             environmentId,
             input: {
               projectId,
+              visibility,
               offset: page * 100,
               // One overlapping item lets the tab detect overflow without loading another page.
               limit: 101,
@@ -441,7 +455,7 @@ export function InboxSidebarLayout({
           }),
         })),
       ),
-    [projects, debouncedQuery, pages],
+    [projects, debouncedQuery, pages, visibility],
   );
   const results = useAtomValue(
     useMemo(
@@ -524,7 +538,11 @@ export function InboxSidebarLayout({
         ]
       : loadedEntries;
   const entries = unfilteredEntries.filter(({ environmentId, notification }) =>
-    isInboxNotificationVisible(notification, serverConfigs.get(environmentId)?.settings),
+    isInboxNotificationVisible(
+      notification,
+      serverConfigs.get(environmentId)?.settings,
+      visibility,
+    ),
   );
   function openSettings(section: "features" | "integrations") {
     const focused = entries.find((entry) => keyOf(entry) === focusedKey);
@@ -631,7 +649,8 @@ export function InboxSidebarLayout({
       const n = own && own.revision > latest.revision ? own : latest;
       const advancing =
         (action.type === "resolve" && action.resolved && n.state.placement !== "resolved") ||
-        (action.type === "snooze" && action.until !== null && n.state.placement !== "snoozed");
+        (action.type === "snooze" && action.until !== null && n.state.placement !== "snoozed") ||
+        (action.type === "irrelevant" && visibility !== "all");
       const priorRows = advancing
         ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])]
         : [];
@@ -640,8 +659,7 @@ export function InboxSidebarLayout({
       // A preset menu can return focus to the row's button rather than the row itself.
       const hadFocus =
         focusedRef.current === key ||
-        (focusedKey === key &&
-          priorRows.some((row) => row.dataset.inboxRow === key && row.contains(activeElement)));
+        priorRows.some((row) => row.dataset.inboxRow === key && row.contains(activeElement));
       const result = await command({
         environmentId: entry.environmentId,
         input: {
@@ -675,7 +693,16 @@ export function InboxSidebarLayout({
           );
         }
         if (restoreFocus) {
-          if (advancing && next.state.placement !== n.state.placement) {
+          if (
+            advancing &&
+            (next.state.placement !== n.state.placement ||
+              (action.type === "irrelevant" &&
+                !isInboxNotificationVisible(
+                  next,
+                  serverConfigs.get(entry.environmentId)?.settings,
+                  visibility,
+                )))
+          ) {
             const rows = [
               ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
             ];
@@ -685,7 +712,8 @@ export function InboxSidebarLayout({
                 .filter(
                   (candidate) =>
                     candidate.notification.state.placement !== "resolved" &&
-                    candidate.notification.state.placement !== next.state.placement,
+                    (action.type === "irrelevant" ||
+                      candidate.notification.state.placement !== next.state.placement),
                 )
                 .map((candidate) => [keyOf(candidate), candidate]),
             );
@@ -804,13 +832,17 @@ export function InboxSidebarLayout({
     if (
       event.target instanceof Element &&
       event.target.closest(
-        'input,textarea,[contenteditable=true],[aria-haspopup="menu"],[role="menu"]',
+        'input,textarea,select,[contenteditable]:not([contenteditable=false]),[aria-haspopup="menu"],[role="menu"]',
       )
     )
       return;
     const modifier = event.metaKey || event.ctrlKey;
     setHints(modifier);
-    const entry = visible.find((candidate) => keyOf(candidate) === focusedKey);
+    const actionKey =
+      event.target instanceof Element
+        ? (event.target.closest<HTMLElement>("[data-inbox-row]")?.dataset.inboxRow ?? focusedKey)
+        : focusedKey;
+    const entry = visible.find((candidate) => keyOf(candidate) === actionKey);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
@@ -818,7 +850,7 @@ export function InboxSidebarLayout({
         (placement) =>
           filtered.filter(({ notification }) => notification.state.placement === placement),
       );
-      const index = ordered.findIndex((candidate) => keyOf(candidate) === focusedKey);
+      const index = ordered.findIndex((candidate) => keyOf(candidate) === actionKey);
       const down = event.key === "ArrowDown";
       const adjacent = ordered[Math.max(0, Math.min(ordered.length - 1, index + (down ? 1 : -1)))];
       const group =
@@ -868,6 +900,17 @@ export function InboxSidebarLayout({
     if (isInboxSnoozeShortcut(event)) value = "snooze-menu";
     if (event.shiftKey && event.key.toLowerCase() === "u")
       value = { type: "read", read: !entry.notification.state.read };
+    if (!event.shiftKey && !event.altKey && event.key.toLowerCase() === "i") {
+      if (!(event.target instanceof Element && event.target.closest("[data-inbox-row]"))) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat)
+        void action(entry, {
+          type: "irrelevant",
+          irrelevant: entry.notification.state.irrelevant !== true,
+        });
+      return;
+    }
     if (!event.shiftKey && event.key.toLowerCase() === "e")
       value = { type: "resolve", resolved: true };
     if (value) {
@@ -905,12 +948,22 @@ export function InboxSidebarLayout({
             },
             {
               value: "inbox",
-              label: "Inbox",
+              label:
+                visibility === "filtered"
+                  ? "Filtered"
+                  : visibility === "all"
+                    ? "All notifications"
+                    : "Inbox",
               endAdornment: sourceErrors.length ? (
                 <InboxIntegrationStatus connections={sourceErrors} />
               ) : undefined,
-              count: entries.filter((entry) => entry.notification.state.placement === "active")
-                .length,
+              ...(visibility === "visible"
+                ? {
+                    count: entries.filter(
+                      (entry) => entry.notification.state.placement === "active",
+                    ).length,
+                  }
+                : {}),
               icon: <InboxIcon className="size-3.5" />,
             },
           ]}
@@ -950,6 +1003,32 @@ export function InboxSidebarLayout({
                   </PopoverTrigger>
                   <PopoverPopup>
                     <div className="space-y-2 text-xs">
+                      <fieldset className="space-y-2 border-b pb-2">
+                        <legend className="sr-only">Notification visibility</legend>
+                        {(
+                          [
+                            ["visible", "Inbox"],
+                            ["filtered", "Filtered"],
+                            ["all", "All notifications"],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <label key={value} className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="inbox-visibility"
+                              value={value}
+                              checked={visibility === value}
+                              onChange={() => {
+                                setVisibility(value);
+                                setPaging({ query: debouncedQuery, pages: 1 });
+                                focusedRef.current = null;
+                                setFocusedKey(null);
+                              }}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </fieldset>
                       {sources.map((source) => (
                         <label key={source} className="flex items-center gap-2">
                           <input
@@ -1054,7 +1133,10 @@ export function InboxSidebarLayout({
                   {filtered.filter((entry) => entry.notification.state.placement === "active")
                     .length === 0 && (
                     <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                      {query || unreadOnly || selectedSources.length < sources.length
+                      {query ||
+                      unreadOnly ||
+                      selectedSources.length < sources.length ||
+                      visibility !== "visible"
                         ? "No matching notifications"
                         : results.some(({ result }) => isInboxInitialLoad(result))
                           ? "Loading notifications…"

@@ -154,16 +154,32 @@ applies when the project and environment are both on **Inherit**.
 
 ## Notification inbox
 
-In **Settings → Features**, select **All projects** to configure **Show updates
-caused by me** and **Show conversations where the last reply is mine**. Both are
-on by default and apply to every project's Inbox on the selected environments.
-Turning either off immediately hides matching notifications; turning it back on
-reveals retained items in their existing sections. Hidden notifications keep
-receiving AI summaries when enabled. Replies you send in the source app are
-recognized on the next normal sync; someone else's later reply can bring the
-conversation back. Your own replies do not reopen settled items.
-Slack integration notices stay visible when the integration or the person who
-caused the update cannot be verified, including ambiguous names.
+In **Settings → Features → Inbox filter**, select **All projects** to choose
+which categories to hide: irrelevant notifications, updates caused by you, and
+conversations where you replied last. The categories are independent and apply
+across the selected environments' projects.
+
+Relevance is assessed for new incoming messages alongside their AI summary.
+Choose a minimum confidence from 75–100% (default 98%); threshold changes affect
+future messages, not existing decisions. Existing notifications are not
+reclassified. Messages without an available assessment remain visible.
+
+Focus a notification and press **Cmd+I** (Ctrl+I outside macOS) to mark it
+irrelevant and save its original content as a reference for future messages in
+that project. Inspect these under **Saved references**, or use the Inbox's
+filtered view to inspect hidden notifications. Undo reverses the manual mark and
+its feedback. A later incoming request is evaluated again; marking a message
+irrelevant does not mute the sender.
+
+The self-activity categories hide or reveal matching retained notifications
+immediately. Replies sent in a source app are recognized on normal sync. Hidden
+notifications retain their content and enabled background summaries. Unverified
+integration actors remain visible, including ambiguous names.
+
+Sending a reply or hiding a notification does not settle it. Settle it explicitly
+when finished; settling its linked chat also leaves the notification unchanged.
+Your own reply never reopens a settled item, while another person's later reply
+can bring the conversation back.
 
 Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
 **Settings → Integrations**. Connections and relevance filters are configured explicitly for

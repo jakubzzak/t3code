@@ -123,6 +123,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.inboxDisconnectSource]: "inbox",
   [WS_METHODS.inboxRefreshSource]: "inbox",
   [WS_METHODS.inboxList]: "inbox",
+  [WS_METHODS.inboxReferences]: "inbox",
   [WS_METHODS.inboxGet]: "inbox",
   [WS_METHODS.inboxLinearAgentThread]: "inbox",
   [WS_METHODS.inboxMutate]: "inbox",

@@ -38,6 +38,7 @@ it.effect(
       let trackedConversations: ReadonlyArray<Pick<InboxSourceItem, "connectionId" | "groupId">> =
         [];
       const imported: InboxSourceItem[] = [];
+      const relevanceBoundaries: number[] = [];
       let historyItems: InboxSourceItem[] = [];
       let pendingRead:
         | {
@@ -144,6 +145,7 @@ it.effect(
           }),
       });
       const inbox = Inbox.InboxService.of({
+        references: () => Effect.succeed([]),
         reply: () => Effect.die("Not used"),
         cacheLinearIssue: (input) =>
           Effect.sync(() => {
@@ -170,9 +172,10 @@ it.effect(
         drain: Effect.void,
         drainAnalysis: Effect.void,
         drainResearch: Effect.void,
-        ingest: (_project, items) =>
+        ingest: (_project, items, options) =>
           Effect.sync(() => {
             imported.push(...items);
+            relevanceBoundaries.push(options!.relevanceSince);
           }).pipe(Effect.andThen(Ref.update(ingested, (n) => n + 1))),
       });
       const settingsLayer = Settings.layerTest();
@@ -328,6 +331,7 @@ it.effect(
         const synced = yield* service.refresh(input);
         assert.deepEqual(trackedConversations, [{ connectionId: "T1:me", groupId: "C1:123" }]);
         assert.ok(synced.lastSyncAt);
+        assert.equal(relevanceBoundaries.at(-1), yield* Clock.currentTimeMillis);
         assert.equal(yield* Ref.get(ingested), 1);
         threadNotification = ingestInboxItem(projectId, {
           id: "thread",
@@ -619,6 +623,11 @@ it.effect(
           yield* service.refresh({ projectId: id, source });
           assert.equal(boundaries.at(-1), checkpoint);
           assert.equal(imported.length, beforeIncremental);
+          // A lookback expansion imports old history but keeps genuine new activity
+          // since the previous successful poll eligible for relevance classification.
+          historyItems = [-1, 0, 1, 3].map(item);
+          yield* TestClock.adjust(2);
+          const beforeExpansion = imported.length;
           // Changing the shared policy must backfill instead of reusing the zero-day cursor.
           yield* settings.updateSettings({
             projectSettingsOverrides: {
@@ -630,6 +639,18 @@ it.effect(
           assert.equal(
             boundaries.at(-1),
             DateTime.formatIso(DateTime.makeUnsafe(now - 30 * 86_400_000)),
+          );
+          assert.equal(relevanceBoundaries.at(-1), Date.parse(checkpoint!));
+          assert.deepEqual(
+            imported
+              .slice(beforeExpansion)
+              .filter((entry) => Date.parse(entry.occurredAt) >= relevanceBoundaries.at(-1)!)
+              .map((entry) => entry.id),
+            ["3"],
+          );
+          assert.equal(
+            imported.slice(beforeExpansion).some((entry) => entry.id === "-1"),
+            true,
           );
           // Legacy per-source history is ignored; changing it cannot reset the cursor.
           const previous = (yield* service.list(id)).find((entry) => entry.source === source)!;

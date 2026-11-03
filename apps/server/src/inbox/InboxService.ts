@@ -19,6 +19,7 @@ import {
   type InboxMutateInput,
   type InboxMutationResult,
   type InboxNotification,
+  type InboxIrrelevanceReference,
   type InboxSourceItem,
   type InboxSlackThread,
   type InboxLinearIssue,
@@ -49,7 +50,12 @@ export class InboxService extends Context.Service<
       input: InboxReplyInput,
       check?: Effect.Effect<void, E, R>,
     ) => Effect.Effect<InboxReplyAttempt, InboxError | E, ReplyTransport.InboxReplyTransport | R>;
+    readonly references: (input: {
+      projectId: ProjectId;
+      offset?: number;
+    }) => Effect.Effect<ReadonlyArray<InboxIrrelevanceReference>, InboxError>;
     readonly list: (input: {
+      visibility?: "visible" | "filtered" | "all";
       projectId: ProjectId;
       search?: string;
       offset?: number;
@@ -75,6 +81,7 @@ export class InboxService extends Context.Service<
     readonly ingest: (
       projectId: ProjectId,
       items: ReadonlyArray<InboxSourceItem>,
+      options?: { relevanceSince: number },
     ) => Effect.Effect<void, InboxError>;
     readonly mutate: <E = never, R = never>(
       input: InboxMutateInput,
@@ -170,11 +177,6 @@ const make = Effect.gen(function* () {
             next = {
               ...next,
               linkedChatSettled: status.settled,
-              state: {
-                ...next.state,
-                placement: status.settled ? "resolved" : "delegated",
-                snoozedUntil: null,
-              },
             };
         }
       }
@@ -271,8 +273,38 @@ const make = Effect.gen(function* () {
           let openThread = false;
           let undone: CommandId | undefined;
           let undoable = true;
+          let reference: InboxIrrelevanceReference | undefined;
           const action = input.action;
           switch (action.type) {
+            case "irrelevant": {
+              next = {
+                ...current,
+                state: {
+                  ...current.state,
+                  irrelevant: action.irrelevant,
+                  irrelevanceReferenceId: input.commandId,
+                },
+              };
+              const latest = current.items.at(-1);
+              const reply = current.slackThread?.messages.at(-1);
+              reference = {
+                id: input.commandId,
+                projectId: current.projectId,
+                notificationId: current.id,
+                source: current.source,
+                content: [
+                  `${reply?.author ?? latest?.author ?? ""}: ${reply?.content ?? latest?.content ?? ""}`,
+                  latest?.title,
+                  current.analysis?.summary,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+                  .slice(0, 4000),
+                irrelevant: action.irrelevant,
+                createdAt: DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis)),
+              };
+              break;
+            }
             case "read":
               next = { ...current, state: { ...current.state, read: action.read } };
               break;
@@ -347,7 +379,11 @@ const make = Effect.gen(function* () {
               if (
                 current.state.read !== receipt.after.read ||
                 current.state.placement !== receipt.after.placement ||
-                current.state.snoozedUntil !== receipt.after.snoozedUntil
+                current.state.snoozedUntil !== receipt.after.snoozedUntil ||
+                current.state.irrelevant !== receipt.after.irrelevant ||
+                current.state.irrelevanceReferenceId !== receipt.after.irrelevanceReferenceId ||
+                (receipt.action?.type === "irrelevant" &&
+                  current.analysisVersion !== receipt.result.notification.analysisVersion)
               )
                 return yield* new InboxError({
                   detail: "A later action changed this notification. Undo that action first.",
@@ -387,6 +423,9 @@ const make = Effect.gen(function* () {
                 analysisAttempts: 0,
                 analysisRetryAt: null,
                 analysisVersion: current.analysisVersion + 1,
+                ...(current.relevance?.status === "pending"
+                  ? { relevance: { ...current.relevance, version: current.analysisVersion + 1 } }
+                  : {}),
               };
               {
                 const { suggestionResearch: _research, ...reset } = next;
@@ -458,6 +497,7 @@ const make = Effect.gen(function* () {
               undone: false,
             },
             undone,
+            reference,
           );
           return result;
         }),
@@ -494,6 +534,9 @@ const make = Effect.gen(function* () {
                 ...current,
                 processingError: "AI summary not available",
                 analysisRetryAt: null,
+                ...(current.relevance?.status === "pending"
+                  ? { relevance: { ...current.relevance, status: "unavailable" as const } }
+                  : {}),
               });
               return null;
             }
@@ -511,7 +554,11 @@ const make = Effect.gen(function* () {
         const history = projectSettings.inboxMemoryEnabled
           ? yield* repository.history(notification.projectId)
           : [];
-        const analyzed = yield* analyzer.analyze(claimed, history).pipe(
+        const references =
+          claimed.relevance?.status === "pending"
+            ? yield* repository.references(notification.projectId)
+            : [];
+        const analyzed = yield* analyzer.analyze(claimed, history, references).pipe(
           Effect.timeout("1 minute"),
           Effect.flatMap((result) =>
             result.summary.trim()
@@ -534,6 +581,26 @@ const make = Effect.gen(function* () {
             yield* save({
               ...current,
               analysis: analyzed._tag === "Success" ? analyzed.success : null,
+              ...(current.relevance?.status === "pending" &&
+              current.relevance.version === claimed.analysisVersion
+                ? analyzed._tag === "Success"
+                  ? {
+                      relevance: {
+                        ...current.relevance,
+                        status:
+                          analyzed.success.irrelevanceConfidence === undefined
+                            ? ("unavailable" as const)
+                            : ("complete" as const),
+                        confidence: analyzed.success.irrelevanceConfidence ?? null,
+                        irrelevant:
+                          analyzed.success.irrelevanceConfidence !== undefined &&
+                          analyzed.success.irrelevanceConfidence >= current.relevance.threshold,
+                      },
+                    }
+                  : exhausted
+                    ? { relevance: { ...current.relevance, status: "unavailable" as const } }
+                    : {}
+                : {}),
               processingError:
                 analyzed._tag === "Failure" && exhausted ? "AI summary not available" : null,
               analysisRetryAt:
@@ -852,6 +919,15 @@ const make = Effect.gen(function* () {
               const newest = native
                 ? !next.replyCursor || compareReplyActivity(activity, next.replyCursor) >= 0
                 : next.analysisVersion === delivered.get(input.commandId)?.analysisVersion;
+              if (newest) {
+                const { relevance: _relevance, ...retained } = next;
+                const {
+                  irrelevant: _irrelevant,
+                  irrelevanceReferenceId: _reference,
+                  ...state
+                } = retained.state;
+                next = { ...retained, state };
+              }
               next = {
                 ...next,
                 ...(newest
@@ -959,6 +1035,10 @@ const make = Effect.gen(function* () {
     });
   return InboxService.of({
     reply,
+    references: (input) =>
+      requireEnabled(input.projectId).pipe(
+        Effect.andThen(repository.references(input.projectId, input.offset)),
+      ),
     list: (input) =>
       mutex
         .withPermits(1)(
@@ -968,6 +1048,8 @@ const make = Effect.gen(function* () {
             const items = yield* repository.list(input.projectId, {
               ...input,
               summaryReady: config.inboxSummaryEnabled,
+              filterIrrelevant: config.inboxFilterIrrelevant,
+              visibility: input.threadId ? "all" : (input.visibility ?? "visible"),
               showSelfUpdates: input.threadId ? true : config.inboxShowSelfUpdates,
               showSelfReplies: input.threadId ? true : config.inboxShowSelfReplies,
             });
@@ -1121,11 +1203,13 @@ const make = Effect.gen(function* () {
           return next;
         }),
       ),
-    ingest: (projectId, items) =>
+    ingest: (projectId, items, options) =>
       mutex
         .withPermits(1)(
           Effect.gen(function* () {
             yield* requireEnabled(projectId);
+            const config = yield* readProjectSettings(projectId);
+            const relevanceSince = yield* repository.relevanceSince;
             // A preview may contain the latest self reply before another page delivers an earlier
             // incoming reply. Apply each conversation's complete attention batch once, in order.
             const activity = new Map<
@@ -1155,7 +1239,38 @@ const make = Effect.gen(function* () {
               )
                 continue;
               const previous = stored ? readableNotification(stored) : undefined;
-              const next = ingestInboxItem(projectId, item, previous);
+              let next = ingestInboxItem(projectId, item, previous);
+              const newestActivity = next.replyCursor;
+              const incomingAt =
+                item.replyActivity !== undefined ? newestActivity?.occurredAt : item.occurredAt;
+              const freshIncoming =
+                next.analysisVersion !== previous?.analysisVersion &&
+                (item.replyActivity !== undefined
+                  ? newestActivity &&
+                    !newestActivity.isSelf &&
+                    (!previous?.replyCursor ||
+                      compareReplyActivity(newestActivity, previous.replyCursor) > 0)
+                  : !previous ||
+                    (!previous.items.some((entry) => entry.id === item.id) &&
+                      Date.parse(item.occurredAt) > Date.parse(previous.updatedAt)));
+              if (
+                freshIncoming &&
+                incomingAt &&
+                Date.parse(incomingAt) >= Math.max(relevanceSince, options?.relevanceSince ?? 0) &&
+                config.inboxSummaryEnabled &&
+                config.inboxFilterIrrelevant
+              ) {
+                next = {
+                  ...next,
+                  relevance: {
+                    version: next.analysisVersion,
+                    threshold: config.inboxIrrelevanceThreshold,
+                    status: "pending",
+                    confidence: null,
+                    irrelevant: false,
+                  },
+                };
+              }
               if (stored !== next) {
                 yield* repository.put(
                   stored && next.revision === stored.revision

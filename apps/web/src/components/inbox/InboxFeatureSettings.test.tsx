@@ -3,7 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
-import { InboxFeatureSettings } from "./InboxFeatureSettings";
+import { InboxFeatureSettings, InboxVisibilitySettings } from "./InboxFeatureSettings";
 
 const state = vi.hoisted(() => ({
   update: vi.fn(),
@@ -11,15 +11,43 @@ const state = vi.hoisted(() => ({
   summary: false,
   resolutions: false,
   summaryMixed: false,
+  threshold: 98,
+  projectId: null as string | null,
+  referenceReads: [] as string[],
 }));
 vi.mock("../settings/SettingsScopeContext", () => ({
-  useSettingsScope: () => ({ environment: null, target: null }),
+  useSettingsScope: () => ({
+    environment: state.projectId ? { environmentId: "env" } : null,
+    target: state.projectId ? { projectId: state.projectId } : null,
+  }),
+}));
+vi.mock("~/state/inbox", () => ({
+  inboxEnvironment: { references: (request: unknown) => request },
+}));
+vi.mock("~/state/query", () => ({
+  useEnvironmentQuery: (request: { input: { projectId: string; offset: number } } | null) => {
+    if (!request) return { data: null, error: null, isPending: false };
+    const { projectId, offset } = request.input;
+    state.referenceReads.push(`${projectId}:${offset}`);
+    const total = projectId === "first" ? 101 : 1;
+    return {
+      data: Array.from({ length: Math.max(0, Math.min(100, total - offset)) }, (_, index) => ({
+        id: `${projectId}:${offset + index}`,
+        content: `${projectId} reference ${offset + index + 1}`,
+        source: "slack",
+        irrelevant: true,
+      })),
+      error: null,
+      isPending: false,
+    };
+  },
 }));
 vi.mock("../settings/useScopedSettings", () => ({
   useScopedSettings: () => ({
     ...DEFAULT_SERVER_SETTINGS,
     inboxSummaryEnabled: state.summary,
     inboxPreResolution: state.resolutions,
+    inboxIrrelevanceThreshold: state.threshold,
   }),
   useUpdateScopedSettings: () => state.update,
   useScopedSettingsMixed: (keys: string[]) =>
@@ -67,6 +95,9 @@ afterEach(async () => {
   state.summary = false;
   state.resolutions = false;
   state.summaryMixed = false;
+  state.threshold = 98;
+  state.projectId = null;
+  state.referenceReads = [];
   vi.clearAllMocks();
 });
 
@@ -144,4 +175,84 @@ it("applies the minimum interval to projects with mixed refresh settings", async
   await act(async () => root.render(<InboxFeatureSettings />));
   await edit("2", "Inbox refresh interval minutes");
   expect(state.update).toHaveBeenCalledExactlyOnceWith({ inboxRefreshIntervalMinutes: 2 });
+});
+
+it("groups filtering with inverse own-activity controls and a bounded prospective threshold", async () => {
+  await act(async () => root.render(<InboxVisibilitySettings />));
+  expect(container.textContent).toContain("Inbox filter");
+  const own = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Filter updates caused by me"]',
+  )!;
+  expect(own.getAttribute("aria-checked")).toBe("false");
+  await act(async () => own.click());
+  expect(state.update).toHaveBeenLastCalledWith({ inboxShowSelfUpdates: false });
+  const replies = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Filter conversations where I replied last"]',
+  )!;
+  await act(async () => replies.click());
+  expect(state.update).toHaveBeenLastCalledWith({ inboxShowSelfReplies: false });
+  const label = "Irrelevance confidence percentage";
+  expect(container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)?.value).toBe("98");
+  await edit("75", label);
+  expect(state.update).toHaveBeenLastCalledWith({ inboxIrrelevanceThreshold: 75 });
+  await edit("100", label);
+  expect(state.update).toHaveBeenLastCalledWith({ inboxIrrelevanceThreshold: 100 });
+  for (const value of ["74", "101", "98.5", ""])
+    expect((await edit(value, label)).value).toBe("98");
+  expect(state.update).toHaveBeenCalledTimes(4);
+});
+
+it("reviews references after the first hundred and resets paging when the project changes", async () => {
+  state.projectId = "first";
+  await act(async () => root.render(<InboxVisibilitySettings />));
+  expect(state.referenceReads).toEqual([]);
+  const openReferences = async () => {
+    const details = container.querySelector("details")!;
+    await act(async () => {
+      details.open = true;
+      details.dispatchEvent(new Event("toggle"));
+    });
+  };
+  await openReferences();
+  expect(container.textContent).toContain("first reference 100");
+  expect(container.textContent).not.toContain("first reference 101");
+  const button = (label: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (item) => item.textContent === label,
+    )!;
+  await act(async () => button("Next references").click());
+  expect(container.textContent).toContain("first reference 101");
+  expect(container.textContent).not.toContain("first reference 100");
+  expect(button("Next references").disabled).toBe(true);
+  await act(async () => button("Previous references").click());
+  expect(container.textContent).toContain("first reference 100");
+  await act(async () => button("Next references").click());
+  state.projectId = "second";
+  await act(async () => root.render(<InboxVisibilitySettings />));
+  expect(container.querySelector("details")!.open).toBe(false);
+  await openReferences();
+  expect(container.textContent).toContain("second reference 1");
+  expect(container.textContent).not.toContain("first reference");
+  expect(state.referenceReads.at(-1)).toBe("second:0");
+  expect(state.update).not.toHaveBeenCalled();
+});
+
+it("reflects the acknowledged confidence when Tab moves between controls before the save returns", async () => {
+  state.threshold = 100;
+  await act(async () => root.render(<InboxVisibilitySettings />));
+  const number = container.querySelector<HTMLInputElement>(
+    '[aria-label="Irrelevance confidence percentage"]',
+  )!;
+  const slider = container.querySelector<HTMLInputElement>(
+    '[aria-label="Minimum irrelevance confidence"]',
+  )!;
+  await edit("98", "Irrelevance confidence percentage");
+  await act(async () => slider.focus());
+  expect(state.update).toHaveBeenLastCalledWith({ inboxIrrelevanceThreshold: 98 });
+  state.threshold = 98;
+  await act(async () => root.render(<InboxVisibilitySettings />));
+  expect(number.value).toBe("98");
+  expect(slider.value).toBe("98");
+  expect(document.activeElement).toBe(slider);
+  expect(state.update).toHaveBeenCalledTimes(1);
 });

@@ -13,6 +13,8 @@ import {
   InboxSourceConfigureInput,
   InboxError,
   InboxListInput,
+  InboxReferencesInput,
+  InboxIrrelevanceReference,
   InboxMutateInput,
   InboxMutationResult,
   InboxNotification,
@@ -587,6 +589,7 @@ export const WS_METHODS = {
   inboxDisconnectSource: "inbox.disconnectSource",
   inboxRefreshSource: "inbox.refreshSource",
   inboxList: "inbox.list",
+  inboxReferences: "inbox.references",
   inboxGet: "inbox.get",
   inboxLinearAgentThread: "inbox.linearAgentThread",
   inboxMutate: "inbox.mutate",
@@ -1147,6 +1150,11 @@ const WsInboxDisconnectSourceRpc = Rpc.make(WS_METHODS.inboxDisconnectSource, {
 const WsInboxRefreshSourceRpc = Rpc.make(WS_METHODS.inboxRefreshSource, {
   payload: InboxSourceKey,
   success: InboxSourceConnection,
+  error: InboxError,
+});
+const WsInboxReferencesRpc = Rpc.make(WS_METHODS.inboxReferences, {
+  payload: InboxReferencesInput,
+  success: Schema.Array(InboxIrrelevanceReference),
   error: InboxError,
 });
 const WsInboxListRpc = Rpc.make(WS_METHODS.inboxList, {
@@ -2268,6 +2276,7 @@ export const WsInboxRpcGroup = RpcGroup.make(
   WsInboxBeginSuperhumanRpc,
   WsInboxSuperhumanCatalogRpc,
   WsInboxListRpc,
+  WsInboxReferencesRpc,
   WsInboxGetRpc,
   WsInboxLinearAgentThreadRpc,
   WsInboxMutateRpc,
