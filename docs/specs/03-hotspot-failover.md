@@ -233,14 +233,18 @@ Passing one category cannot be reported as passing another.
 
 ## Verification and release gates
 
-**Open security finding S1:** the current helper accepts commands from any caller
+**Security finding S1 — accepted for the user's personal build only, 2026-11-03:**
+the current helper accepts commands from any caller
 running as the same macOS user with an existing lease file. Once the helper has
 Location permission, another local app can invoke it to obtain network names or
 request hotspot/network changes under that grant. Passwords are not returned.
-The lease provides cancellation, not caller authentication. This risk has not
-been accepted. Before release, authenticate the caller or obtain explicit user
-acceptance for a defined personal-use scope; an ordinary user-readable nonce
-file does not establish a boundary against another process running as that user.
+The lease provides cancellation, not caller authentication. After disclosure,
+the user explicitly chose “Accept this risk for my personal build.” This accepts
+the residual risk in the implementation at `be1fd0b93c91b9bb5daec7f3a8554d997b1259ef`;
+it does not fix it or authorize general distribution, installation, or network
+testing. Expanded exposure needs a new disposition. An ordinary user-readable
+nonce file does not establish a boundary against another process running as
+that user.
 
 At implementation revision `ae29b9d20ee8a5ff0dc938c295bf1a859d8bac37`, 398 focused
 tests across twelve files pass, along with scoped desktop/web typechecks and the
