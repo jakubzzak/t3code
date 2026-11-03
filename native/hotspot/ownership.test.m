@@ -5,12 +5,21 @@
 #import <Foundation/Foundation.h>
 
 static CLAuthorizationStatus authorization = kCLAuthorizationStatusAuthorizedAlways;
+static BOOL deferredAuthorization = NO;
 @interface TestLocationManager : NSObject
 @property(readonly) CLAuthorizationStatus authorizationStatus;
+@property(nonatomic, weak) id<CLLocationManagerDelegate> delegate;
 - (void)requestWhenInUseAuthorization;
 @end
 @implementation TestLocationManager
-- (CLAuthorizationStatus)authorizationStatus { return authorization; }
+- (CLAuthorizationStatus)authorizationStatus { return deferredAuthorization ? kCLAuthorizationStatusNotDetermined : authorization; }
+- (void)setDelegate:(id<CLLocationManagerDelegate>)delegate {
+  _delegate = delegate;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    deferredAuthorization = NO;
+    [delegate locationManagerDidChangeAuthorization:(CLLocationManager *)self];
+  });
+}
 - (void)requestWhenInUseAuthorization { fputs("authorization-waiting\n", stderr); fflush(stderr); }
 @end
 
@@ -98,6 +107,10 @@ int main(int argc, const char *argv[]) {
       return status();
     }
     if (strcmp(argv[1], "connected-status") == 0) return status();
+    if (strcmp(argv[1], "deferred-connected-status") == 0) {
+      deferredAuthorization = YES;
+      return status();
+    }
     if (strcmp(argv[1], "ownership") != 0) return 64;
 
     testInterface.ssid = @"Other phone";

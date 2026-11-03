@@ -112,6 +112,7 @@ describe.skipIf(hostPlatform !== "darwin")("bundled Instant Hotspot helper", () 
     ["unauthorized-status", { authorized: false, name: null }],
     ["disconnected-status", { authorized: true, name: null }],
     ["connected-status", { authorized: true, name: "Phone" }],
+    ["deferred-connected-status", { authorized: true, name: "Phone" }],
   ])("reports %s without requesting permission", (scenario, expected) => {
     const result = NodeChildProcess.spawnSync(fixture, [scenario, "/unused-fixture-lease"], {
       encoding: "utf8",

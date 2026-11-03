@@ -66,8 +66,28 @@ static int printJSON(id value) {
   return 0;
 }
 
+@interface LocationDelegate : NSObject <CLLocationManagerDelegate>
+@property BOOL initialized;
+@end
+
+@implementation LocationDelegate
+- (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
+  (void)manager;
+  self.initialized = YES;
+}
+@end
+
 static BOOL locationAuthorized(BOOL request, NSTimeInterval wait) {
   CLLocationManager *location = [CLLocationManager new];
+  LocationDelegate *delegate = [LocationDelegate new];
+  location.delegate = delegate;
+  // A fresh manager initially reports notDetermined even after permission was
+  // granted. Wait for Core Location's initial state before checking or prompting.
+  NSDate *initialDeadline = [NSDate dateWithTimeIntervalSinceNow:2];
+  while (!delegate.initialized && initialDeadline.timeIntervalSinceNow > 0) {
+    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+  }
+  if (!delegate.initialized) return NO;
   if (request && location.authorizationStatus == kCLAuthorizationStatusNotDetermined) {
     [location requestWhenInUseAuthorization];
   }

@@ -276,27 +276,59 @@ A local macOS arm64 archive was built from that candidate with SHA-256
 The helper extracted from the archive passes strict signature verification and
 contains the Location entitlement and arm64 executable. This verifies local
 packaging; the archive is not a Developer ID signed/notarized release and has
-not been installed or used for a live reconnection test.
+not been installed. Its extracted helper was used for the live test below.
+
+### Live test follow-up, 2026-11-03
+
+The user explicitly authorized the live test, including Location prompts and brief
+Wi-Fi interruption. On macOS 26.6.2 (25G83), arm64, the extracted helper exposed a
+startup race: authorization succeeded, but subsequent processes checked a fresh
+Location manager before its initial authorization callback and reported denial.
+The helper now waits up to two seconds for that initial state before checking or
+requesting permission. Background modes still never request authorization. A
+deferred-state fixture failed before this fix and passes afterward; 29 focused
+native/adapter/monitor tests pass across three files.
+
+The rebuilt helper activated and joined the nearby iPhone in 15.22 seconds.
+The Wi-Fi SSID matched the helper result and differed from the original, and an
+HTTPS internet probe passed. This was a direct helper test through LaunchServices,
+not the full controller-triggered outage journey; the iOS version was not collected.
+
+**Automatic return failed on this Mac:** the no-prompt Keychain lookup could not
+obtain the original saved network's credentials. The exact Keychain error was not
+instrumented, so missing versus inaccessible credentials is not distinguished.
+The helper left the working hotspot connected. macOS Wi-Fi controls then restored
+the original network, verified by SSID and successful internet access. A separate
+`networksetup` reconnect preflight also failed with `-3900` despite exit zero;
+it briefly disconnected before macOS recovered and is not a working fallback.
+No password export, Keychain access-control change, profile deletion, or radio
+cycling was used.
+
+A live scan cancellation experiment completed its result before cancellation could
+be established, so it is inconclusive. Deterministic lease-cancellation tests still
+pass. The older archive above does not include the permission-race correction.
 
 The following remain release gates rather than completed acceptance:
 
-- Real Location permission attribution and cancellation through LaunchServices.
-- Actual iPhone activation, association, internet recovery, and recovery after
-  unavailable phone/cellular service. Record macOS, iOS, Mac architecture, and
+- Cancellation of pending native work through LaunchServices; permission attribution
+  passed for the local ad-hoc helper, not a Developer ID release.
+- Full controller-triggered iPhone failover and recovery after
+  unavailable phone/cellular service; direct helper association/internet passed. Record macOS, iOS, Mac architecture, and
   multiple-phone selection behavior.
 - Real return to representative saved WPA2/WPA3 networks, including Keychain
   restrictions, a still-broken network, VPN use, and a manual network selection
   during a pending initial join. Do not infer those outcomes from mocked scans.
 - Developer ID signed/notarized packaged artifact verification, including the
   nested helper’s final entitlements and the installed app’s actual version.
-- Recheck changed code or exposure after the reviewed candidate. The current
-  code review is complete; S1 remains accepted only for personal use. No other
+- Recheck changed code or exposure after the reviewed candidate. The prior
+  code review covered the pre-live-test candidate; S1 remains accepted only for personal use. No other
   risk is accepted merely because the implementation compiles or this spec exists.
 
 The user's explicit Build invocation authorized feature-branch publication and
-draft PR preparation. No merge, installation, live network interruption, or
-deployment has been performed as part of this work. A live reconnect test must be coordinated with the user
-because it can interrupt the connection they are using. To recover from an
+draft PR preparation. The subsequent explicit approval authorized the live network
+test described above. No merge, installation, or deployment has been performed.
+Further live tests must stay within the approved scope because they can interrupt
+the connection the user is using. To recover from an
 unsuccessful test, disable failover and manually reconnect through macOS; there
 is no destructive saved-network migration to reverse.
 
