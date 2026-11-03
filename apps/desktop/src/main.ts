@@ -58,6 +58,8 @@ import * as DesktopClientSettings from "./settings/DesktopClientSettings.ts";
 import * as DesktopSavedEnvironments from "./settings/DesktopSavedEnvironments.ts";
 import * as DesktopSnapShot from "./snapShot/DesktopSnapShot.ts";
 import * as DesktopAwake from "./awake/DesktopAwake.ts";
+import * as DesktopHotspot from "./awake/DesktopHotspot.ts";
+import * as HotspotSystem from "./awake/HotspotSystem.ts";
 import * as AwakeSystem from "./awake/AwakeSystem.ts";
 import * as DesktopAppSettings from "./settings/DesktopAppSettings.ts";
 import * as DesktopPreReadyFileSystem from "./app/DesktopPreReadyFileSystem.ts";
@@ -221,7 +223,14 @@ const layerDesktopLocalEnvironmentAuth = DesktopLocalEnvironmentAuth.layer.pipe(
 );
 
 const layerDesktopApplication = Layer.mergeAll(
-  DesktopAwake.layer.pipe(Layer.provide(AwakeSystem.layer)),
+  DesktopAwake.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        AwakeSystem.layer,
+        DesktopHotspot.layer.pipe(Layer.provide(HotspotSystem.layer)),
+      ),
+    ),
+  ),
   DesktopLifecycle.layer,
   layerDesktopAppActivation,
   DesktopWebLinks.layer,

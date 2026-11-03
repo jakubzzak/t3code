@@ -509,6 +509,7 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
   awakeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  awakeHotspotFailover: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   awakeLowPowerBelowPercent: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })).pipe(
     Schema.withDecodingDefault(Effect.succeed(40)),
   ),
@@ -1905,6 +1906,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   awakeEnabled: Schema.optionalKey(Schema.Boolean),
+  awakeHotspotFailover: Schema.optionalKey(Schema.Boolean),
   awakeLowPowerBelowPercent: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
   ),

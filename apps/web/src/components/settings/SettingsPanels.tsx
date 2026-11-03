@@ -663,6 +663,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
       ...getChangedBrowserSettingLabels(settings),
       ...(settings.awakeEnabled !== DEFAULT_UNIFIED_SETTINGS.awakeEnabled ||
+      settings.awakeHotspotFailover !== DEFAULT_UNIFIED_SETTINGS.awakeHotspotFailover ||
       settings.awakeLowPowerBelowPercent !== DEFAULT_UNIFIED_SETTINGS.awakeLowPowerBelowPercent ||
       settings.awakeSleepBelowPercent !== DEFAULT_UNIFIED_SETTINGS.awakeSleepBelowPercent ||
       settings.awakeHeatRules !== DEFAULT_UNIFIED_SETTINGS.awakeHeatRules
@@ -676,6 +677,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       isTextGenerationModelDirty,
       isBackgroundActivityDirty,
       settings.awakeEnabled,
+      settings.awakeHotspotFailover,
       settings.awakeLowPowerBelowPercent,
       settings.awakeSleepBelowPercent,
       settings.awakeHeatRules,
@@ -807,6 +809,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     }
     updateSettings({
       awakeEnabled: DEFAULT_UNIFIED_SETTINGS.awakeEnabled,
+      awakeHotspotFailover: DEFAULT_UNIFIED_SETTINGS.awakeHotspotFailover,
       awakeLowPowerBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeLowPowerBelowPercent,
       awakeSleepBelowPercent: DEFAULT_UNIFIED_SETTINGS.awakeSleepBelowPercent,
       awakeHeatRules: DEFAULT_UNIFIED_SETTINGS.awakeHeatRules,

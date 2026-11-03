@@ -9,6 +9,11 @@ import {
   type ClientSettings,
   type DesktopAwakeState,
 } from "@t3tools/contracts";
+import * as TestClock from "effect/testing/TestClock";
+import * as Deferred from "effect/Deferred";
+import * as HotspotMonitor from "./DesktopHotspot.ts";
+import { HotspotSystem } from "./HotspotSystem.ts";
+import { DesktopHotspot } from "./DesktopHotspot.ts";
 import { AwakeError, AwakeSystem } from "./AwakeSystem.ts";
 import { DesktopAwake, layer } from "./DesktopAwake.ts";
 import { DesktopClientSettings } from "../settings/DesktopClientSettings.ts";
@@ -16,9 +21,13 @@ import { ElectronWindow } from "../electron/ElectronWindow.ts";
 
 vi.mock("electron", () => ({}));
 
-function harness(initial: ClientSettings = DEFAULT_CLIENT_SETTINGS) {
+function harness(
+  initial: ClientSettings = DEFAULT_CLIENT_SETTINGS,
+  hotspotLayer?: Layer.Layer<DesktopHotspot>,
+) {
   const calls: string[] = [];
   const states: DesktopAwakeState[] = [];
+  const hotspotCalls: boolean[] = [];
   let saved = initial;
   let battery = 80;
   let applyError = false;
@@ -63,6 +72,15 @@ function harness(initial: ClientSettings = DEFAULT_CLIENT_SETTINGS) {
   });
   const dependencies = Layer.mergeAll(
     NodeCrypto.layer,
+    hotspotLayer ??
+      Layer.succeed(DesktopHotspot, {
+        initialize: Effect.void,
+        setActive: (active) =>
+          Effect.sync(() => {
+            hotspotCalls.push(active);
+          }),
+        message: Effect.succeed(null),
+      }),
     Layer.succeed(AwakeSystem, system),
     Layer.succeed(DesktopClientSettings, {
       get: Effect.sync(() => Option.some(saved)),
@@ -90,6 +108,7 @@ function harness(initial: ClientSettings = DEFAULT_CLIENT_SETTINGS) {
   );
   return {
     calls,
+    hotspotCalls,
     states,
     saved: () => saved,
     battery: (percent: number) => {
@@ -110,6 +129,84 @@ function harness(initial: ClientSettings = DEFAULT_CLIENT_SETTINGS) {
 }
 
 describe("desktop Keep awake lifecycle", () => {
+  it.effect(
+    "a blocked hotspot join never blocks power checks and is cancelled by a battery pause",
+    () =>
+      Effect.gen(function* () {
+        const checked = yield* Deferred.make<void>();
+        const joining = yield* Deferred.make<void>();
+        let cancelled = false;
+        const hotspotLayer = HotspotMonitor.layer.pipe(
+          Layer.provide(
+            Layer.succeed(HotspotSystem, {
+              online: Deferred.succeed(checked, undefined).pipe(Effect.as(false)),
+              authorize: Effect.void,
+              knownInRange: Effect.succeed([]),
+              gateway: Effect.succeed("172.20.10.1"),
+              join: Deferred.succeed(joining, undefined).pipe(
+                Effect.andThen(Effect.never),
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    cancelled = true;
+                  }),
+                ),
+              ),
+              joinKnown: () => Effect.void,
+            }),
+          ),
+        );
+        const h = harness(
+          { ...DEFAULT_CLIENT_SETTINGS, awakeEnabled: true, awakeHotspotFailover: true },
+          hotspotLayer,
+        );
+        yield* h.run(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const awake = yield* DesktopAwake;
+              yield* awake.initialize;
+              yield* Deferred.await(checked);
+              yield* TestClock.adjust("5 seconds");
+              yield* Deferred.await(joining);
+              const before = h.calls.filter((call) => call.startsWith("apply")).length;
+              yield* TestClock.adjust("10 seconds");
+              expect(h.calls.filter((call) => call.startsWith("apply")).length).toBeGreaterThan(
+                before,
+              );
+              h.battery(5);
+              yield* awake.retry;
+              expect((yield* awake.state).status).toBe("paused");
+              expect(cancelled).toBe(true);
+              expect(h.calls.at(-1)).toBe("release");
+            }),
+          ),
+        );
+      }),
+  );
+  it.effect(
+    "hotspot preference changes start and stop checks only while Keep awake is active",
+    () =>
+      Effect.gen(function* () {
+        const h = harness();
+        yield* h.run(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const awake = yield* DesktopAwake;
+              yield* awake.initialize;
+              yield* awake.configure({ ...DEFAULT_CLIENT_SETTINGS, awakeHotspotFailover: true });
+              expect(h.hotspotCalls).not.toContain(true);
+              yield* awake.configure({
+                ...DEFAULT_CLIENT_SETTINGS,
+                awakeHotspotFailover: true,
+                awakeEnabled: true,
+              });
+              expect(h.hotspotCalls.at(-1)).toBe(true);
+              yield* awake.configure({ ...DEFAULT_CLIENT_SETTINGS, awakeEnabled: true });
+              expect(h.hotspotCalls.at(-1)).toBe(false);
+            }),
+          ),
+        );
+      }),
+  );
   it.effect(
     "loads a saved enabled preference without any renderer and releases on scope close",
     () =>

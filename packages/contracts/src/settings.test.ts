@@ -1380,11 +1380,13 @@ describe("ClientSettings Keep awake", () => {
   it("defaults existing settings to off with battery and heat safeguards", () => {
     expect(decodeClientSettings({})).toMatchObject({
       awakeEnabled: false,
+      awakeHotspotFailover: false,
       awakeLowPowerBelowPercent: 40,
       awakeSleepBelowPercent: 10,
       awakeHeatRules: true,
     });
     expect(decodeClientSettingsPatch({})).not.toHaveProperty("awakeEnabled");
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("awakeHotspotFailover");
   });
   it.each([-1, 101, 0.5, "40", null])("rejects invalid battery threshold %s", (value) => {
     for (const key of ["awakeLowPowerBelowPercent", "awakeSleepBelowPercent"]) {
@@ -1401,5 +1403,39 @@ describe("ClientSettings Keep awake", () => {
     };
     expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
     expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+  });
+});
+
+describe("ClientSettings hotspot failover compatibility", () => {
+  it("does not opt existing Keep awake users into mobile data", () => {
+    const legacy = {
+      awakeEnabled: true,
+      awakeLowPowerBelowPercent: 40,
+      awakeSleepBelowPercent: 10,
+      awakeHeatRules: true,
+      wordWrap: false,
+    };
+    const decoded = decodeClientSettings(legacy);
+    expect(decoded).toMatchObject({ ...legacy, awakeHotspotFailover: false });
+    expect(encodeClientSettings(decoded)).toMatchObject(legacy);
+  });
+
+  it.each([true, false])(
+    "preserves explicit %s through save and reload",
+    (awakeHotspotFailover) => {
+      const settings = decodeClientSettings({ awakeEnabled: false, awakeHotspotFailover });
+      const patch = decodeClientSettingsPatch({ awakeHotspotFailover });
+      expect(patch).toEqual({ awakeHotspotFailover });
+      const reloaded = decodeClientSettings(
+        JSON.parse(JSON.stringify(encodeClientSettings(settings))),
+      );
+      expect(reloaded.awakeHotspotFailover).toBe(awakeHotspotFailover);
+      expect(reloaded.awakeEnabled).toBe(false);
+    },
+  );
+
+  it.each([null, "true", 1])("rejects invalid opt-in %s", (awakeHotspotFailover) => {
+    expect(() => decodeClientSettings({ awakeHotspotFailover })).toThrow();
+    expect(() => decodeClientSettingsPatch({ awakeHotspotFailover })).toThrow();
   });
 });
