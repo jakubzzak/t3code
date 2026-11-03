@@ -87,7 +87,9 @@ static BOOL locationAuthorized(BOOL request, NSTimeInterval wait) {
   while (!delegate.initialized && initialDeadline.timeIntervalSinceNow > 0) {
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
   }
-  if (!delegate.initialized) return NO;
+  // An unavailable service is not a denied grant or a disconnected network.
+  // Emit no result so the caller retains hotspot ownership and retries.
+  if (!delegate.initialized) exit(fail(@"Location Services did not return its authorization state in time."));
   if (request && location.authorizationStatus == kCLAuthorizationStatusNotDetermined) {
     [location requestWhenInUseAuthorization];
   }

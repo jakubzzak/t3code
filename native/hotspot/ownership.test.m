@@ -6,6 +6,7 @@
 
 static CLAuthorizationStatus authorization = kCLAuthorizationStatusAuthorizedAlways;
 static BOOL deferredAuthorization = NO;
+static BOOL deliverAuthorization = YES;
 @interface TestLocationManager : NSObject
 @property(readonly) CLAuthorizationStatus authorizationStatus;
 @property(nonatomic, weak) id<CLLocationManagerDelegate> delegate;
@@ -15,6 +16,7 @@ static BOOL deferredAuthorization = NO;
 - (CLAuthorizationStatus)authorizationStatus { return deferredAuthorization ? kCLAuthorizationStatusNotDetermined : authorization; }
 - (void)setDelegate:(id<CLLocationManagerDelegate>)delegate {
   _delegate = delegate;
+  if (!deliverAuthorization) return;
   dispatch_async(dispatch_get_main_queue(), ^{
     deferredAuthorization = NO;
     [delegate locationManagerDidChangeAuthorization:(CLLocationManager *)self];
@@ -109,6 +111,14 @@ int main(int argc, const char *argv[]) {
     if (strcmp(argv[1], "connected-status") == 0) return status();
     if (strcmp(argv[1], "deferred-connected-status") == 0) {
       deferredAuthorization = YES;
+      return status();
+    }
+    if (strcmp(argv[1], "deferred-authorize") == 0) {
+      deferredAuthorization = YES;
+      return printJSON(@{@"authorized" : @(locationAuthorized(YES, 120))});
+    }
+    if (strcmp(argv[1], "authorization-unavailable") == 0) {
+      deliverAuthorization = NO;
       return status();
     }
     if (strcmp(argv[1], "ownership") != 0) return 64;

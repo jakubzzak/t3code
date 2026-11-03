@@ -113,6 +113,7 @@ describe.skipIf(hostPlatform !== "darwin")("bundled Instant Hotspot helper", () 
     ["disconnected-status", { authorized: true, name: null }],
     ["connected-status", { authorized: true, name: "Phone" }],
     ["deferred-connected-status", { authorized: true, name: "Phone" }],
+    ["deferred-authorize", { authorized: true }],
   ])("reports %s without requesting permission", (scenario, expected) => {
     const result = NodeChildProcess.spawnSync(fixture, [scenario, "/unused-fixture-lease"], {
       encoding: "utf8",
@@ -138,6 +139,20 @@ describe.skipIf(hostPlatform !== "darwin")("bundled Instant Hotspot helper", () 
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
     expect(result).toEqual({ code: 1, signal: null });
+  });
+
+  it("fails without a disconnected result when Location Services does not initialize", () => {
+    const result = NodeChildProcess.spawnSync(
+      fixture,
+      ["authorization-unavailable", "/unused-fixture-lease"],
+      {
+        encoding: "utf8",
+        timeout: 3_000,
+      },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("authorization state in time");
   });
 
   it("rejects invalid CLI input without scanning, prompting or joining", () => {

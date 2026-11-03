@@ -286,8 +286,12 @@ startup race: authorization succeeded, but subsequent processes checked a fresh
 Location manager before its initial authorization callback and reported denial.
 The helper now waits up to two seconds for that initial state before checking or
 requesting permission. Background modes still never request authorization. A
-deferred-state fixture failed before this fix and passes afterward; 29 focused
-native/adapter/monitor tests pass across three files.
+deferred-state fixture failed before this fix and passes afterward. If the initial
+callback times out, the helper emits no result and exits with an error so the
+controller retains hotspot ownership and retries. A separate failing regression
+proved the timeout previously looked like a disconnected network. All 33 focused
+native/adapter/monitor tests pass across three files, including delayed authorization
+without a prompt and a successful return retry after a temporary status failure.
 
 The rebuilt helper activated and joined the nearby iPhone in 15.22 seconds.
 The Wi-Fi SSID matched the helper result and differed from the original, and an

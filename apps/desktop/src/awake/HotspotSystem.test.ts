@@ -66,6 +66,14 @@ const fixture = (pending = false, result = '{"authorized":true,"name":"iPhone"}'
   });
 
 describe("hotspot OS adapter", () => {
+  it.effect("rejects an empty native status instead of reporting a disconnected network", () =>
+    Effect.gen(function* () {
+      const h = yield* fixture(false, "");
+      const error = yield* h.system.currentName.pipe(Effect.flip);
+      expect(error.message).toBe("Could not identify the current Wi-Fi network.");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("launches all operations under one app identity and removes each lease", () =>
     Effect.gen(function* () {
       const h = yield* fixture();

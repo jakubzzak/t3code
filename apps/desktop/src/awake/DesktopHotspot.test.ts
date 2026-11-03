@@ -17,6 +17,7 @@ const harness = Effect.gen(function* () {
   let currentName: string | null = "iPhone";
   let authorization: Effect.Effect<void, HotspotError> = Effect.void;
   let scanError: HotspotError | null = null;
+  let statusError: HotspotError | null = null;
   let replacementDuringScan: string | null = null;
   const failedNames = new Set<string>();
   const expectedSources: string[] = [];
@@ -40,7 +41,9 @@ const harness = Effect.gen(function* () {
       if (replacementDuringScan !== null) currentName = replacementDuringScan;
       return scanError === null ? Effect.succeed(names) : Effect.fail(scanError);
     }),
-    currentName: Effect.sync(() => currentName),
+    currentName: Effect.suspend(() =>
+      statusError === null ? Effect.succeed(currentName) : Effect.fail(statusError),
+    ),
     join: Effect.suspend(() => {
       joins++;
       return Deferred.succeed(joinStarted, undefined).pipe(Effect.andThen(join));
@@ -66,6 +69,9 @@ const harness = Effect.gen(function* () {
     },
     failScan: (failed: boolean) => {
       scanError = failed ? new HotspotError({ message: "Scan unavailable" }) : null;
+    },
+    failStatus: (failed: boolean) => {
+      statusError = failed ? new HotspotError({ message: "Location Services unavailable" }) : null;
     },
     replaceDuringScan: (name: string) => {
       replacementDuringScan = name;
@@ -249,6 +255,33 @@ describe("app-owned hotspot failover", () => {
             h.names(["Home"]);
             yield* TestClock.adjust("30 seconds");
             expect(h.returned).toEqual([]);
+          }),
+        ),
+      );
+    }),
+  );
+
+  it.effect("retains its hotspot and retries return after a temporary status failure", () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.provide(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const hotspot = yield* DesktopHotspot;
+            yield* hotspot.initialize;
+            yield* hotspot.setActive(true);
+            yield* Deferred.await(h.firstCheck);
+            yield* TestClock.adjust("5 seconds");
+            h.online(true);
+            h.names(["Home"]);
+            h.failStatus(true);
+            yield* TestClock.adjust("30 seconds");
+            expect(h.returned).toEqual([]);
+            expect(yield* hotspot.message).toBe("Location Services unavailable");
+            h.failStatus(false);
+            yield* TestClock.adjust("30 seconds");
+            expect(h.returned).toEqual(["Home"]);
+            expect(h.joins()).toBe(1);
           }),
         ),
       );
