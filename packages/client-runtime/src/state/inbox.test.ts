@@ -172,6 +172,15 @@ it.effect(
           list({ projectId, search: "Tars", offset: 0, limit: 101 }),
           list({ projectId, visibility: "filtered", offset: 0, limit: 101 }),
           list({ projectId, visibility: "all", offset: 0, limit: 101 }),
+          list({
+            projectId,
+            visibility: "inbox",
+            sources: ["slack"],
+            unreadOnly: true,
+            selfActivity: ["reply"],
+            offset: 0,
+            limit: 101,
+          }),
           list({ projectId, threadId: ThreadId.make("linked-chat") }),
         ];
         const detail = inbox.get({ environmentId: env, input: { projectId, id: "notification" } });

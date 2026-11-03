@@ -185,12 +185,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["shell launcher PATH cli t3 . install remove command"],
   },
   {
-    id: "inbox-filter",
-    title: "Inbox filter",
+    id: "inbox-relevance",
+    title: "Inbox relevance",
     to: "/settings/features",
     scope: "environment-defaults",
     searchTerms: [
-      "notifications irrelevant confidence threshold hide filtered saved references acknowledgements own updates last reply",
+      "notifications irrelevant confidence threshold saved references acknowledgements",
     ],
   },
   {
@@ -199,20 +199,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/features",
     scope: "environment-defaults",
     searchTerms: ["inbox filter irrelevant confidence threshold percentage 75 98 summary"],
-  },
-  {
-    id: "inbox-show-self-updates",
-    title: "Updates caused by me",
-    to: "/settings/features",
-    scope: "environment-defaults",
-    searchTerms: ["inbox notifications filters hide own self actions status resolved integration"],
-  },
-  {
-    id: "inbox-show-self-replies",
-    title: "Conversations where I replied last",
-    to: "/settings/features",
-    scope: "environment-defaults",
-    searchTerms: ["inbox notifications filters hide answered own self replies Slack Linear email"],
   },
   {
     id: "notification-inbox",

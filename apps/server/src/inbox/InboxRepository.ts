@@ -16,6 +16,7 @@ import {
   InboxState,
   ProjectId,
   type ThreadId,
+  type InboxListFilters,
 } from "@t3tools/contracts";
 
 const Receipt = Schema.Struct({
@@ -49,7 +50,7 @@ export class InboxRepository extends Context.Service<
     ) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly list: (
       projectId: ProjectId,
-      page?: {
+      page?: InboxListFilters & {
         offset?: number;
         limit?: number;
         search?: string;
@@ -58,7 +59,7 @@ export class InboxRepository extends Context.Service<
         showSelfUpdates?: boolean;
         showSelfReplies?: boolean;
         filterIrrelevant?: boolean;
-        visibility?: "visible" | "filtered" | "all";
+        visibility?: "inbox" | "visible" | "filtered" | "all";
       },
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly relevanceSince: Effect.Effect<number, InboxError>;
@@ -169,15 +170,39 @@ const make = Effect.gen(function* () {
       ).pipe(Effect.map((items) => items[0] ?? null)),
     list: (projectId, page) => {
       const search = page?.search?.toLowerCase() ?? "";
+      const sources = page?.sources ?? [];
+      const selfActivity = page?.selfActivity ?? [];
+      // The current Inbox popover owns category selection; legacy visibility modes retain
+      // their saved preference semantics for older clients.
+      const filterIrrelevant = page?.visibility === "inbox" || (page?.filterIrrelevant ?? true);
+      const showSelfUpdates = page?.visibility === "inbox" || (page?.showSelfUpdates ?? true);
+      const showSelfReplies = page?.visibility === "inbox" || (page?.showSelfReplies ?? true);
       return rows(sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId}
         AND (${page?.summaryReady ?? false}=0 OR json_extract(payload_json, '$.analysis') IS NOT NULL OR json_extract(payload_json, '$.processingError') IS NOT NULL)
         AND (${page?.visibility === "all"}=1 OR coalesce((
           coalesce(json_extract(payload_json, '$.state.irrelevant'),0)=1
-          OR (${page?.filterIrrelevant ?? true}=1 AND json_extract(payload_json, '$.state.irrelevant') IS NOT 0
+          OR (${filterIrrelevant}=1 AND json_extract(payload_json, '$.state.irrelevant') IS NOT 0
             AND json_extract(payload_json, '$.relevance.status')='complete' AND json_extract(payload_json, '$.relevance.irrelevant')=1)
-          OR (${page?.showSelfUpdates ?? true}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='update')
-          OR (${page?.showSelfReplies ?? true}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='reply')
+          OR (${showSelfUpdates}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='update')
+          OR (${showSelfReplies}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='reply')
         ),0) IS ${page?.visibility === "filtered" ? 1 : 0})
+        AND (${sources.length === 0}=1
+          OR (${sources.includes("slack")}=1 AND json_extract(payload_json, '$.source')='slack')
+          OR (${sources.includes("linear")}=1 AND json_extract(payload_json, '$.source')='linear')
+          OR (${sources.includes("superhuman")}=1 AND json_extract(payload_json, '$.source')='superhuman'))
+        AND (${page?.unreadOnly ?? false}=0 OR coalesce(json_extract(payload_json, '$.state.read'),0)=0)
+        AND (${page?.irrelevantOnly ?? false}=0 OR coalesce((
+          json_extract(payload_json, '$.state.irrelevant')=1
+          OR (json_extract(payload_json, '$.state.irrelevant') IS NOT 0
+            AND json_extract(payload_json, '$.relevance.status')='complete'
+            AND json_extract(payload_json, '$.relevance.irrelevant')=1)
+        ),0)=1)
+        AND (${selfActivity.length === 0}=1 OR (
+          coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND (
+            (${selfActivity.includes("reply")}=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='reply')
+            OR (${selfActivity.includes("update")}=1 AND json_extract(payload_json, '$.replyCursor.kind')='update')
+          )
+        ))
         AND (${page?.threadId ?? null} IS NULL OR thread_id=${page?.threadId ?? null})
         AND (${search}='' OR instr(lower(coalesce(json_extract(payload_json, '$.analysis.summary'), '')), ${search}) > 0 OR EXISTS (
           SELECT 1 FROM json_each(inbox_notifications.payload_json, '$.items') AS item

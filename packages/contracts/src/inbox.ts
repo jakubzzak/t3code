@@ -308,13 +308,24 @@ export const InboxNotification = Schema.Struct({
 });
 export type InboxNotification = typeof InboxNotification.Type;
 export const InboxListInput = Schema.Struct({
-  visibility: Schema.optionalKey(Schema.Literals(["visible", "filtered", "all"])),
+  sources: Schema.optionalKey(Schema.Array(InboxSource).check(Schema.isMaxLength(3))),
+  unreadOnly: Schema.optionalKey(Schema.Boolean),
+  irrelevantOnly: Schema.optionalKey(Schema.Boolean),
+  selfActivity: Schema.optionalKey(
+    Schema.Array(Schema.Literals(["reply", "update"])).check(Schema.isMaxLength(2)),
+  ),
+  visibility: Schema.optionalKey(Schema.Literals(["inbox", "visible", "filtered", "all"])),
   projectId: ProjectId,
   offset: Schema.optionalKey(NonNegativeInt),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 101 }))),
   search: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(500))),
   threadId: Schema.optionalKey(ThreadId),
 });
+export type InboxListInput = typeof InboxListInput.Type;
+export type InboxListFilters = Pick<
+  InboxListInput,
+  "sources" | "unreadOnly" | "irrelevantOnly" | "selfActivity"
+>;
 export const InboxMutation = Schema.Union([
   Schema.Struct({ type: Schema.Literal("irrelevant"), irrelevant: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("ignore-reply") }),

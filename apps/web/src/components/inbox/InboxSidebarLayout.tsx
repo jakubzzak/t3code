@@ -1,5 +1,8 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { isInboxNotificationVisible } from "@t3tools/shared/inboxVisibility";
+import {
+  isInboxNotificationVisible,
+  matchesInboxListFilters,
+} from "@t3tools/shared/inboxVisibility";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { inboxSuggestedPrompt } from "@t3tools/shared/inboxSuggestions";
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -15,6 +18,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   CommandId,
   type InboxMutation,
+  type InboxListFilters,
   type InboxNotification,
   type InboxSource,
   type ScopedProjectRef,
@@ -420,9 +424,11 @@ export function InboxSidebarLayout({
   const [debouncedQuery] = useDebouncedValue(query, { wait: 350 });
   const [paging, setPaging] = useState({ query: "", pages: 1 });
   const pages = paging.query === debouncedQuery ? paging.pages : 1;
-  const [selectedSources, setSources] = useState(sources);
+  const [selectedSources, setSources] = useState<InboxSource[]>([]);
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [visibility, setVisibility] = useState<"visible" | "filtered" | "all">("visible");
+  const [irrelevantOnly, setIrrelevantOnly] = useState(false);
+  const [selfActivity, setSelfActivity] = useState<Array<"reply" | "update">>([]);
+  const [focusedUnread, setFocusedUnread] = useState<(Entry & { index: number }) | null>(null);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const focusedRef = useRef<string | null>(null);
   const [hints, setHints] = useState(false);
@@ -436,6 +442,31 @@ export function InboxSidebarLayout({
   const searchRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const command = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
+  const effectiveVisibility = irrelevantOnly ? "all" : "inbox";
+  const filters = useMemo<InboxListFilters>(
+    () => ({ sources: selectedSources, unreadOnly, irrelevantOnly, selfActivity }),
+    [selectedSources, unreadOnly, irrelevantOnly, selfActivity],
+  );
+  const hasFilters =
+    selectedSources.length > 0 || unreadOnly || irrelevantOnly || selfActivity.length > 0;
+  function resetFilterFocus() {
+    setPaging({ query: debouncedQuery, pages: 1 });
+    focusedRef.current = null;
+    setFocusedKey(null);
+    setFocusedUnread(null);
+  }
+  function clearFilters() {
+    setSources([]);
+    setUnreadOnly(false);
+    setIrrelevantOnly(false);
+    setSelfActivity([]);
+    resetFilterFocus();
+  }
+  function changeQuery(value: string) {
+    setQuery(value);
+    resetFilterFocus();
+  }
+
   const atoms = useMemo(
     () =>
       projects.flatMap(({ environmentId, projectId }) =>
@@ -446,7 +477,8 @@ export function InboxSidebarLayout({
             environmentId,
             input: {
               projectId,
-              visibility,
+              visibility: effectiveVisibility,
+              ...filters,
               offset: page * 100,
               // One overlapping item lets the tab detect overflow without loading another page.
               limit: 101,
@@ -455,7 +487,7 @@ export function InboxSidebarLayout({
           }),
         })),
       ),
-    [projects, debouncedQuery, pages, visibility],
+    [projects, debouncedQuery, pages, effectiveVisibility, filters],
   );
   const results = useAtomValue(
     useMemo(
@@ -491,8 +523,12 @@ export function InboxSidebarLayout({
   const hasMore = results.some(
     ({ result }, index) =>
       index % pages === pages - 1 &&
-      (Option.getOrNull(AsyncResult.value(result))?.length ?? 0) >= 100,
+      (Option.getOrNull(AsyncResult.value(result))?.length ?? 0) > 100,
   );
+  const countsComplete =
+    !hasMore &&
+    results.length === atoms.length &&
+    results.every(({ result }) => result._tag === "Success" && !result.waiting);
   const sourceErrors = results
     .filter((_, index) => index % pages === 0)
     .flatMap(({ connections }) =>
@@ -537,13 +573,42 @@ export function InboxSidebarLayout({
           },
         ]
       : loadedEntries;
-  const entries = unfilteredEntries.filter(({ environmentId, notification }) =>
-    isInboxNotificationVisible(
-      notification,
-      serverConfigs.get(environmentId)?.settings,
-      visibility,
-    ),
-  );
+  const pinnedInScope =
+    unreadOnly &&
+    focusedUnread &&
+    focusedKey === keyOf(focusedUnread) &&
+    projects.some(
+      (project) =>
+        project.environmentId === focusedUnread.environmentId &&
+        project.projectId === focusedUnread.notification.projectId,
+    );
+  const withFocusedUnread =
+    pinnedInScope && !unfilteredEntries.some((entry) => keyOf(entry) === keyOf(focusedUnread))
+      ? [
+          ...unfilteredEntries.slice(0, focusedUnread.index),
+          {
+            ...focusedUnread,
+            notification: overrides[keyOf(focusedUnread)] ?? focusedUnread.notification,
+          },
+          ...unfilteredEntries.slice(focusedUnread.index),
+        ]
+      : unfilteredEntries;
+  const entries = withFocusedUnread
+    .filter(
+      ({ environmentId, notification }) =>
+        isInboxNotificationVisible(
+          notification,
+          serverConfigs.get(environmentId)?.settings,
+          effectiveVisibility,
+        ) &&
+        matchesInboxListFilters(
+          notification,
+          pinnedInScope && keyOf({ environmentId, notification }) === keyOf(focusedUnread)
+            ? { ...filters, unreadOnly: false }
+            : filters,
+        ),
+    )
+    .sort((a, b) => b.notification.updatedAt.localeCompare(a.notification.updatedAt));
   function openSettings(section: "features" | "integrations") {
     const focused = entries.find((entry) => keyOf(entry) === focusedKey);
     const projectId = focused?.notification.projectId ?? projects[0]?.projectId;
@@ -621,8 +686,6 @@ export function InboxSidebarLayout({
     if (!revealId) return;
     const entry = entries.find((candidate) => candidate.notification.id === revealId);
     if (!entry) return;
-    setSources(sources);
-    setUnreadOnly(false);
     setQuery("");
     const placement = entry.notification.state.placement;
     setOpenSection(placement === "active" ? null : placement);
@@ -650,7 +713,7 @@ export function InboxSidebarLayout({
       const advancing =
         (action.type === "resolve" && action.resolved && n.state.placement !== "resolved") ||
         (action.type === "snooze" && action.until !== null && n.state.placement !== "snoozed") ||
-        (action.type === "irrelevant" && visibility !== "all");
+        action.type === "irrelevant";
       const priorRows = advancing
         ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? [])]
         : [];
@@ -697,11 +760,12 @@ export function InboxSidebarLayout({
             advancing &&
             (next.state.placement !== n.state.placement ||
               (action.type === "irrelevant" &&
-                !isInboxNotificationVisible(
+                (!isInboxNotificationVisible(
                   next,
                   serverConfigs.get(entry.environmentId)?.settings,
-                  visibility,
-                )))
+                  effectiveVisibility,
+                ) ||
+                  !matchesInboxListFilters(next, { ...filters, unreadOnly: false }))))
           ) {
             const rows = [
               ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
@@ -766,6 +830,11 @@ export function InboxSidebarLayout({
     if (focusedRef.current === key) return;
     focusedRef.current = key;
     setFocusedKey(key);
+    setFocusedUnread(
+      unreadOnly && !entry.notification.state.read
+        ? { ...entry, index: entries.indexOf(entry) }
+        : null,
+    );
     if (!entry.notification.state.read)
       void mutate(entry, { type: "read", read: true }, recordReadUndo);
   }
@@ -815,11 +884,7 @@ export function InboxSidebarLayout({
       if (success) setUndo((current) => current.slice(0, -1));
     });
   }
-  const filtered = entries.filter(
-    (entry) =>
-      selectedSources.includes(entry.notification.source) &&
-      (!unreadOnly || !entry.notification.state.read || keyOf(entry) === focusedKey),
-  );
+  const filtered = entries;
   const visible = filtered.filter(
     ({ notification: n }) => n.state.placement === "active" || openSection === n.state.placement,
   );
@@ -948,19 +1013,16 @@ export function InboxSidebarLayout({
             },
             {
               value: "inbox",
-              label:
-                visibility === "filtered"
-                  ? "Filtered"
-                  : visibility === "all"
-                    ? "All notifications"
-                    : "Inbox",
+              label: "Inbox",
               endAdornment: sourceErrors.length ? (
                 <InboxIntegrationStatus connections={sourceErrors} />
               ) : undefined,
-              ...(visibility === "visible"
+              ...(countsComplete
                 ? {
                     count: entries.filter(
-                      (entry) => entry.notification.state.placement === "active",
+                      (entry) =>
+                        entry.notification.state.placement === "active" &&
+                        matchesInboxListFilters(entry.notification, filters),
                     ).length,
                   }
                 : {}),
@@ -984,7 +1046,7 @@ export function InboxSidebarLayout({
             searchInputRef={searchRef}
             searchLabel="Search notifications"
             searchQuery={query}
-            onSearchQueryChange={setQuery}
+            onSearchQueryChange={changeQuery}
             onSearchKeyDown={(event) => {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
@@ -994,7 +1056,7 @@ export function InboxSidebarLayout({
             isSearching={query.length > 0}
             searchResultCount={0}
             activeSearchResultIndex={0}
-            onClearSearch={() => setQuery("")}
+            onClearSearch={() => changeQuery("")}
             actions={
               <>
                 <Popover>
@@ -1003,46 +1065,23 @@ export function InboxSidebarLayout({
                   </PopoverTrigger>
                   <PopoverPopup>
                     <div className="space-y-2 text-xs">
-                      <fieldset className="space-y-2 border-b pb-2">
-                        <legend className="sr-only">Notification visibility</legend>
-                        {(
-                          [
-                            ["visible", "Inbox"],
-                            ["filtered", "Filtered"],
-                            ["all", "All notifications"],
-                          ] as const
-                        ).map(([value, label]) => (
-                          <label key={value} className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="inbox-visibility"
-                              value={value}
-                              checked={visibility === value}
-                              onChange={() => {
-                                setVisibility(value);
-                                setPaging({ query: debouncedQuery, pages: 1 });
-                                focusedRef.current = null;
-                                setFocusedKey(null);
-                              }}
-                            />
-                            {label}
-                          </label>
-                        ))}
-                      </fieldset>
                       {sources.map((source) => (
                         <label key={source} className="flex items-center gap-2">
                           <input
                             type="checkbox"
                             checked={selectedSources.includes(source)}
-                            onChange={(event) =>
+                            onChange={(event) => {
                               setSources((current) =>
                                 event.target.checked
                                   ? [...current, source]
                                   : current.filter((value) => value !== source),
-                              )
-                            }
+                              );
+                              resetFilterFocus();
+                            }}
                           />
-                          <InboxSourceLogo source={source} />
+                          <span aria-hidden="true">
+                            <InboxSourceLogo source={source} />
+                          </span>
                           {source === "superhuman"
                             ? "Superhuman"
                             : source === "slack"
@@ -1054,10 +1093,51 @@ export function InboxSidebarLayout({
                         <input
                           type="checkbox"
                           checked={unreadOnly}
-                          onChange={(event) => setUnreadOnly(event.target.checked)}
+                          onChange={(event) => {
+                            setUnreadOnly(event.target.checked);
+                            resetFilterFocus();
+                          }}
                         />
-                        Unread only
+                        Unread
                       </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={irrelevantOnly}
+                          onChange={(event) => {
+                            setIrrelevantOnly(event.target.checked);
+                            resetFilterFocus();
+                          }}
+                        />
+                        Irrelevant
+                      </label>
+                      {(
+                        [
+                          ["reply", "Last message from me"],
+                          ["update", "Last update from me"],
+                        ] as const
+                      ).map(([kind, label]) => (
+                        <label key={kind} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={selfActivity.includes(kind)}
+                            onChange={(event) => {
+                              setSelfActivity((current) =>
+                                event.target.checked
+                                  ? [...current, kind]
+                                  : current.filter((value) => value !== kind),
+                              );
+                              resetFilterFocus();
+                            }}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                      {hasFilters && (
+                        <Button size="sm" variant="ghost" onClick={clearFilters}>
+                          Clear filters
+                        </Button>
+                      )}
                     </div>
                   </PopoverPopup>
                 </Popover>
@@ -1101,6 +1181,7 @@ export function InboxSidebarLayout({
                     if (!event.currentTarget.contains(event.relatedTarget)) {
                       setHints(false);
                       focusedRef.current = null;
+                      setFocusedUnread(null);
                     }
                   }}
                   className="flex flex-1 flex-col outline-none"
@@ -1133,10 +1214,7 @@ export function InboxSidebarLayout({
                   {filtered.filter((entry) => entry.notification.state.placement === "active")
                     .length === 0 && (
                     <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                      {query ||
-                      unreadOnly ||
-                      selectedSources.length < sources.length ||
-                      visibility !== "visible"
+                      {query || hasFilters
                         ? "No matching notifications"
                         : results.some(({ result }) => isInboxInitialLoad(result))
                           ? "Loading notifications…"
@@ -1167,7 +1245,13 @@ export function InboxSidebarLayout({
                             <CollapsibleSectionHeader
                               variant="plain"
                               expanded={expanded}
-                              count={group.length}
+                              {...(countsComplete
+                                ? {
+                                    count: group.filter((entry) =>
+                                      matchesInboxListFilters(entry.notification, filters),
+                                    ).length,
+                                  }
+                                : {})}
                               tone={
                                 placement === "snoozed" ? "info" : expanded ? "emphasized" : "muted"
                               }

@@ -1203,6 +1203,8 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INBOX_SUMMARY_PROMPT)),
   ),
   inboxSummaryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Retained for older clients' visibility preferences. New intake always assesses
+  // relevance with summaries; the current Inbox popover owns category visibility.
   inboxFilterIrrelevant: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   inboxIrrelevanceThreshold: Schema.Int.check(Schema.isBetween({ minimum: 75, maximum: 100 })).pipe(
     Schema.withDecodingDefault(Effect.succeed(98)),

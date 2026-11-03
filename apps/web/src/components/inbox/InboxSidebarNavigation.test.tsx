@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, type ReactNode } from "react";
+import { act, type ReactNode, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import {
@@ -8,6 +8,7 @@ import {
   ProjectId,
   ThreadId,
   type InboxNotification,
+  type InboxListInput,
   type InboxSourceConnection,
 } from "@t3tools/contracts";
 import { InboxSidebarLayout } from "./InboxSidebarLayout";
@@ -19,6 +20,8 @@ import { dismissContextMenu } from "~/contextMenuFallback";
 
 const state = vi.hoisted(() => ({
   items: [] as InboxNotification[],
+  resultPages: null as InboxNotification[][] | null,
+  incompleteResult: null as "initial" | "refreshing" | "failure" | null,
   connections: [] as InboxSourceConnection[],
   navigate: vi.fn(),
   wait: vi.fn(),
@@ -27,6 +30,9 @@ const state = vi.hoisted(() => ({
   summary: false,
   resolutions: false,
   canWrite: true,
+  includeFilters: false,
+  hideSelf: false,
+  listInputs: [] as InboxListInput[],
 }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => ({ navigate: state.navigate }) }));
 vi.mock("~/state/entities", () => ({
@@ -38,6 +44,8 @@ vi.mock("~/state/entities", () => ({
           settings: {
             ...DEFAULT_SERVER_SETTINGS,
             inboxEnabled: true,
+            inboxShowSelfReplies: !state.hideSelf,
+            inboxShowSelfUpdates: !state.hideSelf,
             inboxAgentEnabled: true,
             inboxSummaryEnabled: state.summary,
             inboxPreResolution: state.resolutions,
@@ -50,17 +58,23 @@ vi.mock("~/state/entities", () => ({
 vi.mock("../settings/useSettingsProjectGroups", () => ({ useSettingsProjectGroups: () => [] }));
 vi.mock("@effect/atom-react", async () => {
   const { AsyncResult } = await import("effect/reactivity");
+  const Cause = await import("effect/Cause");
   return {
     useAtomValue: (atom: unknown) =>
       atom === null
         ? state.canWrite
-        : [
-            {
-              environmentId: "env",
-              result: AsyncResult.success(state.items),
-              connections: AsyncResult.success(state.connections),
-            },
-          ],
+        : (state.resultPages ?? [state.items]).map((items, index) => ({
+            environmentId: "env",
+            result:
+              index !== 1 || state.incompleteResult === null
+                ? AsyncResult.success(items)
+                : state.incompleteResult === "initial"
+                  ? AsyncResult.initial(true)
+                  : state.incompleteResult === "refreshing"
+                    ? AsyncResult.waiting(AsyncResult.success(items))
+                    : AsyncResult.failure(Cause.fail("Project unavailable")),
+            connections: AsyncResult.success(state.connections),
+          })),
   };
 });
 vi.mock("~/rpc/atomRegistry", () => ({
@@ -69,7 +83,10 @@ vi.mock("~/rpc/atomRegistry", () => ({
 vi.mock("~/state/inbox", () => ({
   readInboxNotification: (...args: unknown[]) => state.read(...args),
   inboxEnvironment: {
-    list: () => null,
+    list: ({ input }: { input: InboxListInput }) => {
+      state.listInputs.push(input);
+      return null;
+    },
     sources: () => null,
     get: () => null,
     mutate: { permissionAtom: () => null },
@@ -92,8 +109,11 @@ vi.mock("../ui/sidebar", () => ({
   SidebarGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("../sidebar/SidebarThreadHeader", () => ({
-  SidebarThreadHeader: () => null,
-  SidebarHeaderIconButton: () => null,
+  SidebarThreadHeader: ({ actions }: { actions: ReactNode }) =>
+    state.includeFilters ? <div>{actions}</div> : null,
+  SidebarHeaderIconButton: ({ label, ...props }: ComponentProps<"button"> & { label: string }) => (
+    <button {...props} aria-label={label} />
+  ),
 }));
 vi.mock("./InboxNotificationContent", () => ({
   InboxSummary: () => <p>Review release</p>,
@@ -157,9 +177,14 @@ afterEach(async () => {
   root = createRoot(container);
   vi.clearAllMocks();
   state.connections = [];
+  state.resultPages = null;
+  state.incompleteResult = null;
   state.summary = false;
   state.resolutions = false;
   state.canWrite = true;
+  state.includeFilters = false;
+  state.hideSelf = false;
+  state.listInputs = [];
   useComposerDraftStore.getState().setPrompt({ environmentId, threadId }, "");
 });
 
@@ -839,6 +864,8 @@ it("keeps integration diagnostics out of the list and the status cue out of tab 
     "Slack updates delayed · Last synced 14m ago",
   );
   state.connections = [];
+  state.resultPages = null;
+  state.incompleteResult = null;
   await act(async () => render());
   expect(container.querySelector('button[aria-label="Integration updates delayed"]')).toBeNull();
 });
@@ -955,3 +982,297 @@ it("does not mark irrelevant outside a row, while editing, or without destinatio
   });
   expect(state.mutate).not.toHaveBeenCalled();
 });
+
+async function renderFilterInbox(projectRefs = [{ environmentId, projectId }]) {
+  state.includeFilters = true;
+  useInboxNavigation.setState({ tab: "inbox", revealId: null, revealed: null });
+  await act(async () =>
+    root.render(
+      <InboxSidebarLayout projects={projectRefs} threadRef={null} chatCount={0} chatHeader={null}>
+        <div>Current chat</div>
+      </InboxSidebarLayout>,
+    ),
+  );
+}
+async function openFilters() {
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>('[aria-label="Filter notifications"]')!.click(),
+  );
+}
+function facet(label: string) {
+  return [...document.querySelectorAll("label")]
+    .find((element) => element.textContent?.trim() === label)!
+    .querySelector<HTMLInputElement>("input")!;
+}
+async function toggleFacet(label: string) {
+  await act(async () => facet(label).click());
+}
+const inboxTabText = () =>
+  [...container.querySelectorAll('[role="tab"]')].find((tab) =>
+    tab.textContent?.startsWith("Inbox"),
+  )?.textContent;
+const rowIds = () =>
+  [...container.querySelectorAll<HTMLElement>("[data-inbox-row]")].map(
+    (row) => row.dataset.inboxRow,
+  );
+it("starts with unticked facets, independently reveals hidden matches, combines categories, and clears filters", async () => {
+  state.hideSelf = true;
+  state.items = [
+    { ...notification, id: "plain" },
+    { ...notification, id: "irrelevant", state: { ...notification.state, irrelevant: true } },
+    {
+      ...notification,
+      id: "reply",
+      replyCursor: { id: "reply", occurredAt: notification.updatedAt, isSelf: true, kind: "reply" },
+    },
+    {
+      ...notification,
+      id: "update",
+      source: "linear",
+      replyCursor: {
+        id: "update",
+        occurredAt: notification.updatedAt,
+        isSelf: true,
+        kind: "update",
+      },
+    },
+    {
+      ...notification,
+      id: "both",
+      state: { ...notification.state, irrelevant: true },
+      replyCursor: { id: "both", occurredAt: notification.updatedAt, isSelf: true, kind: "reply" },
+    },
+  ];
+  await renderFilterInbox();
+  expect(rowIds()).toEqual(["env:plain", "env:reply", "env:update"]);
+  await openFilters();
+  expect(
+    [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].every(
+      (input) => !input.checked,
+    ),
+  ).toBe(true);
+  await toggleFacet("Irrelevant");
+  expect(rowIds()).toEqual(["env:irrelevant", "env:both"]);
+  expect(state.listInputs.at(-1)).toMatchObject({ visibility: "all", irrelevantOnly: true });
+  await toggleFacet("Last message from me");
+  expect(rowIds()).toEqual(["env:both"]);
+  await toggleFacet("Irrelevant");
+  expect(rowIds()).toEqual(["env:reply"]);
+  await toggleFacet("Last update from me");
+  expect(rowIds()).toEqual(["env:reply", "env:update"]);
+  await toggleFacet("Linear");
+  expect(rowIds()).toEqual(["env:update"]);
+  await toggleFacet("Slack");
+  expect(rowIds()).toEqual(["env:reply", "env:update"]);
+  const clear = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Clear filters",
+  )!;
+  await act(async () => clear.click());
+  expect(rowIds()).toEqual(["env:plain", "env:reply", "env:update"]);
+  expect(state.listInputs.at(-1)).toMatchObject({
+    visibility: "inbox",
+    sources: [],
+    selfActivity: [],
+    irrelevantOnly: false,
+    unreadOnly: false,
+    offset: 0,
+  });
+});
+it("pins only the unread row opened by focus when a refreshed server page omits it", async () => {
+  const first = { ...notification, id: "first", state: { ...notification.state, read: false } };
+  const second = { ...notification, id: "second", state: { ...notification.state, read: false } };
+  state.items = [first, second, { ...notification, id: "already-read" }];
+  state.mutate.mockImplementation(async ({ input }: { input: { id: string } }) => ({
+    _tag: "Success",
+    value: {
+      notification: {
+        ...(input.id === "first" ? first : second),
+        revision: 1,
+        state: { ...notification.state, read: true },
+      },
+      openThread: false,
+      undoCommandId: null,
+    },
+  }));
+  await renderFilterInbox();
+  await openFilters();
+  await toggleFacet("Unread");
+  expect(rowIds()).toEqual(["env:first", "env:second"]);
+  expect(inboxTabText()).toBe("Inbox2");
+  await openFilters();
+  await act(async () =>
+    container.querySelector<HTMLElement>('[data-inbox-row="env:first"]')!.focus(),
+  );
+  state.items = [second];
+  await renderFilterInbox();
+  expect(rowIds()).toEqual(["env:first", "env:second"]);
+  expect(inboxTabText()).toBe("Inbox1");
+  await act(async () =>
+    container.querySelector<HTMLElement>('[data-inbox-row="env:second"]')!.focus(),
+  );
+  expect(rowIds()).toEqual(["env:second"]);
+  expect(inboxTabText()).toBe("Inbox");
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>('[aria-label="Filter notifications"]')!.focus(),
+  );
+  expect(rowIds()).toEqual([]);
+});
+it("resets paged queries when a facet changes", async () => {
+  state.items = Array.from({ length: 101 }, (_, index) => ({
+    ...notification,
+    id: `row-${index}`,
+  }));
+  await renderFilterInbox();
+  const load = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+    button.textContent?.includes("Load more"),
+  )!;
+  await act(async () => load.click());
+  expect(state.listInputs.at(-1)?.offset).toBe(100);
+  await openFilters();
+  await toggleFacet("Slack");
+  expect(state.listInputs.at(-1)).toMatchObject({ offset: 0, sources: ["slack"] });
+});
+
+it("restores an irrelevant match explicitly, advances focus, and lets Undo return it to review", async () => {
+  const first = {
+    ...notification,
+    id: "irrelevant-first",
+    state: { ...notification.state, irrelevant: true },
+  };
+  const second = {
+    ...notification,
+    id: "irrelevant-second",
+    state: { ...notification.state, irrelevant: true },
+  };
+  state.items = [first, second];
+  state.mutate.mockImplementation(
+    async ({
+      input,
+    }: {
+      input: { id: string; action: { type: string; irrelevant?: boolean } };
+    }) => ({
+      _tag: "Success",
+      value: {
+        notification: {
+          ...(input.id === first.id ? first : second),
+          revision: input.action.type === "undo" ? 2 : 1,
+          state: {
+            ...notification.state,
+            irrelevant: input.action.type === "undo" ? true : input.action.irrelevant,
+          },
+        },
+        openThread: false,
+        undoCommandId: input.action.type === "undo" ? null : "restore-reference",
+      },
+    }),
+  );
+  await renderFilterInbox();
+  await openFilters();
+  await toggleFacet("Irrelevant");
+  await openFilters();
+  const row = container.querySelector<HTMLElement>('[data-inbox-row="env:irrelevant-first"]')!;
+  await act(async () => row.focus());
+  await act(async () =>
+    row.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "i", metaKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(rowIds()).toEqual(["env:irrelevant-second"]);
+  expect(document.activeElement?.getAttribute("data-inbox-row")).toBe("env:irrelevant-second");
+  expect(state.mutate.mock.calls[0]![0].input.action).toEqual({
+    type: "irrelevant",
+    irrelevant: false,
+  });
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(rowIds()).toEqual(["env:irrelevant-first", "env:irrelevant-second"]);
+});
+
+it("does not reveal a notification that fails the selected category or source", async () => {
+  state.items = [
+    {
+      ...notification,
+      id: "match",
+      source: "linear",
+      state: { ...notification.state, irrelevant: true },
+    },
+  ];
+  await renderFilterInbox();
+  await openFilters();
+  await toggleFacet("Irrelevant");
+  await toggleFacet("Linear");
+  await act(async () =>
+    useInboxNavigation.setState({
+      revealed: {
+        environmentId,
+        notification: {
+          ...notification,
+          id: "unmatched",
+          state: { ...notification.state, irrelevant: true },
+        },
+      },
+      revealId: "unmatched",
+    }),
+  );
+  expect(rowIds()).toEqual(["env:match"]);
+});
+
+it("withholds partial page counts and counts active matches after the final page arrives", async () => {
+  const firstPage = Array.from({ length: 101 }, (_, index) => ({
+    ...notification,
+    id: `paged-${index}`,
+    state: {
+      ...notification.state,
+      placement: index < 3 ? ("active" as const) : ("resolved" as const),
+    },
+  }));
+  state.items = firstPage;
+  await renderFilterInbox();
+  expect(inboxTabText()).toBe("Inbox");
+  const load = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+    button.textContent?.includes("Load more"),
+  )!;
+  await act(async () => load.click());
+  state.resultPages = [firstPage, [firstPage[100]!, { ...notification, id: "last-match" }]];
+  await renderFilterInbox();
+  expect(inboxTabText()).toBe("Inbox4");
+  expect(
+    [...container.querySelectorAll("button")].some((button) =>
+      button.textContent?.includes("Load more"),
+    ),
+  ).toBe(false);
+});
+
+it.each(["initial", "refreshing", "failure"] as const)(
+  "withholds tab and shelf totals while another project is %s",
+  async (status) => {
+    const resolved = {
+      ...notification,
+      id: "resolved-match",
+      state: { ...notification.state, placement: "resolved" as const },
+    };
+    state.resultPages = [[notification, resolved], []];
+    state.incompleteResult = status;
+    const projects = [
+      { environmentId, projectId },
+      { environmentId, projectId: ProjectId.make("other-project") },
+    ];
+    await renderFilterInbox(projects);
+    expect(inboxTabText()).toBe("Inbox");
+    const shelf = () =>
+      container.querySelector('[data-inbox-section="resolved"] [data-inbox-section-header]')!
+        .textContent;
+    expect(shelf()).not.toMatch(/\(\d+\)/);
+    if (status === "failure")
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "could not be loaded",
+      );
+    state.incompleteResult = null;
+    await renderFilterInbox(projects);
+    expect(inboxTabText()).toBe("Inbox1");
+    expect(shelf()).toContain("(1)");
+  },
+);

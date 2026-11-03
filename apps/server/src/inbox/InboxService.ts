@@ -19,6 +19,7 @@ import {
   type InboxMutateInput,
   type InboxMutationResult,
   type InboxNotification,
+  type InboxListInput,
   type InboxIrrelevanceReference,
   type InboxSourceItem,
   type InboxSlackThread,
@@ -54,14 +55,9 @@ export class InboxService extends Context.Service<
       projectId: ProjectId;
       offset?: number;
     }) => Effect.Effect<ReadonlyArray<InboxIrrelevanceReference>, InboxError>;
-    readonly list: (input: {
-      visibility?: "visible" | "filtered" | "all";
-      projectId: ProjectId;
-      search?: string;
-      offset?: number;
-      limit?: number;
-      threadId?: ThreadId;
-    }) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
+    readonly list: (
+      input: InboxListInput,
+    ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
     readonly get: (input: {
       projectId: ProjectId;
       id: string;
@@ -1257,8 +1253,7 @@ const make = Effect.gen(function* () {
                 freshIncoming &&
                 incomingAt &&
                 Date.parse(incomingAt) >= Math.max(relevanceSince, options?.relevanceSince ?? 0) &&
-                config.inboxSummaryEnabled &&
-                config.inboxFilterIrrelevant
+                config.inboxSummaryEnabled
               ) {
                 next = {
                   ...next,

@@ -504,3 +504,62 @@ it.effect(
       }).pipe(Effect.provide(f.layer));
     }).pipe(Effect.scoped),
 );
+
+it.effect(
+  "current Inbox hides irrelevant and shows self activity regardless of retired visibility preferences",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* Inbox.InboxService;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          inboxFilterIrrelevant: false,
+          inboxShowSelfReplies: false,
+          inboxShowSelfUpdates: false,
+        });
+        const incoming = message("incoming");
+        yield* service.ingest(projectId, [incoming, message("self-reply"), message("self-update")]);
+        yield* service.drainAnalysis;
+        yield* service.ingest(
+          projectId,
+          (["reply", "update"] as const).map((kind) => ({
+            ...message(`self-${kind}`),
+            replyActivity: [
+              { id: `self-${kind}`, kind, isSelf: true, occurredAt: "2026-11-03T13:00:00Z" },
+            ],
+          })),
+        );
+        yield* service.drainAnalysis;
+        assert.equal(
+          (yield* service.get({ projectId, id: inboxIdentity(projectId, incoming) }))?.relevance
+            ?.irrelevant,
+          true,
+        );
+        assert.deepEqual(
+          (yield* service.list({ projectId, visibility: "inbox" }))
+            .map((row) => row.items[0]!.id)
+            .sort(),
+          ["self-reply", "self-update"],
+        );
+        assert.deepEqual(
+          (yield* service.list({ projectId, visibility: "visible" })).map(
+            (row) => row.items[0]!.id,
+          ),
+          ["incoming"],
+        );
+        assert.deepEqual(
+          (yield* service.list({ projectId, visibility: "inbox", selfActivity: ["update"] })).map(
+            (row) => row.items[0]!.id,
+          ),
+          ["self-update"],
+        );
+        assert.deepEqual(
+          (yield* service.list({ projectId, visibility: "all", irrelevantOnly: true })).map(
+            (row) => row.items[0]!.id,
+          ),
+          ["incoming"],
+        );
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.scoped),
+);

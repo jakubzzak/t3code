@@ -154,27 +154,30 @@ applies when the project and environment are both on **Inherit**.
 
 ## Notification inbox
 
-In **Settings → Features → Inbox filter**, select **All projects** to choose
-which categories to hide: irrelevant notifications, updates caused by you, and
-conversations where you replied last. The categories are independent and apply
-across the selected environments' projects.
+Use the Inbox filter popover to show notifications from selected sources, unread
+items, irrelevant items, or conversations whose last message or update came from
+you. Every checkbox starts unticked. With no selections, all sources and your own
+activity are included; irrelevant items stay hidden. Multiple sources match any
+selected source. The two “from me” options also match either kind of activity;
+other criteria narrow the results together. **Clear filters** restores the default.
 
 Relevance is assessed for new incoming messages alongside their AI summary.
-Choose a minimum confidence from 75–100% (default 98%); threshold changes affect
-future messages, not existing decisions. Existing notifications are not
-reclassified. Messages without an available assessment remain visible.
+In **Settings → Features → Inbox relevance**, choose a minimum confidence from
+75–100% (default 98%). Threshold changes affect future messages, not existing
+decisions. Existing notifications are not reclassified. Messages without an
+available assessment remain visible.
 
 Focus a notification and press **Cmd+I** (Ctrl+I outside macOS) to mark it
 irrelevant and save its original content as a reference for future messages in
-that project. Inspect these under **Saved references**, or use the Inbox's
-filtered view to inspect hidden notifications. Undo reverses the manual mark and
-its feedback. A later incoming request is evaluated again; marking a message
+that project. Inspect **Saved references** in Settings, or check **Irrelevant** in
+the popover to review hidden notifications. Undo reverses the manual mark and its
+feedback. A later incoming request is evaluated again; marking a message
 irrelevant does not mute the sender.
 
-The self-activity categories hide or reveal matching retained notifications
-immediately. Replies sent in a source app are recognized on normal sync. Hidden
-notifications retain their content and enabled background summaries. Unverified
-integration actors remain visible, including ambiguous names.
+Replies sent in a source app are recognized on normal sync. Filters update the
+view without changing notifications or source configuration. Hidden notifications
+retain their content and enabled background summaries. Unverified integration
+actors are not classified as your own activity, including ambiguous names.
 
 Sending a reply or hiding a notification does not settle it. Settle it explicitly
 when finished; settling its linked chat also leaves the notification unchanged.
@@ -182,7 +185,7 @@ Your own reply never reopens a settled item, while another person's later reply
 can bring the conversation back.
 
 Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
-**Settings → Integrations**. Connections and relevance filters are configured explicitly for
+**Settings → Integrations**. Connections and relevance preprocessing are configured explicitly for
 each project. Linear, Slack and Superhuman have separate integration groups. The general view
 shows them disabled; select one project checkout/environment to edit a connection. Connections
 can be configured while Inbox and Linear view are off. Notification collection requires Inbox,

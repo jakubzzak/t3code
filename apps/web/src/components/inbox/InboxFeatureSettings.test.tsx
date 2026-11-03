@@ -177,20 +177,11 @@ it("applies the minimum interval to projects with mixed refresh settings", async
   expect(state.update).toHaveBeenCalledExactlyOnceWith({ inboxRefreshIntervalMinutes: 2 });
 });
 
-it("groups filtering with inverse own-activity controls and a bounded prospective threshold", async () => {
+it("keeps confidence and references in settings without duplicate category switches", async () => {
   await act(async () => root.render(<InboxVisibilitySettings />));
-  expect(container.textContent).toContain("Inbox filter");
-  const own = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Filter updates caused by me"]',
-  )!;
-  expect(own.getAttribute("aria-checked")).toBe("false");
-  await act(async () => own.click());
-  expect(state.update).toHaveBeenLastCalledWith({ inboxShowSelfUpdates: false });
-  const replies = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Filter conversations where I replied last"]',
-  )!;
-  await act(async () => replies.click());
-  expect(state.update).toHaveBeenLastCalledWith({ inboxShowSelfReplies: false });
+  expect(container.textContent).toContain("Inbox relevance");
+  expect(container.querySelector('[role="switch"]')).toBeNull();
+  expect(container.textContent).toContain("Saved references");
   const label = "Irrelevance confidence percentage";
   expect(container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)?.value).toBe("98");
   await edit("75", label);
@@ -199,7 +190,7 @@ it("groups filtering with inverse own-activity controls and a bounded prospectiv
   expect(state.update).toHaveBeenLastCalledWith({ inboxIrrelevanceThreshold: 100 });
   for (const value of ["74", "101", "98.5", ""])
     expect((await edit(value, label)).value).toBe("98");
-  expect(state.update).toHaveBeenCalledTimes(4);
+  expect(state.update).toHaveBeenCalledTimes(2);
 });
 
 it("reviews references after the first hundred and resets paging when the project changes", async () => {

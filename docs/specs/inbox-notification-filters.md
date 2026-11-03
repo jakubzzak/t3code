@@ -8,17 +8,28 @@ explicit examples, inspect retained notifications, and undo their decisions.
 
 ## Scope
 
-Under **Settings → Features → Inbox filter**, expose independent global filter
-categories for **Irrelevant notifications**, **Updates caused by me**, and
-**Conversations where I replied last**. These apply to every project in the
-selected environment; there are no project overrides. Preserve the existing
-self-visibility preferences when presenting them as filter-out switches.
+The Inbox popover is the single place to choose which notifications to show.
+All checkboxes start unticked: Slack, Linear, Superhuman, Unread, Irrelevant,
+Last message from me, and Last update from me. Empty source selection means any
+source. Selected sources combine with OR; the two self-activity options combine
+with OR; source, unread, irrelevance and self-activity groups combine with AND.
 
-Nest **Minimum confidence** and **Saved references** beneath irrelevant
-notifications. Confidence is an integer from 75% through 100%, defaulting to 98%.
-Automatic relevance filtering is enabled by default, but only newly received
-content with successful summary preprocessing can acquire a decision. The
-existing self-activity categories preserve their previous defaults and choices.
+With no selections, the normal Inbox includes self activity but hides manually
+or automatically irrelevant notifications. Selecting Irrelevant reviews those
+items. Selecting self activity alone does not reveal irrelevant content. Clearing
+filters restores that default. These are view filters, not changes to placement,
+read state or source configuration. Apply every predicate before pagination and
+include the selection in query/cache identity. Counts describe matching items and are withheld while any page is incomplete,
+loading or failed; preserve a focused unread item after automatic read acknowledgement until
+focus leaves, without retaining unrelated read items.
+
+Keep **Minimum confidence** and project-scoped **Saved references** under
+**Settings → Features → Inbox relevance**. Remove the duplicate category switches
+from Settings. Confidence is an integer from 75% through 100%, defaulting to 98%.
+Only newly received content with successful summary preprocessing can acquire an
+automatic decision. Old stored visibility preferences do not change the new
+popover's default; retain legacy API behavior for older callers without rewriting
+stored choices.
 
 Web and desktop share this behavior. Native mobile Inbox UI remains deferred by
 the [parent spec](project-notification-inbox.md). No source writes, sender muting,
@@ -62,7 +73,7 @@ separate classification model, or OS/push notification changes are included.
   view. A manual correction can keep a notification relevant; Undo restores the
   prior visibility and reverses that feedback operation, including its reference.
   Preserve idempotency and reject stale concurrent mutations.
-- Saved references are inspectable beneath the irrelevant-notifications setting.
+- Saved references are inspectable beneath the Inbox relevance setting.
   Counts and content come from retained server state, not a client-only cache.
 - Manual filtering does not settle, snooze, delete, disconnect, or alter the
   linked chat. Only explicit user resolution changes an item to Settled. Sending
@@ -84,8 +95,8 @@ must not be the only available state description.
 
 ## Existing self-activity filters
 
-These remain immediate, reversible visibility rules, independent of the
-prospective AI classifier. Changing either category affects retained matching
+The popover self-activity options are immediate, reversible view predicates,
+independent of the prospective AI classifier. They select retained matching
 notifications without polling, reprocessing summaries, or changing placement.
 Ingestion and enabled background summaries continue for hidden records.
 
@@ -121,9 +132,13 @@ An ordinary security alert remains eligible under these self-activity filters.
 5. A new incoming request in a manually filtered conversation is assessed afresh
    and can reappear. The earlier saved example still contains the old message.
    Concurrent analysis cannot overwrite a later manual choice or incoming reply.
-6. Exercise independent and combined filter switches, pagination, search, cached
-   pages, linked-chat detail access, and the retained filtered view. Filter before
-   pagination; controls and counts agree across connected clients.
+6. All seven popover checkboxes start unticked and the default hides irrelevant
+   content while showing self activity. Exercise source OR, self-activity OR and
+   cross-group AND combinations, Clear filters, pagination beyond 100 items,
+   search, cached pages and linked-chat detail access. Filter before pagination;
+   controls and matching counts agree. Retired preferences cannot silently hide
+   self activity in the new Inbox. Unread auto-acknowledgement retains only the
+   focused row until focus leaves.
 7. Send a reply to active and already-settled notifications. Preserve placement;
    the last-reply visibility rule may hide an unresolved item. Settle/reopen the
    linked chat and verify that notification placement remains unchanged.

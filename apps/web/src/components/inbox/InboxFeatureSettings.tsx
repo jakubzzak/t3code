@@ -353,14 +353,11 @@ function InboxSavedReferences() {
   );
 }
 
-/** Filters are global; the examples used by incoming summaries stay project-scoped. */
+/** Confidence is global; examples used by incoming summaries stay project-scoped. */
 export function InboxVisibilitySettings() {
   const settings = useScopedSettings();
   const update = useUpdateScopedSettings();
-  const irrelevantMixed = useScopedSettingsMixed(["inboxFilterIrrelevant"]);
   const thresholdMixed = useScopedSettingsMixed(["inboxIrrelevanceThreshold"]);
-  const updatesMixed = useScopedSettingsMixed(["inboxShowSelfUpdates"]);
-  const repliesMixed = useScopedSettingsMixed(["inboxShowSelfReplies"]);
   const thresholdDraft = useCommitOnBlur(
     thresholdMixed ? "" : String(settings.inboxIrrelevanceThreshold),
     (value) => {
@@ -378,103 +375,55 @@ export function InboxVisibilitySettings() {
     onKeyDown: thresholdDraft.onKeyDown,
   };
   return (
-    <SettingsRow id="inbox-filter" title="Inbox filter">
+    <SettingsRow
+      id="inbox-relevance"
+      title="Inbox relevance"
+      description="Assess new incoming messages with AI summary. Existing messages are not reprocessed."
+    >
       <div className="mt-3 mb-2 divide-y divide-border/50 rounded-lg border border-border/50 bg-muted/15 [&>[data-slot=settings-row]]:rounded-none">
         <SettingsRow
-          id="inbox-filter-irrelevant"
-          title="Irrelevant notifications"
-          description="Assess new incoming messages with AI summary. Existing messages are not reprocessed."
+          id="inbox-irrelevance-threshold"
+          title="Minimum confidence"
+          description="75–100%. Applies to future messages; AI summary must be enabled for their project."
           serverScoped
-          mixed={irrelevantMixed}
-          settingKeys={["inboxFilterIrrelevant"]}
+          mixed={thresholdMixed}
+          settingKeys={["inboxIrrelevanceThreshold"]}
           control={
-            <Switch
-              aria-label="Filter irrelevant notifications"
-              mixed={irrelevantMixed}
-              checked={!irrelevantMixed && settings.inboxFilterIrrelevant}
-              onCheckedChange={(inboxFilterIrrelevant) => update({ inboxFilterIrrelevant })}
-            />
-          }
-        >
-          <div className="mt-2 ml-3 border-l border-border/50 pl-2 [&>[data-slot=settings-row]]:rounded-none">
-            <SettingsRow
-              id="inbox-irrelevance-threshold"
-              title="Minimum confidence"
-              description="75–100%. Applies to future messages; AI summary must be enabled for their project."
-              serverScoped
-              mixed={thresholdMixed}
-              settingKeys={["inboxIrrelevanceThreshold"]}
-              control={
-                <div className="w-full sm:w-72">
-                  <Input
-                    size="sm"
-                    type="number"
-                    min={75}
-                    max={100}
-                    step={1}
-                    aria-label="Irrelevance confidence percentage"
-                    placeholder={thresholdMixed ? "Mixed" : undefined}
-                    disabled={!settings.inboxFilterIrrelevant || irrelevantMixed}
-                    {...threshold}
-                  />
-                  <input
-                    type="range"
-                    min={75}
-                    max={100}
-                    step={1}
-                    aria-label="Minimum irrelevance confidence"
-                    className="mt-2 w-full accent-primary"
-                    disabled={!settings.inboxFilterIrrelevant || irrelevantMixed || thresholdMixed}
-                    {...threshold}
-                    value={Math.max(75, Math.min(100, Number(threshold.value) || 98))}
-                    onPointerUp={threshold.onBlur}
-                    onKeyUp={(event) => {
-                      if (
-                        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(
-                          event.key,
-                        )
-                      )
-                        threshold.onBlur();
-                    }}
-                  />
-                </div>
-              }
-            />
-            <InboxSavedReferences />
-          </div>
-        </SettingsRow>
-        <SettingsRow
-          id="inbox-show-self-updates"
-          title="Updates caused by me"
-          serverScoped
-          mixed={updatesMixed}
-          settingKeys={["inboxShowSelfUpdates"]}
-          inheritedChecked={!settings.inboxShowSelfUpdates}
-          control={
-            <Switch
-              aria-label="Filter updates caused by me"
-              mixed={updatesMixed}
-              checked={!updatesMixed && !settings.inboxShowSelfUpdates}
-              onCheckedChange={(hide) => update({ inboxShowSelfUpdates: !hide })}
-            />
+            <div className="w-full sm:w-72">
+              <Input
+                size="sm"
+                type="number"
+                min={75}
+                max={100}
+                step={1}
+                aria-label="Irrelevance confidence percentage"
+                placeholder={thresholdMixed ? "Mixed" : undefined}
+                {...threshold}
+              />
+              <input
+                type="range"
+                min={75}
+                max={100}
+                step={1}
+                aria-label="Minimum irrelevance confidence"
+                className="mt-2 w-full accent-primary"
+                disabled={thresholdMixed}
+                {...threshold}
+                value={Math.max(75, Math.min(100, Number(threshold.value) || 98))}
+                onPointerUp={threshold.onBlur}
+                onKeyUp={(event) => {
+                  if (
+                    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(
+                      event.key,
+                    )
+                  )
+                    threshold.onBlur();
+                }}
+              />
+            </div>
           }
         />
-        <SettingsRow
-          id="inbox-show-self-replies"
-          title="Conversations where I replied last"
-          serverScoped
-          mixed={repliesMixed}
-          settingKeys={["inboxShowSelfReplies"]}
-          inheritedChecked={!settings.inboxShowSelfReplies}
-          control={
-            <Switch
-              aria-label="Filter conversations where I replied last"
-              mixed={repliesMixed}
-              checked={!repliesMixed && !settings.inboxShowSelfReplies}
-              onCheckedChange={(hide) => update({ inboxShowSelfReplies: !hide })}
-            />
-          }
-        />
+        <InboxSavedReferences />
       </div>
     </SettingsRow>
   );
