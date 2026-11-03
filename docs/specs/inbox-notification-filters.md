@@ -8,20 +8,28 @@ explicit examples, inspect retained notifications, and undo their decisions.
 
 ## Scope
 
-The Inbox popover is the single place to choose which notifications to show.
-All checkboxes start unticked: Slack, Linear, Superhuman, Unread, Irrelevant,
-Last message from me, and Last update from me. Empty source selection means any
-source. Selected sources combine with OR; the two self-activity options combine
-with OR; source, unread, irrelevance and self-activity groups combine with AND.
+The Inbox popover is the single place to choose which notifications to include.
+Use two visible groups: **Sources** and **Include**. All three sources (Slack,
+Linear, Superhuman) and **Unread** start checked. **Irrelevant**, **Last message
+from me** and **Last update from me** start unchecked. There is no Clear filters
+CTA. Selected sources combine with OR; explicitly deselecting every source shows
+no notifications.
 
-With no selections, the normal Inbox includes self activity but hides manually
-or automatically irrelevant notifications. Selecting Irrelevant reviews those
-items. Selecting self activity alone does not reveal irrelevant content. Clearing
-filters restores that default. These are view filters, not changes to placement,
-read state or source configuration. Apply every predicate before pagination and
-include the selection in query/cache identity. Counts describe matching items and are withheld while any page is incomplete,
-loading or failed; preserve a focused unread item after automatic read acknowledgement until
-focus leaves, without retaining unrelated read items.
+The Include choices are permissions for categories, not exclusive search facets.
+Ordinary read, relevant incoming notifications form the base. Unchecking Unread
+excludes unread items; checking Irrelevant admits irrelevant content; checking
+either self-activity option admits that kind of own activity. Every applicable
+category must be enabled: checking Unread cannot bypass an unchecked Irrelevant
+or self-activity option. Enabling an Include option can add notifications without
+removing the ordinary base results. A manual keep-relevant correction overrides
+the automatic irrelevance decision.
+
+These choices do not change placement, read state or source configuration. Apply
+all predicates before pagination and include selections in query/cache identity.
+Counts describe matching items and are withheld while any page is incomplete,
+loading or failed. Automatically marking a selected notification read does not
+remove it, because ordinary read items remain included; no focused-row exception
+is needed.
 
 Keep **Minimum confidence** and project-scoped **Saved references** under
 **Settings → Features → Inbox relevance**. Remove the duplicate category switches
@@ -96,7 +104,7 @@ must not be the only available state description.
 ## Existing self-activity filters
 
 The popover self-activity options are immediate, reversible view predicates,
-independent of the prospective AI classifier. They select retained matching
+independent of the prospective AI classifier. They include retained matching
 notifications without polling, reprocessing summaries, or changing placement.
 Ingestion and enabled background summaries continue for hidden records.
 
@@ -132,13 +140,13 @@ An ordinary security alert remains eligible under these self-activity filters.
 5. A new incoming request in a manually filtered conversation is assessed afresh
    and can reappear. The earlier saved example still contains the old message.
    Concurrent analysis cannot overwrite a later manual choice or incoming reply.
-6. All seven popover checkboxes start unticked and the default hides irrelevant
-   content while showing self activity. Exercise source OR, self-activity OR and
-   cross-group AND combinations, Clear filters, pagination beyond 100 items,
-   search, cached pages and linked-chat detail access. Filter before pagination;
-   controls and matching counts agree. Retired preferences cannot silently hide
-   self activity in the new Inbox. Unread auto-acknowledgement retains only the
-   focused row until focus leaves.
+6. The Sources and Include headings are visible and no Clear filters CTA exists.
+   All sources and Unread start checked; irrelevant and both self-activity options
+   start unchecked. Verify that enabling each Include option is monotonic, source
+   selections combine with OR, an empty source selection shows none, and all
+   applicable category permissions are required. Exercise pagination beyond 100
+   rows, search, cache refresh, matching counts, manual correction and automatic
+   read acknowledgement. Retired preferences do not alter the new defaults.
 7. Send a reply to active and already-settled notifications. Preserve placement;
    the last-reply visibility rule may hide an unresolved item. Settle/reopen the
    linked chat and verify that notification placement remains unchanged.

@@ -174,10 +174,9 @@ it.effect(
           list({ projectId, visibility: "all", offset: 0, limit: 101 }),
           list({
             projectId,
-            visibility: "inbox",
+            visibility: "all",
             sources: ["slack"],
-            unreadOnly: true,
-            selfActivity: ["reply"],
+            include: { unread: true, irrelevant: false, selfReplies: true, selfUpdates: false },
             offset: 0,
             limit: 101,
           }),

@@ -194,3 +194,132 @@ it("bounds source and activity facets and preserves omitted legacy request field
   assert.throws(() => decodeList({ projectId, selfActivity: ["reply", "update", "reply"] }));
   assert.throws(() => decodeList({ projectId, selfActivity: ["unknown"] }));
 });
+
+const allSources = ["slack", "linear", "superhuman"] as const;
+const defaultInclude = { unread: true, irrelevant: false, selfReplies: false, selfUpdates: false };
+const includeKeys = ["unread", "irrelevant", "selfReplies", "selfUpdates"] as const;
+
+it.effect(
+  "Include controls add categories without removing the ordinary read baseline and require every overlapping gate",
+  () =>
+    Effect.gen(function* () {
+      const repository = yield* Repository.InboxRepository;
+      const readBase = { ...make("base-read"), state: { ...make("base-read").state, read: true } };
+      const rows = [
+        ...seeds,
+        readBase,
+        { ...make("self-reply-read"), state: { ...readBase.state }, replyCursor: activity() },
+        { ...make("irrelevant-read"), state: { ...readBase.state }, relevance: irrelevant },
+        {
+          ...make("irrelevant-unread"),
+          state: { ...make("irrelevant-unread").state, irrelevant: true },
+        },
+      ];
+      for (const row of rows) yield* repository.put(row);
+      yield* repository.put({
+        ...readBase,
+        id: `${readBase.id}-foreign`,
+        projectId: ProjectId.make("foreign"),
+      });
+      const results = new Map<number, string[]>();
+      for (let mask = 0; mask < 16; mask++) {
+        const include = {
+          unread: !!(mask & 1),
+          irrelevant: !!(mask & 2),
+          selfReplies: !!(mask & 4),
+          selfUpdates: !!(mask & 8),
+        };
+        const filters = { sources: allSources, include, visibility: "all" as const };
+        const actual = ids(yield* repository.list(projectId, filters));
+        assert.deepEqual(actual, ids(rows.filter((row) => matchesInboxListFilters(row, filters))));
+        results.set(mask, actual);
+        assert.include(actual, "base-read");
+        assert.equal(
+          actual.includes("manual"),
+          include.unread && include.irrelevant && include.selfReplies,
+        );
+        assert.equal(actual.includes("automatic"), include.irrelevant && include.selfReplies);
+        assert.equal(actual.includes("kept"), include.unread && include.selfUpdates);
+      }
+      assert.deepEqual(results.get(0), ["base-read"]);
+      assert.deepEqual(results.get(1), ["base-read", "normal", "pending"]);
+      for (const [mask, before] of results)
+        for (let bit = 0; bit < includeKeys.length; bit++) {
+          if (mask & (1 << bit)) continue;
+          const after = results.get(mask | (1 << bit))!;
+          assert.equal(
+            before.every((id) => after.includes(id)),
+            true,
+          );
+        }
+      assert.deepEqual(
+        yield* repository.list(projectId, {
+          visibility: "all",
+          sources: [],
+          include: defaultInclude,
+        }),
+        [],
+      );
+      assert.equal(
+        matchesInboxListFilters(readBase, { sources: [], include: defaultInclude }),
+        false,
+      );
+      assert.deepEqual(
+        ids(yield* repository.list(projectId, { visibility: "all", include: defaultInclude })),
+        results.get(1),
+      );
+      assert.deepEqual(
+        ids(
+          yield* repository.list(projectId, {
+            visibility: "all",
+            sources: allSources,
+            include: defaultInclude,
+            unreadOnly: true,
+            irrelevantOnly: true,
+            selfActivity: ["reply"],
+          }),
+        ),
+        results.get(1),
+      );
+    }).pipe(Effect.provide(Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)))),
+);
+
+it.effect(
+  "Include exclusions run before pagination so older ordinary read messages remain reachable",
+  () =>
+    Effect.gen(function* () {
+      const repository = yield* Repository.InboxRepository;
+      for (let index = 0; index < 105; index++)
+        yield* repository.put({ ...make(`own-${index}`), replyCursor: activity("update") });
+      for (const id of ["target-a", "target-b"]) {
+        const row = make(id, "superhuman");
+        yield* repository.put({
+          ...row,
+          state: { ...row.state, read: true },
+          updatedAt: id === "target-a" ? "2026-11-02T12:00:00Z" : "2026-11-02T11:00:00Z",
+        });
+      }
+      const input = {
+        visibility: "all" as const,
+        sources: allSources,
+        include: defaultInclude,
+        limit: 1,
+      };
+      assert.deepEqual(ids(yield* repository.list(projectId, input)), ["target-a"]);
+      assert.deepEqual(ids(yield* repository.list(projectId, { ...input, offset: 1 })), [
+        "target-b",
+      ]);
+    }).pipe(Effect.provide(Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)))),
+);
+
+it("requires an explicit boolean for each Include category without changing legacy input decoding", () => {
+  assert.deepEqual(decodeList({ projectId, include: defaultInclude, sources: [] }), {
+    projectId,
+    include: defaultInclude,
+    sources: [],
+  });
+  assert.throws(() => decodeList({ projectId, include: { unread: true } }));
+  assert.throws(() =>
+    decodeList({ projectId, include: { ...defaultInclude, irrelevant: "false" } }),
+  );
+});

@@ -30,18 +30,31 @@ export function matchesInboxListFilters(
   notification: InboxNotification,
   filters: InboxListFilters | undefined,
 ): boolean {
-  if (filters?.sources?.length && !filters.sources.includes(notification.source)) return false;
-  if (filters?.unreadOnly && notification.state.read) return false;
   if (
-    filters?.irrelevantOnly &&
-    !(
-      notification.state.irrelevant === true ||
-      (notification.state.irrelevant !== false &&
-        notification.relevance?.status === "complete" &&
-        notification.relevance.irrelevant)
-    )
+    filters?.sources &&
+    (filters.include || filters.sources.length > 0) &&
+    !filters.sources.includes(notification.source)
   )
     return false;
+  const irrelevant =
+    notification.state.irrelevant === true ||
+    (notification.state.irrelevant !== false &&
+      notification.relevance?.status === "complete" &&
+      notification.relevance.irrelevant);
+  if (filters?.include) {
+    const include = filters.include;
+    if (!include.unread && !notification.state.read) return false;
+    if (!include.irrelevant && irrelevant) return false;
+    const activity = notification.replyCursor;
+    if (
+      activity?.isSelf &&
+      !(activity.kind === "update" ? include.selfUpdates : include.selfReplies)
+    )
+      return false;
+    return true;
+  }
+  if (filters?.unreadOnly && notification.state.read) return false;
+  if (filters?.irrelevantOnly && !irrelevant) return false;
   if (filters?.selfActivity?.length) {
     const activity = notification.replyCursor;
     if (!activity?.isSelf || !filters.selfActivity.includes(activity.kind ?? "reply")) return false;

@@ -154,12 +154,16 @@ applies when the project and environment are both on **Inherit**.
 
 ## Notification inbox
 
-Use the Inbox filter popover to show notifications from selected sources, unread
-items, irrelevant items, or conversations whose last message or update came from
-you. Every checkbox starts unticked. With no selections, all sources and your own
-activity are included; irrelevant items stay hidden. Multiple sources match any
-selected source. The two “from me” options also match either kind of activity;
-other criteria narrow the results together. **Clear filters** restores the default.
+The Inbox filter popover has **Sources** and **Include** groups. All sources and
+**Unread** are checked by default. Irrelevant notifications and conversations
+whose last message or update came from you stay hidden until you include them.
+Checking an Include option adds that category without replacing ordinary incoming
+notifications. If an item belongs to several optional categories, each must be
+enabled. For example, an unread irrelevant message still needs **Irrelevant** checked.
+
+Uncheck **Unread** to hide unread items; ordinary read notifications remain.
+Source choices include any selected source. Unchecking every source shows no
+notifications. Adjust the individual checkboxes to change the view.
 
 Relevance is assessed for new incoming messages alongside their AI summary.
 In **Settings → Features → Inbox relevance**, choose a minimum confidence from

@@ -1015,11 +1015,17 @@ const rowIds = () =>
   [...container.querySelectorAll<HTMLElement>("[data-inbox-row]")].map(
     (row) => row.dataset.inboxRow,
   );
-it("starts with unticked facets, independently reveals hidden matches, combines categories, and clears filters", async () => {
+it("defaults to all sources and unread, adds included categories, and requires every overlapping gate", async () => {
   state.hideSelf = true;
   state.items = [
     { ...notification, id: "plain" },
+    { ...notification, id: "unread", state: { ...notification.state, read: false } },
     { ...notification, id: "irrelevant", state: { ...notification.state, irrelevant: true } },
+    {
+      ...notification,
+      id: "irrelevant-unread",
+      state: { ...notification.state, irrelevant: true, read: false },
+    },
     {
       ...notification,
       id: "reply",
@@ -1038,84 +1044,82 @@ it("starts with unticked facets, independently reveals hidden matches, combines 
     },
     {
       ...notification,
-      id: "both",
-      state: { ...notification.state, irrelevant: true },
-      replyCursor: { id: "both", occurredAt: notification.updatedAt, isSelf: true, kind: "reply" },
+      id: "overlap",
+      state: { ...notification.state, irrelevant: true, read: false },
+      replyCursor: {
+        id: "overlap",
+        occurredAt: notification.updatedAt,
+        isSelf: true,
+        kind: "reply",
+      },
     },
   ];
   await renderFilterInbox();
-  expect(rowIds()).toEqual(["env:plain", "env:reply", "env:update"]);
+  expect(rowIds()).toEqual(["env:plain", "env:unread"]);
   await openFilters();
-  expect(
-    [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].every(
-      (input) => !input.checked,
-    ),
-  ).toBe(true);
+  expect([...document.querySelectorAll("legend")].map((item) => item.textContent)).toEqual([
+    "Sources",
+    "Include",
+  ]);
+  for (const label of ["Slack", "Linear", "Superhuman", "Unread"])
+    expect(facet(label).checked).toBe(true);
+  for (const label of ["Irrelevant", "Last message from me", "Last update from me"])
+    expect(facet(label).checked).toBe(false);
+  expect(document.body.textContent).not.toContain("Clear filters");
   await toggleFacet("Irrelevant");
-  expect(rowIds()).toEqual(["env:irrelevant", "env:both"]);
-  expect(state.listInputs.at(-1)).toMatchObject({ visibility: "all", irrelevantOnly: true });
+  expect(rowIds()).toEqual(["env:plain", "env:unread", "env:irrelevant", "env:irrelevant-unread"]);
   await toggleFacet("Last message from me");
-  expect(rowIds()).toEqual(["env:both"]);
-  await toggleFacet("Irrelevant");
-  expect(rowIds()).toEqual(["env:reply"]);
+  expect(rowIds()).toEqual([
+    "env:plain",
+    "env:unread",
+    "env:irrelevant",
+    "env:irrelevant-unread",
+    "env:reply",
+    "env:overlap",
+  ]);
+  await toggleFacet("Unread");
+  expect(rowIds()).toEqual(["env:plain", "env:irrelevant", "env:reply"]);
   await toggleFacet("Last update from me");
-  expect(rowIds()).toEqual(["env:reply", "env:update"]);
-  await toggleFacet("Linear");
-  expect(rowIds()).toEqual(["env:update"]);
+  expect(rowIds()).toEqual(["env:plain", "env:irrelevant", "env:reply", "env:update"]);
   await toggleFacet("Slack");
-  expect(rowIds()).toEqual(["env:reply", "env:update"]);
-  const clear = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent === "Clear filters",
-  )!;
-  await act(async () => clear.click());
-  expect(rowIds()).toEqual(["env:plain", "env:reply", "env:update"]);
+  expect(rowIds()).toEqual(["env:update"]);
+  await toggleFacet("Linear");
+  await toggleFacet("Superhuman");
+  expect(rowIds()).toEqual([]);
   expect(state.listInputs.at(-1)).toMatchObject({
-    visibility: "inbox",
+    visibility: "all",
     sources: [],
-    selfActivity: [],
-    irrelevantOnly: false,
-    unreadOnly: false,
+    include: { unread: false, irrelevant: true, selfReplies: true, selfUpdates: true },
     offset: 0,
   });
+  await toggleFacet("Slack");
+  expect(rowIds()).toEqual(["env:plain", "env:irrelevant", "env:reply"]);
 });
-it("pins only the unread row opened by focus when a refreshed server page omits it", async () => {
+it("keeps a newly read notification in the base set after focus and when unread is excluded", async () => {
   const first = { ...notification, id: "first", state: { ...notification.state, read: false } };
   const second = { ...notification, id: "second", state: { ...notification.state, read: false } };
   state.items = [first, second, { ...notification, id: "already-read" }];
-  state.mutate.mockImplementation(async ({ input }: { input: { id: string } }) => ({
+  state.mutate.mockImplementation(async () => ({
     _tag: "Success",
     value: {
-      notification: {
-        ...(input.id === "first" ? first : second),
-        revision: 1,
-        state: { ...notification.state, read: true },
-      },
+      notification: { ...first, revision: 1, state: { ...notification.state, read: true } },
       openThread: false,
       undoCommandId: null,
     },
   }));
   await renderFilterInbox();
-  await openFilters();
-  await toggleFacet("Unread");
-  expect(rowIds()).toEqual(["env:first", "env:second"]);
-  expect(inboxTabText()).toBe("Inbox2");
-  await openFilters();
+  expect(rowIds()).toEqual(["env:first", "env:second", "env:already-read"]);
   await act(async () =>
     container.querySelector<HTMLElement>('[data-inbox-row="env:first"]')!.focus(),
   );
-  state.items = [second];
-  await renderFilterInbox();
-  expect(rowIds()).toEqual(["env:first", "env:second"]);
-  expect(inboxTabText()).toBe("Inbox1");
-  await act(async () =>
-    container.querySelector<HTMLElement>('[data-inbox-row="env:second"]')!.focus(),
-  );
-  expect(rowIds()).toEqual(["env:second"]);
-  expect(inboxTabText()).toBe("Inbox");
-  await act(async () =>
-    container.querySelector<HTMLButtonElement>('[aria-label="Filter notifications"]')!.focus(),
-  );
-  expect(rowIds()).toEqual([]);
+  expect(rowIds()).toEqual(["env:first", "env:second", "env:already-read"]);
+  expect(inboxTabText()).toBe("Inbox3");
+  await openFilters();
+  await toggleFacet("Unread");
+  expect(rowIds()).toEqual(["env:first", "env:already-read"]);
+  expect(inboxTabText()).toBe("Inbox2");
+  await toggleFacet("Unread");
+  expect(rowIds()).toEqual(["env:first", "env:second", "env:already-read"]);
 });
 it("resets paged queries when a facet changes", async () => {
   state.items = Array.from({ length: 101 }, (_, index) => ({
@@ -1130,10 +1134,10 @@ it("resets paged queries when a facet changes", async () => {
   expect(state.listInputs.at(-1)?.offset).toBe(100);
   await openFilters();
   await toggleFacet("Slack");
-  expect(state.listInputs.at(-1)).toMatchObject({ offset: 0, sources: ["slack"] });
+  expect(state.listInputs.at(-1)).toMatchObject({ offset: 0, sources: ["linear", "superhuman"] });
 });
 
-it("restores an irrelevant match explicitly, advances focus, and lets Undo return it to review", async () => {
+it("corrects relevance without losing the included base notification and supports Undo", async () => {
   const first = {
     ...notification,
     id: "irrelevant-first",
@@ -1177,8 +1181,9 @@ it("restores an irrelevant match explicitly, advances focus, and lets Undo retur
       new KeyboardEvent("keydown", { key: "i", metaKey: true, bubbles: true, cancelable: true }),
     ),
   );
-  expect(rowIds()).toEqual(["env:irrelevant-second"]);
-  expect(document.activeElement?.getAttribute("data-inbox-row")).toBe("env:irrelevant-second");
+  expect(rowIds()).toEqual(["env:irrelevant-first", "env:irrelevant-second"]);
+  expect(document.activeElement?.getAttribute("data-inbox-row")).toBe("env:irrelevant-first");
+  expect(row.querySelector('[aria-label="Marked irrelevant by you"]')).toBeNull();
   expect(state.mutate.mock.calls[0]![0].input.action).toEqual({
     type: "irrelevant",
     irrelevant: false,
@@ -1203,7 +1208,8 @@ it("does not reveal a notification that fails the selected category or source", 
   await renderFilterInbox();
   await openFilters();
   await toggleFacet("Irrelevant");
-  await toggleFacet("Linear");
+  await toggleFacet("Slack");
+  await toggleFacet("Superhuman");
   await act(async () =>
     useInboxNavigation.setState({
       revealed: {

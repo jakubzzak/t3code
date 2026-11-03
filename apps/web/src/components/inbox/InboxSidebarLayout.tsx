@@ -1,8 +1,5 @@
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import {
-  isInboxNotificationVisible,
-  matchesInboxListFilters,
-} from "@t3tools/shared/inboxVisibility";
+import { matchesInboxListFilters } from "@t3tools/shared/inboxVisibility";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { inboxSuggestedPrompt } from "@t3tools/shared/inboxSuggestions";
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -424,11 +421,13 @@ export function InboxSidebarLayout({
   const [debouncedQuery] = useDebouncedValue(query, { wait: 350 });
   const [paging, setPaging] = useState({ query: "", pages: 1 });
   const pages = paging.query === debouncedQuery ? paging.pages : 1;
-  const [selectedSources, setSources] = useState<InboxSource[]>([]);
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  const [irrelevantOnly, setIrrelevantOnly] = useState(false);
-  const [selfActivity, setSelfActivity] = useState<Array<"reply" | "update">>([]);
-  const [focusedUnread, setFocusedUnread] = useState<(Entry & { index: number }) | null>(null);
+  const [selectedSources, setSources] = useState<InboxSource[]>(sources);
+  const [include, setInclude] = useState({
+    unread: true,
+    irrelevant: false,
+    selfReplies: false,
+    selfUpdates: false,
+  });
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const focusedRef = useRef<string | null>(null);
   const [hints, setHints] = useState(false);
@@ -442,25 +441,20 @@ export function InboxSidebarLayout({
   const searchRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const command = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
-  const effectiveVisibility = irrelevantOnly ? "all" : "inbox";
   const filters = useMemo<InboxListFilters>(
-    () => ({ sources: selectedSources, unreadOnly, irrelevantOnly, selfActivity }),
-    [selectedSources, unreadOnly, irrelevantOnly, selfActivity],
+    () => ({ sources: selectedSources, include }),
+    [selectedSources, include],
   );
   const hasFilters =
-    selectedSources.length > 0 || unreadOnly || irrelevantOnly || selfActivity.length > 0;
+    selectedSources.length !== sources.length ||
+    !include.unread ||
+    include.irrelevant ||
+    include.selfReplies ||
+    include.selfUpdates;
   function resetFilterFocus() {
     setPaging({ query: debouncedQuery, pages: 1 });
     focusedRef.current = null;
     setFocusedKey(null);
-    setFocusedUnread(null);
-  }
-  function clearFilters() {
-    setSources([]);
-    setUnreadOnly(false);
-    setIrrelevantOnly(false);
-    setSelfActivity([]);
-    resetFilterFocus();
   }
   function changeQuery(value: string) {
     setQuery(value);
@@ -477,7 +471,7 @@ export function InboxSidebarLayout({
             environmentId,
             input: {
               projectId,
-              visibility: effectiveVisibility,
+              visibility: "all",
               ...filters,
               offset: page * 100,
               // One overlapping item lets the tab detect overflow without loading another page.
@@ -487,7 +481,7 @@ export function InboxSidebarLayout({
           }),
         })),
       ),
-    [projects, debouncedQuery, pages, effectiveVisibility, filters],
+    [projects, debouncedQuery, pages, filters],
   );
   const results = useAtomValue(
     useMemo(
@@ -573,42 +567,9 @@ export function InboxSidebarLayout({
           },
         ]
       : loadedEntries;
-  const pinnedInScope =
-    unreadOnly &&
-    focusedUnread &&
-    focusedKey === keyOf(focusedUnread) &&
-    projects.some(
-      (project) =>
-        project.environmentId === focusedUnread.environmentId &&
-        project.projectId === focusedUnread.notification.projectId,
-    );
-  const withFocusedUnread =
-    pinnedInScope && !unfilteredEntries.some((entry) => keyOf(entry) === keyOf(focusedUnread))
-      ? [
-          ...unfilteredEntries.slice(0, focusedUnread.index),
-          {
-            ...focusedUnread,
-            notification: overrides[keyOf(focusedUnread)] ?? focusedUnread.notification,
-          },
-          ...unfilteredEntries.slice(focusedUnread.index),
-        ]
-      : unfilteredEntries;
-  const entries = withFocusedUnread
-    .filter(
-      ({ environmentId, notification }) =>
-        isInboxNotificationVisible(
-          notification,
-          serverConfigs.get(environmentId)?.settings,
-          effectiveVisibility,
-        ) &&
-        matchesInboxListFilters(
-          notification,
-          pinnedInScope && keyOf({ environmentId, notification }) === keyOf(focusedUnread)
-            ? { ...filters, unreadOnly: false }
-            : filters,
-        ),
-    )
-    .sort((a, b) => b.notification.updatedAt.localeCompare(a.notification.updatedAt));
+  const entries = unfilteredEntries.filter(({ notification }) =>
+    matchesInboxListFilters(notification, filters),
+  );
   function openSettings(section: "features" | "integrations") {
     const focused = entries.find((entry) => keyOf(entry) === focusedKey);
     const projectId = focused?.notification.projectId ?? projects[0]?.projectId;
@@ -759,13 +720,7 @@ export function InboxSidebarLayout({
           if (
             advancing &&
             (next.state.placement !== n.state.placement ||
-              (action.type === "irrelevant" &&
-                (!isInboxNotificationVisible(
-                  next,
-                  serverConfigs.get(entry.environmentId)?.settings,
-                  effectiveVisibility,
-                ) ||
-                  !matchesInboxListFilters(next, { ...filters, unreadOnly: false }))))
+              (action.type === "irrelevant" && !matchesInboxListFilters(next, filters)))
           ) {
             const rows = [
               ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
@@ -830,11 +785,6 @@ export function InboxSidebarLayout({
     if (focusedRef.current === key) return;
     focusedRef.current = key;
     setFocusedKey(key);
-    setFocusedUnread(
-      unreadOnly && !entry.notification.state.read
-        ? { ...entry, index: entries.indexOf(entry) }
-        : null,
-    );
     if (!entry.notification.state.read)
       void mutate(entry, { type: "read", read: true }, recordReadUndo);
   }
@@ -1064,80 +1014,60 @@ export function InboxSidebarLayout({
                     <ListFilterIcon className="size-4" />
                   </PopoverTrigger>
                   <PopoverPopup>
-                    <div className="space-y-2 text-xs">
-                      {sources.map((source) => (
-                        <label key={source} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={selectedSources.includes(source)}
-                            onChange={(event) => {
-                              setSources((current) =>
-                                event.target.checked
-                                  ? [...current, source]
-                                  : current.filter((value) => value !== source),
-                              );
-                              resetFilterFocus();
-                            }}
-                          />
-                          <span aria-hidden="true">
-                            <InboxSourceLogo source={source} />
-                          </span>
-                          {source === "superhuman"
-                            ? "Superhuman"
-                            : source === "slack"
-                              ? "Slack"
-                              : "Linear"}
-                        </label>
-                      ))}
-                      <label className="flex items-center gap-2 border-t pt-2">
-                        <input
-                          type="checkbox"
-                          checked={unreadOnly}
-                          onChange={(event) => {
-                            setUnreadOnly(event.target.checked);
-                            resetFilterFocus();
-                          }}
-                        />
-                        Unread
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={irrelevantOnly}
-                          onChange={(event) => {
-                            setIrrelevantOnly(event.target.checked);
-                            resetFilterFocus();
-                          }}
-                        />
-                        Irrelevant
-                      </label>
-                      {(
-                        [
-                          ["reply", "Last message from me"],
-                          ["update", "Last update from me"],
-                        ] as const
-                      ).map(([kind, label]) => (
-                        <label key={kind} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={selfActivity.includes(kind)}
-                            onChange={(event) => {
-                              setSelfActivity((current) =>
-                                event.target.checked
-                                  ? [...current, kind]
-                                  : current.filter((value) => value !== kind),
-                              );
-                              resetFilterFocus();
-                            }}
-                          />
-                          {label}
-                        </label>
-                      ))}
-                      {hasFilters && (
-                        <Button size="sm" variant="ghost" onClick={clearFilters}>
-                          Clear filters
-                        </Button>
-                      )}
+                    <div className="space-y-3 text-xs">
+                      <fieldset className="space-y-2">
+                        <legend className="mb-2 font-medium">Sources</legend>
+                        {sources.map((source) => (
+                          <label key={source} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedSources.includes(source)}
+                              onChange={(event) => {
+                                setSources((current) =>
+                                  event.target.checked
+                                    ? [...current, source]
+                                    : current.filter((value) => value !== source),
+                                );
+                                resetFilterFocus();
+                              }}
+                            />
+                            <span aria-hidden="true">
+                              <InboxSourceLogo source={source} />
+                            </span>
+                            {source === "superhuman"
+                              ? "Superhuman"
+                              : source === "slack"
+                                ? "Slack"
+                                : "Linear"}
+                          </label>
+                        ))}
+                      </fieldset>
+                      <fieldset className="space-y-2 border-t pt-2">
+                        <legend className="mb-2 font-medium">Include</legend>
+                        {(
+                          [
+                            ["unread", "Unread"],
+                            ["irrelevant", "Irrelevant"],
+                            ["selfReplies", "Last message from me"],
+                            ["selfUpdates", "Last update from me"],
+                          ] as const
+                        ).map(([key, label]) => (
+                          <label key={key} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={include[key]}
+                              onChange={(event) => {
+                                setInclude((current) => ({
+                                  ...current,
+                                  [key]: event.target.checked,
+                                }));
+                                resetFilterFocus();
+                              }}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </fieldset>
                     </div>
                   </PopoverPopup>
                 </Popover>
@@ -1181,7 +1111,6 @@ export function InboxSidebarLayout({
                     if (!event.currentTarget.contains(event.relatedTarget)) {
                       setHints(false);
                       focusedRef.current = null;
-                      setFocusedUnread(null);
                     }
                   }}
                   className="flex flex-1 flex-col outline-none"

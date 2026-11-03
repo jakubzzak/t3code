@@ -171,7 +171,9 @@ const make = Effect.gen(function* () {
     list: (projectId, page) => {
       const search = page?.search?.toLowerCase() ?? "";
       const sources = page?.sources ?? [];
-      const selfActivity = page?.selfActivity ?? [];
+      const include = page?.include;
+      const selfActivity = include ? [] : (page?.selfActivity ?? []);
+      const unrestrictedSources = sources.length === 0 && (!include || page?.sources === undefined);
       // The current Inbox popover owns category selection; legacy visibility modes retain
       // their saved preference semantics for older clients.
       const filterIrrelevant = page?.visibility === "inbox" || (page?.filterIrrelevant ?? true);
@@ -186,12 +188,12 @@ const make = Effect.gen(function* () {
           OR (${showSelfUpdates}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='update')
           OR (${showSelfReplies}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='reply')
         ),0) IS ${page?.visibility === "filtered" ? 1 : 0})
-        AND (${sources.length === 0}=1
+        AND (${unrestrictedSources}=1
           OR (${sources.includes("slack")}=1 AND json_extract(payload_json, '$.source')='slack')
           OR (${sources.includes("linear")}=1 AND json_extract(payload_json, '$.source')='linear')
           OR (${sources.includes("superhuman")}=1 AND json_extract(payload_json, '$.source')='superhuman'))
-        AND (${page?.unreadOnly ?? false}=0 OR coalesce(json_extract(payload_json, '$.state.read'),0)=0)
-        AND (${page?.irrelevantOnly ?? false}=0 OR coalesce((
+        AND (${include ? false : (page?.unreadOnly ?? false)}=0 OR coalesce(json_extract(payload_json, '$.state.read'),0)=0)
+        AND (${include ? false : (page?.irrelevantOnly ?? false)}=0 OR coalesce((
           json_extract(payload_json, '$.state.irrelevant')=1
           OR (json_extract(payload_json, '$.state.irrelevant') IS NOT 0
             AND json_extract(payload_json, '$.relevance.status')='complete'
@@ -203,6 +205,17 @@ const make = Effect.gen(function* () {
             OR (${selfActivity.includes("update")}=1 AND json_extract(payload_json, '$.replyCursor.kind')='update')
           )
         ))
+        AND (${include?.unread ?? true}=1 OR json_extract(payload_json, '$.state.read')=1)
+        AND (${include?.irrelevant ?? true}=1 OR coalesce((
+          json_extract(payload_json, '$.state.irrelevant')=1
+          OR (json_extract(payload_json, '$.state.irrelevant') IS NOT 0
+            AND json_extract(payload_json, '$.relevance.status')='complete'
+            AND json_extract(payload_json, '$.relevance.irrelevant')=1)
+        ),0)=0)
+        AND (${include?.selfReplies ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=0
+          OR coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')<>'reply')
+        AND (${include?.selfUpdates ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=0
+          OR coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')<>'update')
         AND (${page?.threadId ?? null} IS NULL OR thread_id=${page?.threadId ?? null})
         AND (${search}='' OR instr(lower(coalesce(json_extract(payload_json, '$.analysis.summary'), '')), ${search}) > 0 OR EXISTS (
           SELECT 1 FROM json_each(inbox_notifications.payload_json, '$.items') AS item
