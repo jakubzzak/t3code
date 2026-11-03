@@ -20,6 +20,7 @@ if (hostPlatform === "darwin") {
   const repoRoot = NodeURL.fileURLToPath(new URL("../../../", import.meta.url));
   const source = NodePath.join(repoRoot, "native/hotspot/hotspot.m");
   const plist = NodePath.join(repoRoot, "native/hotspot/Info.plist");
+  const entitlements = NodePath.join(repoRoot, "native/hotspot/entitlements.plist");
   const app =
     values.output ??
     NodePath.join(repoRoot, "apps/desktop/resources/hotspot/Blackbird Hotspot.app");
@@ -33,7 +34,9 @@ if (hostPlatform === "darwin") {
     current =
       NodeFS.readFileSync(stamp, "utf8") === signature &&
       NodeFS.statSync(executable).mtimeMs >=
-        Math.max(...[source, plist, script].map((file) => NodeFS.statSync(file).mtimeMs));
+        Math.max(
+          ...[source, plist, entitlements, script].map((file) => NodeFS.statSync(file).mtimeMs),
+        );
     if (current) {
       NodeChildProcess.execFileSync("codesign", ["--verify", "--strict", app], { stdio: "pipe" });
     }
@@ -79,7 +82,17 @@ if (hostPlatform === "darwin") {
       NodeFS.writeFileSync(NodePath.join(temporary, "Contents/Resources/build.json"), signature);
       NodeChildProcess.execFileSync(
         "codesign",
-        ["--force", "--sign", identity, "--timestamp=none", temporary],
+        [
+          "--force",
+          "--sign",
+          identity,
+          "--timestamp=none",
+          "--options",
+          "runtime",
+          "--entitlements",
+          entitlements,
+          temporary,
+        ],
         { stdio: "inherit" },
       );
       NodeChildProcess.execFileSync("codesign", ["--verify", "--strict", temporary], {

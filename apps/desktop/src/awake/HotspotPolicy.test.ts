@@ -16,6 +16,15 @@ describe("hotspot return policy", () => {
     expect(returnCandidate(stay, ["Train"], 600_000)).toBe("Train");
     expect(returnCandidate(stay, ["Train", "Home"], 1)).toBe("Home");
   });
+  it("uses the full hold for unknown baselines and failed return candidates", () => {
+    const unknown = { ...stay, knownAtJoin: null };
+    expect(returnCandidate(unknown, ["Home"], 599_999)).toBeUndefined();
+    expect(returnCandidate(unknown, ["Home"], 600_000)).toBe("Home");
+    const failed = new Map([["Home", 900_000]]);
+    expect(returnCandidate(stay, ["Home", "Office"], 899_999, failed)).toBe("Office");
+    expect(returnCandidate(stay, ["Home"], 899_999, failed)).toBeUndefined();
+    expect(returnCandidate(stay, ["Home"], 900_000, failed)).toBe("Home");
+  });
   it("reads interface, gateway and saved names without trimming valid SSID spaces", () => {
     expect(parseWifiDevice("Hardware Port: Wi-Fi\nDevice: en0\nEthernet Address: 00")).toBe("en0");
     expect(parseWifiDevice("Hardware Port: Ethernet\nDevice: en1")).toBeNull();

@@ -7,8 +7,8 @@ import * as Scope from "effect/Scope";
 import { HotspotSystem } from "./HotspotSystem.ts";
 import {
   HOTSPOT_TICK,
-  IPHONE_HOTSPOT_GATEWAY,
   RETURN_CHECK_MS,
+  RETRY_DROPPED_NETWORK_MS,
   returnCandidate,
   retryDelay,
   type HotspotStay,
@@ -29,20 +29,35 @@ export const make = Effect.gen(function* () {
   let scope: Scope.Scope | null = null;
   let worker: Fiber.Fiber<void, never> | null = null;
   let message: string | null = null;
+  // Preserve only connections this app instance established, including across power pauses.
+  let stay: HotspotStay | null = null;
+  let nextReturnAt = 0;
+  const failedReturns = new Map<string, number>();
 
   const follow = Effect.gen(function* () {
     let nextJoinAt: number | null = null;
     let attempts = 0;
-    let stay: HotspotStay | null = null;
-    let nextReturnAt = 0;
-    yield* system.authorize.pipe(
-      Effect.catch((error) =>
-        Effect.sync(() => {
-          message = error.message;
-        }),
-      ),
-    );
+    let authorized = false;
+    let nextAuthorizationAt = 0;
     const tick = Effect.gen(function* () {
+      const authorizationNow = yield* Clock.currentTimeMillis;
+      if (!authorized) {
+        if (authorizationNow < nextAuthorizationAt) return;
+        authorized = yield* system.authorize.pipe(
+          Effect.as(true),
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              message = error.message;
+              return false;
+            }),
+          ),
+        );
+        if (!authorized) {
+          nextAuthorizationAt = (yield* Clock.currentTimeMillis) + RETURN_CHECK_MS;
+          return;
+        }
+        message = null;
+      }
       const online = yield* system.online;
       const now = yield* Clock.currentTimeMillis;
       if (!online) {
@@ -50,7 +65,7 @@ export const make = Effect.gen(function* () {
         if (now < nextJoinAt) return;
         attempts++;
         const attempt = Effect.gen(function* () {
-          const knownAtJoin = yield* system.knownInRange;
+          const knownAtJoin = yield* system.knownInRange.pipe(Effect.orElseSucceed(() => null));
           if (yield* system.online) {
             nextJoinAt = null;
             attempts = 0;
@@ -60,6 +75,7 @@ export const make = Effect.gen(function* () {
           message = "Connecting to your iPhone hotspot…";
           const name = yield* system.join;
           stay = { name, knownAtJoin, since: yield* Clock.currentTimeMillis };
+          failedReturns.clear();
           nextReturnAt = stay.since + RETURN_CHECK_MS;
           message = "Connected to your iPhone hotspot.";
         });
@@ -80,22 +96,37 @@ export const make = Effect.gen(function* () {
         }
         if (now < nextReturnAt) return;
         nextReturnAt = now + RETURN_CHECK_MS;
-        if ((yield* system.gateway) !== IPHONE_HOTSPOT_GATEWAY) {
+        if ((yield* system.currentName) !== stay.name) {
           stay = null;
           message = null;
           return;
         }
-        const candidate = returnCandidate(stay, yield* system.knownInRange, now);
+        const candidate = returnCandidate(stay, yield* system.knownInRange, now, failedReturns);
         if (candidate === undefined) return;
         // Recheck after the scan; do not override a network selected by the user meanwhile.
-        if ((yield* system.gateway) !== IPHONE_HOTSPOT_GATEWAY) {
+        if ((yield* system.currentName) !== stay.name) {
           stay = null;
           message = null;
           return;
         }
-        yield* system.joinKnown(candidate);
-        stay = null;
-        message = "Returned to a known Wi-Fi network.";
+        const returned = yield* system.joinKnown(candidate, stay.name).pipe(
+          Effect.as(true),
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              failedReturns.set(
+                candidate,
+                (yield* Clock.currentTimeMillis) + RETRY_DROPPED_NETWORK_MS,
+              );
+              message = error.message;
+              return false;
+            }),
+          ),
+        );
+        if (returned) {
+          stay = null;
+          failedReturns.clear();
+          message = "Returned to a known Wi-Fi network.";
+        }
       }
     }).pipe(
       Effect.catch((error) =>

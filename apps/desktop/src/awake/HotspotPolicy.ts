@@ -2,22 +2,31 @@
 export const HOTSPOT_TICK = "5 seconds";
 export const IPHONE_HOTSPOT_GATEWAY = "172.20.10.1";
 export const RETURN_CHECK_MS = 30_000;
-const RETRY_DROPPED_NETWORK_MS = 10 * 60_000;
+export const RETRY_DROPPED_NETWORK_MS = 10 * 60_000;
 
 export interface HotspotStay {
   readonly name: string;
   readonly since: number;
-  readonly knownAtJoin: ReadonlyArray<string>;
+  readonly knownAtJoin: ReadonlyArray<string> | null;
 }
 
 export function retryDelay(attempts: number): number {
   return [5_000, 10_000, 20_000, 30_000][Math.min(Math.max(attempts - 1, 0), 3)]!;
 }
 
-export function returnCandidate(stay: HotspotStay, known: ReadonlyArray<string>, now: number) {
-  const candidates = known.filter((name) => name !== stay.name);
+export function returnCandidate(
+  stay: HotspotStay,
+  known: ReadonlyArray<string>,
+  now: number,
+  failedReturns: ReadonlyMap<string, number> = new Map(),
+) {
+  const candidates = known.filter(
+    (name) => name !== stay.name && now >= (failedReturns.get(name) ?? 0),
+  );
+  // A failed baseline scan cannot distinguish new Wi-Fi from the network that dropped.
+  const baseline = stay.knownAtJoin;
   return (
-    candidates.find((name) => !stay.knownAtJoin.includes(name)) ??
+    (baseline === null ? undefined : candidates.find((name) => !baseline.includes(name))) ??
     (now - stay.since >= RETRY_DROPPED_NETWORK_MS ? candidates[0] : undefined)
   );
 }

@@ -142,7 +142,7 @@ describe("desktop Keep awake lifecycle", () => {
               online: Deferred.succeed(checked, undefined).pipe(Effect.as(false)),
               authorize: Effect.void,
               knownInRange: Effect.succeed([]),
-              gateway: Effect.succeed("172.20.10.1"),
+              currentName: Effect.succeed("iPhone"),
               join: Deferred.succeed(joining, undefined).pipe(
                 Effect.andThen(Effect.never),
                 Effect.ensuring(

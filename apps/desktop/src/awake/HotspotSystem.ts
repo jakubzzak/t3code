@@ -10,7 +10,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Electron from "electron";
 import { DesktopEnvironment } from "../app/DesktopEnvironment.ts";
-import { parseDefaultGateway, parseKnownNetworks, parseWifiDevice } from "./HotspotPolicy.ts";
+import { parseKnownNetworks, parseWifiDevice } from "./HotspotPolicy.ts";
 
 export class HotspotError extends Schema.TaggedError<HotspotError>()("HotspotError", {
   message: Schema.String,
@@ -22,9 +22,12 @@ export class HotspotSystem extends Context.Service<
     readonly online: Effect.Effect<boolean>;
     readonly authorize: Effect.Effect<void, HotspotError>;
     readonly knownInRange: Effect.Effect<ReadonlyArray<string>, HotspotError>;
-    readonly gateway: Effect.Effect<string | null, HotspotError>;
+    readonly currentName: Effect.Effect<string | null, HotspotError>;
     readonly join: Effect.Effect<string, HotspotError>;
-    readonly joinKnown: (name: string) => Effect.Effect<void, HotspotError>;
+    readonly joinKnown: (
+      name: string,
+      expectedHotspot: string,
+    ) => Effect.Effect<void, HotspotError>;
   }
 >()("@t3tools/desktop/awake/HotspotSystem") {}
 
@@ -38,6 +41,11 @@ const decodeScan = Schema.decodeUnknownEffect(
 );
 const decodeJoin = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ name: Schema.NonEmptyString })),
+);
+const decodeStatus = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({ authorized: Schema.Boolean, name: Schema.NullOr(Schema.String) }),
+  ),
 );
 const decodeAuthorization = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ authorized: Schema.Boolean })),
@@ -94,14 +102,14 @@ export const make = Effect.gen(function* () {
   const native = (args: ReadonlyArray<string>, timeout?: Duration.Input) =>
     helper.pipe(
       Effect.flatMap((app) => {
-        if (args[0] !== "scan" && args[0] !== "authorize")
-          return run(path.join(app, "Contents/MacOS/blackbird-hotspot"), args, timeout);
-        // Launch Services attributes Location permission to the signed helper app.
-        // These modes only read/authorize; network mutations use cancellable child processes above.
+        // Every mode uses the helper's Launch Services identity for Location permission.
+        // Removing this scoped lease cancels the launched app, not just /usr/bin/open.
         return Effect.scoped(
           Effect.gen(function* () {
             const directory = yield* fs.makeTempDirectoryScoped({ prefix: "blackbird-hotspot-" });
             const output = path.join(directory, "result.json");
+            const lease = path.join(directory, "lease");
+            yield* fs.writeFileString(lease, "active");
             yield* run(
               "/usr/bin/open",
               [
@@ -114,6 +122,8 @@ export const make = Effect.gen(function* () {
                 "/dev/null",
                 app,
                 "--args",
+                "--lease",
+                lease,
                 ...args,
               ],
               timeout,
@@ -141,13 +151,32 @@ export const make = Effect.gen(function* () {
   return HotspotSystem.of({
     online: Effect.tryPromise({
       try: async (signal) => {
-        const response = await Electron.net.fetch("https://captive.apple.com/hotspot-detect.html", {
-          cache: "no-store",
-          redirect: "error",
-          signal: AbortSignal.any([signal, AbortSignal.timeout(4_000)]),
-        });
-        // A captive portal's HTTP 200 is not usable internet.
-        return response.ok && (await response.text()).includes("<BODY>Success</BODY>");
+        const probe = async (url: string, accepts: (response: Response) => Promise<boolean>) => {
+          try {
+            const response = await Electron.net.fetch(url, {
+              cache: "no-store",
+              redirect: "error",
+              signal: AbortSignal.any([signal, AbortSignal.timeout(4_000)]),
+            });
+            return await accepts(response);
+          } catch {
+            return false;
+          }
+        };
+        // Require two independent failures before treating a filtered endpoint as an outage.
+        if (
+          await probe(
+            "https://captive.apple.com/hotspot-detect.html",
+            async (response) =>
+              response.ok && (await response.text()).includes("<BODY>Success</BODY>"),
+          )
+        )
+          return true;
+        if (signal.aborted) return false;
+        return await probe(
+          "https://www.gstatic.com/generate_204",
+          async (response) => response.status === 204,
+        );
       },
       catch: () => false,
     }).pipe(Effect.orElseSucceed(() => false)),
@@ -184,7 +213,11 @@ export const make = Effect.gen(function* () {
       );
       return known.filter((name) => scan.names.includes(name));
     }),
-    gateway: run("/sbin/route", ["-n", "get", "default"]).pipe(Effect.map(parseDefaultGateway)),
+    currentName: native(["status"], "10 seconds").pipe(
+      Effect.flatMap(decodeStatus),
+      Effect.map((result) => (result.authorized ? result.name : null)),
+      Effect.mapError(() => error("Could not identify the current Wi-Fi network.")),
+    ),
     join: native(["join"], "65 seconds").pipe(
       Effect.flatMap(decodeJoin),
       Effect.map((result) => result.name),
@@ -194,7 +227,15 @@ export const make = Effect.gen(function* () {
         ),
       ),
     ),
-    joinKnown: (name) => native(["join-known", name], "65 seconds").pipe(Effect.asVoid),
+    joinKnown: (name, expectedHotspot) =>
+      native(["join-known", name, expectedHotspot], "65 seconds").pipe(
+        Effect.asVoid,
+        Effect.mapError(() =>
+          error(
+            "Could not return to saved Wi-Fi. Blackbird will try another network or retry later.",
+          ),
+        ),
+      ),
   });
 });
 

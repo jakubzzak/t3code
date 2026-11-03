@@ -7,6 +7,7 @@
 #import <objc/runtime.h>
 #import <signal.h>
 #import <unistd.h>
+#import <dispatch/dispatch.h>
 
 @interface SFRemoteHotspotSession : NSObject
 - (void)setDelegate:(id)delegate;
@@ -22,10 +23,13 @@
 @property BOOL finished;
 @end
 
+static BOOL hasLease(void);
+
 @implementation HotspotDelegate
 - (void)session:(id)session updatedFoundDevices:(NSArray *)devices {
   (void)session;
   if (self.requested || devices.count == 0) return;
+  if (!hasLease()) return;
   self.requested = YES;
   [self.session enableRemoteHotspotForDevice:devices.firstObject
                        withCompletionHandler:^(id info) {
@@ -40,6 +44,13 @@ static void timedOut(int signalNumber) {
   const char message[] = "The hotspot helper timed out.\n";
   (void)write(STDERR_FILENO, message, sizeof(message) - 1);
   _exit(1);
+}
+
+static const char *leasePath = NULL;
+static dispatch_source_t leaseWatch;
+
+static BOOL hasLease(void) {
+  return leasePath != NULL && access(leasePath, F_OK) == 0;
 }
 
 static int fail(NSString *message) {
@@ -66,6 +77,12 @@ static BOOL locationAuthorized(BOOL request, NSTimeInterval wait) {
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
   }
   return location.authorizationStatus == kCLAuthorizationStatusAuthorizedAlways;
+}
+
+static int status(void) {
+  if (!locationAuthorized(NO, 0)) return printJSON(@{@"authorized" : @NO, @"name" : NSNull.null});
+  NSString *name = [CWWiFiClient sharedWiFiClient].interface.ssid;
+  return printJSON(@{@"authorized" : @YES, @"name" : name ?: NSNull.null});
 }
 
 static int scan(void) {
@@ -102,6 +119,7 @@ static int join(void) {
   HotspotDelegate *delegate = [HotspotDelegate new];
   delegate.session = [[sessionClass alloc] init];
   [delegate.session setDelegate:delegate];
+  if (!hasLease()) return fail(@"Hotspot request was cancelled.");
   [delegate.session startBrowsing];
   NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:45];
   while (!delegate.finished && deadline.timeIntervalSinceNow > 0) {
@@ -123,30 +141,38 @@ static int join(void) {
 
   // Keep credentials in this process: no stdout, argv, temporary files or shell.
   NSData *ssid = [name dataUsingEncoding:NSUTF8StringEncoding];
-  NSSet<CWNetwork *> *networks = [interface scanForNetworksWithSSID:ssid error:nil];
   CWNetwork *network = nil;
-  for (CWNetwork *candidate in networks) {
-    if ([candidate.ssidData isEqual:ssid] &&
-        ([candidate supportsSecurity:kCWSecurityWPA2Personal] ||
-         [candidate supportsSecurity:kCWSecurityWPA3Personal] ||
-         [candidate supportsSecurity:kCWSecurityWPA3Transition]) &&
-        (!network || candidate.rssiValue > network.rssiValue)) {
-      network = candidate;
+  NSDate *scanDeadline = [NSDate dateWithTimeIntervalSinceNow:10];
+  do {
+    if (!hasLease()) return fail(@"Hotspot request was cancelled.");
+    NSSet<CWNetwork *> *networks = [interface scanForNetworksWithSSID:ssid error:nil];
+    for (CWNetwork *candidate in networks) {
+      if ([candidate.ssidData isEqual:ssid] &&
+          ([candidate supportsSecurity:kCWSecurityWPA2Personal] ||
+           [candidate supportsSecurity:kCWSecurityWPA3Personal] ||
+           [candidate supportsSecurity:kCWSecurityWPA3Transition]) &&
+          (!network || candidate.rssiValue > network.rssiValue)) network = candidate;
     }
-  }
+    if (network || scanDeadline.timeIntervalSinceNow <= 0) break;
+    [NSThread sleepForTimeInterval:MIN(2, scanDeadline.timeIntervalSinceNow)];
+  } while (scanDeadline.timeIntervalSinceNow > 0);
   if (!network) return fail(@"The iPhone hotspot did not appear in the Wi-Fi scan.");
+  if (!hasLease()) return fail(@"Hotspot request was cancelled.");
   if (![interface associateToNetwork:network password:password error:nil]) {
     return fail(@"Could not join the iPhone hotspot.");
   }
   return printJSON(@{@"name" : name});
 }
 
-static int joinKnown(NSString *name) {
+static int joinKnown(NSString *name, NSString *expectedHotspot) {
   if (!locationAuthorized(NO, 0)) {
     return fail(@"Allow Blackbird Hotspot in Location Services before returning to Wi-Fi.");
   }
   CWInterface *interface = [CWWiFiClient sharedWiFiClient].interface;
   if (!interface || !interface.powerOn) return fail(@"Wi-Fi is turned off or unavailable.");
+  if (![interface.ssid isEqualToString:expectedHotspot]) {
+    return fail(@"The current Wi-Fi network changed; the return request was cancelled.");
+  }
   NSData *ssid = [name dataUsingEncoding:NSUTF8StringEncoding];
   CWNetworkProfile *profile = nil;
   for (CWNetworkProfile *candidate in interface.configuration.networkProfiles) {
@@ -194,6 +220,12 @@ static int joinKnown(NSString *name) {
         (!network || candidate.rssiValue > network.rssiValue)) network = candidate;
   }
   if (!network) return fail(@"The saved Wi-Fi network is not in range with its expected security.");
+  // Recheck after the potentially slow scan and Keychain lookup. Another iPhone
+  // uses the same default gateway, so gateway checks alone do not establish ownership.
+  if (!hasLease()) return fail(@"Hotspot request was cancelled.");
+  if (![interface.ssid isEqualToString:expectedHotspot]) {
+    return fail(@"The current Wi-Fi network changed; the return request was cancelled.");
+  }
   if (![interface associateToNetwork:network password:password error:nil]) {
     return fail(@"Could not return to the saved Wi-Fi network.");
   }
@@ -202,24 +234,40 @@ static int joinKnown(NSString *name) {
 
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
-    NSString *mode = argc >= 2 ? @(argv[1]) : @"";
-    BOOL known = [mode isEqualToString:@"join-known"] && argc == 3 && strlen(argv[2]) > 0 && strlen(argv[2]) <= 32;
-    if ([mode isEqualToString:@"--help"] && argc == 2) {
-      puts("Usage: blackbird-hotspot <join|scan|authorize|join-known SSID>");
+    const char *usage = "Usage: blackbird-hotspot --lease ABSOLUTE_FILE <join|scan|status|authorize|join-known SSID EXPECTED_HOTSPOT>\n";
+    if (argc == 2 && strcmp(argv[1], "--help") == 0) {
+      fputs(usage, stdout);
       return 0;
     }
-    if (!known && (argc != 2 || ![@[@"join", @"scan", @"authorize"] containsObject:mode])) {
-      fputs("Usage: blackbird-hotspot <join|scan|authorize|join-known SSID>\n", stderr);
+    if (argc < 4 || strcmp(argv[1], "--lease") != 0 || argv[2][0] != '/') {
+      fputs(usage, stderr);
       return 64;
     }
+    NSString *mode = @(argv[3]);
+    BOOL known = [mode isEqualToString:@"join-known"] && argc == 6 &&
+      strlen(argv[4]) > 0 && strlen(argv[4]) <= 32 && strlen(argv[5]) > 0 && strlen(argv[5]) <= 32;
+    if (!known && (argc != 4 || ![@[@"join", @"scan", @"status", @"authorize"] containsObject:mode])) {
+      fputs(usage, stderr);
+      return 64;
+    }
+    leasePath = argv[2];
+    if (!hasLease()) return fail(@"Hotspot request was cancelled.");
+    // LaunchServices owns this process, while Electron owns the lease. Removing
+    // that file stops even a blocked scan without finding or killing a reused PID.
+    leaseWatch = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+      dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+    dispatch_source_set_timer(leaseWatch, DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC, 10 * NSEC_PER_MSEC);
+    dispatch_source_set_event_handler(leaseWatch, ^{ if (!hasLease()) _exit(1); });
+    dispatch_resume(leaseWatch);
     signal(SIGALRM, timedOut);
     alarm([mode isEqualToString:@"authorize"] ? 125 : ([mode isEqualToString:@"join"] || known) ? 60 : 20);
     @try {
+      if ([mode isEqualToString:@"status"]) return status();
       if ([mode isEqualToString:@"scan"]) return scan();
       if ([mode isEqualToString:@"authorize"]) {
         return printJSON(@{@"authorized" : @(locationAuthorized(YES, 120))});
       }
-      if (known) return joinKnown(@(argv[2]));
+      if (known) return joinKnown(@(argv[4]), @(argv[5]));
       return join();
     } @catch (NSException *exception) {
       // Private framework exceptions may contain device details or credentials.

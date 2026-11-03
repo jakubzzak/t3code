@@ -98,12 +98,17 @@ Allow **Blackbird Hotspot** in **System Settings → Privacy & Security → Loca
 Services** when prompted so it can discover Wi-Fi networks. Blackbird also checks
 for a return to known Wi-Fi. A network that was already nearby when the outage
 started is retried after ten minutes, avoiding an immediate return to a broken
-connection. Connection or permission problems appear beside the setting.
+connection. Failed return attempts also wait ten minutes before retrying that
+network. Enterprise Wi-Fi and saved networks whose passwords macOS will not
+share need a manual connection. Connection or permission problems appear beside
+the setting.
 
 Turning hotspot failover off, pausing Keep awake, or quitting Blackbird stops the
 checks without disconnecting your current network. The saved preference resumes
 when Keep awake becomes active again; it does not run in a standalone background
-service or control a remote computer.
+service or control a remote computer. During a pause, Blackbird remembers the
+hotspot it connected to. After quitting and reopening the app, it leaves an
+already-connected hotspot under macOS control until the next outage.
 
 ## Troubleshooting
 
