@@ -88,6 +88,8 @@ a Mac at a time.
 
 ### Reconnect through your iPhone
 
+Behavior and acceptance criteria: [Hotspot failover specification](../specs/03-hotspot-failover.md).
+
 Enable **Hotspot failover** in **Settings → Keep awake** to let Blackbird check
 connectivity and join your nearby iPhone’s Personal Hotspot when the internet
 drops. It is off by default and runs only while Keep awake is active. Both
