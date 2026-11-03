@@ -154,19 +154,42 @@ applies when the project and environment are both on **Inherit**.
 
 ## Notification inbox
 
-In **Settings → Features**, select **All projects** to configure **Show updates
-caused by me** and **Show conversations where the last reply is mine**. Both are
-on by default and apply to every project's Inbox on the selected environments.
-Turning either off immediately hides matching notifications; turning it back on
-reveals retained items in their existing sections. Hidden notifications keep
-receiving AI summaries when enabled. Replies you send in the source app are
-recognized on the next normal sync; someone else's later reply can bring the
-conversation back. Your own replies do not reopen settled items.
-Slack integration notices stay visible when the integration or the person who
-caused the update cannot be verified, including ambiguous names.
+The Inbox filter popover has **Sources** and **Include** groups. All sources and
+**Unread** are checked by default. Irrelevant notifications and conversations
+whose last message or update came from you stay hidden until you include them.
+Checking an Include option adds that category without replacing ordinary incoming
+notifications. If an item belongs to several optional categories, each must be
+enabled. For example, an unread irrelevant message still needs **Irrelevant** checked.
+
+Uncheck **Unread** to hide unread items; ordinary read notifications remain.
+Source choices include any selected source. Unchecking every source shows no
+notifications. Adjust the individual checkboxes to change the view.
+
+Relevance is assessed for new incoming messages alongside their AI summary.
+In **Settings → Features → Inbox relevance**, choose a minimum confidence from
+75–100% (default 98%). Threshold changes affect future messages, not existing
+decisions. Existing notifications are not reclassified. Messages without an
+available assessment remain visible.
+
+Focus a notification and press **Cmd+I** (Ctrl+I outside macOS) to mark it
+irrelevant and save its original content as a reference for future messages in
+that project. Inspect **Saved references** in Settings, or check **Irrelevant** in
+the popover to review hidden notifications. Undo reverses the manual mark and its
+feedback. A later incoming request is evaluated again; marking a message
+irrelevant does not mute the sender.
+
+Replies sent in a source app are recognized on normal sync. Filters update the
+view without changing notifications or source configuration. Hidden notifications
+retain their content and enabled background summaries. Unverified integration
+actors are not classified as your own activity, including ambiguous names.
+
+Sending a reply or hiding a notification does not settle it. Settle it explicitly
+when finished; settling its linked chat also leaves the notification unchanged.
+Your own reply never reopens a settled item, while another person's later reply
+can bring the conversation back.
 
 Select a project in **Settings → Features** and enable **Inbox**, then choose its sources in
-**Settings → Integrations**. Connections and relevance filters are configured explicitly for
+**Settings → Integrations**. Connections and relevance preprocessing are configured explicitly for
 each project. Linear, Slack and Superhuman have separate integration groups. The general view
 shows them disabled; select one project checkout/environment to edit a connection. Connections
 can be configured while Inbox and Linear view are off. Notification collection requires Inbox,

@@ -187,7 +187,29 @@ export function ingestInboxItem(
     existing.sourceContentHash &&
     existing.sourceContentHash === item.sourceContentHash &&
     sameLatest;
+  const freshActivity =
+    !!latestReply ||
+    (!existing && (!current || Date.parse(item.occurredAt) > Date.parse(current.updatedAt)));
+  const {
+    irrelevant: _irrelevant,
+    irrelevanceReferenceId: _reference,
+    ...priorState
+  } = current?.state ?? {
+    read: false,
+    placement: "active" as const,
+    snoozedUntil: null,
+    threadId: null,
+  };
+  const retainedState = freshActivity ? priorState : current?.state;
   return {
+    ...(!freshActivity && current?.relevance
+      ? {
+          relevance:
+            current.relevance.status === "pending"
+              ? { ...current.relevance, version: (current?.analysisVersion ?? -1) + 1 }
+              : current.relevance,
+        }
+      : {}),
     id: inboxIdentity(projectId, item),
     projectId,
     source: item.source,
@@ -199,7 +221,7 @@ export function ingestInboxItem(
     state:
       replyActivity !== undefined
         ? {
-            ...(current?.state ?? {
+            ...(retainedState ?? {
               read: false,
               placement: "active",
               snoozedUntil: null,
@@ -212,8 +234,8 @@ export function ingestInboxItem(
           }
         : current
           ? formattingOnly
-            ? current.state
-            : { ...current.state, read: false }
+            ? (retainedState ?? current.state)
+            : { ...(retainedState ?? current.state), read: false }
           : { read: false, placement: "active", snoozedUntil: null, threadId: null },
     items,
     analysis: null,

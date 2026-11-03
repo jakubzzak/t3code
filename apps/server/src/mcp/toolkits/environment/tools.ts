@@ -16,6 +16,8 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const PreferenceFields = {
   inboxShowSelfUpdates: ServerSettings.fields.inboxShowSelfUpdates,
+  inboxFilterIrrelevant: ServerSettings.fields.inboxFilterIrrelevant,
+  inboxIrrelevanceThreshold: ServerSettings.fields.inboxIrrelevanceThreshold,
   inboxShowSelfReplies: ServerSettings.fields.inboxShowSelfReplies,
   defaultThreadEnvMode: ServerSettings.fields.defaultThreadEnvMode,
   newWorktreesStartFromOrigin: ServerSettings.fields.newWorktreesStartFromOrigin,
@@ -59,6 +61,8 @@ const EnvironmentPreferencesTool = Tool.make("t3_environment_preferences_update"
     "Update selected environment-wide preferences through normal settings persistence and notifications. Requires a live full-access/default calling thread. Omitted fields are preserved; empty customInstructions clears them.",
   parameters: Schema.Struct({
     inboxShowSelfUpdates: ServerSettingsPatch.fields.inboxShowSelfUpdates,
+    inboxFilterIrrelevant: ServerSettingsPatch.fields.inboxFilterIrrelevant,
+    inboxIrrelevanceThreshold: ServerSettingsPatch.fields.inboxIrrelevanceThreshold,
     inboxShowSelfReplies: ServerSettingsPatch.fields.inboxShowSelfReplies,
     defaultThreadEnvMode: ServerSettingsPatch.fields.defaultThreadEnvMode,
     newWorktreesStartFromOrigin: ServerSettingsPatch.fields.newWorktreesStartFromOrigin,

@@ -10,6 +10,7 @@ import {
   type InboxNotification,
   type InboxReplyInput,
   type InboxGetInput,
+  type InboxMutateInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -50,6 +51,7 @@ it.effect(
         let revision = 0;
         let status: "sent" | "failed" = "sent";
         const reads: string[] = [];
+        let irrelevant: boolean | undefined;
         const snapshot = (id: ProjectId): InboxNotification => ({
           id: "notification",
           projectId: id,
@@ -58,7 +60,13 @@ it.effect(
           connectionId: "workspace",
           groupId: "issue",
           items: [],
-          state: { read: true, placement: "active", snoozedUntil: null, threadId: null },
+          state: {
+            read: true,
+            placement: "active",
+            snoozedUntil: null,
+            threadId: null,
+            ...(irrelevant === undefined ? {} : { irrelevant }),
+          },
           analysis: null,
           processingError: null,
           analysisVersion: 0,
@@ -73,6 +81,32 @@ it.effect(
           confirmedOutcome: null,
         });
         const client = {
+          [WS_METHODS.inboxReferences]: () =>
+            Effect.sync(() =>
+              irrelevant === undefined
+                ? []
+                : [
+                    {
+                      id: "reference",
+                      notificationId: "notification",
+                      projectId,
+                      source: "linear" as const,
+                      content: "Thank you",
+                      irrelevant,
+                      createdAt: "2026-10-30T10:00:00Z",
+                    },
+                  ],
+            ),
+          [WS_METHODS.inboxMutate]: ({ action }: InboxMutateInput) =>
+            Effect.sync(() => {
+              revision++;
+              irrelevant = action.type === "irrelevant" ? action.irrelevant : undefined;
+              return {
+                notification: snapshot(projectId),
+                undoCommandId: CommandId.make("undo"),
+                openThread: false,
+              };
+            }),
           [WS_METHODS.inboxList]: ({
             projectId: id,
             ...input
@@ -136,6 +170,16 @@ it.effect(
         const variants = [
           list({ projectId, offset: 0, limit: 101 }),
           list({ projectId, search: "Tars", offset: 0, limit: 101 }),
+          list({ projectId, visibility: "filtered", offset: 0, limit: 101 }),
+          list({ projectId, visibility: "all", offset: 0, limit: 101 }),
+          list({
+            projectId,
+            visibility: "all",
+            sources: ["slack"],
+            include: { unread: true, irrelevant: false, selfReplies: true, selfUpdates: false },
+            offset: 0,
+            limit: 101,
+          }),
           list({ projectId, threadId: ThreadId.make("linked-chat") }),
         ];
         const detail = inbox.get({ environmentId: env, input: { projectId, id: "notification" } });
@@ -149,6 +193,11 @@ it.effect(
           );
         for (const atom of [...variants, ...unrelated]) registry.mount(atom);
         registry.mount(detail);
+        const references = inbox.references({ environmentId: env, input: { projectId } });
+        registry.mount(references);
+        const readReferences = () =>
+          AtomRegistry.getResult(registry, references, { suspendOnWaiting: true });
+        expect(yield* readReferences()).toEqual([]);
         for (const atom of [...variants, ...unrelated])
           expect((yield* readList(atom))[0]?.revision).toBe(0);
         expect(
@@ -181,11 +230,47 @@ it.effect(
         );
         for (const atom of variants) expect((yield* readList(atom))[0]?.revision).toBe(1);
         expect(reads).toHaveLength(beforeFailure);
+        const marked = yield* Effect.promise(() =>
+          inbox.mutate.run(registry, {
+            environmentId: env,
+            input: {
+              projectId,
+              id: "notification",
+              expectedRevision: 1,
+              commandId: CommandId.make("irrelevant"),
+              action: { type: "irrelevant", irrelevant: true },
+            },
+          }),
+        );
+        expect(marked._tag).toBe("Success");
+        for (const atom of variants) {
+          const row = (yield* readList(atom))[0]!;
+          expect(row.revision).toBe(2);
+          expect(row.state.irrelevant).toBe(true);
+          expect(row.state.placement).toBe("active");
+        }
+        expect((yield* readReferences())[0]?.content).toBe("Thank you");
+        for (const atom of unrelated) expect((yield* readList(atom))[0]?.revision).toBe(0);
+        yield* Effect.promise(() =>
+          inbox.mutate.run(registry, {
+            environmentId: env,
+            input: {
+              projectId,
+              id: "notification",
+              expectedRevision: 2,
+              commandId: CommandId.make("undo-irrelevant"),
+              action: { type: "undo", commandId: CommandId.make("undo") },
+            },
+          }),
+        );
+        for (const atom of variants)
+          expect((yield* readList(atom))[0]?.state.irrelevant).toBeUndefined();
+        expect(yield* readReferences()).toEqual([]);
         // Visibility changes still refresh every project on the selected environment.
         revision++;
         registry.set(visibility(env), 1);
         for (const atom of [...variants, unrelated[0]!])
-          expect((yield* readList(atom))[0]?.revision).toBe(2);
+          expect((yield* readList(atom))[0]?.revision).toBe(4);
         expect((yield* readList(unrelated[1]!))[0]?.revision).toBe(0);
       }),
     ),

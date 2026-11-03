@@ -1439,3 +1439,22 @@ describe("ClientSettings hotspot failover compatibility", () => {
     expect(() => decodeClientSettingsPatch({ awakeHotspotFailover })).toThrow();
   });
 });
+
+describe("inbox relevance filtering", () => {
+  it("defaults to conservative prospective filtering with a global threshold", () => {
+    expect(decodeServerSettings({})).toMatchObject({
+      inboxFilterIrrelevant: true,
+      inboxIrrelevanceThreshold: 98,
+    });
+    const patch = { inboxFilterIrrelevant: false, inboxIrrelevanceThreshold: 75 };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
+    expect(
+      decodeServerSettings({ projectSettingsOverrides: { demo: patch } }).projectSettingsOverrides
+        .demo,
+    ).toEqual({});
+  });
+  it.each([74, 101, 98.5, "98", null])("rejects invalid threshold %s", (value) => {
+    expect(() => decodeServerSettingsPatch({ inboxIrrelevanceThreshold: value })).toThrow();
+  });
+});

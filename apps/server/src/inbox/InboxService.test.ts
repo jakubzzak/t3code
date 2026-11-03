@@ -164,7 +164,7 @@ it.effect(
       }).pipe(Effect.provide(fixture.layer));
     }).pipe(Effect.scoped),
 );
-it.effect("Agent chat starts no turn; settling and reopening it update the notification", () =>
+it.effect("Agent chat settlement never resolves or reopens the notification", () =>
   Effect.gen(function* () {
     const fixture = yield* scenario;
     yield* Effect.gen(function* () {
@@ -182,9 +182,17 @@ it.effect("Agent chat starts no turn; settling and reopening it update the notif
       yield* service.drain;
       assert.equal(yield* Ref.get(fixture.starts), 0);
       yield* Ref.set(fixture.settled, true);
-      assert.equal((yield* service.list({ projectId }))[0]?.state.placement, "resolved");
+      const linked = (yield* service.list({ projectId }))[0]!;
+      assert.equal(linked.state.placement, "delegated");
+      yield* service.mutate({
+        projectId,
+        id: linked.id,
+        commandId: CommandId.make("explicit-resolve"),
+        expectedRevision: linked.revision,
+        action: { type: "resolve", resolved: true },
+      });
       yield* Ref.set(fixture.settled, false);
-      assert.equal((yield* service.list({ projectId }))[0]?.state.placement, "delegated");
+      assert.equal((yield* service.list({ projectId }))[0]?.state.placement, "resolved");
       assert.equal(
         (yield* Effect.result(service.list({ projectId: ProjectId.make("b") })))._tag,
         "Failure",
@@ -914,6 +922,15 @@ it.effect.each(["slack", "linear", "superhuman"] as const)(
         });
         yield* service.drain;
         yield* Ref.set(fixture.settled, true);
+        const linkedBeforeResolve = (yield* service.get({ projectId, id: first.id }))!;
+        assert.equal(linkedBeforeResolve.state.placement, "delegated");
+        yield* service.mutate({
+          projectId,
+          id: linkedBeforeResolve.id,
+          commandId: CommandId.make("explicit-resolve"),
+          expectedRevision: linkedBeforeResolve.revision,
+          action: { type: "resolve", resolved: true },
+        });
         const settled = (yield* service.get({ projectId, id: first.id }))!;
         assert.equal(settled.state.placement, "resolved");
         const own = reply("Done, ready for review", 11, true);

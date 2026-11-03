@@ -8,7 +8,7 @@ import { serverEnvironment } from "./server";
 const visibilityChanges = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) => {
     const settings = get(serverEnvironment.settingsValueAtom(environmentId));
-    return `${settings?.inboxShowSelfUpdates ?? true}:${settings?.inboxShowSelfReplies ?? true}`;
+    return `${settings?.inboxShowSelfUpdates ?? true}:${settings?.inboxShowSelfReplies ?? true}:${settings?.inboxFilterIrrelevant ?? true}`;
   }),
 );
 export const inboxEnvironment = createInboxEnvironmentAtoms(connectionAtomRuntime, {

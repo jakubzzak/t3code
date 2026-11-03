@@ -1,5 +1,8 @@
 import { BotIcon, LightbulbIcon, SparklesIcon } from "lucide-react";
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { useState } from "react";
+import { inboxEnvironment } from "~/state/inbox";
+import { useEnvironmentQuery } from "~/state/query";
+import { DEFAULT_SERVER_SETTINGS, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import {
   applyProviderInstanceSettings,
@@ -17,6 +20,7 @@ import { useScopedModelDisabledReason } from "../settings/useScopedModelAvailabi
 import { SettingsRow, SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Switch } from "../ui/switch";
+import { Button } from "../ui/button";
 import { useCommitOnBlur } from "~/hooks/useCommitOnBlur";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
@@ -260,46 +264,167 @@ export function InboxFeatureSettings() {
   );
 }
 
-/** Global visibility controls are edited at environment scope, never as project overrides. */
+function InboxReferencePages({
+  environmentId,
+  projectId,
+}: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId;
+}) {
+  const [open, setOpen] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const query = useEnvironmentQuery(
+    open ? inboxEnvironment.references({ environmentId, input: { projectId, offset } }) : null,
+  );
+  return (
+    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer text-xs text-muted-foreground">
+        {open ? "Hide references" : "View references"}
+      </summary>
+      <div className="mt-2 space-y-2 pb-2">
+        {query.error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {query.error}
+          </p>
+        ) : query.data ? (
+          query.data.length ? (
+            query.data.map((reference) => (
+              <div
+                key={reference.id}
+                className="rounded-md border border-border/50 bg-muted/15 p-2"
+              >
+                <p className="text-2xs text-muted-foreground">
+                  {reference.irrelevant ? "Irrelevant" : "Kept relevant"} · {reference.source}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-xs">{reference.content}</p>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {offset ? "No more references." : "No saved references."}
+            </p>
+          )
+        ) : open ? (
+          <p className="text-xs text-muted-foreground">Loading references…</p>
+        ) : null}
+        {open && (offset > 0 || query.data?.length === 100) && (
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - 100))}
+            >
+              Previous references
+            </Button>
+            <span className="text-2xs text-muted-foreground">Page {offset / 100 + 1}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={query.isPending || query.data?.length !== 100}
+              onClick={() => setOffset(offset + 100)}
+            >
+              Next references
+            </Button>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function InboxSavedReferences() {
+  const { environment, target } = useSettingsScope();
+  const projectId = target?.projectId;
+  return (
+    <SettingsRow title="Saved references">
+      {environment && projectId ? (
+        <InboxReferencePages
+          key={`${environment.environmentId}:${projectId}`}
+          environmentId={environment.environmentId}
+          projectId={projectId}
+        />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Select a project to view its saved references.
+        </p>
+      )}
+    </SettingsRow>
+  );
+}
+
+/** Confidence is global; examples used by incoming summaries stay project-scoped. */
 export function InboxVisibilitySettings() {
   const settings = useScopedSettings();
   const update = useUpdateScopedSettings();
-  const updatesMixed = useScopedSettingsMixed(["inboxShowSelfUpdates"]);
-  const repliesMixed = useScopedSettingsMixed(["inboxShowSelfReplies"]);
+  const thresholdMixed = useScopedSettingsMixed(["inboxIrrelevanceThreshold"]);
+  const thresholdDraft = useCommitOnBlur(
+    thresholdMixed ? "" : String(settings.inboxIrrelevanceThreshold),
+    (value) => {
+      const confidence = Number(value);
+      if (value.trim() && Number.isInteger(confidence) && confidence >= 75 && confidence <= 100)
+        update({ inboxIrrelevanceThreshold: confidence });
+    },
+  );
+  // Both controls share the draft. Focus must not capture an old server value while
+  // the other control's commit is still awaiting acknowledgement.
+  const threshold = {
+    value: thresholdDraft.value,
+    onChange: thresholdDraft.onChange,
+    onBlur: thresholdDraft.onBlur,
+    onKeyDown: thresholdDraft.onKeyDown,
+  };
   return (
-    <>
-      <SettingsRow
-        id="inbox-show-self-updates"
-        title="Show updates caused by me"
-        description="Include updates caused by your own actions, including integration status notices. Applies to all projects. Hidden notifications continue to receive AI summaries."
-        serverScoped
-        mixed={updatesMixed}
-        settingKeys={["inboxShowSelfUpdates"]}
-        control={
-          <Switch
-            aria-label="Show updates caused by me"
-            mixed={updatesMixed}
-            checked={!updatesMixed && settings.inboxShowSelfUpdates}
-            onCheckedChange={(inboxShowSelfUpdates) => update({ inboxShowSelfUpdates })}
-          />
-        }
-      />
-      <SettingsRow
-        id="inbox-show-self-replies"
-        title="Show conversations where the last reply is mine"
-        description="Include conversations you last replied to in Blackbird or the source app. Applies to all projects. Changing this takes effect immediately."
-        serverScoped
-        mixed={repliesMixed}
-        settingKeys={["inboxShowSelfReplies"]}
-        control={
-          <Switch
-            aria-label="Show conversations where the last reply is mine"
-            mixed={repliesMixed}
-            checked={!repliesMixed && settings.inboxShowSelfReplies}
-            onCheckedChange={(inboxShowSelfReplies) => update({ inboxShowSelfReplies })}
-          />
-        }
-      />
-    </>
+    <SettingsRow
+      id="inbox-relevance"
+      title="Inbox relevance"
+      description="Assess new incoming messages with AI summary. Existing messages are not reprocessed."
+    >
+      <div className="mt-3 mb-2 divide-y divide-border/50 rounded-lg border border-border/50 bg-muted/15 [&>[data-slot=settings-row]]:rounded-none">
+        <SettingsRow
+          id="inbox-irrelevance-threshold"
+          title="Minimum confidence"
+          description="75–100%. Applies to future messages; AI summary must be enabled for their project."
+          serverScoped
+          mixed={thresholdMixed}
+          settingKeys={["inboxIrrelevanceThreshold"]}
+          control={
+            <div className="w-full sm:w-72">
+              <Input
+                size="sm"
+                type="number"
+                min={75}
+                max={100}
+                step={1}
+                aria-label="Irrelevance confidence percentage"
+                placeholder={thresholdMixed ? "Mixed" : undefined}
+                {...threshold}
+              />
+              <input
+                type="range"
+                min={75}
+                max={100}
+                step={1}
+                aria-label="Minimum irrelevance confidence"
+                className="mt-2 w-full accent-primary"
+                disabled={thresholdMixed}
+                {...threshold}
+                value={Math.max(75, Math.min(100, Number(threshold.value) || 98))}
+                onPointerUp={threshold.onBlur}
+                onKeyUp={(event) => {
+                  if (
+                    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(
+                      event.key,
+                    )
+                  )
+                    threshold.onBlur();
+                }}
+              />
+            </div>
+          }
+        />
+        <InboxSavedReferences />
+      </div>
+    </SettingsRow>
   );
 }

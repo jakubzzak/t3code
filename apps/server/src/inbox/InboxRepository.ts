@@ -12,9 +12,11 @@ import {
   InboxReplyAttempt,
   InboxMutationResult,
   InboxNotification,
+  InboxIrrelevanceReference,
   InboxState,
   ProjectId,
   type ThreadId,
+  type InboxListFilters,
 } from "@t3tools/contracts";
 
 const Receipt = Schema.Struct({
@@ -48,7 +50,7 @@ export class InboxRepository extends Context.Service<
     ) => Effect.Effect<InboxNotification | null, InboxError>;
     readonly list: (
       projectId: ProjectId,
-      page?: {
+      page?: InboxListFilters & {
         offset?: number;
         limit?: number;
         search?: string;
@@ -56,8 +58,15 @@ export class InboxRepository extends Context.Service<
         summaryReady?: boolean;
         showSelfUpdates?: boolean;
         showSelfReplies?: boolean;
+        filterIrrelevant?: boolean;
+        visibility?: "inbox" | "visible" | "filtered" | "all";
       },
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
+    readonly relevanceSince: Effect.Effect<number, InboxError>;
+    readonly references: (
+      projectId: ProjectId,
+      offset?: number,
+    ) => Effect.Effect<ReadonlyArray<InboxIrrelevanceReference>, InboxError>;
     readonly history: (
       projectId: ProjectId,
     ) => Effect.Effect<ReadonlyArray<InboxNotification>, InboxError>;
@@ -74,6 +83,7 @@ export class InboxRepository extends Context.Service<
       notification: InboxNotification,
       receipt: Receipt,
       undone?: CommandId,
+      reference?: InboxIrrelevanceReference,
     ) => Effect.Effect<void, InboxError>;
   }
 >()("t3/inbox/InboxRepository") {}
@@ -103,9 +113,33 @@ const make = Effect.gen(function* () {
       Effect.asVoid,
       Effect.mapError(failed),
     );
+  const decodeReference = Schema.decodeUnknownEffect(
+    Schema.fromJsonString(InboxIrrelevanceReference),
+  );
+  const encodeReference = Schema.encodeEffect(Schema.fromJsonString(InboxIrrelevanceReference));
   const decodeReply = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxReplyAttempt));
   const encodeReply = Schema.encodeEffect(Schema.fromJsonString(InboxReplyAttempt));
   return InboxRepository.of({
+    relevanceSince: sql<{
+      started_at: number;
+    }>`SELECT started_at FROM inbox_relevance_epoch WHERE id=1`.pipe(
+      Effect.map((rows) => rows[0]!.started_at),
+      Effect.mapError(failed),
+    ),
+    references: (projectId, offset = 0) =>
+      sql<{
+        payload_json: string;
+      }>`SELECT current.payload_json FROM inbox_irrelevance_references AS current
+      WHERE current.project_id=${projectId} AND NOT EXISTS (
+        SELECT 1 FROM inbox_irrelevance_references AS newer WHERE newer.project_id=current.project_id
+        AND newer.notification_id=current.notification_id AND newer.content_version=current.content_version
+        AND newer.rowid>current.rowid
+      ) ORDER BY current.rowid DESC LIMIT 100 OFFSET ${offset}`.pipe(
+        Effect.flatMap((records) =>
+          Effect.forEach(records, (row) => decodeReference(row.payload_json)),
+        ),
+        Effect.mapError(failed),
+      ),
     replyReceipt: (commandId) =>
       sql<{
         result_json: string;
@@ -136,10 +170,52 @@ const make = Effect.gen(function* () {
       ).pipe(Effect.map((items) => items[0] ?? null)),
     list: (projectId, page) => {
       const search = page?.search?.toLowerCase() ?? "";
+      const sources = page?.sources ?? [];
+      const include = page?.include;
+      const selfActivity = include ? [] : (page?.selfActivity ?? []);
+      const unrestrictedSources = sources.length === 0 && (!include || page?.sources === undefined);
+      // The current Inbox popover owns category selection; legacy visibility modes retain
+      // their saved preference semantics for older clients.
+      const filterIrrelevant = page?.visibility === "inbox" || (page?.filterIrrelevant ?? true);
+      const showSelfUpdates = page?.visibility === "inbox" || (page?.showSelfUpdates ?? true);
+      const showSelfReplies = page?.visibility === "inbox" || (page?.showSelfReplies ?? true);
       return rows(sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId}
         AND (${page?.summaryReady ?? false}=0 OR json_extract(payload_json, '$.analysis') IS NOT NULL OR json_extract(payload_json, '$.processingError') IS NOT NULL)
-        AND (${page?.showSelfUpdates ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'), 0)=0 OR coalesce(json_extract(payload_json, '$.replyCursor.kind'), 'reply') <> 'update')
-        AND (${page?.showSelfReplies ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'), 0)=0 OR coalesce(json_extract(payload_json, '$.replyCursor.kind'), 'reply') <> 'reply')
+        AND (${page?.visibility === "all"}=1 OR coalesce((
+          coalesce(json_extract(payload_json, '$.state.irrelevant'),0)=1
+          OR (${filterIrrelevant}=1 AND json_extract(payload_json, '$.state.irrelevant') IS NOT 0
+            AND json_extract(payload_json, '$.relevance.status')='complete' AND json_extract(payload_json, '$.relevance.irrelevant')=1)
+          OR (${showSelfUpdates}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='update')
+          OR (${showSelfReplies}=0 AND coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='reply')
+        ),0) IS ${page?.visibility === "filtered" ? 1 : 0})
+        AND (${unrestrictedSources}=1
+          OR (${sources.includes("slack")}=1 AND json_extract(payload_json, '$.source')='slack')
+          OR (${sources.includes("linear")}=1 AND json_extract(payload_json, '$.source')='linear')
+          OR (${sources.includes("superhuman")}=1 AND json_extract(payload_json, '$.source')='superhuman'))
+        AND (${include ? false : (page?.unreadOnly ?? false)}=0 OR coalesce(json_extract(payload_json, '$.state.read'),0)=0)
+        AND (${include ? false : (page?.irrelevantOnly ?? false)}=0 OR coalesce((
+          json_extract(payload_json, '$.state.irrelevant')=1
+          OR (json_extract(payload_json, '$.state.irrelevant') IS NOT 0
+            AND json_extract(payload_json, '$.relevance.status')='complete'
+            AND json_extract(payload_json, '$.relevance.irrelevant')=1)
+        ),0)=1)
+        AND (${selfActivity.length === 0}=1 OR (
+          coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=1 AND (
+            (${selfActivity.includes("reply")}=1 AND coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')='reply')
+            OR (${selfActivity.includes("update")}=1 AND json_extract(payload_json, '$.replyCursor.kind')='update')
+          )
+        ))
+        AND (${include?.unread ?? true}=1 OR json_extract(payload_json, '$.state.read')=1)
+        AND (${include?.irrelevant ?? true}=1 OR coalesce((
+          json_extract(payload_json, '$.state.irrelevant')=1
+          OR (json_extract(payload_json, '$.state.irrelevant') IS NOT 0
+            AND json_extract(payload_json, '$.relevance.status')='complete'
+            AND json_extract(payload_json, '$.relevance.irrelevant')=1)
+        ),0)=0)
+        AND (${include?.selfReplies ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=0
+          OR coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')<>'reply')
+        AND (${include?.selfUpdates ?? true}=1 OR coalesce(json_extract(payload_json, '$.replyCursor.isSelf'),0)=0
+          OR coalesce(json_extract(payload_json, '$.replyCursor.kind'),'reply')<>'update')
         AND (${page?.threadId ?? null} IS NULL OR thread_id=${page?.threadId ?? null})
         AND (${search}='' OR instr(lower(coalesce(json_extract(payload_json, '$.analysis.summary'), '')), ${search}) > 0 OR EXISTS (
           SELECT 1 FROM json_each(inbox_notifications.payload_json, '$.items') AS item
@@ -191,7 +267,7 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError(failed),
       ),
-    commit: (notification, receipt, undone) =>
+    commit: (notification, receipt, undone, reference) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -201,7 +277,15 @@ const make = Effect.gen(function* () {
             const after = yield* encodeState(receipt.after);
             yield* sql`INSERT INTO inbox_commands(command_id, project_id, notification_id, before_json, after_json, result_json)
         VALUES(${receipt.commandId}, ${receipt.projectId}, ${receipt.notificationId}, ${before}, ${after}, ${json})`;
-            if (undone) yield* sql`UPDATE inbox_commands SET undone=1 WHERE command_id=${undone}`;
+            if (reference) {
+              const referenceJson = yield* encodeReference(reference);
+              yield* sql`INSERT INTO inbox_irrelevance_references(command_id,project_id,notification_id,content_version,payload_json)
+                VALUES(${receipt.commandId},${notification.projectId},${notification.id},${notification.analysisVersion},${referenceJson})`;
+            }
+            if (undone) {
+              yield* sql`UPDATE inbox_commands SET undone=1 WHERE command_id=${undone}`;
+              yield* sql`DELETE FROM inbox_irrelevance_references WHERE command_id=${undone} AND project_id=${notification.projectId}`;
+            }
           }),
         )
         .pipe(Effect.mapError(failed)),
