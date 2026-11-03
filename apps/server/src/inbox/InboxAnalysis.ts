@@ -4,7 +4,12 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { DEFAULT_SERVER_SETTINGS, InboxError, type InboxNotification } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  InboxError,
+  type InboxNotification,
+  type InboxIrrelevanceReference,
+} from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Settings from "../serverSettings.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -17,15 +22,45 @@ export class InboxAnalysis extends Context.Service<
     readonly analyze: (
       notification: InboxNotification,
       history: ReadonlyArray<InboxNotification>,
+      references?: ReadonlyArray<InboxIrrelevanceReference>,
     ) => Effect.Effect<NonNullable<InboxNotification["analysis"]>, InboxError>;
   }
 >()("t3/inbox/InboxAnalysis") {}
+const referenceWords = (value: string) =>
+  new Set(value.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? []);
+
+/** Rank a bounded project history by the latest message, then preserve feedback recency. */
+const matchingReferences = (
+  notification: InboxNotification,
+  references: ReadonlyArray<InboxIrrelevanceReference>,
+) => {
+  const latest = notification.items.at(-1);
+  const query = referenceWords(
+    notification.slackThread?.messages.at(-1)?.content ?? latest?.content ?? "",
+  );
+  return references
+    .filter((reference) => reference.projectId === notification.projectId)
+    .slice(0, 100)
+    .map((reference, index) => {
+      const words = referenceWords(reference.content);
+      const overlap = [...query].filter((word) => words.has(word)).length;
+      return { reference, index, score: overlap / Math.sqrt(Math.max(1, words.size)) };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, 12)
+    .sort((a, b) => a.index - b.index)
+    .map(({ reference: { content, irrelevant } }) => ({
+      content: content.slice(0, 1500),
+      irrelevant,
+    }));
+};
 const make = Effect.gen(function* () {
   const settings = yield* Settings.ServerSettingsService;
   const projects = yield* Projects.ProjectService;
   const generation = yield* TextGeneration.TextGeneration;
   return InboxAnalysis.of({
-    analyze: (notification, history) =>
+    analyze: (notification, history, references = []) =>
       Effect.gen(function* () {
         const config = resolveProjectSettings(
           yield* settings.getSettings,
@@ -47,7 +82,14 @@ const make = Effect.gen(function* () {
           return yield* new InboxError({
             detail: "The selected model cannot summarize notifications.",
           });
+        const classifyRelevance =
+          notification.relevance?.status === "pending" &&
+          notification.relevance.version === notification.analysisVersion;
         const result = yield* generation.generateInboxAnalysis({
+          classifyRelevance,
+          relevanceReferences: classifyRelevance
+            ? matchingReferences(notification, references)
+            : [],
           cwd: project.value.workspaceRoot,
           modelSelection,
           context: inboxContext({ ...notification, analysis: null }).slice(0, 64000),
@@ -56,8 +98,12 @@ const make = Effect.gen(function* () {
           instructions:
             config.inboxSummaryPrompt.trim() || DEFAULT_SERVER_SETTINGS.inboxSummaryPrompt,
         });
+        const { irrelevanceConfidence, ...content } = result;
         return {
-          ...result,
+          ...content,
+          ...(classifyRelevance && irrelevanceConfidence !== undefined
+            ? { irrelevanceConfidence }
+            : {}),
           suggestions: [],
           precedentIds: result.precedentIds.filter((id) =>
             precedents.some((item) => item.id === id),

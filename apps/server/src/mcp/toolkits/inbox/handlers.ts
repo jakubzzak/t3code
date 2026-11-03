@@ -13,6 +13,12 @@ export const layer = Access.toLayer(InboxToolkit, {
       return yield* (yield* InboxService).list(input).pipe(Effect.mapError(error));
     }),
   ),
+  inbox_references: Access.reads((input) =>
+    Effect.gen(function* () {
+      yield* readCaller();
+      return yield* (yield* InboxService).references(input).pipe(Effect.mapError(error));
+    }),
+  ),
   inbox_read: Access.reads((input) =>
     Effect.gen(function* () {
       yield* readCaller();

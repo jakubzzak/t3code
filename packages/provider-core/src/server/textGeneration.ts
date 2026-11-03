@@ -124,6 +124,8 @@ export interface InboxAnalysisInput {
   cwd: string;
   modelSelection: ModelSelection;
   context: string;
+  classifyRelevance?: boolean;
+  relevanceReferences?: ReadonlyArray<{ content: string; irrelevant: boolean }>;
   precedents: ReadonlyArray<{ id: string; context: string; outcome: string }>;
   suggest: boolean;
   instructions?: string;

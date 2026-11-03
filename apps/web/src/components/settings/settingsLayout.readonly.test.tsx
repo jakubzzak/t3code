@@ -89,3 +89,37 @@ it("exposes the inherited switch value and edit scope while keyboard focus canno
   expect(document.activeElement).toBe(target);
   expect(target.getAttribute("aria-checked")).toBe("true");
 });
+
+it("preserves positive filter semantics for a read-only inverse setting", async () => {
+  const render = () =>
+    root.render(
+      <SettingsRow
+        title="Filter my replies"
+        serverScoped
+        settingKeys={["inboxShowSelfReplies"]}
+        inheritedChecked={!state.value}
+        control={
+          <Switch
+            aria-label="Filter my replies"
+            checked={!state.value}
+            onCheckedChange={state.update}
+          />
+        }
+      />,
+    );
+  await act(async () => render());
+  const target = container.querySelector<HTMLElement>(
+    '[data-slot="tooltip-trigger"][tabindex="0"]',
+  )!;
+  await act(async () => target.focus());
+  expect(target.getAttribute("aria-checked")).toBe("true");
+  expect(target.getAttribute("aria-readonly")).toBe("true");
+  await act(async () =>
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })),
+  );
+  expect(state.update).not.toHaveBeenCalled();
+  state.value = true;
+  await act(async () => render());
+  expect(document.activeElement).toBe(target);
+  expect(target.getAttribute("aria-checked")).toBe("false");
+});

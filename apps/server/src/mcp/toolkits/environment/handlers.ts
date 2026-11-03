@@ -11,6 +11,8 @@ import { EnvironmentToolkit } from "./tools.ts";
 export function preferences(settings: ServerSettings) {
   const {
     inboxShowSelfUpdates,
+    inboxFilterIrrelevant,
+    inboxIrrelevanceThreshold,
     inboxShowSelfReplies,
     defaultThreadEnvMode,
     newWorktreesStartFromOrigin,
@@ -21,6 +23,8 @@ export function preferences(settings: ServerSettings) {
   const characters = Array.from(sourceControlWritingStyle.customInstructions);
   return {
     inboxShowSelfUpdates,
+    inboxFilterIrrelevant,
+    inboxIrrelevanceThreshold,
     inboxShowSelfReplies,
     defaultThreadEnvMode,
     newWorktreesStartFromOrigin,
