@@ -4,8 +4,8 @@ import {
   type LinearIssueSetupInput,
   type LinearIssueSetupResult,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
@@ -30,7 +30,7 @@ export class ThreadLinearIssues extends Context.Service<
 >()("t3/orchestration-v2/ThreadLinearIssues") {}
 
 export const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const engine = yield* ThreadManagementService;
   const projects = yield* ProjectStoreV2;
   const snapshots = { getShellSnapshot: engine.getShellSnapshot };
@@ -126,7 +126,7 @@ export const make = Effect.gen(function* () {
     ) {
       yield* engine.dispatch({
         type: "thread.setup-script.record",
-        commandId: CommandId.make(`linear-setup:${yield* crypto.randomUUIDv4()}`),
+        commandId: CommandId.make(`linear-setup:${yield* random.uuidV4()}`),
         threadId: thread.id,
         status: kind,
         worktreePath: prepared.path,
@@ -149,7 +149,7 @@ export const make = Effect.gen(function* () {
                 projectId: project.id,
                 projectCwd: project.workspaceRoot,
                 worktreePath: prepared.path,
-                preferredTerminalId: `setup-linear-${yield* crypto.randomUUIDv4()}`,
+                preferredTerminalId: `setup-linear-${yield* random.uuidV4()}`,
                 observeCompletion: {},
               })
               .pipe(

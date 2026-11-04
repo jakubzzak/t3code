@@ -52,13 +52,17 @@ vi.mock("../../state/server", () => ({
 }));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.upsert }));
 vi.mock("../../state/query", () => ({
-  useEnvironmentQuery: () => ({ data: { tasks: state.tasks } }),
+  // A null atom is a skipped query, such as the destination's thread family.
+  useEnvironmentQuery: (atom: unknown) => ({ data: atom === null ? null : { tasks: state.tasks } }),
+  formatEnvironmentQueryError: (error: unknown) => String(error),
 }));
 vi.mock("../../state/environments", () => ({ useEnvironment: () => environment }));
 vi.mock("../../state/entities", () => ({
   useProjects: () => [project],
+  useThreadShell: () => null,
   useThreadShells: () => [],
 }));
+vi.mock("../../state/managedPolicy", () => ({ useManagedPolicy: () => undefined }));
 vi.mock("../../state/session", () => ({ readEnvironmentScope: () => true }));
 vi.mock("../../hooks/useProjectGitEnabled", () => ({ useProjectGitEnabled: () => false }));
 vi.mock("../../hooks/useSettings", () => ({

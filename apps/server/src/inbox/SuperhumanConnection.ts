@@ -3,7 +3,7 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -61,7 +61,7 @@ export class SuperhumanConnection extends Context.Service<
 >()("t3/inbox/SuperhumanConnection") {}
 const make = Effect.gen(function* () {
   const secrets = yield* Secrets.ServerSecretStore;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const services = yield* Effect.context<never>();
   const runPromise = Effect.runPromiseWith(services);
   const pending = new Map<
@@ -174,7 +174,7 @@ const make = Effect.gen(function* () {
           for (const [state, flow] of pending)
             if (flow.projectId === projectId || flow.expiresAt <= now) pending.delete(state);
           const nonce = Buffer.from(
-            yield* crypto
+            yield* random
               .randomBytes(32)
               .pipe(
                 Effect.mapError(() => new InboxError({ detail: "Could not start authorization." })),

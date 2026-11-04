@@ -49,6 +49,7 @@ import {
   isProviderSkillUserInvocable,
   isProviderWorkspaceSnapshotScanning,
   type ProviderWorkspaceSnapshotRefreshState,
+  resetProviderWorkspaceSnapshotRefresh,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
@@ -57,6 +58,7 @@ import { Atom } from "effect/reactivity";
 import { useEffect, useState } from "react";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
+import { appAtomRegistry } from "../../state/atom-registry";
 import { serverEnvironment } from "../../state/server";
 import {
   useComposerPathSearch,
@@ -271,16 +273,17 @@ export function useComposerCommandMenu({
     ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd)
     : [];
   const selectedProviderInstanceId = selectedProviderStatus?.instanceId;
-  const workspaceSnapshotRefreshAtom: Atom.Atom<
-    ProviderWorkspaceSnapshotRefreshState | undefined
-  > =
+  const scopedWorkspaceSnapshotRefreshAtom =
     environmentId && projectCwd && selectedProviderInstanceId
       ? providerWorkspaceSnapshotRefresh({
           environmentId,
           instanceId: selectedProviderInstanceId,
           cwd: projectCwd,
         })
-      : idleWorkspaceSnapshotRefreshAtom;
+      : null;
+  const workspaceSnapshotRefreshAtom: Atom.Atom<
+    ProviderWorkspaceSnapshotRefreshState | undefined
+  > = scopedWorkspaceSnapshotRefreshAtom ?? idleWorkspaceSnapshotRefreshAtom;
   const refreshWorkspaceSnapshot = useAtomRefresh(workspaceSnapshotRefreshAtom);
   const workspaceSnapshotRefreshState = useAtomValue(workspaceSnapshotRefreshAtom);
   // Slow skill discovery shows a loading row instead of "No skills found.", and
@@ -293,6 +296,11 @@ export function useComposerCommandMenu({
     !workspaceSnapshotRefreshState.hadSnapshot &&
     !workspaceSkillsLoading &&
     workspaceSnapshotRefreshState.failedAttempts > 0;
+  // A manual retry scans at once, skipping the cooldown and attempt limit automatic retries honor.
+  const retryWorkspaceSkills = () => {
+    if (scopedWorkspaceSnapshotRefreshAtom === null) return;
+    appAtomRegistry.set(scopedWorkspaceSnapshotRefreshAtom, resetProviderWorkspaceSnapshotRefresh);
+  };
   // Every draft change rechecks a stale snapshot, including drafts written by
   // another surface (a prompt link) that never move the editor selection.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the provider workspace snapshot atom whenever the draft text changes from any surface
@@ -638,8 +646,7 @@ export function useComposerCommandMenu({
         : trigger?.kind === "pull-request"
           ? pullRequestSearch.isPending
           : trigger?.kind === "path" && pathSearch.isPending,
-    onRetry:
-      trigger?.kind === "skill" && workspaceSkillsFailed ? refreshWorkspaceSnapshot : undefined,
+    onRetry: trigger?.kind === "skill" && workspaceSkillsFailed ? retryWorkspaceSkills : undefined,
     error:
       trigger?.kind === "skill" && workspaceSkillsFailed
         ? "Could not load workspace skills."

@@ -4,7 +4,7 @@ import {
   DesktopAwakeState,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -37,8 +37,8 @@ export const make = Effect.gen(function* () {
   const system = yield* AwakeSystem;
   const clientSettings = yield* DesktopClientSettings;
   const windows = yield* ElectronWindow;
-  const crypto = yield* Crypto.Crypto;
-  const token = (yield* crypto.randomUUIDv4().pipe(Effect.orDie)).replaceAll("-", "");
+  const random = yield* SecureRandom.SecureRandom;
+  const token = (yield* random.uuidV4().pipe(Effect.orDie)).replaceAll("-", "");
   const lock = yield* Semaphore.make(1);
   let settings = DEFAULT_CLIENT_SETTINGS;
   let current: DesktopAwakeState = {

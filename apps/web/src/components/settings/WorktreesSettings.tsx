@@ -54,16 +54,19 @@ function StartFromRemoteRow() {
 export function WorktreesSettingsPanel() {
   const { scope } = useSettingsScope();
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
+  const gitEnabled = useScopedSettings().gitEnabled !== false;
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="worktree-creation" title="Creation">
-        {!isProjectScope && <WorktreesDirectoryRow />}
-        <StartFromRemoteRow />
-        <AdvancedSettings targetIds={[searchableSetting("worktree-submodules").id]}>
-          <WorktreeSubmodulesRow />
-        </AdvancedSettings>
-      </SettingsSection>
+      {gitEnabled ? (
+        <SettingsSection id="worktree-creation" title="Creation">
+          {!isProjectScope && <WorktreesDirectoryRow />}
+          <StartFromRemoteRow />
+          <AdvancedSettings targetIds={[searchableSetting("worktree-submodules").id]}>
+            <WorktreeSubmodulesRow />
+          </AdvancedSettings>
+        </SettingsSection>
+      ) : null}
       <SettingsSection id="worktree-branches" title="Branches">
         <BranchNamingSettings />
       </SettingsSection>

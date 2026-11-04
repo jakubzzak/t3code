@@ -159,6 +159,17 @@ const initialProviderWorkspaceSnapshotRefreshState: ProviderWorkspaceSnapshotRef
   snapshotPending: false,
 };
 
+export type ProviderWorkspaceSnapshotRefreshUpdate = (
+  state: ProviderWorkspaceSnapshotRefreshState,
+) => ProviderWorkspaceSnapshotRefreshState;
+
+/**
+ * A manual retry: written to a refresh atom, it forgets the cooldown and failed
+ * attempts so the rebuild scans again at once.
+ */
+export const resetProviderWorkspaceSnapshotRefresh: ProviderWorkspaceSnapshotRefreshUpdate = () =>
+  initialProviderWorkspaceSnapshotRefreshState;
+
 /**
  * Decides whether a composer looking at `cwd` should ask the server to rescan
  * the provider's workspace, and when to look again if a retry is due while the
@@ -289,10 +300,10 @@ export function createProviderWorkspaceSnapshotRefreshAtomFamily(input: {
     const statusAtom = Atom.make((get) =>
       resolveWorkspaceSnapshotStatus(findProvider(get(input.providers(environmentId))), cwd),
     ).pipe(Atom.withLabel(`provider-workspace-snapshot-status:${key}`));
-    type Update = (
-      state: ProviderWorkspaceSnapshotRefreshState,
-    ) => ProviderWorkspaceSnapshotRefreshState;
-    const refreshAtom: Atom.Writable<ProviderWorkspaceSnapshotRefreshState, Update> = Atom.writable(
+    const refreshAtom: Atom.Writable<
+      ProviderWorkspaceSnapshotRefreshState,
+      ProviderWorkspaceSnapshotRefreshUpdate
+    > = Atom.writable(
       (get): ProviderWorkspaceSnapshotRefreshState => {
         get(statusAtom);
         // `once`: unrelated provider updates must not trigger a check.
@@ -344,7 +355,7 @@ export function createProviderWorkspaceSnapshotRefreshAtomFamily(input: {
         }, retryLater);
         return plan.state;
       },
-      (ctx, update: Update) => {
+      (ctx, update: ProviderWorkspaceSnapshotRefreshUpdate) => {
         ctx.setSelf(update(ctx.get(refreshAtom)));
         ctx.refreshSelf();
       },
@@ -353,6 +364,6 @@ export function createProviderWorkspaceSnapshotRefreshAtomFamily(input: {
   });
   return (
     target: ProviderWorkspaceSnapshotRefreshTarget,
-  ): Atom.Atom<ProviderWorkspaceSnapshotRefreshState> =>
+  ): Atom.Writable<ProviderWorkspaceSnapshotRefreshState, ProviderWorkspaceSnapshotRefreshUpdate> =>
     family({ environmentId: target.environmentId, instanceId: target.instanceId, cwd: target.cwd });
 }

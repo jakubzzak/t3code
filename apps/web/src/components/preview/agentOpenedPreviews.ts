@@ -12,7 +12,9 @@ import type {
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 
+import { isElectron } from "../../env";
 import { getClientSettings } from "../../hooks/useSettings";
+import { readLinearViewEnabled } from "../linear/linearViewEnabled";
 import {
   browserMiniPlayerSource,
   type PreviewMiniPlayerSource,
@@ -64,12 +66,18 @@ export function revealServerTabs(
 export function followPreviewSessions(threadRef: ScopedThreadRef, state: ThreadPreviewState): void {
   if (readEnvironmentSupportsServerBrowser(threadRef.environmentId) && !state.listLoaded) return;
   const sessions = Object.values(state.sessions);
+  // Linear tabs only show where the embedded Linear view is available and enabled.
+  const linearHidden = () => !(isElectron && readLinearViewEnabled(threadRef));
   useRightPanelStore.getState().reconcileBrowserSurfaces(
     threadRef,
     sessions.map((session) => session.tabId),
     new Set(
       sessions
-        .filter((session) => session.runtime === "server" && session.reveal === false)
+        .filter(
+          (session) =>
+            (session.runtime === "server" && session.reveal === false) ||
+            (session.surface === "linear" && linearHidden()),
+        )
         .map((session) => session.tabId),
     ),
   );

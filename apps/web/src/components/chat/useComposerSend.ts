@@ -42,6 +42,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import { createModelSelection } from "@t3tools/shared/model";
+import { prepareAgenticSearchPrompt } from "~/agenticSearch";
 import { type SetStateAction, useLayoutEffect, useRef } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
@@ -602,11 +603,19 @@ export function useComposerSend(input: ComposerSendInput) {
       });
     // A direct "send annotation" writes the draft and sends in the same tick; the reference
     // must be in the text now, not after the next render.
-    const promptForSend = directAnnotation
+    const rawPromptForSend = directAnnotation
       ? ensureInlineContextReferences(promptRef.current, [
           previewAnnotationContextReference(directAnnotation.annotation),
         ])
       : promptRef.current;
+    const searchDraft = isLocalDraftThread ? draftThread?.search : undefined;
+    const promptForSend = searchDraft
+      ? prepareAgenticSearchPrompt(searchDraft, rawPromptForSend)
+      : rawPromptForSend;
+    if (promptForSend === null) {
+      toastManager.add({ type: "info", title: "Add what you want to search for before sending" });
+      return;
+    }
     const strandedThread = threadContextsOutsideEnvironment({
       text: promptForSend,
       records: composerThreadContexts,
@@ -844,6 +853,7 @@ export function useComposerSend(input: ComposerSendInput) {
     const threadIdForSend = activeThread.id;
     const sendSnapshot = snapshotComposerSend({
       prompt: promptForSend,
+      ...(searchDraft ? { restorePrompt: rawPromptForSend } : {}),
       images: composerImages,
       files: composerFiles,
       terminalContexts: composerTerminalContexts,
@@ -1463,13 +1473,14 @@ export function useComposerSend(input: ComposerSendInput) {
         optimisticBlobPreviews.release(optimisticMessage);
         const retryComposerImages = restoreComposerDraft(composerDraftTarget, sendSnapshot);
         if (currentRouteThreadKeyRef.current === routeThreadKey) {
-          promptRef.current = messageTextForSend;
+          const promptToRestore = sendSnapshot.restorePrompt;
+          promptRef.current = promptToRestore;
           composerImagesRef.current = retryComposerImages;
           composerFilesRef.current = composerFilesSnapshot;
           composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
           composerRef.current?.resetCursorState({
-            cursor: collapseExpandedComposerCursor(messageTextForSend, messageTextForSend.length),
-            prompt: messageTextForSend,
+            cursor: collapseExpandedComposerCursor(promptToRestore, promptToRestore.length),
+            prompt: promptToRestore,
             detectTrigger: true,
           });
         }

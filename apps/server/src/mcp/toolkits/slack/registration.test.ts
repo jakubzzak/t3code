@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -116,10 +117,16 @@ it.effect(
       Layer.provide(Settings.layerTest({})),
       Layer.provide(Layer.succeed(HttpClient.HttpClient, backend)),
     );
-    const services = Slack.layer.pipe(
-      Layer.provideMerge(connection),
-      Layer.provideMerge(Sqlite.layerMemory),
-      Layer.provide(Layer.succeed(HttpClient.HttpClient, backend)),
+    const environment = Layer.mock(Environment.ServerEnvironment)({
+      getEnvironmentId: Effect.succeed(EnvironmentId.make("slack-http-environment")),
+    });
+    const services = Layer.mergeAll(
+      Slack.layer.pipe(
+        Layer.provideMerge(connection),
+        Layer.provideMerge(Sqlite.layerMemory),
+        Layer.provide(Layer.succeed(HttpClient.HttpClient, backend)),
+      ),
+      Registry.layer.pipe(Layer.provide(environment), Layer.provide(NodeCrypto.layer)),
     );
 
     return Effect.scoped(
@@ -138,27 +145,24 @@ it.effect(
           ),
         );
         const caller = yield* Ref.make(liveThreadShell(threadId));
-        const routes = Layer.mergeAll(
+        const registry = yield* Registry.McpSessionRegistry;
+        const routes = McpHttpServer.layerMcpTransport(
           McpHttpServer.toolkitRegistration(SlackToolkit, Handlers.layer),
-          McpHttpServer.layerMcpTransport,
-        ).pipe(Layer.provide(Registry.layer));
+        ).pipe(
+          Layer.provide(Layer.succeed(Registry.McpSessionRegistry, registry)),
+          Layer.provide(Settings.layerTest({})),
+        );
         yield* HttpRouter.serve(routes, { disableListenLog: true, disableLogger: true }).pipe(
-          Layer.provide(
-            Layer.mock(Environment.ServerEnvironment)({
-              getEnvironmentId: Effect.succeed(EnvironmentId.make("slack-http-environment")),
-            }),
-          ),
+          Layer.provide(environment),
           Layer.provide(
             Layer.mock(Threads.ThreadManagementService)({ getThreadShell: () => Ref.get(caller) }),
           ),
           Layer.build,
         );
-        const credential = yield* Registry.issueActiveMcpCredential({
+        const credential = yield* registry.issue({
           threadId,
           providerInstanceId: ProviderInstanceId.make("codex"),
         });
-        expect(credential).toBeDefined();
-        if (!credential) return;
         const http = yield* HttpClient.HttpClient;
         let sessionId: string | undefined;
         let sequence = 0;

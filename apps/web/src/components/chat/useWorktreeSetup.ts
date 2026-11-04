@@ -27,8 +27,9 @@ export function useWorktreeSetup(input: {
   // Use the draft id until promotion: bootstrap rotates the thread id.
   readonly ownerKey: string;
   readonly activeThread:
-    | { readonly id: ThreadId; readonly worktreePath: string | null }
+    | { readonly id: ThreadId; readonly worktreePath: string | null; readonly latestRun: unknown }
     | undefined;
+  readonly isServerThread: boolean;
   readonly threadRef: ScopedThreadRef | null;
   readonly serverProjection: ThreadStructure | null;
   readonly activityRun: Thread["latestRun"] | null;
@@ -40,6 +41,7 @@ export function useWorktreeSetup(input: {
     routeThreadRef,
     ownerKey,
     activeThread,
+    isServerThread,
     threadRef,
     serverProjection,
     activityRun,
@@ -65,7 +67,11 @@ export function useWorktreeSetup(input: {
   const snapshotQuery = useEnvironmentQuery(
     started ||
       (activeThread?.id === routeThreadRef.threadId &&
-        (localPreparing || runPreparing || activeThread.worktreePath !== null))
+        // Compose-only launches can prepare a workspace before they have a run or path.
+        (localPreparing ||
+          runPreparing ||
+          activeThread.worktreePath !== null ||
+          (isServerThread && activeThread.latestRun === null)))
       ? vcsEnvironment.worktreeSetup({
           environmentId: target.environmentId,
           input: { threadId: target.threadId },

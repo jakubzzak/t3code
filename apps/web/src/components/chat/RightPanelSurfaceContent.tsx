@@ -123,7 +123,7 @@ export function RightPanelSurfaceContent(props: {
         return (
           <PullRequestsUnavailableState
             title="Pull requests unavailable"
-            error="Update this environment's T3 Code server to browse pull requests."
+            error="Update this environment's Blackbird server to browse pull requests."
           />
         );
       }
@@ -226,7 +226,9 @@ export function RightPanelSurfaceContent(props: {
             }
             folderTrail={surface.folderTrail}
             onPendingChange={files.onPendingChange}
-            selectedFilePending={surface.kind === "file" && files.pendingSurfaceIds.has(surface.id)}
+            selectedFilePending={
+              surface.kind === "file" && files.pendingSurfaceIds.has(`file:${surface.relativePath}`)
+            }
             workspaceMutationId={props.workspaceMutationId}
           />
         </Suspense>

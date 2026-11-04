@@ -2,11 +2,11 @@ import { LinearIssueSetupError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { GitVcsDriver, type CreateWorktreeOptions } from "../vcs/GitVcsDriver.ts";
 import { ServerConfig } from "../config.ts";
 import { resolveWorktreesDirectory } from "../worktreesDirectory.ts";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 
 export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(function* (input: {
   cwd: string;
@@ -72,7 +72,7 @@ export const prepareLinearWorktree = Effect.fn("LinearWorktree.prepare")(functio
     const matches: string[] = [];
     for (const name of remotes.stdout.trim().split("\n").filter(Boolean)) {
       const url = yield* run(["config", "--get", `remote.${name}.url`]);
-      if (!parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url.stdout.trim())) continue;
+      if (sourceControlDefinitions.recognizeRemote(url.stdout.trim())?.kind !== "github") continue;
       const advertised = yield* run(
         ["ls-remote", "--exit-code", "--heads", "--", name, `refs/heads/${input.branchName}`],
         true,

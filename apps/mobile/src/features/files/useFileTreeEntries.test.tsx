@@ -350,7 +350,7 @@ describe("file tree workspace state", () => {
       screen.load();
       expect(screen.requests[1]!.query).toEqual({
         environmentId: target.environmentId ?? firstTarget.environmentId,
-        input: { cwd: target.cwd ?? firstTarget.cwd, directoryPath: "src" },
+        input: { cwd: target.cwd ?? firstTarget.cwd, directoryPath: "src", followLinks: true },
       });
       await screen.succeed(1, [{ kind: "file", path: "src/second.ts" }]);
 
@@ -615,10 +615,16 @@ describe("file tree workspace state", () => {
             void screen.current.refresh();
           });
           expect(screen.requests.slice(refreshed).map((request) => request.query.input)).toEqual([
-            { cwd: "/first", directoryPath: "" },
-            { cwd: "/first", query: "new", limit: 200 },
-            { cwd: "/first", directoryPath: "src" },
-            { cwd: "/first", directoryPath: path },
+            { cwd: "/first", directoryPath: "", followLinks: true },
+            {
+              cwd: "/first",
+              query: "new",
+              limit: 200,
+              files: { includeIgnored: false, includeTests: false },
+              filesRevision: expect.any(String),
+            },
+            { cwd: "/first", directoryPath: "src", followLinks: true },
+            { cwd: "/first", directoryPath: path, followLinks: true },
           ]);
           // The parent settles last so its listing carries the newest response timestamp.
           for (const index of [refreshed, refreshed + 1, refreshed + 3, refreshed + 2]) {

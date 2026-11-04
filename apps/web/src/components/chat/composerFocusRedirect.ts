@@ -1,4 +1,6 @@
+import { isPreviewFocused } from "~/lib/previewFocus";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { selectedNavigationSection } from "~/sectionNavigation";
 
 export const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   "input",
@@ -60,7 +62,7 @@ function isSurfaceLauncherKey(event: KeyboardEvent): boolean {
 }
 
 export function shouldRedirectInputToComposer(event: Event): boolean {
-  if (event.defaultPrevented) return false;
+  if (event.defaultPrevented || selectedNavigationSection() || isPreviewFocused()) return false;
   // Never persist or send secret-request typing through the composer.
   if (eventPathContainsSelector(event, SECRET_REQUEST_SELECTOR)) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_EDITABLE_SELECTOR)) return false;

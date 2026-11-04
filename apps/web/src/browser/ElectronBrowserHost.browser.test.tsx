@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   closeTab: vi.fn<DesktopPreviewBridge["closeTab"]>(),
   registerWebview: vi.fn<DesktopPreviewBridge["registerWebview"]>(),
   getPreviewConfig: vi.fn<DesktopPreviewBridge["getPreviewConfig"]>(),
+  serverConfigs: new Map(),
+  threadShells: [],
 }));
 
 vi.mock(import("~/env"), async (original) => ({ ...(await original()), isElectron: true }));
@@ -44,6 +46,13 @@ vi.mock(import("~/components/preview/previewBridge"), async (original) => ({
     registerWebview: mocks.registerWebview,
     getPreviewConfig: mocks.getPreviewConfig,
   } as never,
+}));
+
+// The host checks Linear views against loaded configs and threads; these tests open none.
+vi.mock(import("~/state/entities"), async (original) => ({
+  ...(await original()),
+  useServerConfigs: () => mocks.serverConfigs as never,
+  useThreadShells: () => mocks.threadShells,
 }));
 
 vi.mock(import("~/components/preview/usePreviewBridge"), async (original) => ({

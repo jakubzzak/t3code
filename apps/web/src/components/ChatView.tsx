@@ -183,6 +183,7 @@ import {
 } from "./preview/ThreadPreviewMiniPlayer";
 import { createChatCanvasStore, resolveChatCanvasModel } from "./chat/canvasStore";
 import { usePreviewSession } from "./preview/usePreviewSession";
+import { followPreviewSessions } from "./preview/agentOpenedPreviews";
 import { getConfiguredPreviewUrls } from "./preview/previewEmptyStateLogic";
 
 import {
@@ -1148,6 +1149,10 @@ export default function ChatView(props: ChatViewProps) {
         store.closeSurface(activeThreadRef, surface.id);
     }
   }, [gitEnabled, activeThreadRef, rightPanelState.surfaces]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides or restores Linear tabs when the project toggles the embedded Linear view
+  useEffect(() => {
+    if (activeThreadRef) followPreviewSessions(activeThreadRef, activePreviewState);
+  }, [activeThreadRef, activePreviewState, linearViewEnabled]);
   const activeProjectScripts = activeProject ? resolveProjectScripts(settings, activeProject) : [];
   const { projectCloneBannerItem, projectCloneSendBlockReason } =
     useProjectCloneBanner(activeProjectRef);
@@ -1612,6 +1617,7 @@ export default function ChatView(props: ChatViewProps) {
     routeThreadRef,
     ownerKey: draftId ?? routeThreadKey,
     activeThread,
+    isServerThread,
     threadRef: activeThreadRef,
     serverProjection,
     activityRun: activeActivityRun,

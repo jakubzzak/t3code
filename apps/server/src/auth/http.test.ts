@@ -161,9 +161,9 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
 
 it.effect("issues scoped stream tickets and retains the legacy ticket endpoint", () =>
   Effect.gen(function* () {
-    const crypto = yield* Crypto.Crypto;
+    const random = yield* SecureRandom.SecureRandom;
     const secretStore = yield* ServerSecretStore.ServerSecretStore;
-    const requestContext = Context.make(Crypto.Crypto, crypto).pipe(
+    const requestContext = Context.make(SecureRandom.SecureRandom, random).pipe(
       Context.add(ServerSecretStore.ServerSecretStore, secretStore),
     );
     return yield* Effect.acquireUseRelease(
@@ -223,7 +223,7 @@ it.effect("issues scoped stream tickets and retains the legacy ticket endpoint",
     Effect.provide(
       ServerSecretStore.layer.pipe(
         Layer.provide(layerConfig),
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
   ),
