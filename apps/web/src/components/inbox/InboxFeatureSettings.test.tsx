@@ -157,17 +157,21 @@ it("allows a shared zero-day selection when selected projects have mixed history
   expect(state.update).toHaveBeenCalledExactlyOnceWith({ inboxInitialHistoryDays: 0 });
 });
 
-it("defaults refresh to two minutes and commits only whole minutes from two to sixty", async () => {
+it("defaults refresh to two minutes and commits only whole minutes from two to 120", async () => {
   await act(async () => root.render(<InboxFeatureSettings />));
   const label = "Inbox refresh interval minutes";
   expect(container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)?.value).toBe("2");
   await edit("60", label);
   expect(state.update).toHaveBeenLastCalledWith({ inboxRefreshIntervalMinutes: 60 });
+  await edit("61", label);
+  expect(state.update).toHaveBeenLastCalledWith({ inboxRefreshIntervalMinutes: 61 });
+  await edit("120", label);
+  expect(state.update).toHaveBeenLastCalledWith({ inboxRefreshIntervalMinutes: 120 });
   await edit("5", label);
   expect(state.update).toHaveBeenLastCalledWith({ inboxRefreshIntervalMinutes: 5 });
-  for (const value of ["0", "1", "61", "2.5", ""])
+  for (const value of ["0", "1", "121", "2.5", ""])
     expect((await edit(value, label)).value).toBe("2");
-  expect(state.update).toHaveBeenCalledTimes(2);
+  expect(state.update).toHaveBeenCalledTimes(4);
 });
 
 it("applies the minimum interval to projects with mixed refresh settings", async () => {

@@ -228,7 +228,7 @@ or secret is required. Sign in, select accounts, then select Important or other
 splits and labels. Sign-in requires access to Superhuman Mail MCP and its Chrome extension.
 Selections save automatically; text and number fields save when you leave the field or press Enter.
 
-Set **Refresh interval** inside **Features → Inbox** to check connected sources every 2–60
+Set **Refresh interval** inside **Features → Inbox** to check connected sources every 2–120
 minutes (default 2). Each source resumes from its last successful fetch; failed fetches retain
 that checkpoint for the next attempt. Slack mention searches return date-based result pages,
 but older matches are skipped before downloading message or thread details.

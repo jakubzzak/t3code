@@ -165,7 +165,7 @@ export function InboxFeatureSettings() {
     refreshMixed ? "" : String(settings.inboxRefreshIntervalMinutes),
     (value) => {
       const minutes = Number(value);
-      if (value.trim() && Number.isInteger(minutes) && minutes >= 2 && minutes <= 60)
+      if (value.trim() && Number.isInteger(minutes) && minutes >= 2 && minutes <= 120)
         update({ inboxRefreshIntervalMinutes: minutes });
     },
   );
@@ -198,7 +198,7 @@ export function InboxFeatureSettings() {
       />
       <SettingsRow
         title="Refresh interval"
-        description="Check connected sources every 2–60 minutes. Only activity since the last successful fetch is collected."
+        description="Check connected sources every 2–120 minutes. Only activity since the last successful fetch is collected."
         mixed={refreshMixed}
         serverScoped
         settingKeys={["inboxRefreshIntervalMinutes"]}
@@ -209,7 +209,7 @@ export function InboxFeatureSettings() {
               type="number"
               aria-label="Inbox refresh interval minutes"
               min={2}
-              max={60}
+              max={120}
               step={1}
               placeholder={refreshMixed ? "Mixed" : undefined}
               {...refresh}

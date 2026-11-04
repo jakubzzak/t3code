@@ -1343,14 +1343,15 @@ describe("Inbox initial history", () => {
 describe("Inbox refresh interval", () => {
   it("defaults to two minutes and validates global and project values", () => {
     expect(decodeServerSettings({}).inboxRefreshIntervalMinutes).toBe(2);
-    for (const minutes of [2, 15, 60]) {
+    for (const minutes of [2, 15, 60, 61, 120]) {
       const patch = {
+        inboxRefreshIntervalMinutes: minutes,
         projectSettingsOverrides: { project: { inboxRefreshIntervalMinutes: minutes } },
       };
       expect(decodeServerSettingsPatch(patch)).toEqual(patch);
       expect(decodeServerSettings(patch)).toMatchObject(patch);
     }
-    for (const minutes of [0, 1, 2.5, 61]) {
+    for (const minutes of [0, 1, 2.5, 121]) {
       expect(() => decodeServerSettingsPatch({ inboxRefreshIntervalMinutes: minutes })).toThrow();
       expect(() =>
         decodeServerSettingsPatch({

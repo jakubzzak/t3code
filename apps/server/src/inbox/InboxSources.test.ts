@@ -511,11 +511,11 @@ it.effect(
             [linearProject]: {
               inboxEnabled: true,
               linearWorkspace: "fixture",
-              inboxRefreshIntervalMinutes: 60,
+              inboxRefreshIntervalMinutes: 120,
             },
           },
         });
-        yield* TestClock.adjust("59 minutes");
+        yield* TestClock.adjust("119 minutes");
         assert.equal(linearReads, initialReads + 1);
         linearRead = yield* Deferred.make<void>();
         yield* TestClock.adjust("1 minute");
