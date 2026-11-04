@@ -1,6 +1,6 @@
 import { MarkdownCodeBlock } from "./MarkdownCodeBlock";
 import { markdownCodeMedia } from "./markdownCodeMedia";
-import { useCallback, useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 
@@ -23,43 +23,30 @@ export function SelectableMarkdownText(props: SelectableMarkdownTextProps) {
   const theme = useUniwindTheme();
   const selectionColor = themeColorWithAlpha(theme["--color-focus"], 0.32);
   const selectionHandleColor = theme["--color-focus"];
-  const textStyle = useMemo(
-    () =>
-      Platform.OS === "android"
-        ? { selectionColor, selectionHandleColor, ...props.textStyle }
-        : props.textStyle,
-    [props.textStyle, selectionColor, selectionHandleColor],
-  );
+  const textStyle =
+    Platform.OS === "android"
+      ? { selectionColor, selectionHandleColor, ...props.textStyle }
+      : props.textStyle;
   const id = useId();
-  const { markdown, media, nestedBlocks } = useMemo(
-    () => markdownCodeMedia(props.markdown, `blackbird-code://${encodeURIComponent(id)}/`),
-    [props.markdown, id],
+  const { markdown, media, nestedBlocks } = markdownCodeMedia(
+    props.markdown,
+    `blackbird-code://${encodeURIComponent(id)}/`,
   );
-  const renderImage = useCallback<NonNullable<SelectableMarkdownTextProps["renderImage"]>>(
-    (image) => {
-      const block = media.get(image.href);
-      return block ? (
-        <MarkdownCodeBlock
-          key={`${image.href}:${block.language}`}
-          block={block}
-          textStyle={textStyle}
-          isStreaming={props.isStreaming}
-          onCodeLanguageChange={props.onCodeLanguageChange}
-          renderDiagram={props.renderDiagram}
-        />
-      ) : (
-        (props.renderImage?.(image) ?? null)
-      );
-    },
-    [
-      media,
-      textStyle,
-      props.isStreaming,
-      props.onCodeLanguageChange,
-      props.renderDiagram,
-      props.renderImage,
-    ],
-  );
+  const renderImage: NonNullable<SelectableMarkdownTextProps["renderImage"]> = (image) => {
+    const block = media.get(image.href);
+    return block ? (
+      <MarkdownCodeBlock
+        key={`${image.href}:${block.language}`}
+        block={block}
+        textStyle={textStyle}
+        isStreaming={props.isStreaming}
+        onCodeLanguageChange={props.onCodeLanguageChange}
+        renderDiagram={props.renderDiagram}
+      />
+    ) : (
+      (props.renderImage?.(image) ?? null)
+    );
+  };
   const [selected, setSelected] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<readonly number[]>([]);
   const closeCode = () => {

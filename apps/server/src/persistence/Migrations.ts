@@ -1,19 +1,8 @@
-/**
- * Migration runner with an inline loader.
- *
- * Uses Migrator.make with fromRecord to define migrations inline.
- * All migrations are statically imported - no dynamic file system loading.
- *
- * `runMigrations` is called by the SQLite persistence layer at startup, so the
- * schema is always up to date before the application starts.
- */
-
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
-// Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
 import Migration0003 from "./Migrations/003_CheckpointDiffBlobs.ts";
@@ -76,25 +65,32 @@ import Migration0059 from "./Migrations/059_McpAppModelContext.ts";
 import Migration0060 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 import Migration0061 from "./Migrations/061_PullRequestReviewGuides.ts";
 import Migration0062 from "./Migrations/062_ThreadFailureLookupIndex.ts";
-import Migration0065 from "./Migrations/065_InboxSources.ts";
-import Migration0064 from "./Migrations/064_NotificationInbox.ts";
-import Migration0063 from "./Migrations/063_ProjectionThreadLinearIssue.ts";
-import Migration0066 from "./Migrations/066_ScheduledTaskCatchUpRecord.ts";
-import Migration0068 from "./Migrations/068_InboxRelevance.ts";
-import Migration0067 from "./Migrations/067_SlackSendAttempts.ts";
-import { reconcileBlackbirdLinearMigration } from "./reconcileBlackbirdLinearMigration.ts";
+import Migration0063 from "./Migrations/063_DropUnusedV1Projections.ts";
+import Migration0064 from "./Migrations/064_CanonicalizeThreadPullRequestLinks.ts";
+import Migration0065 from "./Migrations/065_CodexUsageNativeTurnIndex.ts";
+import Migration0066 from "./Migrations/066_RepairClientSettlementTimestamps.ts";
+import Migration0067 from "./Migrations/067_WebhookDedupe.ts";
+import Migration0068 from "./Migrations/068_ShellStopRequestIndex.ts";
+import Migration0069 from "./Migrations/069_ThreadMessageSearch.ts";
+import Migration0070 from "./Migrations/070_PeerLinks.ts";
+import Migration0071 from "./Migrations/071_PeerLinkFence.ts";
+import Migration0072 from "./Migrations/072_WaitingLinkRequestIndex.ts";
+import Migration0073 from "./Migrations/073_ActiveTurnItemIndexes.ts";
+import Migration0074 from "./Migrations/074_ExcludeAttachmentPlaceholdersFromSearch.ts";
+import Migration0075 from "./Migrations/075_SubagentDeliveryState.ts";
+import Migration0076 from "./Migrations/076_ProjectionProjectsPinArchive.ts";
+import Migration0077 from "./Migrations/077_RepairBooleanSettledOverride.ts";
+import Migration0078 from "./Migrations/078_DropOrchestrationEventCorrelationIndex.ts";
 
-/**
- * Migration loader with all migrations defined inline.
- *
- * Key format: "{id}_{name}" where:
- * - id: numeric migration ID (determines execution order)
- * - name: descriptive name for the migration
- *
- * Uses Migrator.fromRecord which parses the key format and
- * returns migrations sorted by ID.
- */
-export const migrationEntries = [
+import Migration0079 from "./Migrations/079_DelegatedRecoveryIndexes.ts";
+import Migration0080 from "./Migrations/080_ProjectionThreadLinearIssue.ts";
+import Migration0081 from "./Migrations/081_NotificationInbox.ts";
+import Migration0082 from "./Migrations/082_InboxSources.ts";
+import Migration0083 from "./Migrations/083_ScheduledTaskCatchUpRecord.ts";
+import Migration0084 from "./Migrations/084_SlackSendAttempts.ts";
+import Migration0085 from "./Migrations/085_InboxRelevance.ts";
+
+const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
   [3, "CheckpointDiffBlobs", Migration0003],
@@ -149,7 +145,6 @@ export const migrationEntries = [
   [52, "ProjectionThreadTitleState", Migration0052],
   [53, "PullRequestFilesViewed", Migration0053],
   [54, "ProjectionThreadsAutoSettleDisabledAt", Migration0054],
-  // Released as 53 and 54 in V2 previews; reconcileV2PreviewMigration preserves their ledger.
   // Preserve this migration's schema. Future V2 schema changes need new migrations.
   [55, "OrchestrationV2", Migration0055],
   [56, "RemoveRedundantProjectionIndexes", Migration0056],
@@ -159,12 +154,30 @@ export const migrationEntries = [
   [60, "ThreadSnapshotWindowIndexes", Migration0060],
   [61, "PullRequestReviewGuides", Migration0061],
   [62, "ThreadFailureLookupIndex", Migration0062],
-  [63, "ProjectionThreadLinearIssue", Migration0063],
-  [64, "NotificationInbox", Migration0064],
-  [65, "InboxSources", Migration0065],
-  [66, "ScheduledTaskCatchUpRecord", Migration0066],
-  [67, "SlackSendAttempts", Migration0067],
-  [68, "InboxRelevance", Migration0068],
+  [63, "DropUnusedV1Projections", Migration0063],
+  [64, "CanonicalizeThreadPullRequestLinks", Migration0064],
+  [65, "CodexUsageNativeTurnIndex", Migration0065],
+  [66, "RepairClientSettlementTimestamps", Migration0066],
+  [67, "WebhookDedupe", Migration0067],
+  [68, "ShellStopRequestIndex", Migration0068],
+  [69, "ThreadMessageSearch", Migration0069],
+  [70, "PeerLinks", Migration0070],
+  [71, "PeerLinkFence", Migration0071],
+  [72, "WaitingLinkRequestIndex", Migration0072],
+  [73, "ActiveTurnItemIndexes", Migration0073],
+  [74, "ExcludeAttachmentPlaceholdersFromSearch", Migration0074],
+  [75, "SubagentDeliveryState", Migration0075],
+  [76, "ProjectionProjectsPinArchive", Migration0076],
+  [77, "RepairBooleanSettledOverride", Migration0077],
+  [78, "DropOrchestrationEventCorrelationIndex", Migration0078],
+  [79, "DelegatedRecoveryIndexes", Migration0079],
+  // Blackbird fork migrations stay after upstream's ids; see relocateBlackbirdMigrations.
+  [80, "ProjectionThreadLinearIssue", Migration0080],
+  [81, "NotificationInbox", Migration0081],
+  [82, "InboxSources", Migration0082],
+  [83, "ScheduledTaskCatchUpRecord", Migration0083],
+  [84, "SlackSendAttempts", Migration0084],
+  [85, "InboxRelevance", Migration0085],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -178,16 +191,9 @@ const makeMigrationLoader = (throughId?: number) =>
     ),
   );
 
-// V2's schema migrations start at 55 after the legacy schema migrations.
 const FIRST_V2_MIGRATION_ID = 55;
 
-/**
- * Fail before migrating when the migrator would skip one of V2's own
- * migrations. It skips every id up to the highest recorded one, whatever name
- * was recorded, so a database that took a V2 id for another migration would
- * start without V2's schema and fail on first use. Earlier ids keep the
- * warning below: databases with a site-local migration there still work.
- */
+// Migrators skip ids up to the highest recorded; reject collisions that would skip V2 schema.
 const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function* (
   throughId?: number,
 ) {
@@ -220,50 +226,119 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
   });
 });
 
-/**
- * Migrator run function - no schema dumping needed
- * Uses the base Migrator.make without platform dependencies
- */
 const run = Migrator.make({});
+
+/** Blackbird-only migrations. Earlier fork builds recorded them under other ids. */
+const BLACKBIRD_MIGRATION_NAMES: ReadonlySet<string> = new Set([
+  "ProjectionThreadLinearIssue",
+  "NotificationInbox",
+  "InboxSources",
+  "ScheduledTaskCatchUpRecord",
+  "SlackSendAttempts",
+  "InboxRelevance",
+]);
+
+/**
+ * Earlier Blackbird builds recorded fork migrations under ids upstream now uses (55, then 63-68).
+ * The migrator skips every id up to the highest recorded one, so free those ids and return the
+ * fork migrations that already ran; the caller records them at their current ids once every
+ * earlier upstream migration has run. Their schema and data stay intact.
+ */
+const relocateBlackbirdMigrations = Effect.fn("relocateBlackbirdMigrations")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) return [];
+  const recorded = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const currentIds = new Map<string, number>(
+    migrationEntries
+      .filter(([, name]) => BLACKBIRD_MIGRATION_NAMES.has(name))
+      .map(([id, name]) => [name, id]),
+  );
+  const misplaced = recorded.flatMap((row) => {
+    const currentId = currentIds.get(row.name);
+    return currentId === undefined || currentId === row.migration_id
+      ? []
+      : [{ legacyId: row.migration_id, currentId, name: row.name }];
+  });
+  if (misplaced.length === 0) return [];
+  const recordedIds = new Set(recorded.map((row) => row.migration_id));
+  for (const row of misplaced) {
+    yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = ${row.legacyId} AND name = ${row.name}`;
+    recordedIds.delete(row.legacyId);
+  }
+  const relocated = new Map<number, string>();
+  for (const row of misplaced) {
+    if (!recordedIds.has(row.currentId)) relocated.set(row.currentId, row.name);
+  }
+  return [...relocated]
+    .map(([id, name]) => [id, name] as const)
+    .toSorted(([a], [b]) => a - b);
+});
 
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
 }
 
-/**
- * Run all pending migrations.
- *
- * Creates the migrations tracking table (effect_sql_migrations) if it doesn't exist,
- * then runs any migrations with ID greater than the latest recorded migration.
- *
- * Returns array of [id, name] tuples for migrations that were run.
- *
- * @returns Effect containing array of executed migrations
- */
-export const runMigrations = Effect.fn("runMigrations")(function* ({
+const runMigrationsWithRelocation = Effect.fn("runMigrationsWithRelocation")(function* ({
   toMigrationInclusive,
-}: RunMigrationsOptions = {}) {
+}: RunMigrationsOptions) {
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
-  if (includesV2) yield* reconcileBlackbirdLinearMigration();
+  const relocated = includesV2 ? yield* relocateBlackbirdMigrations() : [];
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
   if (includesV2) {
     yield* assertV2MigrationsCanRun(toMigrationInclusive);
   }
-  const executedMigrations = [
+  const firstRelocatedId = relocated[0]?.[0];
+  if (
+    firstRelocatedId === undefined ||
+    (toMigrationInclusive !== undefined && toMigrationInclusive < firstRelocatedId)
+  ) {
+    // Nothing to restore, or this run stops before the relocated ids; legacy rows stay put.
+    if (firstRelocatedId !== undefined) {
+      return yield* new Migrator.MigrationError({
+        kind: "BadState",
+        message: `This database records Blackbird migrations under legacy ids; run every migration through ${firstRelocatedId} to relocate them.`,
+      });
+    }
+    return [
+      ...previewMigrations,
+      ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
+    ];
+  }
+  const beforeRelocated = yield* run({ loader: makeMigrationLoader(firstRelocatedId - 1) });
+  const sql = yield* SqlClient.SqlClient;
+  for (const [id, name] of relocated) {
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
+  }
+  yield* Effect.logInfo("Relocated Blackbird migrations after upstream migrations.").pipe(
+    Effect.annotateLogs({ relocated: relocated.map(([id, name]) => `${id}_${name}`) }),
+  );
+  return [
     ...previewMigrations,
+    ...beforeRelocated,
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
+});
+
+export const runMigrations = Effect.fn("runMigrations")(function* ({
+  toMigrationInclusive,
+}: RunMigrationsOptions = {}) {
+  const sql = yield* SqlClient.SqlClient;
+  // One transaction, so a failed upgrade never leaves fork migrations unrecorded.
+  const executedMigrations = yield* sql.withTransaction(
+    runMigrationsWithRelocation({ toMigrationInclusive }),
+  );
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
     : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
 
-  // The migrator keys on migration_id: a database that recorded a different
-  // migration under a shared id (local or fork builds) keeps that id and
-  // silently skips this build's migration at it. Surface the divergence so the
-  // skipped schema change is diagnosable.
-  const sql = yield* SqlClient.SqlClient;
   const recorded = yield* sql<{
     readonly migration_id: number;
     readonly name: string;

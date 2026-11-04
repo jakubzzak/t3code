@@ -1,12 +1,12 @@
 import { scheduledTaskChats } from "@t3tools/client-runtime/scheduled-task-chats";
 import { LegendList } from "@legendapp/list/react-native";
 import { TextInput, View } from "react-native";
-import { ListRow } from "../../components/ListRow";
+import { ListRow } from "../../components/ui/ListRow";
 import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useEnvironmentServerConfig, useProjects, useThreadShells } from "../../state/entities";
@@ -57,6 +57,12 @@ export function ScheduledTaskModelPickerRouteScreen() {
       projectId={projectId}
       providerGroups={providerGroups}
       selectedModel={selectedModel}
+      prompt={editor.draft.prompt}
+      onPromptChange={(prompt) =>
+        setEditor((current) =>
+          current ? { ...current, draft: { ...current.draft, prompt } } : current,
+        )
+      }
       onSelectModel={(option) =>
         setEditor((current) =>
           current

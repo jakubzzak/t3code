@@ -5,7 +5,7 @@ import {
 } from "@t3tools/shared/markdownCode";
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
-import { CopyTextButton } from "../components/CopyTextButton";
+import { CopyTextButton } from "../features/threads/CopyTextButton";
 import MermaidDiagram from "../features/markdown/MermaidDiagram";
 import { MobileEnrichedMarkdownText } from "./EnrichedMarkdownText";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";

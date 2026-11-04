@@ -53,6 +53,7 @@ import {
   useState,
   type ReactNode,
   type KeyboardEvent,
+  type Ref,
 } from "react";
 import { flushSync } from "react-dom";
 import { createSidebarListMotion } from "../Sidebar.motion";
@@ -402,12 +403,15 @@ export function InboxSidebarLayout({
   threadRef,
   chatCount,
   chatHeader,
+  contentRef,
   children,
 }: {
   projects: ReadonlyArray<ScopedProjectRef>;
   threadRef: ScopedThreadRef | null;
   chatCount: number;
   chatHeader: ReactNode;
+  /** The chat list's sidebar content, which the sidebar scrolls when its scope changes. */
+  contentRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
   const openLink = useInboxLink(threadRef);
@@ -937,7 +941,7 @@ export function InboxSidebarLayout({
   const enabled = projects.length > 0;
   if (!enabled)
     return (
-      <SidebarContent className="min-h-full" fixedHeader={chatHeader}>
+      <SidebarContent ref={contentRef} className="min-h-full" fixedHeader={chatHeader}>
         {children}
       </SidebarContent>
     );
@@ -1085,7 +1089,9 @@ export function InboxSidebarLayout({
       <div className={styles.viewport}>
         <div className={styles.track} data-inbox={inbox}>
           <div className={styles.pane} inert={inbox} aria-hidden={inbox}>
-            <SidebarContent className="min-h-full">{children}</SidebarContent>
+            <SidebarContent ref={contentRef} className="min-h-full">
+              {children}
+            </SidebarContent>
           </div>
           <div className={styles.pane} inert={!inbox} aria-hidden={!inbox}>
             <SidebarContent className="min-h-full">

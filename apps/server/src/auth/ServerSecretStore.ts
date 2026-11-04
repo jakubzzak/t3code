@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Authenticated encryption of environment integration records.
 import * as NodeCrypto from "node:crypto";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -147,7 +147,6 @@ export const isSecretAlreadyExistsError = (error: SecretStoreError): boolean =>
 export class ServerSecretStore extends Context.Service<
   ServerSecretStore,
   {
-    /** File-backed stores expose their directory for cross-process credential leases. */
     readonly directory?: string;
     readonly get: (name: string) => Effect.Effect<Option.Option<Uint8Array>, SecretStoreError>;
     readonly set: (name: string, value: Uint8Array) => Effect.Effect<void, SecretStoreError>;
@@ -160,9 +159,9 @@ export class ServerSecretStore extends Context.Service<
   }
 >()("t3/auth/ServerSecretStore") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
@@ -278,7 +277,7 @@ export const make = Effect.gen(function* () {
     const secretPath = resolveSecretPath(name);
     return protect(name, value).pipe(
       Effect.flatMap((encoded) =>
-        crypto.randomUUIDv4().pipe(
+        crypto.uuidV4().pipe(
           Effect.mapError(
             (cause) =>
               new SecretStoreTemporaryPathError({
@@ -318,26 +317,46 @@ export const make = Effect.gen(function* () {
   const set: ServerSecretStore["Service"]["set"] = (name, value) =>
     locked(name, persist(name, value));
 
+  // `link` publishes the fully written temp file under the final name, or fails with
+  // AlreadyExists, so a concurrent reader never observes a partially written secret.
   const create: ServerSecretStore["Service"]["create"] = (name, value) => {
     const secretPath = resolveSecretPath(name);
     return locked(
       name,
-      Effect.scoped(
-        Effect.gen(function* () {
-          const encoded = yield* protect(name, value);
-          const file = yield* fileSystem.open(secretPath, {
-            flag: "wx",
-            mode: 0o600,
-          });
-          yield* file.writeAll(encoded);
-          yield* file.sync;
-          yield* fileSystem.chmod(secretPath, 0o600);
-        }),
-      ).pipe(
-        Effect.mapError((cause) =>
-          isSecretStoreError(cause)
-            ? cause
-            : new SecretStorePersistError({ resource: `secret ${name}`, cause }),
+      protect(name, value).pipe(
+        Effect.flatMap((encoded) =>
+          crypto.uuidV4().pipe(
+            Effect.mapError(
+              (cause) =>
+                new SecretStoreTemporaryPathError({
+                  resource: `secret ${name}`,
+                  cause,
+                }),
+            ),
+            Effect.flatMap((uuid) => {
+              const tempPath = `${secretPath}.${uuid}.tmp`;
+              return Effect.gen(function* () {
+                yield* Effect.scoped(
+                  Effect.gen(function* () {
+                    const file = yield* fileSystem.open(tempPath, { flag: "wx", mode: 0o600 });
+                    yield* file.writeAll(encoded);
+                    yield* file.sync;
+                  }),
+                );
+                yield* fileSystem.chmod(tempPath, 0o600);
+                yield* fileSystem.link(tempPath, secretPath);
+              }).pipe(
+                Effect.ensuring(fileSystem.remove(tempPath).pipe(Effect.ignore)),
+                Effect.mapError(
+                  (cause) =>
+                    new SecretStorePersistError({
+                      resource: `secret ${name}`,
+                      cause,
+                    }),
+                ),
+              );
+            }),
+          ),
         ),
       ),
     );

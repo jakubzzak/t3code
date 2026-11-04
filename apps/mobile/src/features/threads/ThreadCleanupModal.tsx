@@ -16,7 +16,7 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { AppText } from "../../components/AppText";
+import { AppText } from "../../components/ui/AppText";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 

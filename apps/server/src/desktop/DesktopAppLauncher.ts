@@ -13,7 +13,10 @@ import {
   type DesktopAppActivationPlatform,
   type DesktopAppActivationRequest,
 } from "@t3tools/contracts";
-import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
+import {
+  resolveDesktopAppControlAddress,
+  type DesktopAppControlAddress,
+} from "@t3tools/shared/desktopAppControl";
 import {
   Platform as HostProcessPlatform,
   Environment as HostProcessEnvironment,
@@ -87,14 +90,27 @@ function isDesktopPlatform(platform: NodeJS.Platform): platform is DesktopAppAct
   return platform === "darwin" || platform === "linux" || platform === "win32";
 }
 
-function sendDesktopAppActivationRequest(input: {
-  readonly address: string;
-  readonly fallbackAddress?: string;
+async function sendDesktopAppActivationRequest(input: {
+  readonly address: DesktopAppControlAddress;
+  readonly fallbackAddress?: DesktopAppControlAddress;
+  readonly userId: number | undefined;
   readonly request: DesktopAppActivationRequest;
   readonly timeoutMs?: number;
 }): Promise<DesktopAppActivationResponse> {
+  // Effect stat follows symlinks; IPC ownership validation requires lstat.
+  if (input.address.directory !== null) {
+    const stat = await NodeFSP.lstat(input.address.directory);
+    if (
+      !stat.isDirectory() ||
+      input.userId === undefined ||
+      stat.uid !== input.userId ||
+      (stat.mode & 0o077) !== 0
+    ) {
+      throw new Error("The desktop app socket directory is not private or owned by this user.");
+    }
+  }
   return new Promise((resolve, reject) => {
-    const socket = NodeNet.createConnection(input.address);
+    const socket = NodeNet.createConnection(input.address.address);
     socket.setEncoding("utf8");
     let buffer = "";
     let settled = false;
@@ -169,6 +185,7 @@ function sendDesktopAppActivationRequest(input: {
         resolve(
           sendDesktopAppActivationRequest({
             address: input.fallbackAddress,
+            userId: input.userId,
             request: input.request,
             ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
           }),
@@ -229,7 +246,7 @@ const open = Effect.fn("DesktopAppLauncher.open")(function* (flags: {
       tempDir: NodeOS.tmpdir(),
       userId,
       joinPath: path.join,
-    }).address;
+    });
   const request: DesktopAppActivationRequest = {
     version: DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
     requestId: NodeCrypto.randomUUID(),
@@ -245,6 +262,7 @@ const open = Effect.fn("DesktopAppLauncher.open")(function* (flags: {
       try {
         return await sendDesktopAppActivationRequest({
           address,
+          userId,
           ...(fallbackAddress ? { fallbackAddress } : {}),
           request,
         });
@@ -266,7 +284,9 @@ const open = Effect.fn("DesktopAppLauncher.open")(function* (flags: {
         ? new DesktopAppLaunchError({ workspaceRoot, cause })
         : new DesktopAppUnreachableError({
             candidateAddresses:
-              fallbackAddress === undefined ? [address] : [address, fallbackAddress],
+              fallbackAddress === undefined
+                ? [address.address]
+                : [address.address, fallbackAddress.address],
             requestId: request.requestId,
             workspaceRoot,
             cause,
@@ -303,13 +323,10 @@ export class DesktopAppLauncher extends Context.Service<
 export const layer = Layer.succeed(DesktopAppLauncher, DesktopAppLauncher.of({ open }));
 
 function isNotListening(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    "syscall" in error &&
-    error.syscall === "connect" &&
-    (error.code === "ENOENT" || error.code === "ECONNREFUSED")
-  );
+  if (!(error instanceof Error) || !("code" in error) || !("syscall" in error)) return false;
+  // A missing socket directory means no desktop app has created its control socket yet.
+  if (error.syscall === "lstat") return error.code === "ENOENT";
+  return error.syscall === "connect" && (error.code === "ENOENT" || error.code === "ECONNREFUSED");
 }
 
 export class DesktopAppLaunchError extends Schema.TaggedError<DesktopAppLaunchError>()(
@@ -369,12 +386,13 @@ async function launchRegisteredDesktop({
     tempDir: NodeOS.tmpdir(),
     userId,
     joinPath: path.join,
-  }).address;
+  });
   const deadline = now() + 30_000;
   for (;;) {
     try {
       return await sendDesktopAppActivationRequest({
         address: launchedAddress,
+        userId,
         request,
         timeoutMs: 30_000,
       });
