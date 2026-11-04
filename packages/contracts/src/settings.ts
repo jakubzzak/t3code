@@ -1069,7 +1069,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
   ),
   inboxRefreshIntervalMinutes: Schema.optionalKey(
-    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })),
+    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 120 })),
   ),
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
@@ -1185,9 +1185,9 @@ export const ServerSettings = Schema.Struct({
   inboxInitialHistoryDays: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })).pipe(
     Schema.withDecodingDefault(Effect.succeed(7)),
   ),
-  inboxRefreshIntervalMinutes: Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })).pipe(
-    Schema.withDecodingDefault(Effect.succeed(2)),
-  ),
+  inboxRefreshIntervalMinutes: Schema.Int.check(
+    Schema.isBetween({ minimum: 2, maximum: 120 }),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed(2))),
   /** Server-owned activation times keep zero-history collection stable across restarts. */
   inboxEnabledAtByProject: Schema.Record(ProjectId, IsoDateTime).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1633,7 +1633,7 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30 })),
   ),
   inboxRefreshIntervalMinutes: Schema.optionalKey(
-    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 60 })),
+    Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 120 })),
   ),
   inboxAgentModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   inboxSummaryModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
