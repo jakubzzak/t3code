@@ -738,14 +738,7 @@ function SlackThreadContent({
       <section aria-label="Original message" className={styles.slackSection}>
         <div className={styles.slackLabel}>
           Original message{" "}
-          {thread.root.author !== sourceAuthor && (
-            <span
-              className={isViewer(thread.root) ? styles.slackMention : undefined}
-              data-personal={isViewer(thread.root)}
-            >
-              {authorLabel(thread.root)}
-            </span>
-          )}
+          {thread.root.author !== sourceAuthor && <span>{authorLabel(thread.root)}</span>}
         </div>
         <SlackMessageBody message={thread.root} />
       </section>
@@ -800,12 +793,7 @@ function SlackThreadContent({
                     .join("")}
                 </span>
                 <div className={styles.slackAuthor}>
-                  <span
-                    className={isViewer(message) ? styles.slackMention : undefined}
-                    data-personal={isViewer(message)}
-                  >
-                    {authorLabel(message)}
-                  </span>
+                  <span>{authorLabel(message)}</span>
                   <InboxTimestampLabel timestamp={message.occurredAt} />
                 </div>
                 <SlackMessageBody message={message} />
