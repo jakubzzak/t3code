@@ -114,6 +114,9 @@
   background: #f1ce5e;
   color: #342a0f;
 }
+.slackAvatar[data-personal="true"] {
+  box-shadow: inset 0 0 0 1px #f1ce5e;
+}
 .slackMention svg {
   width: 0.75rem;
   height: 0.75rem;

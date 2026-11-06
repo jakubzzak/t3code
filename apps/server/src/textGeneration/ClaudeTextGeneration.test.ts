@@ -578,4 +578,78 @@ it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
           }),
       ),
   );
+
+  it.effect.each(["generateInboxAnalysis", "generateInboxResearch"] as const)(
+    "sends image pixels through the isolated %s runner",
+    (operation) =>
+      withFakeClaudeEnv(
+        {
+          output: [
+            JSON.stringify({ type: "system", subtype: "init" }),
+            JSON.stringify({
+              type: "result",
+              structured_output: {
+                summary: "Review the attached checklist.",
+                description: "Review the attached checklist.",
+                suggestions: [],
+                precedentIds: [],
+                request: null,
+                replyDraft: null,
+              },
+            }),
+            "",
+          ].join("\n"),
+          argsMustContain: "--input-format stream-json",
+          cwdMustNotBe: process.cwd(),
+          stdinMustContain:
+            '"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1hZ2UtcGl4ZWxz"}',
+        },
+        (generation) =>
+          Effect.gen(function* () {
+            const result = yield* generation[operation]!({
+              cwd: process.cwd(),
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+              },
+              context: "Can we mark those as done?",
+              images: [{ mimeType: "image/png", data: "aW1hZ2UtcGl4ZWxz" }],
+              precedents: [],
+              suggest: operation === "generateInboxResearch",
+            });
+            expect(result.suggestions).toEqual([]);
+          }),
+      ),
+  );
+
+  it.effect("preserves the terminal error from image generation's JSON-lines output", () =>
+    withFakeClaudeEnv(
+      {
+        output: [
+          JSON.stringify({ type: "system", subtype: "init" }),
+          JSON.stringify({ type: "result", is_error: true, result: "Image decoding failed." }),
+          "",
+        ].join("\n"),
+        exitCode: 1,
+        stderr: "CLI wrapper notice",
+      },
+      (generation) =>
+        Effect.gen(function* () {
+          const error = yield* Effect.flip(
+            generation.generateInboxAnalysis!({
+              cwd: process.cwd(),
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+              },
+              context: "Can we mark those as done?",
+              images: [{ mimeType: "image/png", data: "aW1hZ2UtcGl4ZWxz" }],
+              precedents: [],
+              suggest: false,
+            }),
+          );
+          expect(error.detail).toBe("Claude CLI command failed: Image decoding failed.");
+        }),
+    ),
+  );
 });

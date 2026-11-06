@@ -124,3 +124,45 @@ it.effect(
       assert.notInclude(pi.launches[0]!.args, "read");
     }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect.each(["summary", "research"] as const)(
+  "supplies notification images to Pi %s without enabling tools or extensions",
+  (operation) =>
+    Effect.gen(function* () {
+      const pi = yield* makeFakePi(
+        encodeJsonLine(
+          operation === "summary"
+            ? {
+                summary: "Review the attached list.",
+                description: "Review the list.",
+                suggestions: [],
+                precedentIds: [],
+              }
+            : { request: null, suggestions: ["Review the attached list."], replyDraft: null },
+        ),
+      );
+      const generation = yield* makePiTextGeneration(
+        { enabled: true, binaryPath: "pi", launchArgs: "--tools read", customModels: [] },
+        {},
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
+      const images = [{ data: "iVBORw0KGgo=", mimeType: "image/png" }];
+      const input = {
+        cwd: process.cwd(),
+        context: "Can we mark those as done?",
+        images,
+        suggest: operation === "research",
+        precedents: [],
+        modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "default"),
+      };
+      if (operation === "summary") yield* generation.generateInboxAnalysis!(input);
+      else yield* generation.generateInboxResearch!(input);
+
+      const prompt = pi.received.find((record) => record["type"] === "prompt");
+      assert.deepEqual(prompt?.["images"], [{ type: "image", ...images[0] }]);
+      assert.include(prompt?.["message"], input.context);
+      assert.notEqual(pi.launches[0]?.cwd, process.cwd());
+      assert.include(pi.launches[0]!.args, "--no-tools");
+      assert.include(pi.launches[0]!.args, "--no-extensions");
+      assert.notInclude(pi.launches[0]!.args, "read");
+    }).pipe(Effect.provide(NodeServices.layer)),
+);

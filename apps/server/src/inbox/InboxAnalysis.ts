@@ -15,6 +15,7 @@ import * as Settings from "../serverSettings.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { findInboxPrecedents } from "./inboxMemory.ts";
+import * as Attachments from "./InboxAttachments.ts";
 import { inboxContext } from "./notificationContext.ts";
 export class InboxAnalysis extends Context.Service<
   InboxAnalysis,
@@ -56,6 +57,7 @@ const matchingReferences = (
     }));
 };
 const make = Effect.gen(function* () {
+  const attachments = yield* Attachments.InboxAttachments;
   const settings = yield* Settings.ServerSettingsService;
   const projects = yield* Projects.ProjectService;
   const generation = yield* TextGeneration.TextGeneration;
@@ -85,14 +87,16 @@ const make = Effect.gen(function* () {
         const classifyRelevance =
           notification.relevance?.status === "pending" &&
           notification.relevance.version === notification.analysisVersion;
+        const media = yield* attachments.load(notification);
         const result = yield* generation.generateInboxAnalysis({
+          images: media.images,
           classifyRelevance,
           relevanceReferences: classifyRelevance
             ? matchingReferences(notification, references)
             : [],
           cwd: project.value.workspaceRoot,
           modelSelection,
-          context: inboxContext({ ...notification, analysis: null }).slice(0, 64000),
+          context: inboxContext({ ...notification, analysis: null }, media.context).slice(0, 64000),
           precedents,
           suggest: false,
           instructions:

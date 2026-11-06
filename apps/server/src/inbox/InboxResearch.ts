@@ -16,6 +16,7 @@ import * as SourceControl from "../sourceControl/SourceControlProviderRegistry.t
 import { resolveThreadTitleLinks } from "../textGeneration/ThreadTitleLinks.ts";
 import * as Repository from "./InboxRepository.ts";
 import { findInboxPrecedents } from "./inboxMemory.ts";
+import * as Attachments from "./InboxAttachments.ts";
 import { inboxContext } from "./notificationContext.ts";
 
 export class InboxResearch extends Context.Service<
@@ -33,6 +34,7 @@ export class InboxResearch extends Context.Service<
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const make = Effect.gen(function* () {
+  const attachments = yield* Attachments.InboxAttachments;
   const settings = yield* Settings.ServerSettingsService;
   const projects = yield* Projects.ProjectService;
   const generation = yield* Generation.TextGeneration;
@@ -58,7 +60,11 @@ const make = Effect.gen(function* () {
           detail: "The selected model cannot research this notification.",
         });
       const cwd = project.value.workspaceRoot;
-      const context = inboxContext({ ...notification, analysis: null }).slice(0, 32000);
+      const media = yield* attachments.load(notification);
+      const context = inboxContext({ ...notification, analysis: null }, media.context).slice(
+        0,
+        32000,
+      );
       const precedents = config.inboxMemoryEnabled
         ? findInboxPrecedents(notification, yield* repository.history(notification.projectId))
         : [];
@@ -155,6 +161,7 @@ const make = Effect.gen(function* () {
         if (!current.inboxEnabled || !current.inboxSummaryEnabled || !current.inboxPreResolution)
           return yield* new InboxError({ detail: "Suggestion research was disabled." });
         const result = yield* generation.generateInboxResearch({
+          images: media.images,
           cwd,
           modelSelection: config.inboxSummaryModelSelection ?? config.textGenerationModelSelection,
           context: encodeJson({

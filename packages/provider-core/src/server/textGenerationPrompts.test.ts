@@ -461,6 +461,10 @@ it("shares relevance output with the summary schema only for eligible incoming c
   expect(eligible.prompt).toContain("BOTH irrelevant");
   expect(eligible.prompt).toContain("No suggested action does not imply irrelevance");
   expect(eligible.prompt).toContain("Thanks, got it");
+  for (const { outputSchema } of [baseline, eligible]) {
+    const json = toJsonSchemaObject(outputSchema);
+    expect(json).toMatchObject({ required: Object.keys(outputSchema.fields) });
+  }
   const decode = Schema.decodeUnknownSync(eligible.outputSchema);
   const summary = {
     description: "Acknowledgement",
@@ -468,8 +472,13 @@ it("shares relevance output with the summary schema only for eligible incoming c
     suggestions: [],
     precedentIds: [],
   };
-  expect(decode({ ...summary, irrelevanceConfidence: 99 }).irrelevanceConfidence).toBe(99);
-  expect(decode(summary).irrelevanceConfidence).toBeUndefined();
+  expect(decode({ ...summary, irrelevanceConfidence: 99 })).toEqual({
+    ...summary,
+    irrelevanceConfidence: 99,
+  });
+  expect(() => decode(summary)).toThrow();
+  const decodeBaseline = Schema.decodeUnknownSync(baseline.outputSchema);
+  expect(decodeBaseline(summary)).toEqual(summary);
   for (const confidence of [-1, 101, 97.5, "99"])
     expect(() => decode({ ...summary, irrelevanceConfidence: confidence })).toThrow();
 });

@@ -7,6 +7,7 @@ import * as SuperhumanOAuthHttp from "./inbox/superhumanOAuthHttp.ts";
 import * as InboxReplyTransport from "./inbox/InboxReplyTransport.ts";
 import * as InboxSources from "./inbox/InboxSources.ts";
 import * as InboxSourceTransport from "./inbox/InboxSourceTransport.ts";
+import * as InboxAttachments from "./inbox/InboxAttachments.ts";
 import * as InboxAnalysis from "./inbox/InboxAnalysis.ts";
 import * as InboxResearch from "./inbox/InboxResearch.ts";
 import * as InboxService from "./inbox/InboxService.ts";
@@ -728,7 +729,6 @@ const layerCommandReadiness = HttpRouter.middleware(
 );
 
 const layerInbox = InboxSources.layer.pipe(
-  Layer.provide(InboxSourceTransport.layer.pipe(Layer.provide(FetchHttpClient.layer))),
   Layer.provideMerge(
     InboxService.layer.pipe(
       Layer.provide(InboxResearch.layer),
@@ -737,6 +737,8 @@ const layerInbox = InboxSources.layer.pipe(
       Layer.provide(InboxAnalysis.layer),
     ),
   ),
+  Layer.provide(InboxAttachments.layer),
+  Layer.provide(InboxSourceTransport.layer.pipe(Layer.provide(FetchHttpClient.layer))),
   Layer.provideMerge(InboxReplyTransport.layer.pipe(Layer.provide(FetchHttpClient.layer))),
   Layer.provideMerge(SlackService.layer.pipe(Layer.provide(FetchHttpClient.layer))),
   Layer.provide(SuperhumanConnection.layer),

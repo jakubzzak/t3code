@@ -121,6 +121,8 @@ export type ReviewGuideGenerationResult = Omit<
 
 /** Commit, change request, branch, and title generation backed by one provider instance. */
 export interface InboxAnalysisInput {
+  /** Downloaded source images, supplied as model input without granting file or network tools. */
+  readonly images?: ReadonlyArray<{ readonly data: string; readonly mimeType: string }>;
   cwd: string;
   modelSelection: ModelSelection;
   context: string;

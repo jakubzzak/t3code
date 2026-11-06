@@ -43,6 +43,32 @@ if (!process.stdin.isTTY) {
   stdinContent = Buffer.concat(chunks).toString("utf8");
 }
 
+if (argv[argv.indexOf("--input-format") + 1] === "stream-json") {
+  if (argv[argv.indexOf("--output-format") + 1] !== "stream-json" || !argv.includes("--verbose")) {
+    fail("streaming image input requires verbose stream-json output", 13);
+  }
+  if (!stdinContent.endsWith("\n")) fail("streaming input must end with a newline", 14);
+  const input = JSON.parse(stdinContent);
+  if (
+    input.type !== "user" ||
+    input.message?.role !== "user" ||
+    input.parent_tool_use_id !== null
+  ) {
+    fail("invalid user message envelope", 15);
+  }
+  const content = input.message.content;
+  if (!Array.isArray(content) || content[0]?.type !== "text" || !content[0].text) {
+    fail("image input is missing the text prompt", 16);
+  }
+  if (
+    !content
+      .slice(1)
+      .every((part) => part.type === "image" && part.source?.type === "base64" && part.source.data)
+  ) {
+    fail("invalid image input", 17);
+  }
+}
+
 const argsMustContain = process.env.T3_FAKE_CLAUDE_ARGS_MUST_CONTAIN;
 if (argsMustContain && !args.includes(argsMustContain)) {
   fail("args missing expected content", 2);

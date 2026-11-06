@@ -82,7 +82,13 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         });
       }
 
-      yield* connection.request({ type: "prompt", message: prompt });
+      yield* connection.request({
+        type: "prompt",
+        message: prompt,
+        ...(request.images?.length
+          ? { images: request.images.map((image) => ({ type: "image", ...image })) }
+          : {}),
+      });
       yield* Effect.gen(function* () {
         while (true) {
           const event = yield* Queue.take(connection.events);
