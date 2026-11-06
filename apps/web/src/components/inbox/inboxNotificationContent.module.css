@@ -110,7 +110,8 @@
     transition: none;
   }
 }
-.slackMention[data-personal="true"] {
+.slackMention[data-personal="true"],
+.slackAvatar[data-personal="true"] {
   background: #f1ce5e;
   color: #342a0f;
 }

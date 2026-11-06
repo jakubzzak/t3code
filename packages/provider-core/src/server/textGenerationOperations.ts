@@ -47,6 +47,8 @@ export interface Request<S extends Schema.Top> {
    * the prompt carries everything and the model runs with no tools at all. A runner that cannot
    * guarantee read-only tools fails rather than answering blind.
    */
+  /** Inline base64 source images for tool-free notification processing. */
+  readonly images?: ReadonlyArray<{ readonly data: string; readonly mimeType: string }> | undefined;
   readonly investigate?: { readonly timeoutMs: number } | undefined;
 }
 
@@ -201,6 +203,7 @@ export function fromRunner(
       capabilities?.toolFreeInboxAnalysis
         ? run({
             operation: "generateInboxResearch",
+            images: input.images,
             cwd: input.cwd,
             modelSelection: input.modelSelection,
             ...buildInboxResearchPrompt(input),
@@ -215,6 +218,7 @@ export function fromRunner(
       capabilities?.toolFreeInboxAnalysis
         ? run({
             operation: "generateInboxAnalysis",
+            images: input.images,
             cwd: input.cwd,
             modelSelection: input.modelSelection,
             ...buildInboxAnalysisPrompt(input),

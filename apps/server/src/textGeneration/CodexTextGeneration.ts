@@ -289,6 +289,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     outputSchema: outputSchemaJson,
     modelSelection,
     attachments,
+    images,
     investigate,
   }: TextGenerationOperations.Request<S>): Effect.fn.Return<
     S["Type"],
@@ -306,6 +307,27 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     );
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
+      const inlineImagePaths: string[] = [];
+      if (images?.length) {
+        const directory = yield* fileSystem
+          .makeTempDirectoryScoped({ prefix: "t3code-inbox-images-" })
+          .pipe(
+            Effect.mapError((cause) =>
+              normalizeCliError("codex", operation, cause, "Failed to prepare source images"),
+            ),
+          );
+        for (const [index, image] of images.entries()) {
+          const imagePath = path.join(directory, `image-${index}`);
+          yield* fileSystem
+            .writeFile(imagePath, Buffer.from(image.data, "base64"))
+            .pipe(
+              Effect.mapError((cause) =>
+                normalizeCliError("codex", operation, cause, "Failed to prepare source image"),
+              ),
+            );
+          inlineImagePaths.push(imagePath);
+        }
+      }
       const inboxAnalysis =
         operation === "generateInboxAnalysis" || operation === "generateInboxResearch";
       const workingDirectory = inboxAnalysis
@@ -401,7 +423,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           schemaPath,
           "--output-last-message",
           outputPath,
-          ...imagePaths.flatMap((imagePath) => ["--image", imagePath]),
+          ...[...imagePaths, ...inlineImagePaths].flatMap((imagePath) => ["--image", imagePath]),
           "-",
         ],
         { env: effectiveEnvironment },

@@ -694,8 +694,9 @@ function SlackThreadContent({
   const [error, setError] = useState<string | null>(null);
   const historyId = useId();
   const thread = loaded ?? initial;
-  const authorLabel = (message: InboxSlackMessage) =>
-    viewerUserId && (message.authorId ?? message.author) === viewerUserId ? "me" : message.author;
+  const isViewer = (message: InboxSlackMessage) =>
+    !!viewerUserId && (message.authorId ?? message.author) === viewerUserId;
+  const authorLabel = (message: InboxSlackMessage) => (isViewer(message) ? "me" : message.author);
   const replies = [...thread.messages, ...(thread.pendingMessages ?? [])].filter(
     (message) => message.ts !== thread.ts,
   );
@@ -737,7 +738,14 @@ function SlackThreadContent({
       <section aria-label="Original message" className={styles.slackSection}>
         <div className={styles.slackLabel}>
           Original message{" "}
-          {thread.root.author !== sourceAuthor && <span>{authorLabel(thread.root)}</span>}
+          {thread.root.author !== sourceAuthor && (
+            <span
+              className={isViewer(thread.root) ? styles.slackMention : undefined}
+              data-personal={isViewer(thread.root)}
+            >
+              {authorLabel(thread.root)}
+            </span>
+          )}
         </div>
         <SlackMessageBody message={thread.root} />
       </section>
@@ -784,7 +792,7 @@ function SlackThreadContent({
           <ol id={historyId} className={styles.slackTimeline}>
             {(expanded ? [...older, latest] : [latest]).map((message) => (
               <li key={message.ts} data-slack-reply={message.ts} className={styles.slackReply}>
-                <span aria-hidden className={styles.slackAvatar}>
+                <span aria-hidden className={styles.slackAvatar} data-personal={isViewer(message)}>
                   {authorLabel(message)
                     .split(/\s+/)
                     .slice(0, 2)
@@ -792,7 +800,12 @@ function SlackThreadContent({
                     .join("")}
                 </span>
                 <div className={styles.slackAuthor}>
-                  <span>{authorLabel(message)}</span>
+                  <span
+                    className={isViewer(message) ? styles.slackMention : undefined}
+                    data-personal={isViewer(message)}
+                  >
+                    {authorLabel(message)}
+                  </span>
                   <InboxTimestampLabel timestamp={message.occurredAt} />
                 </div>
                 <SlackMessageBody message={message} />

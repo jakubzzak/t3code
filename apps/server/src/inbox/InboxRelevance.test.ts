@@ -11,6 +11,7 @@ import * as Settings from "../serverSettings.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Inbox from "./InboxService.ts";
 import * as Repository from "./InboxRepository.ts";
+import * as Attachments from "./InboxAttachments.ts";
 import * as Analysis from "./InboxAnalysis.ts";
 import * as Research from "./InboxResearch.ts";
 import * as Agent from "./InboxAgent.ts";
@@ -41,6 +42,9 @@ const fixture = (blockFirst = false, missingConfidence = false) =>
     const entered = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
     const base = Layer.mergeAll(
+      Layer.mock(Attachments.InboxAttachments)({
+        load: () => Effect.succeed({ images: [], context: [] }),
+      }),
       Repository.layer.pipe(Layer.provide(Sqlite.layerMemory)),
       Settings.layerTest({
         projectSettingsOverrides: {
