@@ -737,6 +737,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     macOnly: true,
   },
   {
+    id: "awake-hotspot",
+    title: "Hotspot failover",
+    to: "/settings/awake",
+    searchTerms: ["iPhone reconnect Wi-Fi wifi internet connection mobile cellular automatic"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
     id: "awake-low-power",
     title: "Low Power Mode below",
     to: "/settings/awake",

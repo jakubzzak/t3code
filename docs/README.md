@@ -9,6 +9,7 @@ Add each new spec here with a short summary and its current status.
 | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | [01 — Resolve chat cleanup](./specs/01-resolve-chat-cleanup.md)             | Stop a chat's managed tools and identifiable processes with a cleanup progress modal; preserve conversation and code changes. | Implemented; native mobile UI verification pending |
 | [02 - 1Password in the built-in browser](./specs/02-onepassword-browser.md) | Enable 1Password per browser profile, sign in separately, and use the vault and passkeys with dismissible popups.             | Implemented; experimental macOS support            |
+| [03 — Proactive iPhone hotspot failover](./specs/03-hotspot-failover.md)    | Reconnect through a nearby iPhone while Keep awake is active, then return to saved Wi-Fi.                                     | Draft PR; device and release verification pending  |
 
 ## Using T3 Code
 

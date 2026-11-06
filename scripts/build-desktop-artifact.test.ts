@@ -29,6 +29,9 @@ import {
   DESKTOP_EXTRA_RESOURCES,
   LINUX_CAPTURE_EXTRA_RESOURCES,
   LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
+  MAC_HOTSPOT_EXTRA_RESOURCES,
+  stageHotspotHelper,
+  MacHotspotHostError,
   LINUX_FILE_EXCLUSIONS,
   MAC_FILE_EXCLUSIONS,
   InvalidMacPasskeyRpDomainError,
@@ -586,6 +589,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     for (const resource of [
       ...WSL_RUNTIME_EXTRA_RESOURCES,
       ...LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
+      ...MAC_HOTSPOT_EXTRA_RESOURCES,
     ]) {
       assert.include(
         DESKTOP_FILE_EXCLUSIONS,
@@ -603,6 +607,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "!**/*.d.cts",
       "!apps/desktop/resources/browser-secret",
       "!apps/desktop/resources/browser-secret/**/*",
+      "!apps/desktop/prod-resources/hotspot",
+      "!apps/desktop/prod-resources/hotspot/**/*",
+      "!apps/desktop/resources/hotspot",
+      "!apps/desktop/resources/hotspot/**/*",
       "!apps/desktop/prod-resources/browser-secret",
       "!apps/desktop/prod-resources/browser-secret/**/*",
       "!apps/desktop/prod-resources/windows-server",
@@ -673,7 +681,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(win.asarUnpack, [WINDOWS_NATIVE_ASAR_UNPACK_GLOB]);
       assert.deepStrictEqual(winWithoutWslRuntime.asar, win.asar);
       assert.deepStrictEqual(winWithoutWslRuntime.asarUnpack, win.asarUnpack);
-      assert.deepStrictEqual(mac.extraResources, DESKTOP_EXTRA_RESOURCES);
+      assert.deepStrictEqual(mac.extraResources, [
+        ...DESKTOP_EXTRA_RESOURCES,
+        ...MAC_HOTSPOT_EXTRA_RESOURCES,
+      ]);
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         ...LINUX_CAPTURE_EXTRA_RESOURCES,
@@ -1564,6 +1575,64 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       ),
     );
   });
+
+  it.effect("stages the hotspot helper for the requested macOS architecture only", () => {
+    const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+    const spawnerLayer = Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make((command) => {
+        commands.push(command as unknown as (typeof commands)[number]);
+        return Effect.succeed(mockProcess(0));
+      }),
+    );
+    return Effect.gen(function* () {
+      for (const arch of ["arm64", "x64", "universal"] as const) {
+        yield* stageHotspotHelper({
+          repoRoot: "/repo",
+          stageResourcesDir: "/stage/resources",
+          platform: "mac",
+          arch,
+          verbose: false,
+        });
+      }
+      for (const platform of ["linux", "win"] as const) {
+        yield* stageHotspotHelper({
+          repoRoot: "/repo",
+          stageResourcesDir: "/stage/resources",
+          platform,
+          arch: "x64",
+          verbose: false,
+        });
+      }
+      assert.lengthOf(commands, 3);
+      const path = yield* Path.Path;
+      for (const [index, arch] of ["arm64", "x64", "universal"].entries()) {
+        assert.deepStrictEqual(commands[index]!.args, [
+          path.join("/repo", "apps/desktop/scripts/build-hotspot.mjs"),
+          "--arch",
+          arch,
+          "--output",
+          path.join("/stage/resources", "hotspot", "Blackbird Hotspot.app"),
+        ]);
+      }
+    }).pipe(
+      Effect.provide(Layer.mergeAll(spawnerLayer, Layer.succeed(HostProcess.Platform, "darwin"))),
+    );
+  });
+
+  it.effect("refuses to package a macOS helper on a non-Mac host", () =>
+    Effect.gen(function* () {
+      const error = yield* stageHotspotHelper({
+        repoRoot: "/repo",
+        stageResourcesDir: "/stage",
+        platform: "mac",
+        arch: "arm64",
+        verbose: false,
+      }).pipe(Effect.flip);
+      assert.instanceOf(error, MacHotspotHostError);
+      assert.equal(error.hostPlatform, "linux");
+    }).pipe(Effect.provide(Layer.succeed(HostProcess.Platform, "linux"))),
+  );
 
   it.effect("builds the Linux browser secret helper for a concrete architecture", () => {
     const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];

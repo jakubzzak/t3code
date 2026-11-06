@@ -86,6 +86,32 @@ permissions. If restoration fails, the page reports the error and retains
 recovery so it can try again. Only one Blackbird instance can own Keep awake on
 a Mac at a time.
 
+### Reconnect through your iPhone
+
+Behavior and acceptance criteria: [Hotspot failover specification](../specs/03-hotspot-failover.md).
+
+Enable **Hotspot failover** in **Settings → Keep awake** to let Blackbird check
+connectivity and join your nearby iPhone’s Personal Hotspot when the internet
+drops. It is off by default and runs only while Keep awake is active. Both
+devices need the same Apple Account, Wi-Fi and Bluetooth enabled, and a mobile
+plan that supports Personal Hotspot. The connection uses mobile data.
+
+Allow **Blackbird Hotspot** in **System Settings → Privacy & Security → Location
+Services** when prompted so it can discover Wi-Fi networks. Blackbird also checks
+for a return to known Wi-Fi. A network that was already nearby when the outage
+started is retried after ten minutes, avoiding an immediate return to a broken
+connection. Failed return attempts also wait ten minutes before retrying that
+network. Enterprise Wi-Fi and saved networks whose passwords macOS will not
+share need a manual connection. Connection or permission problems appear beside
+the setting.
+
+Turning hotspot failover off, pausing Keep awake, or quitting Blackbird stops the
+checks without disconnecting your current network. The saved preference resumes
+when Keep awake becomes active again; it does not run in a standalone background
+service or control a remote computer. During a pause, Blackbird remembers the
+hotspot it connected to. After quitting and reopening the app, it leaves an
+already-connected hotspot under macOS control until the next outage.
+
 ## Troubleshooting
 
 Start with `t3 service status` on the host. It prints the log path and, on Linux,

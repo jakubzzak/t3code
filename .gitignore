@@ -54,3 +54,6 @@ node_modules/
 !.agents/skills/build/
 !.agents/skills/build/**
 .agents/skills/build/**/__pycache__/
+
+# Generated signed Instant Hotspot helper used by desktop development.
+/apps/desktop/resources/hotspot/
