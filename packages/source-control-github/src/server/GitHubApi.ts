@@ -28,6 +28,7 @@ const API_VERSION = "2022-11-28";
  * never put its value in RPC payloads or cache keys.
  */
 export const PinnedGitHubCredential = Context.Reference<{
+  readonly cwd?: string;
   readonly host: string;
   readonly token: Redacted.Redacted<string>;
   readonly credentialFingerprint: string;
@@ -115,6 +116,7 @@ export interface GitHubRestResponse {
 }
 
 export interface GitHubRestInput {
+  readonly cwd?: string;
   readonly host: string;
   readonly operation: string;
   readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -133,6 +135,7 @@ export interface GitHubRestInput {
 }
 
 export interface GitHubGraphQlInput {
+  readonly cwd?: string;
   readonly host: string;
   readonly operation: string;
   readonly query: string;
@@ -150,12 +153,35 @@ export class GitHubApi extends Context.Service<
     /** The credential a request to `host` would carry right now. */
     readonly credential: (
       host: string,
+      cwd?: string,
     ) => Effect.Effect<
       { readonly token: Redacted.Redacted<string>; readonly fingerprint: string },
       GitHubApiError
     >;
   }
 >()("@t3tools/source-control-github/server/GitHubApi") {}
+
+/** Resolve before batching so only requests carrying the same credential share a document. */
+export const withCredential = <A, E, R>(
+  api: GitHubApi["Service"],
+  input: { readonly host: string; readonly cwd: string },
+  effect: Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const pinned = yield* PinnedGitHubCredential;
+    const credential = yield* api.credential(input.host, input.cwd);
+    return yield* effect.pipe(
+      Effect.provideService(
+        PinnedGitHubCredential,
+        pinned ?? {
+          cwd: input.cwd,
+          host: normalizeHost(input.host),
+          token: credential.token,
+          credentialFingerprint: credential.fingerprint,
+        },
+      ),
+    );
+  });
 
 function normalizeHost(host: string): string {
   return host.trim().toLowerCase();
@@ -342,7 +368,7 @@ export const make = Effect.gen(function* () {
   const gate = yield* Semaphore.make(CONCURRENCY);
 
   const credential: GitHubApi["Service"]["credential"] = Effect.fn("GitHubApi.credential")(
-    function* (host) {
+    function* (host, cwd) {
       const normalized = normalizeHost(host);
       const pinned = yield* PinnedGitHubCredential;
       if (pinned !== null) {
@@ -355,7 +381,7 @@ export const make = Effect.gen(function* () {
         }
         return { token: pinned.token, fingerprint: pinned.credentialFingerprint };
       }
-      const held = yield* credentials.get(normalized);
+      const held = yield* credentials.get(normalized, cwd);
       return { token: held.token, fingerprint: held.fingerprint };
     },
   );
@@ -365,6 +391,7 @@ export const make = Effect.gen(function* () {
    * says why. `onSuccess` sees the answer only once it is known to be one.
    */
   const send = Effect.fn("GitHubApi.send")(function* (input: {
+    readonly cwd?: string | undefined;
     readonly host: string;
     readonly operation: string;
     readonly request: HttpClientRequest.HttpClientRequest;
@@ -384,7 +411,8 @@ export const make = Effect.gen(function* () {
       "http.request.method": input.request.method,
       "url.path": new URL(input.request.url).pathname,
     });
-    const { token, fingerprint } = yield* credential(host);
+    const cwd = (yield* PinnedGitHubCredential)?.cwd ?? input.cwd;
+    const { token, fingerprint } = yield* credential(host, cwd);
     const scope = yield* SourceControlRateLimit.CredentialScope;
     // REST spends `core` and GraphQL its own quota, each with its own reserve. Every REST path
     // this reads today is `core`; a `search/` read would need its own resource here. A refusal
@@ -483,7 +511,7 @@ export const make = Effect.gen(function* () {
           // The source may hold a newer token than the one that was refused.
           Unauthorized: () =>
             credentials
-              .invalidate(host)
+              .invalidate(host, cwd)
               .pipe(Effect.andThen(Effect.fail(new GitHubApiAuthenticationError(context)))),
           NotFound: () => Effect.fail(new GitHubApiNotFoundError(context)),
           Failed: ({ messages }) =>
@@ -519,6 +547,7 @@ export const make = Effect.gen(function* () {
     return SourceControlRateLimit.Interactive.pipe(
       Effect.flatMap((interactive) =>
         send({
+          cwd: input.cwd,
           host: input.host,
           operation: input.operation,
           request,
@@ -545,6 +574,7 @@ export const make = Effect.gen(function* () {
             : input.query,
       });
       const response = yield* send({
+        cwd: input.cwd,
         host,
         operation: input.operation,
         request: HttpClientRequest.post(gitHubApiUrls(host).graphql).pipe(

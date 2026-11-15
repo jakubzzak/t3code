@@ -24,6 +24,7 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
   let tokens = ["first", "second"];
   let invalidations = 0;
   let credentialReads = 0;
+  const invalidatedDirectories: Array<string | undefined> = [];
   const credentials = Layer.succeed(
     GitHubCredentials.GitHubCredentials,
     GitHubCredentials.GitHubCredentials.of({
@@ -37,8 +38,9 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
             fingerprint: `${host}:${tokens[0]}`,
           };
         }),
-      invalidate: () =>
+      invalidate: (_host, cwd) =>
         Effect.sync(() => {
+          invalidatedDirectories.push(cwd);
           invalidations++;
           tokens = tokens.slice(1);
         }),
@@ -61,6 +63,7 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
     requests,
     invalidations: () => invalidations,
     credentialReads: () => credentialReads,
+    invalidatedDirectories,
   };
 }
 
@@ -471,6 +474,29 @@ describe("GitHubApi", () => {
       );
       expect(error._tag).toBe("GitHubApiAuthenticationError");
       expect(requests).toHaveLength(0);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("invalidates a refused pinned credential in its original checkout", () => {
+    const { layer, invalidatedDirectories } = harness(() => new Response(null, { status: 401 }));
+    return Effect.gen(function* () {
+      const api = yield* GitHubApi.GitHubApi;
+      const error = yield* Effect.flip(
+        GitHubApi.withCredential(
+          api,
+          { host: "github.com", cwd: "/other-checkout" },
+          api.rest({ host: "github.com", operation: "user", path: "user" }),
+        ),
+      ).pipe(
+        Effect.provideService(GitHubApi.PinnedGitHubCredential, {
+          cwd: "/original-checkout",
+          host: "github.com",
+          token: Redacted.make("pinned"),
+          credentialFingerprint: "github.com:pinned",
+        }),
+      );
+      expect(error._tag).toBe("GitHubApiAuthenticationError");
+      expect(invalidatedDirectories).toEqual(["/original-checkout"]);
     }).pipe(Effect.provide(layer));
   });
 });

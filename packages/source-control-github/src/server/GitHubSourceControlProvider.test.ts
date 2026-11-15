@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Redacted from "effect/Redacted";
 import { ChildProcessSpawner } from "effect/process";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -126,7 +127,11 @@ function harness(input: {
   });
   const layer = Layer.mergeAll(
     host,
-    Layer.mock(GitHubApi.GitHubApi)(input.api),
+    Layer.mock(GitHubApi.GitHubApi)({
+      credential: () =>
+        Effect.succeed({ token: Redacted.make("test-token"), fingerprint: "test-token" }),
+      ...input.api,
+    }),
     NodeServices.layer,
   );
   return { layer, git };

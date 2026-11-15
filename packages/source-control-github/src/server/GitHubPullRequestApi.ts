@@ -1213,8 +1213,9 @@ export const make = Effect.gen(function* () {
       const unavailable = () => new GitHubViewerLoginUnavailableError({ cwd: input.cwd });
       const host = input.host.toLowerCase();
       // A missing or signed-out credential keeps its own error, so the page can say which.
-      const { token, fingerprint: key } = yield* api.credential(host);
-      const credential = { host, token, credentialFingerprint: key };
+      const { token, fingerprint: key } = yield* api.credential(host, input.cwd);
+      const cwd = (yield* GitHubApi.PinnedGitHubCredential)?.cwd ?? input.cwd;
+      const credential = { cwd, host, token, credentialFingerprint: key };
       // A cold page may ask several times. Wait per credential and check again after the
       // first verification; cancellation releases the next waiter without losing its request.
       return yield* Effect.acquireUseRelease(
@@ -1233,7 +1234,13 @@ export const make = Effect.gen(function* () {
                 return { ...credential, ...cached.value };
               // Pin this read so an auth switch cannot poison its cache entry.
               const response = yield* api
-                .rest({ host, operation: "getRoutingIdentity", path: "user", allowReserve: true })
+                .rest({
+                  cwd: input.cwd,
+                  host,
+                  operation: "getRoutingIdentity",
+                  path: "user",
+                  allowReserve: true,
+                })
                 .pipe(
                   Effect.provideService(GitHubApi.PinnedGitHubCredential, credential),
                   Effect.provideService(SourceControlRateLimit.CredentialScope, key),
@@ -1261,10 +1268,11 @@ export const make = Effect.gen(function* () {
     use,
   ) =>
     captureVerifiedCredential(input).pipe(
-      Effect.flatMap(({ host, token, accountId, viewer, credentialFingerprint }) =>
+      Effect.flatMap(({ cwd, host, token, accountId, viewer, credentialFingerprint }) =>
         use({ accountId, viewer, credentialFingerprint }).pipe(
           Effect.provideService(SourceControlRateLimit.CredentialScope, credentialFingerprint),
           Effect.provideService(GitHubApi.PinnedGitHubCredential, {
+            cwd,
             host,
             token,
             credentialFingerprint,
@@ -1353,6 +1361,7 @@ export const make = Effect.gen(function* () {
 
   /** A GraphQL mutation whose answer is not read back; a GraphQL error fails it. */
   const graphql = (input: {
+    readonly cwd: string;
     readonly host: string;
     readonly operation: string;
     readonly query: string;
@@ -1387,6 +1396,7 @@ export const make = Effect.gen(function* () {
   }): Effect.Effect<A, GitHubPullRequestApiError> =>
     api
       .graphql({
+        cwd: input.cwd,
         host: input.host,
         operation: input.operation,
         query: input.query,
@@ -1404,7 +1414,7 @@ export const make = Effect.gen(function* () {
     readonly decode: (raw: string) => Result.Result<A, unknown>;
   }): Effect.Effect<A, GitHubPullRequestApiError> =>
     api
-      .rest({ host: input.host, operation: input.operation, path: input.path })
+      .rest({ cwd: input.cwd, host: input.host, operation: input.operation, path: input.path })
       .pipe(
         Effect.flatMap((response) =>
           decodeWith(input.cwd, input.operation, input.decode, response.body),
@@ -1433,6 +1443,7 @@ export const make = Effect.gen(function* () {
     const paging = `per_page=${DIFF_FILES_PAGE_SIZE}&page=${input.page}`;
     return api
       .rest({
+        cwd: input.cwd,
         host: input.host,
         operation: "getPullRequestDiff",
         path:
@@ -1488,6 +1499,7 @@ export const make = Effect.gen(function* () {
         }
         const { owner, name } = parseRepositorySelector(input.repository);
         const refsResponse = yield* api.rest({
+          cwd: input.cwd,
           host: input.host,
           operation: "getPullRequestDiffFileContents",
           path:
@@ -1526,6 +1538,7 @@ export const make = Effect.gen(function* () {
         const readFile = (revision: string, filePath: string) =>
           api
             .rest({
+              cwd: input.cwd,
               host: input.host,
               operation: "getPullRequestDiffFileContents",
               accept: "application/vnd.github.raw+json",
@@ -1906,7 +1919,11 @@ export const make = Effect.gen(function* () {
     RequestResolver.batchN(STAT_ALIASES_PER_REQUEST),
   );
   const getPullRequestSummary: GitHubPullRequestApi["Service"]["getPullRequestSummary"] = (input) =>
-    Effect.request(new PullRequestSummaryRead(input), summaryResolver);
+    GitHubApi.withCredential(
+      api,
+      input,
+      Effect.request(new PullRequestSummaryRead(input), summaryResolver),
+    );
 
   // Every watched pull request on a host in one read per pass. A pull request the batch has no
   // answer for gets null, and its watch reads it in full; a failed batch fails every entry.
@@ -1960,7 +1977,12 @@ export const make = Effect.gen(function* () {
     RequestResolver.batchN(STAT_ALIASES_PER_REQUEST),
   );
   const getPullRequestWatchFingerprint: GitHubPullRequestApi["Service"]["getPullRequestWatchFingerprint"] =
-    (input) => Effect.request(new PullRequestWatchFingerprintRead(input), watchFingerprintResolver);
+    (input) =>
+      GitHubApi.withCredential(
+        api,
+        input,
+        Effect.request(new PullRequestWatchFingerprintRead(input), watchFingerprintResolver),
+      );
 
   return GitHubPullRequestApi.of({
     withVerifiedCredential,
@@ -2311,6 +2333,7 @@ export const make = Effect.gen(function* () {
       const { owner, name } = parseRepositorySelector(input.repository);
       return api
         .rest({
+          cwd: input.cwd,
           host: input.host,
           operation: "getPullRequestDiff",
           path: `repos/${owner}/${name}/pulls/${input.number}`,
@@ -2525,6 +2548,7 @@ export const make = Effect.gen(function* () {
       // there is nothing to say here about somebody who has reviewed once already.
       return api
         .rest({
+          cwd: input.cwd,
           host: input.host,
           operation: "setReviewerRequest",
           method: input.requested ? "POST" : "DELETE",
@@ -2556,6 +2580,7 @@ export const make = Effect.gen(function* () {
       if (input.applied) {
         return api
           .rest({
+            cwd: input.cwd,
             host: input.host,
             operation: "setLabels",
             method: "POST",
@@ -2568,6 +2593,7 @@ export const make = Effect.gen(function* () {
         input.labels,
         (label) =>
           api.rest({
+            cwd: input.cwd,
             host: input.host,
             operation: "setLabels",
             method: "DELETE",
@@ -2654,6 +2680,7 @@ export const make = Effect.gen(function* () {
             });
           }
           yield* graphql({
+            cwd: input.cwd,
             host: input.host,
             operation: "deletePullRequestBranch",
             query: DELETE_BRANCH_GRAPHQL_MUTATION,
@@ -2682,6 +2709,7 @@ export const make = Effect.gen(function* () {
         return pullRequestNodeId({ ...input, operation: "revertPullRequest" }).pipe(
           Effect.flatMap((pullRequestId) =>
             graphql({
+              cwd: input.cwd,
               host: input.host,
               operation: "revertPullRequest",
               query: REVERT_PULL_REQUEST_GRAPHQL_MUTATION,
@@ -2753,6 +2781,7 @@ export const make = Effect.gen(function* () {
                         currentRuns.some((current) => current.id === run.id)
                           ? api
                               .rest({
+                                cwd: input.cwd,
                                 host: input.host,
                                 operation: "approveWorkflowRun",
                                 method: "POST",
@@ -2774,6 +2803,7 @@ export const make = Effect.gen(function* () {
         return pullRequestNodeId({ ...input, operation: "runPullRequestAction" }).pipe(
           Effect.flatMap((pullRequestId) =>
             graphql({
+              cwd: input.cwd,
               host: input.host,
               operation: "runPullRequestAction",
               query: SIMPLE_ACTION_MUTATIONS[action as keyof typeof SIMPLE_ACTION_MUTATIONS],
@@ -2805,6 +2835,7 @@ export const make = Effect.gen(function* () {
           if (state.baseRef?.compare?.behindBy === 0) return;
           // GitHub updates with a merge commit unless asked to rebase, which is its own default.
           return yield* graphql({
+            cwd: input.cwd,
             host: input.host,
             operation: "runPullRequestAction",
             query: UPDATE_BRANCH_GRAPHQL_MUTATION,
@@ -2850,6 +2881,7 @@ export const make = Effect.gen(function* () {
           (action === "enable-auto-merge" &&
             !IMMEDIATELY_MERGEABLE.has(state.mergeStateStatus?.toUpperCase() ?? ""));
         yield* graphql({
+          cwd: input.cwd,
           host: input.host,
           operation: "runPullRequestAction",
           query: auto ? ENABLE_AUTO_MERGE_GRAPHQL_MUTATION : MERGE_PULL_REQUEST_GRAPHQL_MUTATION,
@@ -2869,6 +2901,7 @@ export const make = Effect.gen(function* () {
       pullRequestNodeId({ ...input, operation: "commentOnPullRequest" }).pipe(
         Effect.flatMap((subjectId) =>
           graphql({
+            cwd: input.cwd,
             host: input.host,
             operation: "commentOnPullRequest",
             query: ADD_COMMENT_GRAPHQL_MUTATION,
@@ -2883,6 +2916,7 @@ export const make = Effect.gen(function* () {
       // is sent.
       return api
         .rest({
+          cwd: input.cwd,
           host: input.host,
           operation: "submitReview",
           method: "POST",
@@ -2898,6 +2932,7 @@ export const make = Effect.gen(function* () {
 
     replyToReviewThread: (input) =>
       graphql({
+        cwd: input.cwd,
         host: input.host,
         operation: "replyToReviewThread",
         query: REVIEW_THREAD_REPLY_GRAPHQL_MUTATION,
@@ -2932,13 +2967,19 @@ export const make = Effect.gen(function* () {
           const mutation = buildSetFilesViewedGraphQlMutation(pullRequestId, input.files);
           return mutation === null
             ? Effect.void
-            : graphql({ host: input.host, operation: "setPullRequestFilesViewed", ...mutation });
+            : graphql({
+                cwd: input.cwd,
+                host: input.host,
+                operation: "setPullRequestFilesViewed",
+                ...mutation,
+              });
         }),
       );
     },
 
     setReviewThreadResolution: (input) =>
       graphql({
+        cwd: input.cwd,
         host: input.host,
         operation: "setReviewThreadResolution",
         query: input.resolved
@@ -2971,6 +3012,7 @@ export const make = Effect.gen(function* () {
       return subjectId.pipe(
         Effect.flatMap((subjectId) =>
           graphql({
+            cwd: input.cwd,
             host: input.host,
             operation: "setReaction",
             query: input.reacted ? ADD_REACTION_GRAPHQL_MUTATION : REMOVE_REACTION_GRAPHQL_MUTATION,
@@ -2984,6 +3026,7 @@ export const make = Effect.gen(function* () {
       pullRequestNodeId({ ...input, operation: "updatePullRequest" }).pipe(
         Effect.flatMap((pullRequestId) =>
           graphql({
+            cwd: input.cwd,
             host: input.host,
             operation: "updatePullRequest",
             query: UPDATE_PULL_REQUEST_GRAPHQL_MUTATION,
@@ -3019,6 +3062,7 @@ export const make = Effect.gen(function* () {
         ),
         Effect.flatMap((commentId) =>
           graphql({
+            cwd: input.cwd,
             host: input.host,
             operation: "updateComment",
             query:
