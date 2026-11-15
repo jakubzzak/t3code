@@ -7,7 +7,8 @@ these same files rather than maintaining additional copies.
 - **Shape:** agree the outcome, design decisions, scope and validation brief.
 - **Build:** implement or fix, test user journeys, independently review correctness/security,
   address PR feedback and establish readiness. Testing-only and review-only modes report
-  findings without repairs or publication unless separately authorized.
+  findings without repairs or PR publication unless separately authorized. Evidence submission
+  follows the applicable user/repository policy, including explicit no-publication limits.
 - **Ship:** perform an authorized release, verify the running version and customer flow,
   observe meaningful use, then recover or report a verified delivery outcome.
 
