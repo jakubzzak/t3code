@@ -25,6 +25,7 @@ const { newThread, prepareThread, refresh, Wrapper, Trigger } = vi.hoisted(() =>
     </>
   ),
 }));
+const automaticRefresh = vi.hoisted(() => ({ turn: 0 }));
 vi.mock("~/state/session", async (original) => ({
   ...(await original<typeof import("~/state/session")>()),
   useEnvironmentScope: () => true,
@@ -57,13 +58,13 @@ vi.mock("~/state/pullRequests", async (importOriginal) => ({
     reviewGuide: () => "review-guide",
     generateReviewGuide: { permissionAtom: () => "generate-review-guide" },
   },
-  usePullRequestTurnRefresh: () => 0,
+  usePullRequestTurnRefresh: () => automaticRefresh.turn,
   useSharedPullRequestSummary: () => null,
 }));
 vi.mock("~/state/vcs", () => ({ vcsEnvironment: { listRefs: () => null } }));
 vi.mock("~/state/query", () => ({
   useEnvironmentQuery: (query: string) => ({
-    data: query === "detail" ? detail : null,
+    data: query === "detail" ? queryDetail : null,
     isPending: false,
     isSuccess: true,
     error: null,
@@ -136,8 +137,9 @@ vi.mock("./PullRequestCodeTab", () => ({
   default: ({
     onAddToAgentSelection,
     scrollerRef,
+    refreshToken,
   }: ComponentProps<typeof import("./PullRequestCodeTab").default>) => (
-    <div ref={scrollerRef} data-test-scroll="code">
+    <div ref={scrollerRef} data-test-scroll="code" data-test-refresh-token={refreshToken}>
       <button
         onClick={() =>
           onAddToAgentSelection?.({
@@ -221,11 +223,14 @@ const threadRef: ScopedThreadRef = {
   environmentId: EnvironmentId.make("env-1"),
   threadId: ThreadId.make("thread-1"),
 };
+let queryDetail = detail;
 const draftId = DraftId.make("draft-1");
 const newDraftId = DraftId.make("new-draft");
 let renderer: ReactTestRenderer;
 
 beforeEach(() => {
+  automaticRefresh.turn = 0;
+  queryDetail = detail;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("window", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
   useComposerDraftStore.setState({ draftsByThreadKey: {} });
@@ -355,6 +360,74 @@ describe.each([
     } else {
       expect(newThread).toHaveBeenCalled();
     }
+  });
+});
+
+describe("automatic code refresh beside a working chat", () => {
+  let mounted = false;
+  beforeEach(() => {
+    mounted = false;
+  });
+  async function render(isWorking: boolean) {
+    await act(async () => {
+      const panel = (
+        <PullRequestDetailPanel
+          environmentId={threadRef.environmentId}
+          reference={detail}
+          threadRef={threadRef}
+          deferAutomaticRefresh={isWorking}
+          shortcutsEnabled={false}
+          getShortcutContext={() => ({
+            terminalFocus: false,
+            terminalOpen: false,
+            previewFocus: false,
+            previewOpen: false,
+            isWeb: true,
+            isDesktop: false,
+          })}
+        />
+      );
+      if (mounted) renderer.update(panel);
+      else {
+        renderer = create(panel);
+        mounted = true;
+      }
+    });
+  }
+
+  function codeRevision() {
+    return renderer.root.findByProps({ "data-test-scroll": "code" }).props[
+      "data-test-refresh-token"
+    ];
+  }
+
+  it("coalesces turn notifications until work stops, with manual refresh still available", async () => {
+    await render(false);
+    await click("Code");
+    const initial = codeRevision();
+    automaticRefresh.turn = 1;
+    await render(true);
+    automaticRefresh.turn = 3;
+    await render(true);
+    expect(codeRevision()).toBe(initial);
+
+    await click("Refresh");
+    expect(codeRevision()).toBe(initial + 1);
+    await render(false);
+    expect(codeRevision()).toBe(initial + 4);
+  });
+
+  it("holds PR revision resets while allowing the updated title to render", async () => {
+    await render(false);
+    await click("Code");
+    const initial = codeRevision();
+    await render(true);
+    queryDetail = { ...detail, title: "Updated PR title", updatedAt: "2026-09-02T00:00:00Z" };
+    await render(true);
+    expect(renderer.root.findByType("h1").children).toContain("Updated PR title");
+    expect(codeRevision()).toBe(initial);
+    await render(false);
+    expect(codeRevision()).toBe(initial + 1);
   });
 });
 
