@@ -59,6 +59,12 @@ describe("V2 preview upgrade", () => {
         [77, "RepairBooleanSettledOverride"],
         [78, "DropOrchestrationEventCorrelationIndex"],
         [79, "DelegatedRecoveryIndexes"],
+        [80, "ProjectionThreadLinearIssue"],
+        [81, "NotificationInbox"],
+        [82, "InboxSources"],
+        [83, "ScheduledTaskCatchUpRecord"],
+        [84, "SlackSendAttempts"],
+        [85, "InboxRelevance"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -161,6 +167,12 @@ describe("V2 preview upgrade", () => {
         [77, "RepairBooleanSettledOverride"],
         [78, "DropOrchestrationEventCorrelationIndex"],
         [79, "DelegatedRecoveryIndexes"],
+        [80, "ProjectionThreadLinearIssue"],
+        [81, "NotificationInbox"],
+        [82, "InboxSources"],
+        [83, "ScheduledTaskCatchUpRecord"],
+        [84, "SlackSendAttempts"],
+        [85, "InboxRelevance"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

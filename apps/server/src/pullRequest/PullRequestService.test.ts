@@ -4611,7 +4611,7 @@ it.effect("does not discover or read pull requests for a Git-disabled project", 
       projects: [entry],
       resolveRepositoryIdentity: () => Effect.die("Unexpected repository discovery"),
       providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
           listChangeRequests: () => Effect.die("Unexpected hosting request"),
         }),
       ],

@@ -185,7 +185,10 @@ describe("ScheduledTasksSettings", () => {
   it("keeps a linked task's unsaved edits across a disconnect and reconnect", async () => {
     setup();
     await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await expect.element(page.getByRole("dialog").getByText("Fix login bug")).toBeVisible();
+    // Blackbird binds the chat through a picker, so the title is the picker's value.
+    await expect
+      .element(page.getByRole("dialog").getByRole("combobox", { name: /^Chat\b/ }))
+      .toHaveValue("Fix login bug");
     const name = page.getByRole("dialog").getByRole("textbox", { name: "Name" });
     await expect.element(name).toHaveValue("Review issues");
     await userEvent.fill(name, "Review stale issues");

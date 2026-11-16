@@ -124,23 +124,25 @@ export function MarkdownCodeBlock({
                   key={language}
                   accessibilityRole="button"
                   accessibilityLabel={language}
-                  onPress={async () => {
+                  onPress={() => {
                     setPicker(false);
                     setSaving(true);
                     setError(null);
-                    try {
-                      await onCodeLanguageChange?.({
-                        blockStart: block.start,
-                        expectedLanguage: block.language,
-                        language,
-                      });
-                    } catch (cause) {
-                      setError(
-                        cause instanceof Error ? cause.message : "Could not save code language.",
-                      );
-                    } finally {
-                      setSaving(false);
-                    }
+                    // A promise chain instead of try/catch keeps this React Compiler compatible.
+                    void Promise.resolve()
+                      .then(() =>
+                        onCodeLanguageChange?.({
+                          blockStart: block.start,
+                          expectedLanguage: block.language,
+                          language,
+                        }),
+                      )
+                      .catch((cause: unknown) => {
+                        setError(
+                          cause instanceof Error ? cause.message : "Could not save code language.",
+                        );
+                      })
+                      .finally(() => setSaving(false));
                   }}
                   style={{ paddingVertical: 12 }}
                 >

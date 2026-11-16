@@ -146,7 +146,7 @@ export const make = Effect.gen(function* () {
         Effect.forkScoped,
       );
     }),
-    configure: (next) =>
+    configure: Effect.fn("DesktopAwake.configure")((next) =>
       lock.withPermits(1)(
         Effect.gen(function* () {
           const changed =
@@ -160,6 +160,7 @@ export const make = Effect.gen(function* () {
           yield* tick;
         }),
       ),
+    ),
     setup: lock.withPermits(1)(
       Effect.gen(function* () {
         yield* system.setup;

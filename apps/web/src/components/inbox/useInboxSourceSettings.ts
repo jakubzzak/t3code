@@ -28,6 +28,7 @@ export function useInboxSourceSettings(
   const queued = useRef(Promise.resolve());
   const outstanding = useRef(0);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- adopts server-confirmed selections into the save queue, but only while no local save is in flight.
   useEffect(() => {
     if (outstanding.current) return;
     latest.current = confirmed.current = selectionOf(connection);
@@ -47,8 +48,8 @@ export function useInboxSourceSettings(
     setSaving(true);
     const currentRevision = ++revision.current;
     outstanding.current++;
-    const save = queued.current.then(async () => {
-      try {
+    const save = queued.current
+      .then(async () => {
         const result = await configure({
           environmentId,
           input: {
@@ -61,7 +62,8 @@ export function useInboxSourceSettings(
         });
         if (result._tag === "Success") confirmed.current = selectionOf(result.value);
         return result._tag === "Success";
-      } finally {
+      })
+      .finally(() => {
         outstanding.current--;
         if (currentRevision === revision.current) {
           latest.current = confirmed.current;
@@ -69,8 +71,7 @@ export function useInboxSourceSettings(
           setSaving(false);
           refresh();
         }
-      }
-    });
+      });
     queued.current = save.then(
       () => {},
       () => {},

@@ -29,7 +29,7 @@ export class ThreadLinearIssues extends Context.Service<
   }
 >()("t3/orchestration-v2/ThreadLinearIssues") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const engine = yield* ThreadManagementService;
   const projects = yield* ProjectStoreV2;
@@ -213,16 +213,15 @@ export const make = Effect.gen(function* () {
       ),
     );
   });
-  return ThreadLinearIssues.of({
-    select: (input) =>
-      select(input).pipe(
-        lock.withPermits(1),
-        Effect.mapError((error) =>
-          error._tag === "LinearIssueSetupError"
-            ? error
-            : new LinearIssueSetupError({ detail: error.message }),
-        ),
+  const selectLocked: ThreadLinearIssues["Service"]["select"] = (input) =>
+    select(input).pipe(
+      lock.withPermits(1),
+      Effect.mapError((error) =>
+        error._tag === "LinearIssueSetupError"
+          ? error
+          : new LinearIssueSetupError({ detail: error.message }),
       ),
-  });
+    );
+  return ThreadLinearIssues.of({ select: selectLocked });
 });
 export const layer = Layer.effect(ThreadLinearIssues, make);

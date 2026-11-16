@@ -57,7 +57,7 @@ vi.mock(import("~/state/entities"), async (original) => ({
 
 vi.mock(import("~/components/preview/usePreviewBridge"), async (original) => ({
   ...(await original()),
-  usePreviewBridge: () => undefined,
+  usePreviewBridge: () => false,
 }));
 
 import {

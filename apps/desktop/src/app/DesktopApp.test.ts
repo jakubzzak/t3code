@@ -32,6 +32,7 @@ import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
+import * as DesktopTerminalCommand from "./DesktopTerminalCommand.ts";
 import * as DesktopState from "./DesktopState.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
@@ -68,6 +69,8 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as DesktopAwake from "../awake/DesktopAwake.ts";
+import * as DesktopLinear from "../linear/DesktopLinear.ts";
 
 it.effect(
   "starts the backend and window while Linux registration is stalled and cancels it on shutdown",
@@ -206,6 +209,9 @@ it.effect(
             Layer.mock(ElectronTheme.ElectronTheme, {}),
             Layer.mock(ElectronWindow.ElectronWindow, {}),
             Layer.mock(MacPermissions.MacPermissions, {}),
+            Layer.mock(DesktopAwake.DesktopAwake, { initialize: Effect.void }),
+            Layer.mock(DesktopLinear.DesktopLinear, {}),
+            Layer.mock(DesktopTerminalCommand.DesktopTerminalCommand, { register: Effect.void }),
             Layer.mock(PreviewManager.PreviewManager, {
               isBrowserPartition: () => {
                 throw new Error("unexpected browser partition lookup");

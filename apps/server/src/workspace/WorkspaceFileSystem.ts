@@ -218,11 +218,9 @@ export const make = Effect.gen(function* () {
   };
 
   /**
-   * Workspace-relative paths must stay inside the root, symlinks included, unless
-   * Files explicitly follows links; external targets then carry read-only metadata.
-   * An absolute or `~/` path reads a host file in place, such as a report an agent
-   * wrote to a temp directory; it gets no root check. A network path does, since
-   * Windows signs in to its host with the user's NTLM credentials.
+   * Workspace-relative paths stay inside the root unless Files follows links (then
+   * read-only). An absolute or `~/` path reads a host file in place with no root
+   * check; a network path is checked, since Windows sends the user's NTLM credentials.
    */
   const resolveReadTarget = Effect.fn("WorkspaceFileSystem.resolveReadTarget")(function* (
     input: ProjectReadFileInput,

@@ -52,6 +52,7 @@ const unsupportedTextGeneration: ProviderTextGeneration = (() => {
       }),
     );
   return {
+    generateFileFilter: () => unsupported("generateFileFilter"),
     generateCommitMessage: () => unsupported("generateCommitMessage"),
     generatePrContent: () => unsupported("generatePrContent"),
     generateBranchName: () => unsupported("generateBranchName"),

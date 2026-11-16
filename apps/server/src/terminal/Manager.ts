@@ -3470,20 +3470,33 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       ),
     );
 
+  const listForThread: TerminalManager["Service"]["listForThread"] = (threadId) =>
+    sessionsForThread(threadId).pipe(Effect.map((sessions) => sessions.map(snapshot)));
+  // A chat being resolved must not start, attach, or write to terminals.
+  const openLeased: TerminalManager["Service"]["open"] = (input) =>
+    withThreadResourceLease(input.threadId, open(input));
+  const attachStreamLeased: TerminalManager["Service"]["attachStream"] = (
+    input,
+    listener,
+    registerCleanup,
+    viewerId,
+  ) =>
+    withThreadResourceLease(
+      input.threadId,
+      attachStream(input, listener, registerCleanup, viewerId),
+    );
+  const writeLeased: TerminalManager["Service"]["write"] = (input) =>
+    withThreadResourceLease(input.threadId, write(input));
+
   return TerminalManager.of({
-    listForThread: (threadId) =>
-      sessionsForThread(threadId).pipe(Effect.map((sessions) => sessions.map(snapshot))),
-    open: (input) => withThreadResourceLease(input.threadId, open(input)),
+    listForThread,
+    open: openLeased,
     getShell,
-    attachStream: (input, listener, registerCleanup, viewerId) =>
-      withThreadResourceLease(
-        input.threadId,
-        attachStream(input, listener, registerCleanup, viewerId),
-      ),
+    attachStream: attachStreamLeased,
     attachOutputStream,
     observeStream,
     resyncStream,
-    write: (input) => withThreadResourceLease(input.threadId, write(input)),
+    write: writeLeased,
     resize,
     clear,
     close,

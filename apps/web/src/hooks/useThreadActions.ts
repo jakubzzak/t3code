@@ -398,6 +398,12 @@ export function useThreadActions() {
 
     const permissionFailure = threadOperationFailure(threadRef);
     if (permissionFailure) return permissionFailure;
+    // Capture the route before the automation check awaits, so navigating away meanwhile is kept.
+    const requestingRouteHref = router.state.location.href;
+    const currentRouteThreadRef = getCurrentRouteThreadRef();
+    const shouldNavigateToDraft =
+      currentRouteThreadRef?.threadId === threadRef.threadId &&
+      currentRouteThreadRef.environmentId === threadRef.environmentId;
     const tasks = await loadScheduledTasks({ environmentId: threadRef.environmentId, input: {} });
     if (tasks._tag === "Failure") return tasks;
     const confirmation = automationArchiveConfirmation(tasks.value.tasks, threadRef.threadId);
@@ -419,11 +425,6 @@ export function useThreadActions() {
       );
       if (!confirmed) return AsyncResult.failure(Cause.interrupt());
     }
-    const requestingRouteHref = router.state.location.href;
-    const currentRouteThreadRef = getCurrentRouteThreadRef();
-    const shouldNavigateToDraft =
-      currentRouteThreadRef?.threadId === threadRef.threadId &&
-      currentRouteThreadRef.environmentId === threadRef.environmentId;
     const action = ThreadUndo.begin("archive", scopedThreadKey(threadRef));
     const archiveResult = await archiveThreadMutation({
       environmentId: threadRef.environmentId,

@@ -1,18 +1,20 @@
 import {
   DEFAULT_CLIENT_SETTINGS,
   type PreviewOpenInput,
-  type PreviewNavigateInput,
   type PreviewSessionSnapshot,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import { readThreadPreviewState, resetPreviewStateForTests } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { openLinearSurface } from "./openLinearSurface";
 
 vi.mock("~/env", () => ({ isElectron: true }));
+const bridge = vi.hoisted(() => ({ navigate: vi.fn(async (_tabId: string, _url: string) => {}) }));
+vi.mock("../preview/previewBridge", () => ({ previewBridge: bridge }));
 const projectGate = vi.hoisted(() => ({ enabled: true }));
 vi.mock("./linearViewEnabled", () => ({
   readLinearViewEnabled: () => projectGate.enabled,
@@ -32,6 +34,7 @@ const snapshot = (input: PreviewOpenInput): PreviewSessionSnapshot => ({
 beforeEach(() => {
   __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
   projectGate.enabled = true;
+  bridge.navigate.mockClear();
   resetPreviewStateForTests();
   useRightPanelStore.setState({ byThreadKey: {} });
 });
@@ -40,15 +43,11 @@ function fixture() {
     AsyncResult.success(snapshot(input)),
   );
   const closePreview = vi.fn(async () => {});
-  const navigatePreview = vi.fn(async ({ input }: { input: PreviewNavigateInput }) =>
-    AsyncResult.success({ ...snapshot({ ...input, surface: "linear" }), tabId: input.tabId }),
-  );
   return {
     threadRef,
     workspace: "team",
     branch: "ENG-123",
     openPreview,
-    navigatePreview,
     closePreview,
   };
 }
@@ -69,13 +68,11 @@ describe("opening Linear", () => {
     const url = "https://linear.app/team/issue/ENG-456/selected-issue";
     expect(await openLinearSurface({ ...input, url })).toBe(tabId);
     expect(input.openPreview).toHaveBeenCalledTimes(1);
-    expect(input.navigatePreview).toHaveBeenCalledWith({
-      environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, tabId, url },
-    });
-    const sessions = Object.values(readThreadPreviewState(threadRef).sessions);
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]).toMatchObject({ threadId: threadRef.threadId, tabId, navStatus: { url } });
+    expect(bridge.navigate).toHaveBeenCalledWith(
+      previewRuntimeTabId(threadRef, readThreadPreviewState(threadRef).serverEpoch, tabId),
+      url,
+    );
+    expect(Object.values(readThreadPreviewState(threadRef).sessions)).toHaveLength(1);
     expect(Object.values(useRightPanelStore.getState().byThreadKey)).toEqual([
       expect.objectContaining({ isOpen: true, activeSurfaceId: `browser:${tabId}` }),
     ]);
@@ -89,7 +86,7 @@ describe("opening Linear", () => {
       surface: "linear",
       navStatus: { url },
     });
-    expect(input.navigatePreview).not.toHaveBeenCalled();
+    expect(bridge.navigate).not.toHaveBeenCalled();
   });
   it("does not create a session when disabled", async () => {
     projectGate.enabled = false;

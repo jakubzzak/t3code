@@ -184,6 +184,9 @@ vi.mock("../state/use-thread-selection", () => ({
 }));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));
 vi.mock("../state/use-atom-command", () => ({}));
+vi.mock("../features/markdown/useMessageCodeLanguage", () => ({
+  useMessageCodeLanguage: () => undefined,
+}));
 vi.mock("../state/v2-item-support", () => ({}));
 vi.mock("../native/SelectableMarkdownText", () => ({
   SelectableMarkdownText: (props: {

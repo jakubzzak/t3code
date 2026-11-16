@@ -25,6 +25,7 @@ export function getDesktopAwakeBridge(): AwakeBridge | undefined {
 
 export function useDesktopAwakeState() {
   const [state, setState] = useState<DesktopAwakeState | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the desktop bridge's keep-awake state while mounted
   useEffect(() => {
     const bridge = getDesktopAwakeBridge();
     if (!bridge) return;

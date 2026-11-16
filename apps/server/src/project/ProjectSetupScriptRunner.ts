@@ -65,6 +65,8 @@ export interface ProjectSetupScriptRunnerInput {
   readonly projectId?: string;
   readonly projectCwd?: string;
   readonly worktreePath: string;
+  /** Overrides the default terminal id, e.g. to keep a Linear setup out of an existing setup shell. */
+  readonly preferredTerminalId?: string;
   readonly trigger?: "setup" | "settle";
   readonly project?: {
     readonly id: ProjectId;
@@ -429,9 +431,10 @@ export const make = Effect.gen(function* () {
 
     // Earlier settle shells may still run foreground programs; do not type resumed settles into them.
     const terminalId =
-      trigger === "settle"
+      input.preferredTerminalId ??
+      (trigger === "settle"
         ? `settle-${script.id}-${(yield* random.uuidV4()).slice(0, 8)}`
-        : `setup-${script.id}`;
+        : `setup-${script.id}`);
     const cwd = input.worktreePath;
     const env = {
       ...projectScriptRuntimeEnv({

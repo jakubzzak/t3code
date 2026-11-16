@@ -473,7 +473,7 @@ it.effect.each(["summary", "research", "reply draft"] as const)(
           `if(process.cwd()===${JSON.stringify(dir)}||args.includes("danger-full-access")) process.exit(8);`,
           "const chunks=[]; for await(const chunk of process.stdin) chunks.push(chunk);",
           `if(!Buffer.concat(chunks).toString().includes(${JSON.stringify(kind === "summary" ? "Summarize the message only." : "server's read-only tools")})) process.exit(9);`,
-          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify(${kind === "summary" ? '{summary:"Review the launch date.",description:model.slug,suggestions:[],precedentIds:[]}' : `{request:null,suggestions:[],replyDraft:${kind === "reply draft" ? '"I can review it today."' : "null"}}`}));`,
+          `fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify(${kind === "summary" ? '{summary:"Review the launch date.",description:model.slug,suggestions:[],precedentIds:[],irrelevanceConfidence:null}' : `{request:null,suggestions:[],replyDraft:${kind === "reply draft" ? '"I can review it today."' : "null"}}`}));`,
         ].join("\n"),
       });
       const generation = yield* makeCodexTextGeneration(

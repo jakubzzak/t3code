@@ -1158,6 +1158,7 @@ it.effect.each([false, true])(
               ingestNormalized: () => Effect.succeed([]),
             }),
             ServerSettings.layerTest(),
+          ),
         ),
       );
 

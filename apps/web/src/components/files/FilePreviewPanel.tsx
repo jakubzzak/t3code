@@ -965,14 +965,12 @@ function RenderedMarkdownSurface({
                   contents;
                 const nextContents = setMarkdownCodeLanguage(currentContents, change);
                 setSavingLanguage(true);
-                try {
-                  if (!(await changeFileSaveSessionAndWait(saveTarget, nextContents)))
-                    throw new Error("Could not save language.");
-                  setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-                  confirmProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-                } finally {
-                  setSavingLanguage(false);
-                }
+                const saved = await changeFileSaveSessionAndWait(saveTarget, nextContents).finally(
+                  () => setSavingLanguage(false),
+                );
+                if (!saved) throw new Error("Could not save language.");
+                setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+                confirmProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
               }
         }
         onTaskListChange={
@@ -1376,10 +1374,7 @@ export default function FilePreviewPanel({
       ) : null}
       {/* A hidden explorer stays mounted to keep its tree state for history navigation. */}
       <div
-        className={cn(
-          "flex min-h-0 flex-1 overflow-hidden",
-          !showExplorer && "[&>aside]:hidden",
-        )}
+        className={cn("flex min-h-0 flex-1 overflow-hidden", !showExplorer && "[&>aside]:hidden")}
       >
         <div
           className={cn("min-w-0 flex-1 flex-col overflow-hidden", previewPath ? "flex" : "hidden")}

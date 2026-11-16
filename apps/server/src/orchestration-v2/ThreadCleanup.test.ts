@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
   ThreadId,
@@ -111,7 +112,7 @@ function testLayer(
         }),
       ),
     ),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 }
 it.effect("waits for verified process exit before settling and unlocks after completion", () =>

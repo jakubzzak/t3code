@@ -1299,10 +1299,17 @@ function ScheduledTaskEditorForm({
   const [chatSearch, setChatSearch] = useState("");
   const chatChoices = scheduledTaskChats(threadShells, environmentId, selectedProjectId);
   const chatById = new Map(chatChoices.map((chat) => [chat.id as string, chat]));
+  const boundChatMissing =
+    draft.workspaceMode === "thread" && draft.threadId !== "" && !chatById.has(draft.threadId);
+  // The shell can omit older settled chats; their family read still carries the title.
+  const boundChatFamily = useEnvironmentQuery(
+    boundChatMissing ? threadFamilies.familyAtom(environmentId, draft.threadId as ThreadId) : null,
+  );
+  const settledDestination = boundChatFamily.data?.threads.find(
+    (thread) => thread.id === draft.threadId && !thread.archivedAt && !thread.deletedAt,
+  );
   const archivedDestinations = useArchivedThreadSnapshots(
-    draft.workspaceMode === "thread" && draft.threadId && !chatById.has(draft.threadId)
-      ? [environmentId]
-      : [],
+    boundChatMissing && !settledDestination ? [environmentId] : [],
   );
   const archivedDestination = archivedDestinations.snapshots
     .flatMap((entry) => entry.snapshot.threads)
@@ -1648,6 +1655,7 @@ function ScheduledTaskEditorForm({
                 value={draft.threadId || null}
                 itemToStringLabel={(id: string) =>
                   chatById.get(id)?.title ??
+                  (settledDestination?.id === id ? settledDestination.title : undefined) ??
                   (archivedDestination?.id === id
                     ? `${archivedDestination.title} (archived)`
                     : `Unavailable chat (${id})`)
@@ -1678,7 +1686,7 @@ function ScheduledTaskEditorForm({
                   </ComboboxList>
                 </ComboboxPopup>
               </Combobox>
-              {draft.threadId && !chatById.has(draft.threadId) ? (
+              {boundChatMissing && !settledDestination ? (
                 <p className="text-xs text-muted-foreground">
                   This chat is unavailable or archived. Choose another chat to resume the
                   automation.
@@ -1754,8 +1762,8 @@ function ScheduledTaskEditorForm({
             {activeSelection && !selectedInstance?.enabled ? (
               <p className="text-sm text-muted-foreground" role="status">
                 {selectedInstance?.displayName ?? "The saved provider"} is disabled or unavailable
-                for this project. Saving keeps this selection. Enable it in Settings → Providers,
-                or choose an enabled provider before running the automation.
+                for this project. Saving keeps this selection. Enable it in Settings → Providers, or
+                choose an enabled provider before running the automation.
               </p>
             ) : null}
           </Field>

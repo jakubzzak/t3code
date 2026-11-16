@@ -20,6 +20,7 @@ export function useInboxLinearAgentThread({
   element: RefObject<HTMLElement | null>;
 }) {
   const [visibility, setVisibility] = useState({ visible: false, since: 0 });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows the reader's viewport intersection and page visibility while mounted.
   useEffect(() => {
     let intersecting = typeof IntersectionObserver === "undefined";
     const sync = () => {
@@ -77,6 +78,7 @@ export function useInboxLinearAgentThread({
   const refresh = useEffectEvent((onArrival: boolean) => {
     if (!query.isPending && (!onArrival || query.dataUpdatedAt < observedSince)) query.refresh();
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls agent activity on a timer while the reader is visible.
   useEffect(() => {
     if (!enabled) return;
     // A cached atom can survive closing/reopening a conversation; do not pulse it on arrival.
@@ -88,6 +90,7 @@ export function useInboxLinearAgentThread({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A destination or source-thread change must replace the status timer.
   }, [enabled, observedSince, environmentId, projectId, notificationId, commentId]);
   const [expiredResponse, setExpiredResponse] = useState(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- expires a stale activity response with a timer.
   useEffect(() => {
     if (!enabled || !query.dataUpdatedAt) return;
     const timestamp = query.dataUpdatedAt;

@@ -222,6 +222,8 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       );
       return snapshot;
     },
+    // A chat being resolved must not open new browser sessions.
+    (effect, input) => withThreadResourceLease(input.threadId, effect),
   );
 
   const reportStatus: PreviewManager["Service"]["reportStatus"] = Effect.fn(
@@ -451,7 +453,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   });
 
   return PreviewManager.of({
-    open: (input) => withThreadResourceLease(input.threadId, open(input)),
+    open,
     requestReveal,
     reportStatus,
     markHeadless,

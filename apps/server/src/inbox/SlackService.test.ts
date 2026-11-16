@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Tracer from "effect/Tracer";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as UrlParams from "effect/http/UrlParams";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Connection from "./SlackConnection.ts";
 import * as Slack from "./SlackService.ts";
@@ -49,7 +50,7 @@ const fixture = (
         method,
         body,
         url: request.url,
-        parameters: Object.fromEntries(request.urlParams),
+        parameters: Object.fromEntries(new URLSearchParams(UrlParams.toString(request.urlParams))),
       });
       const data =
         method === "auth.test"

@@ -464,8 +464,6 @@ const makeFaviconWebContents = (options?: {
     getTitle: () => "Preview",
     isLoadingMainFrame: () => loading,
     isDevToolsOpened: () => false,
-    isFocused: vi.fn(() => false),
-    focusedFrame: null,
     getZoomFactor: () => 1,
     setZoomFactor: vi.fn(),
     setAudioMuted: vi.fn(),
@@ -2965,7 +2963,6 @@ describe("PreviewManager", () => {
           fromId.mockReturnValue(
             Object.assign(makeTestPreviewWebContents(capturePage), {
               isFocused: () => true,
-              once: vi.fn(),
               ipc: {
                 on: vi.fn((channel: string, listener: typeof onPicked) => {
                   if (channel === "preview:element-picked") onPicked = listener;

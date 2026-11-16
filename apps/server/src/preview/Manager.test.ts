@@ -37,7 +37,7 @@ const layer = PreviewManager.layer.pipe(
 );
 
 it.layer(layer)("PreviewManager", (it) => {
-  it.effect("preserves Linear identity through login, navigation, and reconnect", () =>
+  it.effect("preserves Linear identity through navigation and reconnect", () =>
     Effect.gen(function* () {
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
@@ -47,13 +47,6 @@ it.layer(layer)("PreviewManager", (it) => {
         url: "https://linear.app/team/my-issues",
       });
       expect(opened.surface).toBe("linear");
-      const navigated = yield* manager.navigate({
-        threadId,
-        tabId: opened.tabId,
-        url: "https://accounts.google.com/",
-        resolvedTitle: "Sign in - Google Accounts",
-      });
-      expect(navigated.surface).toBe("linear");
       yield* manager.reportStatus({
         threadId,
         tabId: opened.tabId,

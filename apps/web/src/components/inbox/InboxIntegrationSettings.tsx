@@ -114,20 +114,19 @@ function SlackConnection({
     const popup = !window.desktopBridge ? window.open("", "_blank") : null;
     if (popup) popup.opener = null;
     setPending(true);
-    try {
-      const result = await begin({ environmentId, input: { projectId: connection.projectId } });
-      if (result._tag !== "Success") {
-        popup?.close();
-        return;
-      }
-      setAuthorizationUrl(result.value);
-      if (popup) popup.location.href = result.value;
-      else await ensureLocalApi().shell.openExternal(result.value);
-    } catch {
+    await authorize(popup)
+      .catch(() => popup?.close())
+      .finally(() => setPending(false));
+  }
+  async function authorize(popup: Window | null) {
+    const result = await begin({ environmentId, input: { projectId: connection.projectId } });
+    if (result._tag !== "Success") {
       popup?.close();
-    } finally {
-      setPending(false);
+      return;
     }
+    setAuthorizationUrl(result.value);
+    if (popup) popup.location.href = result.value;
+    else await ensureLocalApi().shell.openExternal(result.value);
   }
   return (
     <>
@@ -297,18 +296,17 @@ function SuperhumanConnection({
     const popup = !window.desktopBridge ? window.open("", "_blank") : null;
     if (popup) popup.opener = null;
     setPending(true);
-    try {
-      const result = await begin({ environmentId, input: { projectId: connection.projectId } });
-      if (result._tag !== "Success") {
-        popup?.close();
-        return;
-      }
-      setAuthorizationUrl(result.value);
-      if (popup) popup.location.href = result.value;
-      else await ensureLocalApi().shell.openExternal(result.value);
-    } finally {
-      setPending(false);
+    await authorize(popup).finally(() => setPending(false));
+  }
+  async function authorize(popup: Window | null) {
+    const result = await begin({ environmentId, input: { projectId: connection.projectId } });
+    if (result._tag !== "Success") {
+      popup?.close();
+      return;
     }
+    setAuthorizationUrl(result.value);
+    if (popup) popup.location.href = result.value;
+    else await ensureLocalApi().shell.openExternal(result.value);
   }
   return (
     <>
@@ -566,6 +564,7 @@ export function ProjectIntegrationSettings() {
       : null,
   );
   const refreshSources = result.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls the server's source status on a timer while the settings page is mounted and visible.
   useEffect(() => {
     if (!connectionReady) return;
     const timer = window.setInterval(() => {

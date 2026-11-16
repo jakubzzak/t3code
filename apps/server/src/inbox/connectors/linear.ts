@@ -176,7 +176,7 @@ const Page = Schema.Struct({
   }),
 });
 const decodePage = Schema.decodeUnknownSync(Page);
-export const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: DateTimeOrDuration!, $notificationIds: [ID!]!) {
+const LINEAR_INBOX_QUERY = `query BlackbirdInbox($after: String, $since: DateTimeOrDuration!, $notificationIds: [ID!]!) {
   viewer { id } organization { id }
   notifications(first: 50, after: $after, orderBy: updatedAt, filter: { or: [{ createdAt: { gte: $since } }, { id: { in: $notificationIds } }] }) {
     nodes { id type category title subtitle url groupingKey createdAt actor { id name }

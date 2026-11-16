@@ -23,6 +23,7 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as PubSub from "effect/PubSub";
 import { ProviderInstanceRegistry } from "../ProviderInstanceRegistry.ts";
+import { ProviderInstanceRegistryMutator } from "../ProviderInstanceRegistryMutator.ts";
 import { ProviderRegistry } from "../ProviderRegistry.ts";
 import { layer as ProviderRegistryLive } from "../ProviderRegistry.ts";
 import { makeProbeSpawner } from "../testUtils/codexProbeSpawner.ts";
@@ -139,13 +140,16 @@ it.layer(layerTest)("CodexDriver", (it) => {
         const services = yield* Layer.build(
           ProviderRegistryLive.pipe(
             Layer.provide(
-              Layer.succeed(ProviderInstanceRegistry, {
-                getInstance: () => Effect.succeed(instance),
-                listInstances: Effect.succeed([instance]),
-                listUnavailable: Effect.succeed([]),
-                streamChanges: Stream.fromPubSub(changes),
-                subscribeChanges: PubSub.subscribe(changes),
-              }),
+              Layer.mergeAll(
+                Layer.succeed(ProviderInstanceRegistry, {
+                  getInstance: () => Effect.succeed(instance),
+                  listInstances: Effect.succeed([instance]),
+                  listUnavailable: Effect.succeed([]),
+                  streamChanges: Stream.fromPubSub(changes),
+                  subscribeChanges: PubSub.subscribe(changes),
+                }),
+                Layer.mock(ProviderInstanceRegistryMutator)({}),
+              ),
             ),
           ),
         );

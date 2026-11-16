@@ -96,21 +96,25 @@ export function FileMarkdownPreview(props: {
   const saving = useRef(false);
   const [confirmed, setConfirmed] = useState<{ original: string; contents: string } | null>(null);
   const markdown = confirmed?.original === props.markdown ? confirmed.contents : props.markdown;
-  const changeLanguage = async (change: MarkdownCodeLanguageChange) => {
-    if (saving.current) throw new Error("A language change is already being saved.");
-    saving.current = true;
-    try {
-      const contents = setMarkdownCodeLanguage(markdown, change);
-      const result = await writeFile({
-        environmentId: props.environmentId,
-        input: { cwd: props.cwd, relativePath: props.relativePath, contents },
-      });
-      if (result._tag !== "Success") throw new Error("Could not save code language.");
-      setConfirmed({ original: props.markdown, contents });
-      await props.onRefresh?.();
-    } finally {
-      saving.current = false;
+  const saveLanguage = async (change: MarkdownCodeLanguageChange) => {
+    const contents = setMarkdownCodeLanguage(markdown, change);
+    const result = await writeFile({
+      environmentId: props.environmentId,
+      input: { cwd: props.cwd, relativePath: props.relativePath, contents },
+    });
+    if (result._tag !== "Success") throw new Error("Could not save code language.");
+    setConfirmed({ original: props.markdown, contents });
+    await props.onRefresh?.();
+  };
+  // Promise chaining instead of try/finally keeps this component React Compiler compatible.
+  const changeLanguage = (change: MarkdownCodeLanguageChange) => {
+    if (saving.current) {
+      return Promise.reject(new Error("A language change is already being saved."));
     }
+    saving.current = true;
+    return saveLanguage(change).finally(() => {
+      saving.current = false;
+    });
   };
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [expandedFile, setExpandedFile] = useState<FilePreviewSource | null>(null);

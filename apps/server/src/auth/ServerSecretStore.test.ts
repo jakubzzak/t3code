@@ -206,7 +206,11 @@ it.effect(
       yield* fs.writeFile(`${config.secretsDir}/inbox-linear-fixture.bin`, ciphertext);
       assert.equal((yield* Effect.result(store.get("inbox-linear-fixture")))._tag, "Failure");
     }).pipe(
-      Effect.provide(layerServerConfig().pipe(Layer.provideMerge(NodeServices.layer))),
+      Effect.provide(
+        layerServerConfig().pipe(
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
       Effect.scoped,
     ),
 );
@@ -230,7 +234,11 @@ it.effect(
       yield* store.set("server-auth-fixture", token);
       assert.deepEqual(yield* fs.readFile(`${config.secretsDir}/server-auth-fixture.bin`), token);
     }).pipe(
-      Effect.provide(layerServerConfig().pipe(Layer.provideMerge(NodeServices.layer))),
+      Effect.provide(
+        layerServerConfig().pipe(
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
       Effect.scoped,
     ),
 );
@@ -256,7 +264,11 @@ it.effect("fails closed on unavailable OS key access without writing or replacin
     assert.equal((yield* Effect.result(store.set("inbox-slack-new", token)))._tag, "Failure");
     assert.isFalse(yield* fs.exists(`${config.secretsDir}/inbox-slack-new.bin`));
   }).pipe(
-    Effect.provide(layerServerConfig().pipe(Layer.provideMerge(NodeServices.layer))),
+    Effect.provide(
+      layerServerConfig().pipe(
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
     Effect.scoped,
   ),
 );

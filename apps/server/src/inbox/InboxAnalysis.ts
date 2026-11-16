@@ -60,8 +60,8 @@ const make = Effect.gen(function* () {
   const projects = yield* Projects.ProjectService;
   const generation = yield* TextGeneration.TextGeneration;
   return InboxAnalysis.of({
-    analyze: (notification, history, references = []) =>
-      Effect.gen(function* () {
+    analyze: Effect.fn("InboxAnalysis.analyze")(
+      function* (notification, history, references = []) {
         const config = resolveProjectSettings(
           yield* settings.getSettings,
           notification.projectId,
@@ -101,9 +101,7 @@ const make = Effect.gen(function* () {
         const { irrelevanceConfidence, ...content } = result;
         return {
           ...content,
-          ...(classifyRelevance && irrelevanceConfidence !== undefined
-            ? { irrelevanceConfidence }
-            : {}),
+          ...(classifyRelevance && irrelevanceConfidence !== null ? { irrelevanceConfidence } : {}),
           suggestions: [],
           precedentIds: result.precedentIds.filter((id) =>
             precedents.some((item) => item.id === id),
@@ -111,16 +109,16 @@ const make = Effect.gen(function* () {
           modelSelection,
           generatedAt: DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis)),
         };
-      }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new InboxError({
-              detail:
-                "Summary unavailable. Raw source content is still available; check the summary model in Features.",
-              cause,
-            }),
-        ),
+      },
+      Effect.mapError(
+        (cause) =>
+          new InboxError({
+            detail:
+              "Summary unavailable. Raw source content is still available; check the summary model in Features.",
+            cause,
+          }),
       ),
+    ),
   });
 });
 export const layer = Layer.effect(InboxAnalysis, make);

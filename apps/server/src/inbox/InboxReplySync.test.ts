@@ -2,7 +2,6 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
@@ -285,7 +284,7 @@ it.effect.each([
         superhuman,
         Layer.succeed(HttpClient.HttpClient, client),
         Layer.succeed(Secrets.ServerSecretStore, {
-          get: () => Effect.succeed(Option.some(new TextEncoder().encode("fixture"))),
+          get: () => Effect.succeedSome(new TextEncoder().encode("fixture")),
           set: () => Effect.void,
           create: () => Effect.void,
           remove: () => Effect.void,

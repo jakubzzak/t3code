@@ -1113,12 +1113,13 @@ export const layerTest = (
           reason: "No resource monitor sample was configured for this test.",
         }),
       ),
-      ownedProcesses: () =>
-        Effect.fail(
+      ownedProcesses: Effect.fn("NativeTelemetryClient.ownedProcesses")(function () {
+        return Effect.fail(
           new NativeTelemetryUnavailable({
             reason: "No owned process scan was configured for this test.",
           }),
-        ),
+        );
+      }),
       processTable: Effect.fail(
         new NativeTelemetryUnavailable({
           reason: "No resource monitor process table was configured for this test.",

@@ -21,6 +21,62 @@ import { resolveAssetUrl } from "~/assets/assetUrls";
 import type { InboxReplyImage } from "@t3tools/contracts";
 import { InboxImage } from "./InboxImage";
 
+/** Upload images one at a time; throws the first validation or upload failure. */
+async function uploadReplyImages(
+  environmentId: EnvironmentId,
+  files: File[],
+  discardImage: (attachmentId: string) => void,
+  onUploaded: (image: InboxReplyImage) => void,
+) {
+  for (const file of files) {
+    const mimeType = file.type;
+    if (
+      mimeType !== "image/png" &&
+      mimeType !== "image/jpeg" &&
+      mimeType !== "image/gif" &&
+      mimeType !== "image/webp"
+    )
+      throw new Error("Choose a PNG, JPEG, GIF, or WebP image.");
+    if (!file.size || file.size > 10 * 1024 * 1024)
+      throw new Error("Each image must be under 10 MB.");
+    const result = await runAttachmentUploadCycle({
+      registry: appAtomRegistry,
+      createUploadUrl: attachmentEnvironment.createUploadUrl,
+      remove: attachmentEnvironment.remove,
+      environmentId,
+      upload: { name: file.name, mimeType, sizeBytes: file.size },
+      resolveUploadUrl: (relative) => {
+        const connection = readPreparedConnection(environmentId);
+        return connection ? resolveAssetUrl(connection.httpBaseUrl, relative) : null;
+      },
+      transport: (url) => {
+        const controller = new AbortController();
+        return {
+          abort: () => controller.abort(),
+          done: fetch(url, {
+            method: "POST",
+            body: file,
+            headers: { "Content-Type": mimeType },
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]),
+          }).then((response) => {
+            if (!response.ok) throw new Error("Image upload failed. Try again.");
+          }),
+        };
+      },
+    });
+    if (result.status !== "uploaded") {
+      if (result.attachmentId) discardImage(result.attachmentId);
+      throw new Error("Image upload failed. Try again.");
+    }
+    onUploaded({
+      attachmentId: result.attachmentId,
+      name: file.name,
+      mimeType,
+      sizeBytes: file.size,
+    });
+  }
+}
+
 export function InboxReplyComposer({
   environmentId,
   notification: n,
@@ -56,6 +112,7 @@ export function InboxReplyComposer({
     uncertain ||
     (!!draft?.error && !draft?.result) ||
     !permitted;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the textarea when another surface opens this reply draft.
   useEffect(() => {
     if (draft?.open) textarea.current?.focus();
   }, [draft?.open]);
@@ -75,72 +132,25 @@ export function InboxReplyComposer({
       return;
     }
     updateInboxReply(key, (value) => ({ ...value, uploading: true, uploadError: undefined }));
-    try {
-      for (const file of files) {
-        const mimeType = file.type;
-        if (
-          mimeType !== "image/png" &&
-          mimeType !== "image/jpeg" &&
-          mimeType !== "image/gif" &&
-          mimeType !== "image/webp"
-        )
-          throw new Error("Choose a PNG, JPEG, GIF, or WebP image.");
-        if (!file.size || file.size > 10 * 1024 * 1024)
-          throw new Error("Each image must be under 10 MB.");
-        const result = await runAttachmentUploadCycle({
-          registry: appAtomRegistry,
-          createUploadUrl: attachmentEnvironment.createUploadUrl,
-          remove: attachmentEnvironment.remove,
-          environmentId,
-          upload: { name: file.name, mimeType, sizeBytes: file.size },
-          resolveUploadUrl: (relative) => {
-            const connection = readPreparedConnection(environmentId);
-            return connection ? resolveAssetUrl(connection.httpBaseUrl, relative) : null;
-          },
-          transport: (url) => {
-            const controller = new AbortController();
-            return {
-              abort: () => controller.abort(),
-              done: fetch(url, {
-                method: "POST",
-                body: file,
-                headers: { "Content-Type": mimeType },
-                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]),
-              }).then((response) => {
-                if (!response.ok) throw new Error("Image upload failed. Try again.");
-              }),
-            };
-          },
-        });
-        if (result.status !== "uploaded") {
-          if (result.attachmentId) discardImage(result.attachmentId);
-          throw new Error("Image upload failed. Try again.");
-        }
-        const image: InboxReplyImage = {
-          attachmentId: result.attachmentId,
-          name: file.name,
-          mimeType,
-          sizeBytes: file.size,
-        };
-        updateInboxReply(key, (value) => ({
-          ...value,
-          result: undefined,
-          error: undefined,
-          input: {
-            ...value.input,
-            commandId: CommandId.make(randomUUID()),
-            images: [...(value.input.images ?? []), image],
-          },
-        }));
-      }
-    } catch (cause) {
+    await uploadReplyImages(environmentId, files, discardImage, (image) =>
       updateInboxReply(key, (value) => ({
         ...value,
-        uploadError: cause instanceof Error ? cause.message : "Image upload failed.",
-      }));
-    } finally {
-      updateInboxReply(key, (value) => ({ ...value, uploading: false }));
-    }
+        result: undefined,
+        error: undefined,
+        input: {
+          ...value.input,
+          commandId: CommandId.make(randomUUID()),
+          images: [...(value.input.images ?? []), image],
+        },
+      })),
+    )
+      .catch((cause: unknown) =>
+        updateInboxReply(key, (value) => ({
+          ...value,
+          uploadError: cause instanceof Error ? cause.message : "Image upload failed.",
+        })),
+      )
+      .finally(() => updateInboxReply(key, (value) => ({ ...value, uploading: false })));
   }
   const close = () => {
     updateInboxReply(key, (value) => ({ ...value, open: false }));

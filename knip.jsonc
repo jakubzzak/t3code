@@ -86,6 +86,7 @@
         "src/preview-pick-preload.ts!",
         "src/preview-pip-preload.ts!",
         "src/mac-permission-preload.ts!",
+        "src/chrome-extension-api.preload.ts!",
         "src/preview/Annotation.css!",
       ],
       // The injected runtime resolves Playwright by string; release tooling runs
@@ -112,8 +113,10 @@
         "fingerprint.config.js",
         "plugins/*.cjs",
         "scripts/generate-device-stream.mts",
+        "scripts/generate-mermaid.mts",
         "src/features/devices/device-stream.browser.ts!",
         "src/features/browser/preview-stream.browser.ts!",
+        "src/features/markdown/mermaid.browser.ts!",
       ],
       // Fonts are configured as asset paths; Expo autolinks the native packages.
       "ignoreDependencies": [

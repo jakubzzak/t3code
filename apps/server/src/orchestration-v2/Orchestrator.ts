@@ -14304,7 +14304,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     ].includes(command.type);
     const receiptEffect = admitsWork
       ? withThreadResourceLease(commandThreadId(command), dispatchWithReceiptEffect(command)).pipe(
-          mapDispatchError(command),
+          // Only the lease's own refusal is mapped; dispatch keeps its typed errors.
+          Effect.catchTags({
+            ThreadCleanupError: (cause) =>
+              Effect.fail(
+                new OrchestratorDispatchError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  cause,
+                }),
+              ),
+          }),
         )
       : dispatchWithReceiptEffect(command);
     const dispatch = lockedThreadIds.reduceRight(

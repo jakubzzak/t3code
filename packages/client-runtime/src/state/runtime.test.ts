@@ -48,6 +48,7 @@ import {
   environmentSessionGenerationAtom,
   scheduleAtomCommandEffect,
   executeAtomQuery,
+  isAtomCommandInterrupted,
   type QueryAnswerHandler,
 } from "./runtime.ts";
 
@@ -1026,6 +1027,7 @@ describe("executeAtomQuery", () => {
       const interrupted = yield* Deferred.make<void>();
       const registry = AtomRegistry.make();
       yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+      // @effect-diagnostics-next-line abortControllerInEffect:off -- executeAtomQuery takes a caller's AbortSignal.
       const controller = new AbortController();
       const runtime = Atom.runtime(Layer.empty);
       const atom = runtime

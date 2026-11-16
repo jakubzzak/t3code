@@ -71,9 +71,11 @@ const fixture = (blockFirst = false, missingConfidence = false) =>
               summary: input.context.includes("urgent") ? "Urgent request" : "Acknowledgement",
               suggestions: [],
               precedentIds: [],
-              ...(!missingConfidence
-                ? { irrelevanceConfidence: input.context.includes("urgent") ? 3 : 99 }
-                : {}),
+              irrelevanceConfidence: missingConfidence
+                ? null
+                : input.context.includes("urgent")
+                  ? 3
+                  : 99,
             };
           }),
       }),

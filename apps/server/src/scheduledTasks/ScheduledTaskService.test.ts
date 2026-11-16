@@ -72,6 +72,24 @@ const insertRow = (
     run_count: 0,
   })}`;
 
+// Binding a task requires an active chat in the task's project.
+const insertThread = Effect.fn("insertThread")(function* (threadId: string, projectId: string) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`INSERT INTO orchestration_v2_projection_threads ${sql.insert({
+    thread_id: threadId,
+    project_id: projectId,
+    title: "Bound chat",
+    default_provider: "codex",
+    provider_instance_id: "codex",
+    runtime_mode: "full-access",
+    interaction_mode: "default",
+    created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
+    archived_at: null,
+    payload_json: "{}",
+  })}`;
+});
+
 it.effect("loads only due tasks and skips corrupt due rows without decoding settled tasks", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -390,6 +408,7 @@ it.effect("thread cleanup notifies subscribers and a finishing run cannot recrea
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       const threadId = ThreadId.make("thread:deleted-during-run");
+      yield* insertThread(threadId, "project:test");
       const { task } = yield* service.upsert({
         id: ScheduledTaskId.make("task:deleted-during-run"),
         title: "Check orchestration",
@@ -480,6 +499,7 @@ it.effect("a bound run follows its thread when promotion moves it mid-send", () 
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       const threadId = ThreadId.make("thread:promoted-during-run");
+      yield* insertThread(threadId, promoted);
       const { task } = yield* service.upsert({
         id: ScheduledTaskId.make("task:promoted-during-run"),
         title: "Check in",
@@ -560,6 +580,7 @@ it.effect("refuses saving an enabled task above the policy ceiling", () =>
         .pipe(Effect.flip);
       assert.equal(reenabled.message, "Example Corp limits threads to Auto-accept edits.");
       // A task bound to a thread runs in that thread's mode, so its own is not checked.
+      yield* insertThread("thread:bound", "project:test");
       yield* service.upsert({
         id: ScheduledTaskId.make("task:bound"),
         title: "Follow up",

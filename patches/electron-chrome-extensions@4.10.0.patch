@@ -1,3 +1,4 @@
+diff --git a/dist/cjs/index.js b/dist/cjs/index.js
 --- a/dist/cjs/index.js
 +++ b/dist/cjs/index.js
 @@ -2264,6 +2264,14 @@
@@ -54,6 +55,7 @@
      return result;
    }
    handle(name, callback, opts) {
+diff --git a/dist/esm/index.mjs b/dist/esm/index.mjs
 --- a/dist/esm/index.mjs
 +++ b/dist/esm/index.mjs
 @@ -2227,6 +2227,14 @@
@@ -110,6 +112,7 @@
      return result;
    }
    handle(name, callback, opts) {
+diff --git a/dist/chrome-extension-api.preload.js b/dist/chrome-extension-api.preload.js
 --- a/dist/chrome-extension-api.preload.js
 +++ b/dist/chrome-extension-api.preload.js
 @@ -21,7 +21,7 @@

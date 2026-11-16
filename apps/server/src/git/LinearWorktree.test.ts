@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -9,7 +10,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { prepareLinearWorktree } from "./LinearWorktree.ts";
 const TestLayer = GitVcsDriver.layer.pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-linear-worktree-" })),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 it.layer(TestLayer)("Linear worktrees", (it) => {
   it.effect(

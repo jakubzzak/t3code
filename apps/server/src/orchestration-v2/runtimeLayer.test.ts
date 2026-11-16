@@ -366,15 +366,14 @@ const layerResourceCleanupTest = ResourceCleanupService.layer.pipe(
 );
 
 const layerProjectDeletionTest = Layer.mergeAll(
-  RuntimeLayer.layer
-    .pipe(
-      Layer.provide(
-        Layer.mock(ThreadLaunchService.ThreadLaunchService)({
-          prepareRun: () => Effect.die("Unexpected workspace preparation"),
-        }),
-      ),
-    )
-    .pipe(Layer.provide(RuntimeLayer.layerProjectService)),
+  RuntimeLayer.layer.pipe(
+    Layer.provide(
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+        prepareRun: () => Effect.die("Unexpected workspace preparation"),
+      }),
+    ),
+    Layer.provide(RuntimeLayer.layerProjectService),
+  ),
   RuntimeLayer.layerProjectService,
   RuntimeLayer.layerEventSink,
   ThreadCommandExecutor.layer,
@@ -423,6 +422,7 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
         const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
         const tasks = yield* ScheduledTaskService.ScheduledTaskService;
         const projectId = ProjectId.make(`automation-delete-project:${deletion}`);
+        const otherProjectId = ProjectId.make("automation-other-project");
         const threadId = ThreadId.make(`automation-delete-thread:${deletion}`);
         const otherThreadId = ThreadId.make(`automation-surviving-thread:${deletion}`);
         yield* projects.create({
@@ -438,7 +438,7 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
             createdBy: "user",
             creationSource: "web",
             threadId: id,
-            projectId: id === threadId ? projectId : ProjectId.make("automation-other-project"),
+            projectId: id === threadId ? projectId : otherProjectId,
             title: "Automation target",
             modelSelection,
             runtimeMode: "full-access",
@@ -447,6 +447,7 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
             worktreePath: null,
           });
         }
+        // A bound task lives in its chat's project.
         const save = (name: string, target: ThreadId | null, webhook = false) =>
           tasks.upsert({
             id: ScheduledTaskId.make(`automation:${deletion}:${name}`),
@@ -454,7 +455,7 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
             prompt: "Check orchestration progress",
             enabled: !webhook,
             schedule: webhook ? { type: "webhook" } : { type: "interval", everyMs: 60_000 },
-            projectId,
+            projectId: target === otherThreadId ? otherProjectId : projectId,
             threadId: target,
             workspaceStrategy: { type: "root" },
             modelSelection,
@@ -856,15 +857,14 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
 
 const layerSharedApplicationDataPlaneTest = Layer.mergeAll(
   layerProjectionReplayTest,
-  RuntimeLayer.layer
-    .pipe(
-      Layer.provide(
-        Layer.mock(ThreadLaunchService.ThreadLaunchService)({
-          prepareRun: () => Effect.die("Unexpected workspace preparation"),
-        }),
-      ),
-    )
-    .pipe(Layer.provide(RuntimeLayer.layerProjectService)),
+  RuntimeLayer.layer.pipe(
+    Layer.provide(
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+        prepareRun: () => Effect.die("Unexpected workspace preparation"),
+      }),
+    ),
+    Layer.provide(RuntimeLayer.layerProjectService),
+  ),
   RuntimeLayer.layerProjectService,
   RuntimeLayer.layerEventSink,
   RuntimeLayer.layerEventInfrastructure,
@@ -7079,11 +7079,6 @@ it.layer(layerScratchPromotionTest)("turning a No project thread into a project"
       const threadId = yield* createThread("main", folder);
       const siblingId = yield* createThread("sibling", folder);
       const otherId = yield* createThread("other", `${SCRATCH_ROOT}/2026-01-01-elsewhere`);
-      yield* orchestrator.dispatch({
-        type: "thread.archive",
-        commandId: CommandId.make("promotion-moves-sibling-archive"),
-        threadId: siblingId,
-      });
       const { task } = yield* tasks.upsert({
         id: ScheduledTaskId.make("promotion-moves-bound"),
         title: "Bound",
@@ -7098,6 +7093,12 @@ it.layer(layerScratchPromotionTest)("turning a No project thread into a project"
         interactionMode: "default",
         createdBy: "user",
         creationSource: "web",
+      });
+      // Archive after binding: a new binding must target an active chat.
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("promotion-moves-sibling-archive"),
+        threadId: siblingId,
       });
 
       const { projectId } = yield* promotion.promote({ threadId });

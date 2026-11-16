@@ -166,26 +166,25 @@ export function HostedBrowserWebview(props: {
       if (!lease || (surface === "linear" && registered) || registering) return;
       registering = true;
       void (async () => {
-        try {
-          // Tab creation and webview attachment use separate effects; wait to avoid PreviewTabNotFoundError.
-          await lease.ready;
-          if (disposed || webviewRef.current !== webview) return;
-          const webContentsId = webview.getWebContentsId();
-          if (Number.isInteger(webContentsId) && webContentsId > 0) {
-            const urlToLoad = readLatestUrl();
-            await bridge.registerWebview(runtimeTabId, webContentsId);
-            registered = true;
-            // A Linear guest starts blank until its native origin policy is installed.
-            if (surface === "linear" && urlToLoad && !disposed) {
-              await bridge.navigate(runtimeTabId, urlToLoad);
-            }
+        // Tab creation and webview attachment use separate effects; wait to avoid PreviewTabNotFoundError.
+        await lease.ready;
+        if (disposed || webviewRef.current !== webview) return;
+        const webContentsId = webview.getWebContentsId();
+        if (Number.isInteger(webContentsId) && webContentsId > 0) {
+          const urlToLoad = readLatestUrl();
+          await bridge.registerWebview(runtimeTabId, webContentsId);
+          registered = true;
+          // A Linear guest starts blank until its native origin policy is installed.
+          if (surface === "linear" && urlToLoad && !disposed) {
+            await bridge.navigate(runtimeTabId, urlToLoad);
           }
-        } catch {
-          // did-attach/dom-ready will retry if the guest was not ready yet.
-        } finally {
-          registering = false;
         }
-      })();
+      })()
+        // did-attach/dom-ready will retry if the guest was not ready yet.
+        .catch(() => undefined)
+        .then(() => {
+          registering = false;
+        });
     };
     const recoverGuest = () => {
       if (disposed || recoveryTimeout !== null) return;

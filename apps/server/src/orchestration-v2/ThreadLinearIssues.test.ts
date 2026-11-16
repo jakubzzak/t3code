@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   CommandId,
   EventId,
@@ -98,7 +99,7 @@ const makeTestLayer = (
     ),
 
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-linear-service-" })),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 const seed = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;

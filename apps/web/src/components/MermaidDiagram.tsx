@@ -15,6 +15,7 @@ export function MermaidDiagram(props: {
     svg?: string;
     failed?: boolean;
   } | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- runs the async Mermaid renderer for the current code and theme, aborting it on change or unmount
   useEffect(() => {
     const controller = new AbortController();
     void renderMermaid(props.code, props.theme, controller.signal).then(

@@ -1,6 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { useMemo } from "react";
 import { create } from "zustand";
 
 const DEFAULT_REGEX = String.raw`^(?!.*\.(spec|test)\.).*$`;
@@ -102,7 +101,7 @@ export function useFileFilterState(key: string) {
 
 export function useFileFilter(key: string) {
   const source = useFileFilterStore((state) => state.filters[key]?.appliedSource ?? DEFAULT_REGEX);
-  return useMemo(() => createFileFilter(source), [source]);
+  return createFileFilter(source);
 }
 
 export function createFileFilter(source: string) {

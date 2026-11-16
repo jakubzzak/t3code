@@ -118,6 +118,15 @@ export class ServerUpdateProgressIncompleteError extends Schema.TaggedError<Serv
   }
 }
 
+export class ScheduledTasksUnavailableError extends Schema.TaggedError<ScheduledTasksUnavailableError>()(
+  "ScheduledTasksUnavailableError",
+  {},
+) {
+  override get message(): string {
+    return "Scheduled tasks are unavailable.";
+  }
+}
+
 export class ServerUpdateTerminalError extends Schema.TaggedError<ServerUpdateTerminalError>()(
   "ServerUpdateTerminalError",
   {
@@ -1332,7 +1341,7 @@ export function createServerEnvironmentAtoms<R, E>(
           Stream.runHead,
           Effect.flatMap(
             Option.match({
-              onNone: () => Effect.fail(new Error("Scheduled tasks are unavailable.")),
+              onNone: () => Effect.fail(new ScheduledTasksUnavailableError()),
               onSome: Effect.succeed,
             }),
           ),

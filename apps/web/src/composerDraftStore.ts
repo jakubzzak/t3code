@@ -107,6 +107,7 @@ const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 const isThreadContextRecord = Schema.is(ThreadContextRecord);
+const isAgenticSearchDraft = Schema.is(AgenticSearchDraft);
 const isEnvironmentContextRecord = Schema.is(EnvironmentContextRecord);
 const isSnapShotSource = Schema.is(SnapShotSource);
 const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
@@ -1696,7 +1697,7 @@ function normalizePersistedDraftThreads(
       const normalizedEnvironmentId = environmentId as EnvironmentId;
       draftThreadsByThreadKey[threadKey] = {
         threadId,
-        ...(Schema.is(AgenticSearchDraft)(candidateDraftThread.search)
+        ...(isAgenticSearchDraft(candidateDraftThread.search)
           ? { search: { ...candidateDraftThread.search, autoSubmit: false } }
           : {}),
         environmentId: normalizedEnvironmentId,

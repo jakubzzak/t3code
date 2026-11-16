@@ -69,15 +69,17 @@ const make = Effect.gen(function* () {
     { projectId: ProjectId; expiresAt: number; credentials: SuperhumanCredentials }
   >();
   const locks = new Map<ProjectId, Semaphore.Semaphore>();
-  const lock = <A>(projectId: ProjectId, work: Effect.Effect<A, InboxError>) =>
-    Effect.gen(function* () {
-      let semaphore = locks.get(projectId);
-      if (!semaphore) {
-        semaphore = yield* Semaphore.make(1);
-        locks.set(projectId, semaphore);
-      }
-      return yield* semaphore.withPermits(1)(work);
-    });
+  const lock = Effect.fn("lock")(function* <A>(
+    projectId: ProjectId,
+    work: Effect.Effect<A, InboxError>,
+  ) {
+    let semaphore = locks.get(projectId);
+    if (!semaphore) {
+      semaphore = yield* Semaphore.make(1);
+      locks.set(projectId, semaphore);
+    }
+    return yield* semaphore.withPermits(1)(work);
+  });
   const persist = (projectId: ProjectId, credentials: SuperhumanCredentials) =>
     encodeCredentials(credentials).pipe(
       Effect.flatMap((json) => secrets.set(key(projectId), new TextEncoder().encode(json))),
@@ -166,7 +168,7 @@ const make = Effect.gen(function* () {
       }),
     );
   return SuperhumanConnection.of({
-    begin: (projectId, origin) =>
+    begin: Effect.fn("SuperhumanConnection.begin")((projectId, origin) =>
       lock(
         projectId,
         Effect.gen(function* () {
@@ -213,42 +215,42 @@ const make = Effect.gen(function* () {
           return authorizeUrl;
         }),
       ),
-    complete: (state, code) =>
-      Effect.gen(function* () {
-        const flow = pending.get(state);
-        if (!flow || flow.expiresAt <= (yield* Clock.currentTimeMillis))
-          return yield* new InboxError({
-            detail: "This authorization attempt expired or was already used. Connect again.",
+    ),
+    complete: Effect.fn("SuperhumanConnection.complete")(function* (state, code) {
+      const flow = pending.get(state);
+      if (!flow || flow.expiresAt <= (yield* Clock.currentTimeMillis))
+        return yield* new InboxError({
+          detail: "This authorization attempt expired or was already used. Connect again.",
+        });
+      return yield* lock(
+        flow.projectId,
+        Effect.gen(function* () {
+          if (pending.get(state) !== flow || flow.expiresAt <= (yield* Clock.currentTimeMillis))
+            return yield* new InboxError({
+              detail: "This authorization attempt expired or was cancelled. Connect again.",
+            });
+          pending.delete(state);
+          const provider = superhumanOAuthProvider({
+            credentials: flow.credentials,
+            state,
+            save: async (value) => {
+              flow.credentials = value;
+            },
+            redirect: () => {},
           });
-        return yield* lock(
-          flow.projectId,
-          Effect.gen(function* () {
-            if (pending.get(state) !== flow || flow.expiresAt <= (yield* Clock.currentTimeMillis))
-              return yield* new InboxError({
-                detail: "This authorization attempt expired or was cancelled. Connect again.",
-              });
-            pending.delete(state);
-            const provider = superhumanOAuthProvider({
-              credentials: flow.credentials,
-              state,
-              save: async (value) => {
-                flow.credentials = value;
-              },
-              redirect: () => {},
-            });
-            const result = yield* Effect.tryPromise({
-              try: () => auth(provider, { serverUrl: URL_MCP, authorizationCode: code }),
-              catch: () =>
-                new InboxError({ detail: "Superhuman authorization failed. Connect again." }),
-            });
-            if (result !== "AUTHORIZED")
-              return yield* new InboxError({ detail: "Superhuman authorization did not finish." });
-            yield* persist(flow.projectId, flow.credentials);
-            return flow.projectId;
-          }),
-        );
-      }),
-    disconnect: (projectId) =>
+          const result = yield* Effect.tryPromise({
+            try: () => auth(provider, { serverUrl: URL_MCP, authorizationCode: code }),
+            catch: () =>
+              new InboxError({ detail: "Superhuman authorization failed. Connect again." }),
+          });
+          if (result !== "AUTHORIZED")
+            return yield* new InboxError({ detail: "Superhuman authorization did not finish." });
+          yield* persist(flow.projectId, flow.credentials);
+          return flow.projectId;
+        }),
+      );
+    }),
+    disconnect: Effect.fn("SuperhumanConnection.disconnect")((projectId) =>
       lock(
         projectId,
         Effect.gen(function* () {
@@ -263,11 +265,14 @@ const make = Effect.gen(function* () {
             );
         }),
       ),
-    read: (projectId, accounts, categories, since, tracked) =>
-      withClient(projectId, (read) =>
-        readSuperhumanInbox(read, accounts, categories, since, tracked),
-      ),
-    catalog: (projectId) =>
+    ),
+    read: Effect.fn("SuperhumanConnection.read")(
+      (projectId, accounts, categories, since, tracked) =>
+        withClient(projectId, (read) =>
+          readSuperhumanInbox(read, accounts, categories, since, tracked),
+        ),
+    ),
+    catalog: Effect.fn("SuperhumanConnection.catalog")((projectId) =>
       withClient(projectId, async (read) => {
         const accounts = decodeAccounts(await read("list_accounts", {})).accounts ?? [];
         const results = await Promise.all(
@@ -291,6 +296,7 @@ const make = Effect.gen(function* () {
           labels: results.flatMap((result) => result.labels),
         };
       }),
+    ),
   });
 });
 export const layer = Layer.effect(SuperhumanConnection, make);

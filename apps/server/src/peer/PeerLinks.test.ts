@@ -22,6 +22,7 @@ import {
   HttpServerResponse,
 } from "effect/http";
 
+import * as IntegrationVault from "../auth/IntegrationVaultKey.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
@@ -264,7 +265,7 @@ it.effect("a link whose row cannot be stored keeps none of its token", () =>
                 ),
           }),
         ),
-      );
+      ).pipe(Layer.provide(IntegrationVault.layer));
       const a = yield* makeA(laptop, noted);
       yield* a.sql`
         CREATE TRIGGER refuse_link BEFORE INSERT ON peer_environment_links

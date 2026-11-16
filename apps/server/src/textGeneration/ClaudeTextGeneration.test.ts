@@ -505,6 +505,7 @@ it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
               description: "Review the release by Friday.",
               suggestions: [],
               precedentIds: [],
+              irrelevanceConfidence: null,
             },
           }),
           cwdMustNotBe: process.cwd(),

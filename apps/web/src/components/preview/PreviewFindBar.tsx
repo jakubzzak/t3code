@@ -34,11 +34,13 @@ export function PreviewFindBar({
       },
     );
   };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses and selects the DOM input each time the shortcut bumps focusNonce
   useEffect(() => {
     if (focusNonce === 0) return;
     inputRef.current?.focus();
     inputRef.current?.select();
   }, [focusNonce]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops the page's native find session and clears highlights when the tab changes or the bar unmounts
   useEffect(
     () => () => {
       generation.current += 1;

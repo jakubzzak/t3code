@@ -50,7 +50,7 @@ it("shares relevance output with the summary schema only for eligible incoming c
     suggest: false,
   };
   const baseline = buildInboxAnalysisPrompt(input);
-  expect(baseline.prompt).toContain("Do not return irrelevanceConfidence");
+  expect(baseline.prompt).toContain("Return irrelevanceConfidence as null");
   const eligible = buildInboxAnalysisPrompt({
     ...input,
     classifyRelevance: true,
@@ -67,7 +67,8 @@ it("shares relevance output with the summary schema only for eligible incoming c
     precedentIds: [],
   };
   expect(decode({ ...summary, irrelevanceConfidence: 99 }).irrelevanceConfidence).toBe(99);
-  expect(decode(summary).irrelevanceConfidence).toBeUndefined();
+  expect(decode({ ...summary, irrelevanceConfidence: null }).irrelevanceConfidence).toBeNull();
+  expect(() => decode(summary)).toThrow();
   for (const confidence of [-1, 101, 97.5, "99"])
     expect(() => decode({ ...summary, irrelevanceConfidence: confidence })).toThrow();
 });

@@ -57,6 +57,7 @@ vi.mock("../connection/runtime", async () => {
     ),
   };
 });
+vi.mock("./use-project-git-enabled", () => ({ useProjectGitEnabled: () => true }));
 vi.mock("./server", async () => {
   const { Atom } = await import("effect/reactivity");
   const config = Atom.make({ environment: { capabilities: { threadPullRequests: true } } });

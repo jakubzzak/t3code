@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { agenticSearchTemplate, type AgenticSearchScope } from "~/agenticSearch";
@@ -35,40 +35,41 @@ export function useAgenticSearch() {
       : null;
   const newThread = useNewThreadHandler();
   const launching = useRef(false);
-  const launch = useCallback(
-    async (scope: AgenticSearchScope, presentation: "explicit" | "implicit", query?: string) => {
-      if (!settings.agenticSearchEnabled || launching.current) return;
-      if (unavailableReason || !environmentId) {
-        toastManager.add({ type: "error", title: unavailableReason ?? "Connect an environment" });
-        return;
-      }
-      launching.current = true;
-      try {
-        const template = agenticSearchTemplate(settings, scope);
-        const project = await openScratchProject(environmentId);
-        if (!project) return;
-        const opened = await newThread(scopeProjectRef(environmentId, project.id), {
-          forceNew: true,
-          envMode: "local",
-        });
-        if (!opened) return;
-        const store = useComposerDraftStore.getState();
-        store.setPrompt(
-          opened.draftId,
-          presentation === "explicit" ? `${template}\n\nQuestion:\n` : (query ?? ""),
-        );
-        store.setDraftThreadContext(opened.draftId, {
-          environmentSelection: "manual",
-          search: { scope, template, presentation, autoSubmit: Boolean(query?.trim()) },
-        });
-      } catch {
-        toastManager.add({ type: "error", title: "Could not prepare search chat" });
-      } finally {
-        launching.current = false;
-      }
-    },
-    [environmentId, newThread, openScratchProject, settings, unavailableReason],
-  );
+  const launch = async (
+    scope: AgenticSearchScope,
+    presentation: "explicit" | "implicit",
+    query?: string,
+  ) => {
+    if (!settings.agenticSearchEnabled || launching.current) return;
+    if (unavailableReason || !environmentId) {
+      toastManager.add({ type: "error", title: unavailableReason ?? "Connect an environment" });
+      return;
+    }
+    const prepare = async () => {
+      const template = agenticSearchTemplate(settings, scope);
+      const project = await openScratchProject(environmentId);
+      if (!project) return;
+      const opened = await newThread(scopeProjectRef(environmentId, project.id), {
+        forceNew: true,
+        envMode: "local",
+      });
+      if (!opened) return;
+      const store = useComposerDraftStore.getState();
+      store.setPrompt(
+        opened.draftId,
+        presentation === "explicit" ? `${template}\n\nQuestion:\n` : (query ?? ""),
+      );
+      store.setDraftThreadContext(opened.draftId, {
+        environmentSelection: "manual",
+        search: { scope, template, presentation, autoSubmit: Boolean(query?.trim()) },
+      });
+    };
+    launching.current = true;
+    await prepare().catch(() => {
+      toastManager.add({ type: "error", title: "Could not prepare search chat" });
+    });
+    launching.current = false;
+  };
   return {
     enabled: settings.agenticSearchEnabled,
     available: unavailableReason === null,

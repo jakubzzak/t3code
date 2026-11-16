@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { NodeId, ProviderThreadId, RunId, ThreadId } from "@t3tools/contracts";
@@ -32,7 +33,7 @@ const layer = CheckpointService.layer.pipe(
   Layer.provideMerge(storeLayer),
   Layer.provideMerge(vcsLayer),
   Layer.provideMerge(IdAllocator.layer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 it.effect(

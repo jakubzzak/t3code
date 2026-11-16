@@ -26,17 +26,16 @@ export function AwakeSettings() {
   async function perform(action: () => Promise<unknown>) {
     if (pending) return;
     setPending(true);
-    try {
-      await action();
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Could not update Keep awake",
-        description: error instanceof Error ? error.message : "Please try again.",
+    await Promise.resolve()
+      .then(action)
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not update Keep awake",
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
       });
-    } finally {
-      setPending(false);
-    }
+    setPending(false);
   }
   const update = (patch: ClientSettingsPatch) => void perform(() => updateClientSettings(patch));
 

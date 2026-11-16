@@ -136,15 +136,14 @@ const layerRuntime = (dbPath: string) => {
     ),
   );
   return Layer.mergeAll(
-    RuntimeLayer.layer
-      .pipe(
-        Layer.provide(
-          Layer.mock(ThreadLaunchService.ThreadLaunchService)({
-            prepareRun: () => Effect.die("Unexpected workspace preparation"),
-          }),
-        ),
-      )
-      .pipe(Layer.provide(RuntimeLayer.layerProjectService)),
+    RuntimeLayer.layer.pipe(
+      Layer.provide(
+        Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+          prepareRun: () => Effect.die("Unexpected workspace preparation"),
+        }),
+      ),
+      Layer.provide(RuntimeLayer.layerProjectService),
+    ),
     RuntimeLayer.layerProjectService,
   ).pipe(
     Layer.provide(

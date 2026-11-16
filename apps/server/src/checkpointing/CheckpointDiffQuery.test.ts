@@ -40,7 +40,6 @@ function makeProjection(): ProjectionCheckpointContext {
         runId: secondRunId,
         ordinalWithinScope: 1,
         appRunOrdinal: 2,
-        ordinalWithinScope: 2,
         status: "ready",
         ref: secondRef,
       },
@@ -170,13 +169,8 @@ it.effect.each([false, true])(
         [
           { from: "refs/t3/test/ordinal/2", to: "refs/t3/test/ordinal/3" },
           { from: "refs/t3/test/ordinal/1", to: "refs/t3/test/ordinal/3" },
-          {
-            from: yield* checkpointRefForScopeOrdinal({
-              scopeId: firstScopeId,
-              ordinalWithinScope: 0,
-            }),
-            to: "refs/t3/test/ordinal/3",
-          },
+          // The recorded baseline wins over the derived ref; in production both are equal.
+          { from: "refs/t3/test/ordinal/0", to: "refs/t3/test/ordinal/3" },
         ],
       );
       const stoppedTurnError = yield* query

@@ -487,7 +487,7 @@ describe("PreviewView zoom shortcuts", () => {
     mocks.adjust.mockClear();
     await screen.rerender(view());
     await act(shortcut);
-    act(() => dispatchPreviewAction(action));
+    await act(() => dispatchPreviewAction(action));
     expect(mocks.adjust).not.toHaveBeenCalled();
   });
 });

@@ -14,6 +14,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   globalIdleCompaction,
   idleCompactionPatch,
+  ProjectSettingsOverrides,
   requiredScopesForProjectMutation,
   resolveIdleCompaction,
   resolveProjectProviderInstanceEnabled,
@@ -704,10 +705,9 @@ describe("inbox relevance filtering", () => {
     const patch = { inboxFilterIrrelevant: false, inboxIrrelevanceThreshold: 75 };
     expect(decodeServerSettingsPatch(patch)).toEqual(patch);
     expect(encodeServerSettings(decodeServerSettings(patch))).toMatchObject(patch);
-    expect(
-      decodeServerSettings({ projectSettingsOverrides: { demo: patch } }).projectSettingsOverrides
-        .demo,
-    ).toEqual({});
+    // Relevance filtering is global: projects cannot override it.
+    expect(Object.keys(ProjectSettingsOverrides.fields)).not.toContain("inboxFilterIrrelevant");
+    expect(Object.keys(ProjectSettingsOverrides.fields)).not.toContain("inboxIrrelevanceThreshold");
   });
   it.each([74, 101, 98.5, "98", null])("rejects invalid threshold %s", (value) => {
     expect(() => decodeServerSettingsPatch({ inboxIrrelevanceThreshold: value })).toThrow();

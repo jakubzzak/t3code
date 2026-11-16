@@ -215,8 +215,9 @@ export const InboxReferencesInput = Schema.Struct({
   projectId: ProjectId,
   offset: Schema.optionalKey(NonNegativeInt),
 });
+// Structured-output modes need every key; null means "not classified".
 export const InboxAnalysisContent = Schema.Struct({
-  irrelevanceConfidence: Schema.optionalKey(InboxIrrelevanceConfidence),
+  irrelevanceConfidence: Schema.NullOr(InboxIrrelevanceConfidence),
   description: Schema.String.check(Schema.isMaxLength(300)),
   summary: Schema.String.check(Schema.isMaxLength(2000)),
   suggestions: Schema.Array(Schema.String.check(Schema.isMaxLength(4000))).check(

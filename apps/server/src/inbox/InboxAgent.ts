@@ -50,205 +50,201 @@ const make = Effect.gen(function* () {
   const wrap = (cause: unknown) =>
     new InboxError({ detail: "Could not update the linked agent. Open the chat or retry.", cause });
   return InboxAgent.of({
-    start: (notification, startAgent) =>
-      Effect.gen(function* () {
-        const threadId = notification.state.threadId!;
-        const project = Option.getOrNull(yield* projects.getById(notification.projectId));
-        if (!project)
-          return yield* new InboxError({ detail: "This notification’s project no longer exists." });
-        const resolved = resolveProjectSettings(
-          yield* settings.getSettings,
-          notification.projectId,
-          project,
-          Option.getOrNull(yield* projectFiles.load(project.workspaceRoot)),
-        );
-        const config = resolved.settings;
-        if (startAgent && !config.inboxAgentEnabled)
-          return yield* new InboxError({
-            detail: "Enable Agent Delegation in this project’s Inbox settings.",
-          });
-        const modelSelection =
-          config.inboxAgentModelSelection ??
-          config.defaultModelSelection ??
-          config.textGenerationModelSelection;
-        const existing = yield* orchestrator.getThreadShell(threadId);
-        const instructions = config.inboxAgentPrompt.trim()
-          ? config.inboxAgentPrompt
-          : DEFAULT_SERVER_SETTINGS.inboxAgentPrompt;
-        const suggestion = inboxSuggestedPrompt(notification, config);
-        const prompt = suggestion
-          ? `${instructions}\n\nSuggested resolution:\n${suggestion}`
-          : instructions;
-        const linkIssue = Effect.gen(function* () {
-          if (
-            notification.source !== "linear" ||
-            existing?.linkedLinearIssue ||
-            !config.linearWorkspace ||
-            (existing &&
-              (["queued", "preparing", "starting", "running", "waiting"].includes(
-                existing.status,
-              ) ||
-                existing.pendingRuntimeRequest !== null))
-          )
-            return;
-          const target = notification.items.findLast(
-            (item) => item.replyTarget?.source === "linear",
-          )?.replyTarget;
-          const issueId =
-            notification.linearIssue?.id ??
-            notification.items.findLast((item) => item.linearIssue)?.linearIssue?.id ??
-            (target?.source === "linear" ? target.issueId : undefined);
-          if (!issueId) return;
-          const result = yield* linear.request(notification.projectId, {
-            operation: "issue",
-            workspace: config.linearWorkspace,
-            connectionKey: notification.projectId,
-            issueId,
-          });
-          const issue = result.issues?.find((issue) => issue.id === issueId);
-          if (!issue)
-            return yield* new InboxError({
-              detail: "The notification's Linear issue is unavailable.",
-            });
-          // A user can select an issue while the source lookup is in flight.
-          if ((yield* orchestrator.getThreadShell(threadId))?.linkedLinearIssue) return;
-          yield* orchestrator.dispatch({
-            type: "thread.metadata.update",
-            threadId,
-            commandId: CommandId.make(`inbox:${notification.id}:linear:${issue.id}`),
-            linkedLinearIssue: issue,
-          });
+    start: Effect.fn("InboxAgent.start")(function* (notification, startAgent) {
+      const threadId = notification.state.threadId!;
+      const project = Option.getOrNull(yield* projects.getById(notification.projectId));
+      if (!project)
+        return yield* new InboxError({ detail: "This notification’s project no longer exists." });
+      const resolved = resolveProjectSettings(
+        yield* settings.getSettings,
+        notification.projectId,
+        project,
+        Option.getOrNull(yield* projectFiles.load(project.workspaceRoot)),
+      );
+      const config = resolved.settings;
+      if (startAgent && !config.inboxAgentEnabled)
+        return yield* new InboxError({
+          detail: "Enable Agent Delegation in this project’s Inbox settings.",
         });
-        if (existing) yield* linkIssue;
-        // Replaying delivery must not create another turn. Preparation retries
-        // reuse the durable run and workspace that the launch service owns.
-        if (existing?.latestRunId) {
-          if (!startAgent) return;
-          const records = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
-          const run = records.runs.find((candidate) => candidate.id === existing.latestRunId);
-          if (run?.status === "failed" && notification.agentAttempt > 0) {
-            const failedPreparation =
-              run.workspacePreparation &&
-              (yield* orchestrator.getThreadProjection(threadId)).turnItems.some(
-                (item) =>
-                  item.runId === run.id &&
-                  item.type === "error" &&
-                  item.status === "failed" &&
-                  item.failure.code === ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
-              );
-            if (failedPreparation)
-              yield* launches.retryPreparation({
-                commandId: CommandId.make(
-                  `inbox:${notification.id}:retry:${notification.agentAttempt}`,
-                ),
-                threadId,
-                runId: run.id,
-              });
-            else
-              yield* orchestrator.dispatch({
-                type: "message.dispatch",
-                commandId: CommandId.make(
-                  `inbox:${notification.id}:start:${notification.agentAttempt}`,
-                ),
-                threadId,
+      const modelSelection =
+        config.inboxAgentModelSelection ??
+        config.defaultModelSelection ??
+        config.textGenerationModelSelection;
+      const existing = yield* orchestrator.getThreadShell(threadId);
+      const instructions = config.inboxAgentPrompt.trim()
+        ? config.inboxAgentPrompt
+        : DEFAULT_SERVER_SETTINGS.inboxAgentPrompt;
+      const suggestion = inboxSuggestedPrompt(notification, config);
+      const prompt = suggestion
+        ? `${instructions}\n\nSuggested resolution:\n${suggestion}`
+        : instructions;
+      const linkIssue = Effect.gen(function* () {
+        if (
+          notification.source !== "linear" ||
+          existing?.linkedLinearIssue ||
+          !config.linearWorkspace ||
+          (existing &&
+            (["queued", "preparing", "starting", "running", "waiting"].includes(existing.status) ||
+              existing.pendingRuntimeRequest !== null))
+        )
+          return;
+        const target = notification.items.findLast(
+          (item) => item.replyTarget?.source === "linear",
+        )?.replyTarget;
+        const issueId =
+          notification.linearIssue?.id ??
+          notification.items.findLast((item) => item.linearIssue)?.linearIssue?.id ??
+          (target?.source === "linear" ? target.issueId : undefined);
+        if (!issueId) return;
+        const result = yield* linear.request(notification.projectId, {
+          operation: "issue",
+          workspace: config.linearWorkspace,
+          connectionKey: notification.projectId,
+          issueId,
+        });
+        const issue = result.issues?.find((issue) => issue.id === issueId);
+        if (!issue)
+          return yield* new InboxError({
+            detail: "The notification's Linear issue is unavailable.",
+          });
+        // A user can select an issue while the source lookup is in flight.
+        if ((yield* orchestrator.getThreadShell(threadId))?.linkedLinearIssue) return;
+        yield* orchestrator.dispatch({
+          type: "thread.metadata.update",
+          threadId,
+          commandId: CommandId.make(`inbox:${notification.id}:linear:${issue.id}`),
+          linkedLinearIssue: issue,
+        });
+      });
+      if (existing) yield* linkIssue;
+      // Replaying delivery must not create another turn. Preparation retries
+      // reuse the durable run and workspace that the launch service owns.
+      if (existing?.latestRunId) {
+        if (!startAgent) return;
+        const records = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
+        const run = records.runs.find((candidate) => candidate.id === existing.latestRunId);
+        if (run?.status === "failed" && notification.agentAttempt > 0) {
+          const failedPreparation =
+            run.workspacePreparation &&
+            (yield* orchestrator.getThreadProjection(threadId)).turnItems.some(
+              (item) =>
+                item.runId === run.id &&
+                item.type === "error" &&
+                item.status === "failed" &&
+                item.failure.code === ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
+            );
+          if (failedPreparation)
+            yield* launches.retryPreparation({
+              commandId: CommandId.make(
+                `inbox:${notification.id}:retry:${notification.agentAttempt}`,
+              ),
+              threadId,
+              runId: run.id,
+            });
+          else
+            yield* orchestrator.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(
+                `inbox:${notification.id}:start:${notification.agentAttempt}`,
+              ),
+              threadId,
+              messageId: MessageId.make(
+                `inbox:${notification.id}:message:${notification.agentAttempt}`,
+              ),
+              text: prompt,
+              attachments: [],
+              modelSelection,
+              createdBy: "user",
+              creationSource: "web",
+              dispatchMode: { type: "start_immediately" },
+            });
+        }
+        return;
+      }
+      const siblings = yield* orchestrator.listProjectThreads({
+        projectId: project.id,
+        includeSubagents: true,
+      });
+      const mode = resolveNewThreadEnvMode({
+        projectSettings: resolved,
+        workspaceRoot: project.workspaceRoot,
+        newProjectsRoot: folders.namedProjectsRoot,
+        projectHasThreads: siblings.some((thread) => thread.id !== threadId),
+      });
+      let workspaceStrategy: ThreadLaunch.ThreadLaunchWorkspaceStrategy = existing?.worktreePath
+        ? {
+            type: "existing_worktree",
+            worktreePath: existing.worktreePath,
+            ...(existing.branch ? { branch: existing.branch } : {}),
+          }
+        : { type: "root" };
+      if (!existing?.worktreePath && mode === "worktree") {
+        const status = yield* git.localStatus({ cwd: project.workspaceRoot });
+        if (status.isRepo)
+          workspaceStrategy = {
+            type: "worktree",
+            baseRef: status.refName ?? "HEAD",
+            startFromOrigin: status.refName !== null && config.newWorktreesStartFromOrigin,
+          };
+      }
+      if (!existing)
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`inbox:${notification.id}:create:${notification.revision}`),
+          threadId,
+          projectId: notification.projectId,
+          title: notification.items.at(-1)?.title || "Notification",
+          modelSelection,
+          runtimeMode: config.defaultRuntimeMode,
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+      if (!existing) yield* linkIssue;
+      yield* launches.launch({
+        commandId: CommandId.make(
+          `inbox:${notification.id}:launch:${startAgent ? "run" : "chat"}:${notification.agentAttempt}`,
+        ),
+        threadId,
+        reuseExistingThread: true,
+        projectId: project.id,
+        title: notification.items.at(-1)?.title || "Notification",
+        modelSelection,
+        runtimeMode: config.defaultRuntimeMode,
+        interactionMode: "default",
+        workspaceStrategy,
+        createdBy: "user",
+        creationSource: "web",
+        ...(startAgent
+          ? {
+              initialMessage: {
                 messageId: MessageId.make(
                   `inbox:${notification.id}:message:${notification.agentAttempt}`,
                 ),
                 text: prompt,
                 attachments: [],
-                modelSelection,
-                createdBy: "user",
-                creationSource: "web",
-                dispatchMode: { type: "start_immediately" },
-              });
-          }
-          return;
-        }
-        const siblings = yield* orchestrator.listProjectThreads({
-          projectId: project.id,
-          includeSubagents: true,
-        });
-        const mode = resolveNewThreadEnvMode({
-          projectSettings: resolved,
-          workspaceRoot: project.workspaceRoot,
-          newProjectsRoot: folders.namedProjectsRoot,
-          projectHasThreads: siblings.some((thread) => thread.id !== threadId),
-        });
-        let workspaceStrategy: ThreadLaunch.ThreadLaunchWorkspaceStrategy = existing?.worktreePath
-          ? {
-              type: "existing_worktree",
-              worktreePath: existing.worktreePath,
-              ...(existing.branch ? { branch: existing.branch } : {}),
+              },
             }
-          : { type: "root" };
-        if (!existing?.worktreePath && mode === "worktree") {
-          const status = yield* git.localStatus({ cwd: project.workspaceRoot });
-          if (status.isRepo)
-            workspaceStrategy = {
-              type: "worktree",
-              baseRef: status.refName ?? "HEAD",
-              startFromOrigin: status.refName !== null && config.newWorktreesStartFromOrigin,
-            };
-        }
-        if (!existing)
-          yield* orchestrator.dispatch({
-            type: "thread.create",
-            commandId: CommandId.make(`inbox:${notification.id}:create:${notification.revision}`),
-            threadId,
-            projectId: notification.projectId,
-            title: notification.items.at(-1)?.title || "Notification",
-            modelSelection,
-            runtimeMode: config.defaultRuntimeMode,
-            interactionMode: "default",
-            branch: null,
-            worktreePath: null,
-            createdBy: "user",
-            creationSource: "web",
-          });
-        if (!existing) yield* linkIssue;
-        yield* launches.launch({
-          commandId: CommandId.make(
-            `inbox:${notification.id}:launch:${startAgent ? "run" : "chat"}:${notification.agentAttempt}`,
-          ),
+          : {}),
+      });
+    }, Effect.mapError(wrap)),
+    stop: Effect.fn("InboxAgent.stop")(function* (threadId, commandId) {
+      const records = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
+      for (const run of records.runs.filter((run) =>
+        ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+      ))
+        yield* orchestrator.dispatch({
+          type: "run.interrupt",
           threadId,
-          reuseExistingThread: true,
-          projectId: project.id,
-          title: notification.items.at(-1)?.title || "Notification",
-          modelSelection,
-          runtimeMode: config.defaultRuntimeMode,
-          interactionMode: "default",
-          workspaceStrategy,
-          createdBy: "user",
-          creationSource: "web",
-          ...(startAgent
-            ? {
-                initialMessage: {
-                  messageId: MessageId.make(
-                    `inbox:${notification.id}:message:${notification.agentAttempt}`,
-                  ),
-                  text: prompt,
-                  attachments: [],
-                },
-              }
-            : {}),
+          commandId: CommandId.make(`${commandId}:${run.id}`),
+          runId: run.id,
+          reason: "Notification delegation undone",
+          holdQueue: true,
         });
-      }).pipe(Effect.mapError(wrap)),
-    stop: (threadId, commandId) =>
-      Effect.gen(function* () {
-        const records = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
-        for (const run of records.runs.filter((run) =>
-          ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
-        ))
-          yield* orchestrator.dispatch({
-            type: "run.interrupt",
-            threadId,
-            commandId: CommandId.make(`${commandId}:${run.id}`),
-            runId: run.id,
-            reason: "Notification delegation undone",
-            holdQueue: true,
-          });
-      }).pipe(Effect.mapError(wrap)),
-    status: (threadId) =>
+    }, Effect.mapError(wrap)),
+    status: Effect.fn("InboxAgent.status")((threadId) =>
       orchestrator.getThreadShell(threadId).pipe(
         Effect.map((shell) => ({
           exists: shell !== null,
@@ -267,6 +263,7 @@ const make = Effect.gen(function* () {
         })),
         Effect.mapError(wrap),
       ),
+    ),
   });
 });
 export const layer = Layer.effect(InboxAgent, make);

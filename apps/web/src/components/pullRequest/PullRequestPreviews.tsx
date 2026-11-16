@@ -1,6 +1,5 @@
 import type { EnvironmentId, PullRequestComment, ScopedThreadRef } from "@t3tools/contracts";
 import { ExternalLinkIcon } from "lucide-react";
-import { useMemo } from "react";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -37,7 +36,7 @@ export function PullRequestPreviews({
   onRetry: () => void;
   onOpenStandalone: (url: string) => void;
 }) {
-  const previews = useMemo(() => pullRequestPreviews(comments), [comments]);
+  const previews = pullRequestPreviews(comments);
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
 
   const open = async (url: string) => {
@@ -52,18 +51,19 @@ export function PullRequestPreviews({
       onOpenStandalone(url);
       return;
     }
-    try {
-      const result = await openUrlInPreview({ threadRef, url, openPreview });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        throw squashAtomCommandFailure(result);
-      }
-    } catch (cause) {
-      toastManager.add({
-        type: "error",
-        title: "Unable to open preview",
-        description: cause instanceof Error ? cause.message : String(cause),
-      });
-    }
+    const failure = await openUrlInPreview({ threadRef, url, openPreview }).then(
+      (result) =>
+        result._tag === "Failure" && !isAtomCommandInterrupted(result)
+          ? { cause: squashAtomCommandFailure(result) }
+          : null,
+      (cause: unknown) => ({ cause }),
+    );
+    if (!failure) return;
+    toastManager.add({
+      type: "error",
+      title: "Unable to open preview",
+      description: failure.cause instanceof Error ? failure.cause.message : String(failure.cause),
+    });
   };
 
   const copy = async (url: string) => {

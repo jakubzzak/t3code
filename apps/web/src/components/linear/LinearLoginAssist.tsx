@@ -2,7 +2,7 @@ import { requestLinear } from "./requestLinear";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useThreadShell } from "~/state/entities";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { createLinearLoginAssist } from "~/browser/linearLogin";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
@@ -21,23 +21,21 @@ export function LinearLoginAssist(props: {
   const environmentId = props.threadRef.environmentId;
   const settings = useEnvironmentSettings(environmentId);
   const workspace = resolveProjectSettings(settings, projectId ?? null).settings.linearWorkspace;
-  const connection = useMemo(
-    () =>
-      workspace && projectId
-        ? {
-            workspace,
-            connectionKey: JSON.stringify([environmentId, projectId]),
-          }
-        : undefined,
-    [workspace, environmentId, projectId],
-  );
+  const connection =
+    workspace && projectId
+      ? {
+          workspace,
+          connectionKey: JSON.stringify([environmentId, projectId]),
+        }
+      : undefined;
   if (!projectId) return null;
+  // Keyed on the tab so the login steps start fresh for each guest.
   return hasCloudPublicConfig() ? (
     <Suspense fallback={null}>
-      <AccountEmail {...props} connection={connection} />
+      <AccountEmail key={props.runtimeTabId} {...props} connection={connection} />
     </Suspense>
   ) : (
-    <LinearLoginSteps {...props} connection={connection} email="" />
+    <LinearLoginSteps key={props.runtimeTabId} {...props} connection={connection} email="" />
   );
 }
 
@@ -56,10 +54,11 @@ export function LinearLoginSteps({
   email,
   connection,
 }: LinearLoginStepsProps) {
-  const assist = useMemo(
-    () => (previewBridge ? createLinearLoginAssist(previewBridge.automation, runtimeTabId) : null),
-    [runtimeTabId],
+  // The assist remembers which login steps it already tried; callers key this on runtimeTabId.
+  const [assist] = useState(() =>
+    previewBridge ? createLinearLoginAssist(previewBridge.automation, runtimeTabId) : null,
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drives the Linear login page in the guest browser as its URL changes
   useEffect(() => {
     if (!url || loading || !assist) return;
     let current = true;

@@ -123,10 +123,10 @@ export function createAutomationFailureNotices<Key, Handle>(close: (handle: Hand
     },
     /** Closes notices for threads that left the snapshot. */
     retain(keys: ReadonlySet<Key>): void {
-      for (const key of [...open.keys()]) if (!keys.has(key)) closeOpen(key);
+      for (const key of Array.from(open.keys())) if (!keys.has(key)) closeOpen(key);
     },
     clear(): void {
-      for (const key of [...open.keys()]) closeOpen(key);
+      for (const key of Array.from(open.keys())) closeOpen(key);
     },
   };
 }

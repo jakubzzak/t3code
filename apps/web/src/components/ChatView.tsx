@@ -467,7 +467,6 @@ export default function ChatView(props: ChatViewProps) {
   const createThread = useOrchestrationCommand(threadEnvironment.create, { reportFailure: false });
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
-  const navigatePreview = useAtomCommand(previewEnvironment.navigate, { reportFailure: false });
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1152,7 +1151,12 @@ export default function ChatView(props: ChatViewProps) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides or restores Linear tabs when the project toggles the embedded Linear view
   useEffect(() => {
     if (activeThreadRef) followPreviewSessions(activeThreadRef, activePreviewState);
-  }, [activeThreadRef, activePreviewState, linearViewEnabled]);
+  }, [
+    activeThreadRef,
+    activePreviewState,
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- followPreviewSessions reads the Linear view setting itself, so a toggle re-runs it to hide or restore Linear tabs.
+    linearViewEnabled,
+  ]);
   const activeProjectScripts = activeProject ? resolveProjectScripts(settings, activeProject) : [];
   const { projectCloneBannerItem, projectCloneSendBlockReason } =
     useProjectCloneBanner(activeProjectRef);
@@ -2278,48 +2282,51 @@ export default function ChatView(props: ChatViewProps) {
       throw new Error("Choose a project before linking an issue.");
     if (sendInFlightRef.current)
       throw new Error("Wait for the current action to finish before switching issues.");
-    sendInFlightRef.current = true;
-    setLinearSetupPending(true);
-    try {
+    const thread = activeThread;
+    const project = activeProject;
+    const setup = async () => {
       if (routeKind === "draft" && !isServerThread) {
         const created = await createThread({
-          environmentId: activeThread.environmentId,
+          environmentId: thread.environmentId,
           input: {
-            threadId: activeThread.id,
-            projectId: activeProject.id,
-            title: activeThread.title,
-            modelSelection: activeThread.modelSelection,
+            threadId: thread.id,
+            projectId: project.id,
+            title: thread.title,
+            modelSelection: thread.modelSelection,
             runtimeMode,
-            interactionMode: activeThread.interactionMode,
-            branch: activeThread.branch,
-            worktreePath: activeThread.worktreePath,
-            createdAt: activeThread.createdAt,
+            interactionMode: thread.interactionMode,
+            branch: thread.branch,
+            worktreePath: thread.worktreePath,
+            createdAt: thread.createdAt,
           },
         });
         if (created._tag === "Failure") throw squashAtomCommandFailure(created);
       }
       const result = await selectLinearIssue({
-        environmentId: activeThread.environmentId,
+        environmentId: thread.environmentId,
         input: {
           commandId: CommandId.make(randomUUID()),
-          threadId: activeThread.id,
+          threadId: thread.id,
           issue,
           baseRef: "main",
-          expectedWorktreePath: activeThread.worktreePath,
-          expectedIssueId: activeThread?.linkedLinearIssue?.id ?? null,
+          expectedWorktreePath: thread.worktreePath,
+          expectedIssueId: thread.linkedLinearIssue?.id ?? null,
           takeoverThreadIds,
         },
       });
       if (result._tag === "Failure") throw squashAtomCommandFailure(result);
       if (result.value.status === "linked") {
-        const ref = scopeThreadRef(activeThread.environmentId, activeThread.id);
+        const ref = scopeThreadRef(thread.environmentId, thread.id);
         if (draftId) await promoteLinearDraftThread(router, ref);
       }
       return result.value;
-    } finally {
+    };
+    sendInFlightRef.current = true;
+    setLinearSetupPending(true);
+    return await setup().finally(() => {
       sendInFlightRef.current = false;
       setLinearSetupPending(false);
-    }
+    });
   };
 
   const startFromOrigin = isLocalDraftThread
@@ -2535,7 +2542,6 @@ export default function ChatView(props: ChatViewProps) {
         .linearWorkspace,
       branch: activeThread?.branch,
       openPreview,
-      navigatePreview,
       closePreview,
     }).catch((error: unknown) =>
       toastManager.add({
@@ -3487,7 +3493,6 @@ export default function ChatView(props: ChatViewProps) {
             workspace: activeProjectSettings.settings.linearWorkspace,
             branch: activeThread.branch,
             openPreview,
-            navigatePreview,
             closePreview,
           });
           return previewRuntimeTabId(ref, readThreadPreviewState(ref).serverEpoch, tabId);
@@ -3507,7 +3512,6 @@ export default function ChatView(props: ChatViewProps) {
             branch: issue.branchName,
             url: issue.url,
             openPreview,
-            navigatePreview,
             closePreview,
           });
         }}

@@ -316,11 +316,17 @@ const make = Effect.gen(function* () {
 
   return OnePassword.of({
     prepare,
-    enable: (session, owner) => perform(session, () => enable(session, owner)),
-    disable: (session) => perform(session, () => disable(session)),
+    enable: Effect.fn("OnePassword.enable")((session, owner) =>
+      perform(session, () => enable(session, owner)),
+    ),
+    disable: Effect.fn("OnePassword.disable")((session) =>
+      perform(session, () => disable(session)),
+    ),
     track,
     isEnabled: (session) => profileFor(session).enabled,
-    open: (contents) => perform(contents.session, () => open(contents)),
+    open: Effect.fn("OnePassword.open")((contents) =>
+      perform(contents.session, () => open(contents)),
+    ),
     menuItems: (contents, owner) => {
       if (environment.platform !== "darwin") return [];
       const session = contents.session;

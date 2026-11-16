@@ -11,7 +11,7 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "~/state/server";
 import { inboxEnvironment } from "~/state/inbox";
 const decodeKey = Schema.decodeUnknownSync(Schema.Tuple([EnvironmentId, ProjectId]));
-export function linearProjectKey(key: string) {
+function linearProjectKey(key: string) {
   const [environmentId, projectId] = decodeKey(JSON.parse(key));
   return { environmentId, projectId };
 }

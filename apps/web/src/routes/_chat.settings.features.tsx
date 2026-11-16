@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AGENTIC_SEARCH_LABELS, DEFAULT_AGENTIC_SEARCH_PROMPTS } from "~/agenticSearch";
 import { Textarea } from "~/components/ui/textarea";
 import { useServerConfigs } from "~/state/entities";
@@ -7,7 +7,7 @@ import {
   InboxVisibilitySettings,
 } from "~/components/inbox/InboxFeatureSettings";
 import { createFileRoute } from "@tanstack/react-router";
-import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
+import { updateClientSettings, useClientSettings } from "~/hooks/useSettings";
 import { isElectron } from "~/env";
 import { useDesktopAwakeState } from "~/lib/desktopAwake";
 import { searchableSetting } from "~/components/settings/settingsSearch";
@@ -30,7 +30,6 @@ export const Route = createFileRoute("/_chat/settings/features")({ component: Fe
 
 function FeaturesSettings() {
   const clientSettings = useClientSettings();
-  const updateClient = useUpdateClientSettings();
   const configs = useServerConfigs();
   const { scope } = useSettingsScope();
   const settings = useScopedSettings((settings) => settings);
@@ -60,7 +59,7 @@ function FeaturesSettings() {
               aria-label="Agentic search"
               checked={clientSettings.agenticSearchEnabled}
               onCheckedChange={(agenticSearchEnabled) => {
-                void updateClient({ agenticSearchEnabled }).catch(() =>
+                void updateClientSettings({ agenticSearchEnabled }).catch(() =>
                   toastManager.add({ type: "error", title: "Could not save search preference" }),
                 );
               }}
@@ -70,19 +69,26 @@ function FeaturesSettings() {
         {clientSettings.agenticSearchEnabled ? (
           <>
             <SearchPromptSetting
+              key={clientSettings.agenticSearchChatsPrompt || DEFAULT_AGENTIC_SEARCH_PROMPTS.chats}
               label={AGENTIC_SEARCH_LABELS.chats}
               description="Find answers across projects and archived chats on the hosting environment, with source links."
               value={clientSettings.agenticSearchChatsPrompt}
               defaultPrompt={DEFAULT_AGENTIC_SEARCH_PROMPTS.chats}
-              save={(agenticSearchChatsPrompt) => updateClient({ agenticSearchChatsPrompt })}
+              save={(agenticSearchChatsPrompt) =>
+                updateClientSettings({ agenticSearchChatsPrompt })
+              }
             />
             <SearchPromptSetting
+              key={
+                clientSettings.agenticSearchEverywherePrompt ||
+                DEFAULT_AGENTIC_SEARCH_PROMPTS.everywhere
+              }
               label={AGENTIC_SEARCH_LABELS.everywhere}
               description="Search chats and connected tools in parallel for a concise answer with sources."
               value={clientSettings.agenticSearchEverywherePrompt}
               defaultPrompt={DEFAULT_AGENTIC_SEARCH_PROMPTS.everywhere}
               save={(agenticSearchEverywherePrompt) =>
-                updateClient({ agenticSearchEverywherePrompt })
+                updateClientSettings({ agenticSearchEverywherePrompt })
               }
             />
           </>
@@ -100,7 +106,7 @@ function FeaturesSettings() {
               checked={clientSettings.awakeEnabled}
               disabled={!awakeSupported && !clientSettings.awakeEnabled}
               onCheckedChange={(awakeEnabled) => {
-                void updateClient({ awakeEnabled }).catch(() =>
+                void updateClientSettings({ awakeEnabled }).catch(() =>
                   toastManager.add({ type: "error", title: "Could not save feature preference" }),
                 );
               }}
@@ -172,8 +178,8 @@ function SearchPromptSetting({
   defaultPrompt: string;
   save: (value: string) => Promise<unknown>;
 }) {
+  // Keyed on the saved prompt by the caller, so a saved or remote change resets the draft.
   const [draft, setDraft] = useState(value || defaultPrompt);
-  useEffect(() => setDraft(value || defaultPrompt), [value, defaultPrompt]);
   return (
     <SettingsRow
       title={label}

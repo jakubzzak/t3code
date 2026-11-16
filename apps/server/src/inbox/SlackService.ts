@@ -197,118 +197,115 @@ const make = Effect.gen(function* () {
       }
       return (yield* call(yield* tokenFor(decoded.projectId), decoded.method, parameters)).data;
     }),
-    send: (input, check = Effect.void) =>
-      Effect.gen(function* () {
-        const decoded = yield* decodeInput(input).pipe(
-          Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
-        );
-        const destination =
-          decoded.destination.channelId !== undefined
-            ? { channelId: decoded.destination.channelId }
-            : { userIds: [...new Set(decoded.destination.userIds)].sort() };
-        const json = yield* encodeInput({ ...decoded, destination }).pipe(
-          Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
-        );
-        yield* check;
-        // Claim before touching Slack. A crash, cancellation or lost response leaves a receipt
-        // that subsequent calls inspect instead of sending a second message.
-        const pending: SlackSendResult = { commandId: decoded.commandId, status: "pending" };
-        const pendingJson = yield* encodeReceipt(pending).pipe(
-          Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
-        );
-        const claimed =
-          yield* sql`INSERT INTO slack_send_attempts(command_id,project_id,input_json,result_json)
+    send: Effect.fn("SlackService.send")(function* (input, check = Effect.void) {
+      const decoded = yield* decodeInput(input).pipe(
+        Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
+      );
+      const destination =
+        decoded.destination.channelId !== undefined
+          ? { channelId: decoded.destination.channelId }
+          : { userIds: [...new Set(decoded.destination.userIds)].sort() };
+      const json = yield* encodeInput({ ...decoded, destination }).pipe(
+        Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
+      );
+      yield* check;
+      // Claim before touching Slack. A crash, cancellation or lost response leaves a receipt
+      // that subsequent calls inspect instead of sending a second message.
+      const pending: SlackSendResult = { commandId: decoded.commandId, status: "pending" };
+      const pendingJson = yield* encodeReceipt(pending).pipe(
+        Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+      );
+      const claimed =
+        yield* sql`INSERT INTO slack_send_attempts(command_id,project_id,input_json,result_json)
         VALUES(${decoded.commandId},${decoded.projectId},${json},${pendingJson})
         ON CONFLICT(command_id) DO NOTHING RETURNING command_id`.pipe(
-            Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
-          );
-        if (!claimed.length) {
-          const rows = yield* sql<{
-            input_json: string;
-            result_json: string;
-          }>`SELECT input_json,result_json FROM slack_send_attempts WHERE command_id=${decoded.commandId}`.pipe(
-            Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
-          );
-          if (rows[0]?.input_json !== json) return yield* new SlackError({ reason: "conflict" });
-          return yield* decodeReceipt(rows[0].result_json).pipe(
-            Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
-          );
-        }
-        const outcome = yield* Effect.gen(function* () {
-          const token = yield* tokenFor(decoded.projectId);
-          const account = yield* call(token, "auth.test", {});
-          const identity = yield* decodeIdentity(account.data).pipe(
-            Effect.mapError((cause) => new SlackError({ reason: "permission", cause })),
-          );
-          if (
-            `${identity.team_id}:${identity.user_id}` !== decoded.connectionId ||
-            !account.scopes.includes("chat:write")
-          )
-            return yield* new SlackError({ reason: "permission" });
-          yield* check;
-          let channelId: string;
-          if ("channelId" in destination) channelId = destination.channelId;
-          else {
-            if (
-              !account.scopes.includes(destination.userIds.length > 1 ? "mpim:write" : "im:write")
-            )
-              return yield* new SlackError({ reason: "permission" });
-            const opened = yield* call(
-              token,
-              "conversations.open",
-              { users: destination.userIds.join(","), return_im: true },
-              true,
-            );
-            channelId = (yield* decodeOpened(opened.data).pipe(
-              Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
-            )).channel.id;
-          }
-          yield* check;
-          const posted = yield* call(
-            token,
-            "chat.postMessage",
-            {
-              channel: channelId,
-              text: decoded.text,
-              ...(decoded.threadTs ? { thread_ts: decoded.threadTs } : {}),
-              ...(decoded.blocks ? { blocks: decoded.blocks } : {}),
-              reply_broadcast: false,
-              unfurl_links: false,
-              unfurl_media: false,
-            },
-            true,
-            true,
-          );
-          const message = yield* decodePosted(posted.data).pipe(
-            Effect.mapError(() => new SlackError({ reason: "uncertain" })),
-          );
-          return {
-            commandId: decoded.commandId,
-            status: "sent" as const,
-            channelId: message.channel,
-            ts: message.ts,
-          };
-        }).pipe(Effect.result);
-        let result: SlackSendResult;
-        if (outcome._tag === "Success") result = outcome.success;
+          Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+        );
+      if (!claimed.length) {
+        const rows = yield* sql<{
+          input_json: string;
+          result_json: string;
+        }>`SELECT input_json,result_json FROM slack_send_attempts WHERE command_id=${decoded.commandId}`.pipe(
+          Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+        );
+        if (rows[0]?.input_json !== json) return yield* new SlackError({ reason: "conflict" });
+        return yield* decodeReceipt(rows[0].result_json).pipe(
+          Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+        );
+      }
+      const outcome = yield* Effect.gen(function* () {
+        const token = yield* tokenFor(decoded.projectId);
+        const account = yield* call(token, "auth.test", {});
+        const identity = yield* decodeIdentity(account.data).pipe(
+          Effect.mapError((cause) => new SlackError({ reason: "permission", cause })),
+        );
+        if (
+          `${identity.team_id}:${identity.user_id}` !== decoded.connectionId ||
+          !account.scopes.includes("chat:write")
+        )
+          return yield* new SlackError({ reason: "permission" });
+        yield* check;
+        let channelId: string;
+        if ("channelId" in destination) channelId = destination.channelId;
         else {
-          if (!isSlackError(outcome.failure)) return yield* Effect.fail(outcome.failure);
-          const error = outcome.failure;
-          result = {
-            commandId: decoded.commandId,
-            status: error.reason === "uncertain" ? "uncertain" : "failed",
-            error: error.message,
-            ...(error.retryAfter ? { retryAfter: error.retryAfter } : {}),
-          };
+          if (!account.scopes.includes(destination.userIds.length > 1 ? "mpim:write" : "im:write"))
+            return yield* new SlackError({ reason: "permission" });
+          const opened = yield* call(
+            token,
+            "conversations.open",
+            { users: destination.userIds.join(","), return_im: true },
+            true,
+          );
+          channelId = (yield* decodeOpened(opened.data).pipe(
+            Effect.mapError((cause) => new SlackError({ reason: "rejected", cause })),
+          )).channel.id;
         }
-        const resultJson = yield* encodeReceipt(result).pipe(
-          Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+        yield* check;
+        const posted = yield* call(
+          token,
+          "chat.postMessage",
+          {
+            channel: channelId,
+            text: decoded.text,
+            ...(decoded.threadTs ? { thread_ts: decoded.threadTs } : {}),
+            ...(decoded.blocks ? { blocks: decoded.blocks } : {}),
+            reply_broadcast: false,
+            unfurl_links: false,
+            unfurl_media: false,
+          },
+          true,
+          true,
         );
-        yield* sql`UPDATE slack_send_attempts SET result_json=${resultJson} WHERE command_id=${decoded.commandId}`.pipe(
-          Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+        const message = yield* decodePosted(posted.data).pipe(
+          Effect.mapError(() => new SlackError({ reason: "uncertain" })),
         );
-        return result;
-      }),
+        return {
+          commandId: decoded.commandId,
+          status: "sent" as const,
+          channelId: message.channel,
+          ts: message.ts,
+        };
+      }).pipe(Effect.result);
+      let result: SlackSendResult;
+      if (outcome._tag === "Success") result = outcome.success;
+      else {
+        if (!isSlackError(outcome.failure)) return yield* Effect.fail(outcome.failure);
+        const error = outcome.failure;
+        result = {
+          commandId: decoded.commandId,
+          status: error.reason === "uncertain" ? "uncertain" : "failed",
+          error: error.message,
+          ...(error.retryAfter ? { retryAfter: error.retryAfter } : {}),
+        };
+      }
+      const resultJson = yield* encodeReceipt(result).pipe(
+        Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+      );
+      yield* sql`UPDATE slack_send_attempts SET result_json=${resultJson} WHERE command_id=${decoded.commandId}`.pipe(
+        Effect.mapError((cause) => new SlackError({ reason: "storage", cause })),
+      );
+      return result;
+    }),
   });
 });
 

@@ -158,11 +158,12 @@ export const make = Effect.gen(function* () {
       ),
     ),
     remove: admin(removeAwakeCommand),
-    apply: (token, lowPower) =>
+    apply: Effect.fn("AwakeSystem.apply")((token, lowPower) =>
       recoveryRunning.pipe(
         Effect.andThen(helper(["apply", token, String(process.pid), lowPower ? "1" : "0"])),
       ),
-    release: (token) => helper(["release", token]),
+    ),
+    release: Effect.fn("AwakeSystem.release")((token) => helper(["release", token])),
     battery: checked("/usr/bin/pmset", ["-g", "batt"]).pipe(Effect.map(parseBattery)),
     thermal: monitor.getCurrentThermalState,
     lid: checked("/usr/sbin/ioreg", ["-r", "-k", "AppleClamshellState", "-d", "1"]).pipe(
@@ -170,7 +171,7 @@ export const make = Effect.gen(function* () {
     ),
     sleepDisplay: checked("/usr/bin/pmset", ["displaysleepnow"]).pipe(Effect.asVoid),
     wakeDisplay: checked("/usr/bin/caffeinate", ["-u", "-t", "1"]).pipe(Effect.asVoid),
-    holdApp: (enabled) =>
+    holdApp: Effect.fn("AwakeSystem.holdApp")((enabled) =>
       Effect.try({
         try: () => {
           if (enabled && blocker === null)
@@ -182,6 +183,7 @@ export const make = Effect.gen(function* () {
         },
         catch: () => new AwakeError({ message: "Could not update the app sleep assertion." }),
       }),
+    ),
   });
 });
 

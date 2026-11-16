@@ -586,7 +586,22 @@ it.effect(
     );
     return Effect.gen(function* () {
       const tasks = yield* ScheduledTasks.ScheduledTaskService;
+      const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.make("thread:missing");
+      // Binding needs an active chat; it goes missing before the run.
+      yield* sql`INSERT INTO orchestration_v2_projection_threads ${sql.insert({
+        thread_id: threadId,
+        project_id: projectId,
+        title: "Bound chat",
+        default_provider: "codex",
+        provider_instance_id: "codex",
+        runtime_mode: "full-access",
+        interaction_mode: "default",
+        created_at: "2026-10-01T00:00:00Z",
+        updated_at: "2026-10-01T00:00:00Z",
+        archived_at: null,
+        payload_json: "{}",
+      })}`;
       const { task } = yield* tasks.upsert({
         title: "Daily audit",
         prompt: "Audit performance and crashes.",
@@ -601,6 +616,7 @@ it.effect(
         createdBy: "user",
         creationSource: "web",
       });
+      yield* sql`DELETE FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}`;
       const result = yield* tasks.runNow({ id: task.id });
       assert.equal(result.task.lastRunStatus, "failed");
       assert.isNull(result.threadId);
@@ -2897,8 +2913,9 @@ it.effect("queues one project move without changing the source before preparatio
       projectId: otherProjectId,
     } as const;
     const sql = yield* SqlClient.SqlClient;
+    // The move checks that the stored destination root exists on disk.
     yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
-      VALUES (${otherProjectId}, 'Other', '/other-repo', '[]', '2026-10-31', '2026-10-31')`;
+      VALUES (${otherProjectId}, 'Other', '/tmp', '[]', '2026-10-31', '2026-10-31')`;
     yield* threads.dispatch(command);
     yield* threads.dispatch(command);
     const projection = yield* threads.getThreadProjection(launched.threadId);
@@ -2927,7 +2944,7 @@ const createMoveSource = Effect.gen(function* () {
 const seedMoveDestination = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
-    VALUES (${otherProjectId}, 'Other', '/other-repo', '[]', '2026-10-31', '2026-10-31')`;
+    VALUES (${otherProjectId}, 'Other', '/tmp', '[]', '2026-10-31', '2026-10-31')`;
 });
 
 it.effect.each(["local", "worktree"] as const)(

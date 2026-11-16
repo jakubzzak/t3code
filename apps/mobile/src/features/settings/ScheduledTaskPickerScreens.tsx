@@ -1,12 +1,13 @@
 import { scheduledTaskChats } from "@t3tools/client-runtime/scheduled-task-chats";
 import { LegendList } from "@legendapp/list/react-native";
-import { TextInput, View } from "react-native";
+import { Platform, TextInput, View } from "react-native";
 import { ListRow } from "../../components/ui/ListRow";
 import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
 
 import { AppText as Text } from "../../components/ui/AppText";
+import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useEnvironmentServerConfig, useProjects, useThreadShells } from "../../state/entities";
@@ -200,6 +201,7 @@ export function ScheduledTaskChatPickerRouteScreen() {
         data={chats}
         keyExtractor={(chat) => chat.id}
         keyboardShouldPersistTaps="handled"
+        renderScrollComponent={Platform.OS === "ios" ? NativeScrollView : undefined}
         ListEmptyComponent={
           <Text className="p-5 text-base text-foreground-muted">
             No matching chats in this project.

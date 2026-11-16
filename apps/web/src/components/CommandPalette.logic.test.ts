@@ -14,6 +14,7 @@ import {
   resolveAddProjectEntry,
   createCommandPaletteSearchState,
   reduceCommandPaletteSearchState,
+  type CommandPaletteActionItem,
   type CommandPaletteUiState,
 } from "./CommandPalette.logic";
 

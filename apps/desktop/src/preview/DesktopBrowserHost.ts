@@ -468,46 +468,47 @@ export const make = Effect.gen(function* () {
     emit({ type: "attached", ...key });
   };
 
-  const handleCommandLine = (line: string) =>
-    Effect.gen(function* () {
-      const command = decodeCommand(line);
-      if (Option.isNone(command)) return;
-      if (command.value.type === "turn") {
-        if (command.value.active) agentTurns.add(command.value.threadId);
-        else endAgentTurn(command.value.threadId);
-        return;
-      }
-      const tab = tabs.get(keyOf(command.value));
-      if (command.value.type === "activity") {
-        const ok = tab
-          ? yield* tab.debuggee.setAutomationActive(command.value.active).pipe(
-              Effect.as(true),
-              Effect.orElseSucceed(() => false),
-            )
-          : false;
-        yield* PubSub.publish(outbox, {
-          type: "activity",
-          threadId: command.value.threadId,
-          tabId: command.value.tabId,
-          requestId: command.value.requestId,
-          ok,
-        });
-        return;
-      }
-      if (!tab) return;
-      if (command.value.type === "pointer") {
-        const { threadId, tabId, phase, x, y } = command.value;
-        runFork(PubSub.publish(pointers, { key: { threadId, tabId }, phase, x, y }));
-        return;
-      }
-      if (command.value.type === "release") {
-        dropRelay(tab);
-        yield* tab.debuggee.setAutomationActive(false).pipe(Effect.ignore);
-        return;
-      }
-      if (AGENT_INPUT_COMMAND.test(command.value.message)) tab.agentInputAt = performance.now();
-      relayFor(tab).receive(command.value.message);
-    });
+  const handleCommandLine = Effect.fn("DesktopBrowserHost.handleCommandLine")(function* (
+    line: string,
+  ) {
+    const command = decodeCommand(line);
+    if (Option.isNone(command)) return;
+    if (command.value.type === "turn") {
+      if (command.value.active) agentTurns.add(command.value.threadId);
+      else endAgentTurn(command.value.threadId);
+      return;
+    }
+    const tab = tabs.get(keyOf(command.value));
+    if (command.value.type === "activity") {
+      const ok = tab
+        ? yield* tab.debuggee.setAutomationActive(command.value.active).pipe(
+            Effect.as(true),
+            Effect.orElseSucceed(() => false),
+          )
+        : false;
+      yield* PubSub.publish(outbox, {
+        type: "activity",
+        threadId: command.value.threadId,
+        tabId: command.value.tabId,
+        requestId: command.value.requestId,
+        ok,
+      });
+      return;
+    }
+    if (!tab) return;
+    if (command.value.type === "pointer") {
+      const { threadId, tabId, phase, x, y } = command.value;
+      runFork(PubSub.publish(pointers, { key: { threadId, tabId }, phase, x, y }));
+      return;
+    }
+    if (command.value.type === "release") {
+      dropRelay(tab);
+      yield* tab.debuggee.setAutomationActive(false).pipe(Effect.ignore);
+      return;
+    }
+    if (AGENT_INPUT_COMMAND.test(command.value.message)) tab.agentInputAt = performance.now();
+    relayFor(tab).receive(command.value.message);
+  });
 
   const humanStartedDownload = (source: Electron.WebContents) => {
     const tab = [...tabs.values()].find((candidate) => candidate.debuggee.webContents === source);

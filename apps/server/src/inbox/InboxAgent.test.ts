@@ -9,7 +9,6 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Projects from "../project/ProjectService.ts";
 import * as ManagedFolders from "../project/ManagedProjectFolders.ts";
 import * as SetupTracker from "../project/WorktreeSetupTracker.ts";
@@ -77,7 +76,7 @@ function makeLayer(
     Layer.mock(Linear.LinearConnection)({
       request: linearRequest ?? (() => Effect.die("Unexpected Linear request")),
     }),
-    Layer.mock(ProjectFiles.T3ProjectFileLoader)({ load: () => Effect.succeed(Option.none()) }),
+    Layer.mock(ProjectFiles.T3ProjectFileLoader)({ load: () => Effect.succeedNone }),
     runtime,
     threads,
     receipts,
@@ -86,22 +85,20 @@ function makeLayer(
     SetupTracker.layer,
     Layer.mock(Projects.ProjectService)({
       getById: (id) =>
-        Effect.succeed(
-          Option.some({
-            id,
-            title: "Inbox project",
-            workspaceRoot: "/repo",
-            defaultModelSelection: null,
-            scripts: [],
-            createdAt: "2026-10-22T10:00:00Z",
-            updatedAt: "2026-10-22T10:00:00Z",
-            deletedAt: null,
-          }),
-        ),
+        Effect.succeedSome({
+          id,
+          title: "Inbox project",
+          workspaceRoot: "/repo",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-10-22T10:00:00Z",
+          updatedAt: "2026-10-22T10:00:00Z",
+          deletedAt: null,
+        }),
     }),
     Layer.mock(ManagedFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
-      folderForThread: () => Effect.succeed(Option.none()),
+      folderForThread: () => Effect.succeedNone,
     }),
     Layer.mock(CloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(Terminals.TerminalManager)({ close: () => Effect.void }),

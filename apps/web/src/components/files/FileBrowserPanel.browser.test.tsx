@@ -23,6 +23,7 @@ const directory = {
 };
 const pathSearch = {
   entries: [],
+  ancestors: [],
   isPending: false,
   error: null,
   truncated: false,

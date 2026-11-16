@@ -104,6 +104,9 @@ function getRequests(
 }
 const noSessionGeneration = Atom.make(0);
 
+// A fresh revision makes the server rebuild its cached file snapshot.
+const nextFilesRevision = () => String(Date.now());
+
 export function useFileTreeEntries(input: {
   readonly cwd: string | null;
   readonly environmentId: EnvironmentId | null;
@@ -468,7 +471,7 @@ export function useFileTreeEntries(input: {
     if (!requests.active) return Promise.resolve();
     refreshRoot();
     if (searching && !missingRoot) {
-      setFilesRevision(String(Date.now()));
+      setFilesRevision(nextFilesRevision());
       refreshSearch();
     }
     const paths = new Set(

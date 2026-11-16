@@ -429,6 +429,7 @@ interface BrowserControlSession {
 }
 
 const isRecordingInput = Schema.is(DesktopPreviewRecordingInputSchema);
+const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 type RecordingInputListener = (event: DesktopPreviewRecordingInputEvent) => Effect.Effect<void>;
 
@@ -2163,9 +2164,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     }
     const selector =
       input.operation === "waitFor"
-        ? yield* Schema.encodeEffect(Schema.fromJsonString(Schema.String))(input.locator).pipe(
-            Effect.orDie,
-          )
+        ? yield* encodeJsonString(input.locator).pipe(Effect.orDie)
         : null;
     const expression =
       input.operation === "evaluate"

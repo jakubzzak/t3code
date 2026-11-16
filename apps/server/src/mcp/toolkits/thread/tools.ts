@@ -19,7 +19,6 @@ import {
   ThreadId,
   RunId,
   NonNegativeInt,
-  ProjectId,
 } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";

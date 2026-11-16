@@ -111,6 +111,7 @@ it.effect(
           get: Effect.succeed(new Uint8Array(32).fill(7)),
         }),
       ),
+      Layer.provide(NodeCrypto.layer),
     );
     const connection = Connection.layer.pipe(
       Layer.provideMerge(encryptedSecrets),

@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
-import * as Option from "effect/Option";
 import * as HttpClient from "effect/http/HttpClient";
 import {
   CommandId,
@@ -124,7 +123,7 @@ it.effect.each([true, false])(
           catalog: () => Effect.succeed({ accounts: [], splits: [], labels: [] }),
         }),
         Layer.succeed(Secrets.ServerSecretStore, {
-          get: () => Effect.succeed(Option.none()),
+          get: () => Effect.succeedNone,
           set: () => Effect.void,
           create: () => Effect.void,
           remove: () => Effect.void,

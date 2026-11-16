@@ -11,6 +11,7 @@ const harness = vi.hoisted(() => ({
   cwd: "",
 }));
 
+vi.mock("./use-project-git-enabled", () => ({ useProjectGitEnabled: () => true }));
 vi.mock("./use-thread-selection", () => ({
   useThreadSelection: () => ({
     selectedThread: { environmentId: "environment-1" },
