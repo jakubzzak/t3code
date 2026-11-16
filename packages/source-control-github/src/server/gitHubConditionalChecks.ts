@@ -94,6 +94,7 @@ export const makeChecksRevalidator = Effect.gen(function* () {
             const previous = entry.validators.get(endpoint);
             const response = yield* api
               .rest({
+                cwd: input.cwd,
                 host: input.host,
                 operation: "revalidateChecks",
                 path: endpoint,

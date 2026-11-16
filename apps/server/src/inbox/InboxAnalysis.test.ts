@@ -6,6 +6,7 @@ import type { InboxAnalysisInput } from "@t3tools/provider-core/server/textGener
 import * as Settings from "../serverSettings.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Generation from "../textGeneration/TextGeneration.ts";
+import * as Attachments from "./InboxAttachments.ts";
 import * as Analysis from "./InboxAnalysis.ts";
 import { ingestInboxItem } from "./inboxState.ts";
 
@@ -33,6 +34,9 @@ it.effect(
   () => {
     const inputs: InboxAnalysisInput[] = [];
     const dependencies = Layer.mergeAll(
+      Layer.mock(Attachments.InboxAttachments)({
+        load: () => Effect.succeed({ images: [], context: [] }),
+      }),
       Settings.layerTest({}),
       Layer.mock(Projects.ProjectService)({
         getShell: (id) =>

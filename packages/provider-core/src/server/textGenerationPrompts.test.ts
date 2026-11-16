@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildInboxAnalysisPrompt } from "./textGenerationPrompts.ts";
-import { normalizeCliError } from "./textGenerationUtils.ts";
+import { normalizeCliError, toJsonSchemaObject } from "./textGenerationUtils.ts";
 import { ProviderInstanceId } from "@t3tools/contracts";
 
 describe("buildInboxAnalysisPrompt", () => {
@@ -59,6 +59,10 @@ it("shares relevance output with the summary schema only for eligible incoming c
   expect(eligible.prompt).toContain("BOTH irrelevant");
   expect(eligible.prompt).toContain("No suggested action does not imply irrelevance");
   expect(eligible.prompt).toContain("Thanks, got it");
+  for (const { outputSchema } of [baseline, eligible]) {
+    const json = toJsonSchemaObject(outputSchema);
+    expect(json).toMatchObject({ required: Object.keys(outputSchema.fields) });
+  }
   const decode = Schema.decodeUnknownSync(eligible.outputSchema);
   const summary = {
     description: "Acknowledgement",

@@ -1,8 +1,14 @@
 import type { InboxNotification } from "@t3tools/contracts";
+import type { InboxAttachments } from "./InboxAttachments.ts";
+import type * as Effect from "effect/Effect";
 import { readableInboxItem } from "./notificationContent.ts";
 /** Bound provider context independently of stored detail; keep the latest triggering activity. */
-export function inboxContext(notification: InboxNotification) {
+export function inboxContext(
+  notification: InboxNotification,
+  images?: Effect.Success<ReturnType<InboxAttachments["Service"]["load"]>>["context"],
+) {
   return JSON.stringify({
+    ...(images?.length ? { imageAttachments: images } : {}),
     notificationId: notification.id,
     source: notification.source,
     omittedEarlierItems: Math.max(0, notification.items.length - 10),
@@ -29,6 +35,7 @@ export function inboxContext(notification: InboxNotification) {
             root: {
               author: notification.slackThread.root.author,
               content: notification.slackThread.root.content.slice(0, 4000),
+              images: notification.slackThread.root.images?.map(({ id, name }) => ({ id, name })),
             },
             latestReplyTs: notification.slackThread.latestReplyTs,
             replyCount: notification.slackThread.replyCount,
@@ -41,6 +48,7 @@ export function inboxContext(notification: InboxNotification) {
               author: message.author,
               occurredAt: message.occurredAt,
               content: message.content.slice(0, 4000),
+              images: message.images?.map(({ id, name }) => ({ id, name })),
             })),
           },
         }

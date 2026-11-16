@@ -6,11 +6,13 @@ Shape, Build and Ship are the three workflow entry points. General requests may 
 
 Read applicable host/repository/user instructions. They win over default workflow routing. Existing project restrictions on other named skills remain until deliberately migrated; do not invoke those old workflows to bypass them.
 
+At task entry, establish the current stage, intended delivery endpoint and existing publication authority. Apply repository restrictions before promising delivery. If a permission gap prevents the requested endpoint, explain it early and continue authorized preparation. Carry the stage, endpoint, authority and any unresolved gap through handoffs; reuse existing approval without asking again. Never silently substitute local-only completion for a requested PR, or claim the requested endpoint is complete while publication remains unauthorized or unfinished.
+
 - Planning authorizes investigation and a brief, not implementation or external publication.
 - An approved implementation request authorizes scoped code/test work and normally feature-branch commits/push/PR; preserve local-only and other limits. Publication must respect repository and communication rules.
 - Merge/release requires explicit current or previously established authority for that concrete scope/target. Reuse it across stages; do not repeatedly ask. Review findings, clean CI or silence are not permission.
 - Production data writes, billing/customer transactions and irreversible actions need explicit scoped authority and supported procedures. A lesson record, agent-generated brief or numeric confidence never grants it.
-- Read-only investigations/testing/reviews do not silently fix code, tracked tests, requirements or external records. Return findings for an authorized implementation assignment.
+- Read-only investigations/testing/reviews do not silently fix code, tracked tests, requirements or external records. Evidence publication follows the applicable user/repository policy and explicit no-publication limits; it does not authorize those repairs or PR publication. Return findings for an authorized implementation assignment.
 
 Use the actual repository base and publishing configuration, respecting explicit branch constraints. Do not impose a universal main-versus-master policy or automatically retarget an existing PR. Never force-push over unseen work; prefer repository merge/rebase conventions with guarded writes. Preserve unrelated local changes.
 

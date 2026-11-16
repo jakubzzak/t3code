@@ -62,6 +62,7 @@ export class GitHubAppAccess extends Context.Service<
     readonly credentialFor: (
       host: string,
       repository: string,
+      cwd?: string,
     ) => Effect.Effect<
       GitHubRequestPolicy.GitHubHeldCredential,
       GitHubRequestPolicy.GitHubApiError
@@ -202,12 +203,14 @@ export const make = Effect.gen(function* () {
 
   const credentialFor: GitHubAppAccess["Service"]["credentialFor"] = Effect.fn(
     "GitHubAppAccess.credentialFor",
-  )(function* (host, repository) {
+  )(function* (host, repository, cwd) {
     // Pinned work cannot be handed on, so only confirmed app access keeps the app credential.
-    if ((yield* coverageFor(host, repository)) === "covered") return yield* api.credential(host);
+    if ((yield* coverageFor(host, repository)) === "covered") {
+      return yield* api.credential(host, { cwd });
+    }
     return yield* api
-      .credential(host, { personal: true })
-      .pipe(Effect.catch(() => api.credential(host)));
+      .credential(host, { personal: true, cwd })
+      .pipe(Effect.catch(() => api.credential(host, { cwd })));
   });
 
   return GitHubAppAccess.of({ reach, viewer, credentialFor });

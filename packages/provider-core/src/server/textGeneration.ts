@@ -102,6 +102,8 @@ export type ReviewGuideGenerationResult = Omit<
 >;
 
 export interface InboxAnalysisInput {
+  /** Downloaded source images, supplied as model input without granting file or network tools. */
+  readonly images?: ReadonlyArray<{ readonly data: string; readonly mimeType: string }>;
   cwd: string;
   modelSelection: ModelSelection;
   context: string;

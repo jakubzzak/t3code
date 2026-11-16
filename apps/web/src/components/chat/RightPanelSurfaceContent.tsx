@@ -47,6 +47,8 @@ interface RightPanelPullRequestProps {
   readonly linkedPullRequest: ThreadLinkedPullRequest | null;
   readonly branchPullRequest: ThreadLinkedPullRequest | null | undefined;
   readonly onBack: (() => void) | undefined;
+  /** Keeps the code diff steady while the chat is working. */
+  readonly deferAutomaticRefresh: boolean;
 }
 
 interface RightPanelFileProps {
@@ -56,6 +58,8 @@ interface RightPanelFileProps {
   readonly pendingSurfaceIds: ReadonlySet<string>;
   readonly onOpenFile: (relativePath: string) => void;
   readonly onPendingChange: (relativePath: string, pending: boolean) => void;
+  /** Settles while the chat is working so open file previews stay steady. */
+  readonly workspaceMutationId: string | null;
 }
 
 export function RightPanelSurfaceContent(props: {
@@ -129,6 +133,7 @@ export function RightPanelSurfaceContent(props: {
       }
       return (
         <PullRequestDetailPanel
+          deferAutomaticRefresh={pullRequest.deferAutomaticRefresh}
           getShortcutContext={props.getShortcutContext}
           shortcutsEnabled={visible && props.activeSurfaceId === surface.id}
           key={`${scopedThreadKey(threadRef)}:${surface.id}`}
@@ -229,7 +234,7 @@ export function RightPanelSurfaceContent(props: {
             selectedFilePending={
               surface.kind === "file" && files.pendingSurfaceIds.has(`file:${surface.relativePath}`)
             }
-            workspaceMutationId={props.workspaceMutationId}
+            workspaceMutationId={files.workspaceMutationId}
           />
         </Suspense>
       );

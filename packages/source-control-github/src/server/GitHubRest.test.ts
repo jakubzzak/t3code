@@ -31,6 +31,7 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
   let tokens = ["first", "second"];
   let invalidations = 0;
   let credentialReads = 0;
+  const invalidatedDirectories: Array<string | undefined> = [];
   const credentials = Layer.succeed(
     GitHubCredentials.GitHubCredentials,
     GitHubCredentials.GitHubCredentials.of({
@@ -46,8 +47,9 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
         }),
       saved: () => Effect.succeedNone,
       fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
-      invalidate: () =>
+      invalidate: (_host, cwd) =>
         Effect.sync(() => {
+          invalidatedDirectories.push(cwd);
           invalidations++;
           tokens = tokens.slice(1);
         }),
@@ -70,6 +72,7 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
     requests,
     invalidations: () => invalidations,
     credentialReads: () => credentialReads,
+    invalidatedDirectories,
   };
 }
 
@@ -235,6 +238,29 @@ describe("GitHubRest", () => {
       );
       expect(error._tag).toBe("GitHubApiAuthenticationError");
       expect(requests).toHaveLength(0);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("invalidates a refused pinned credential in its original checkout", () => {
+    const { layer, invalidatedDirectories } = harness(() => new Response(null, { status: 401 }));
+    return Effect.gen(function* () {
+      const api = yield* GitHubRest.GitHubRest;
+      const error = yield* Effect.flip(
+        GitHubRequestPolicy.withCredential(
+          api,
+          { host: "github.com", cwd: "/other-checkout" },
+          api.rest({ cwd: "/other-checkout", host: "github.com", operation: "user", path: "user" }),
+        ),
+      ).pipe(
+        Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
+          cwd: "/original-checkout",
+          host: "github.com",
+          token: Redacted.make("pinned"),
+          credentialFingerprint: "github.com:pinned",
+        }),
+      );
+      expect(error._tag).toBe("GitHubApiAuthenticationError");
+      expect(invalidatedDirectories).toEqual(["/original-checkout"]);
     }).pipe(Effect.provide(layer));
   });
 });

@@ -1,5 +1,7 @@
 # Independent correctness and security review
 
+For testing/review evidence, follow `~/.agents/personal-memory/AGENTS.md` ("Testing and review evidence: Linear only"). Publish evidence only through the Linear integration, to a single evidence comment on the work's Linear issue. Update that comment in place: the newest version stays open and older versions go into collapsed `+++` accordions. Never submit or check evidence through a browser or GitHub uploads. Preserve narrower publication limits, and carry this policy into delegated briefs.
+
 Read for every candidate review or review-only assignment. Review the full diff against the actual base at the named head, relevant callers/contracts/persistence and the accepted brief. Inspect the tests and fixture provenance. Reports are claims requiring evidence; do not edit implementation or resolve uncertainty by changing requirements.
 
 Search incident memory independently of the implementer's selection. Check applicable failure mechanisms against the diff and tests; record incident IDs, evidence and remaining gaps. Trace realistic lifecycle behavior, retries, concurrent work, rollouts, cancellation and recovery across layers. Do not stop at an assumption that another layer handles it.
@@ -23,5 +25,7 @@ Only the user may accept a disclosed security risk. Reuse an acceptance only for
 ## Result
 
 Return prioritized findings, scope/security coverage, incident check dispositions, actual validation and limitations tied to head/base. `Ready` requires no unresolved blocking defects or unaccepted security concerns and no missing required evidence. Otherwise say what remains open. A complete review may still contain explicitly accepted risks; do not call it risk-free or 100% safe.
+
+For a PR intended for readiness, verify the evidence handoff required by Build. When the work has a Linear issue and publication is authorized, inspect its evidence comment through the Linear integration: required UI comparisons and recordings must be accessible and applicable to the tested candidate, or supported by an explanation of unchanged behavior. Local files and an implementer's upload claim do not establish publication. Without a Linear issue, or under an explicit no-publication limit, inspect the required chat evidence list instead. Report missing, stale or inaccessible required evidence as an explicit readiness blocker independently of code-finding severity. Return publication or recapture gaps to the Build lead; reviewing an existing evidence handoff does not authorize changing implementation or publishing on the lead's behalf.
 
 If publication is authorized, post one coherent review with useful inline anchors and refresh the PR head first. Follow the user's communication rules. A local-only review returns the same evidence without posting.

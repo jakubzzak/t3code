@@ -13,6 +13,9 @@ import * as Chats from "../orchestration-v2/ThreadSearch.ts";
 import * as SourceControl from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as Repository from "./InboxRepository.ts";
 import * as Research from "./InboxResearch.ts";
+import * as Attachments from "./InboxAttachments.ts";
+import * as Slack from "./SlackConnection.ts";
+import * as Transport from "./InboxSourceTransport.ts";
 import { ingestInboxItem } from "./inboxState.ts";
 
 const projectId = ProjectId.make("project-a");
@@ -43,8 +46,14 @@ const fixture = (steps: ReadonlyArray<InboxResearchStep>) => {
     reads: string[] = [],
     scopes: string[] = [];
   const layer = Research.layer.pipe(
+    Layer.provide(Attachments.layer),
     Layer.provideMerge(
       Layer.mergeAll(
+        Layer.mock(Slack.SlackConnection)({ accessToken: () => Effect.succeed("test-token") }),
+        Layer.mock(Transport.InboxSourceTransport)({
+          readImage: () =>
+            Effect.succeed({ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }),
+        }),
         Settings.layerTest({
           projectSettingsOverrides: {
             [projectId]: {
@@ -232,6 +241,47 @@ it.effect("refuses research after its project setting is disabled", () =>
         "Failure",
       );
       assert.equal(f.inputs.length, 0);
+    }).pipe(Effect.provide(f.layer));
+  }),
+);
+
+it.effect("supplies the triggering Slack screenshot on every suggestion and reply-draft step", () =>
+  Effect.gen(function* () {
+    const f = fixture([
+      { request: { tool: "search_chats", query: "review" }, suggestions: [], replyDraft: null },
+      {
+        request: null,
+        suggestions: ["Review the attached list."],
+        replyDraft: "I will review those items.",
+      },
+    ]);
+    const message = {
+      ts: "100.1",
+      author: "Alex",
+      content: "Can we mark those done?",
+      formattedContent: "Can we mark those done?",
+      occurredAt: notification.updatedAt,
+      images: [{ id: "F1", name: "list.png", url: "https://files.slack.com/list.png" }],
+    };
+    yield* Effect.gen(function* () {
+      const result = yield* (yield* Research.InboxResearch).research({
+        ...notification,
+        slackThread: {
+          channelId: "D1",
+          ts: message.ts,
+          root: message,
+          messages: [message],
+          latestReplyTs: message.ts,
+          replyCount: 0,
+          nextCursor: null,
+        },
+      });
+      assert.equal(result.replyDraft, "I will review those items.");
+      assert.equal(f.inputs.length, 2);
+      for (const input of f.inputs) {
+        assert.deepEqual(input.images, [{ data: "AQID", mimeType: "image/png" }]);
+        assert.ok(input.context.includes("list.png"));
+      }
     }).pipe(Effect.provide(f.layer));
   }),
 );

@@ -929,9 +929,10 @@ export const make = Effect.gen(function* () {
       // A pinned credential is never handed on to another, so pick one that reaches the repository.
       const { token, fingerprint: key } =
         input.repository === undefined
-          ? yield* api.credential(host)
-          : yield* appAccess.credentialFor(host, input.repository);
-      const credential = { host, token, credentialFingerprint: key };
+          ? yield* api.credential(host, { cwd: input.cwd })
+          : yield* appAccess.credentialFor(host, input.repository, input.cwd);
+      const cwd = (yield* GitHubRequestPolicy.PinnedGitHubCredential)?.cwd ?? input.cwd;
+      const credential = { cwd, host, token, credentialFingerprint: key };
       return yield* Effect.acquireUseRelease(
         Effect.sync(() => {
           const lock = identityLocks.get(key) ?? { gate: Semaphore.makeUnsafe(1), users: 0 };
@@ -948,7 +949,13 @@ export const make = Effect.gen(function* () {
                 return { ...credential, ...cached.value };
               // Pin verification so an auth switch cannot poison its cache entry.
               const identity = yield* api
-                .rest({ host, operation: "getRoutingIdentity", path: "user", allowReserve: true })
+                .rest({
+                  cwd: input.cwd,
+                  host,
+                  operation: "getRoutingIdentity",
+                  path: "user",
+                  allowReserve: true,
+                })
                 .pipe(
                   Effect.flatMap((response) =>
                     decodeRoutingIdentity(response.body).pipe(Effect.mapError(unavailable)),
@@ -959,6 +966,7 @@ export const make = Effect.gen(function* () {
                       if (error.status !== 403) return yield* error;
                       const { viewer } = yield* client.RoutingIdentityViewer({}).pipe(
                         GitHubGraphQlClient.call({
+                          cwd: input.cwd,
                           host,
                           operation: "getRoutingIdentity",
                           allowReserve: true,
@@ -996,10 +1004,11 @@ export const make = Effect.gen(function* () {
     use,
   ) =>
     captureVerifiedCredential(input).pipe(
-      Effect.flatMap(({ host, token, accountId, viewer, credentialFingerprint }) =>
+      Effect.flatMap(({ cwd, host, token, accountId, viewer, credentialFingerprint }) =>
         use({ accountId, viewer, credentialFingerprint }).pipe(
           Effect.provideService(SourceControlRateLimit.CredentialScope, credentialFingerprint),
           Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
+            cwd,
             host,
             token,
             credentialFingerprint,
@@ -1034,6 +1043,7 @@ export const make = Effect.gen(function* () {
     > =>
       effect.pipe(
         GitHubGraphQlClient.call({
+          cwd: input.cwd,
           host: input.host,
           operation: input.operation,
           ...(input.allowReserve === true ? { allowReserve: true } : {}),
@@ -1162,7 +1172,7 @@ export const make = Effect.gen(function* () {
   /** A REST read whose JSON answer is decoded the same way. */
   const restRead = <A>(input: RestReadInput<A>): Effect.Effect<A, GitHubPullRequestApiError> =>
     api
-      .rest({ host: input.host, operation: input.operation, path: input.path })
+      .rest({ cwd: input.cwd, host: input.host, operation: input.operation, path: input.path })
       .pipe(
         Effect.flatMap((response) =>
           decodeWith(input.cwd, input.operation, input.decode, response.body),
@@ -1183,11 +1193,12 @@ export const make = Effect.gen(function* () {
     input: RestReadInput<A>,
   ) {
     const host = normalizeHost(input.host);
-    const { token, fingerprint } = yield* api.credential(host);
+    const { token, fingerprint } = yield* api.credential(host, { cwd: input.cwd });
     const key = `${fingerprint}\0${host}\0${input.path}`;
     const previous = yield* Cache.get(validators, key);
     const response = yield* api
       .rest({
+        cwd: input.cwd,
         host,
         operation: input.operation,
         path: input.path,
@@ -1195,6 +1206,7 @@ export const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
+          cwd: input.cwd,
           host,
           token,
           credentialFingerprint: fingerprint,
@@ -1224,6 +1236,7 @@ export const make = Effect.gen(function* () {
     const paging = `per_page=${DIFF_FILES_PAGE_SIZE}&page=${input.page}`;
     return api
       .rest({
+        cwd: input.cwd,
         host: input.host,
         operation: "getPullRequestDiff",
         path:
@@ -1274,6 +1287,7 @@ export const make = Effect.gen(function* () {
       }
       const { owner, name } = parseRepositorySelector(input.repository);
       const refsResponse = yield* api.rest({
+        cwd: input.cwd,
         host: input.host,
         operation: "getPullRequestDiffFileContents",
         path:
@@ -1313,6 +1327,7 @@ export const make = Effect.gen(function* () {
         input.commit === undefined && input.changeType !== "new"
           ? yield* api
               .rest({
+                cwd: input.cwd,
                 host: input.host,
                 operation: "getPullRequestDiffFileContents",
                 path: `repos/${owner}/${name}/compare/${baseRef}...${headRef}?per_page=1&page=2`,
@@ -1333,6 +1348,7 @@ export const make = Effect.gen(function* () {
       const readFile = (revision: string, filePath: string) =>
         api
           .rest({
+            cwd: input.cwd,
             host: input.host,
             operation: "getPullRequestDiffFileContents",
             accept: "application/vnd.github.raw+json",
@@ -1623,7 +1639,10 @@ export const make = Effect.gen(function* () {
       client.ReopenPullRequest({ pullRequestId }).pipe(Effect.asVoid),
   } satisfies Partial<Record<PullRequestAction, unknown>>;
 
-  /** Preserve policy errors; map not-found per lookup and other failures to read errors. */
+  /**
+   * Preserve policy errors; map not-found per lookup and other failures to read errors. The
+   * checkout's credential is pinned first, so a batch never mixes credentials.
+   */
   const batchedRead = <A, E, R>(
     input: { readonly cwd: string; readonly host: string; readonly operation: string },
     effect: Effect.Effect<A, E, R>,
@@ -1631,11 +1650,12 @@ export const make = Effect.gen(function* () {
     A,
     | Exclude<E, GraphQLClientError.GraphQLClientError>
     | GitHubPullRequestReadError
-    | GitHubRequestPolicy.GitHubApiNotFoundError,
+    | GitHubRequestPolicy.GitHubApiError,
     Exclude<R, GitHubGraphQlClient.GitHubGraphQlTarget>
   > =>
     effect.pipe(
       Effect.provideService(GitHubGraphQlClient.GitHubGraphQlTarget, {
+        cwd: input.cwd,
         host: input.host,
         operation: input.operation,
       }),
@@ -1649,6 +1669,8 @@ export const make = Effect.gen(function* () {
               })
             : readError(input.cwd, input.operation, error),
       ),
+      // Checkouts share a batch only when they carry the same credential.
+      (effect) => GitHubRequestPolicy.withCredential(api, input, effect),
     );
 
   // Batch by host/credential; isolate missing PRs.
@@ -1880,6 +1902,7 @@ export const make = Effect.gen(function* () {
               { concurrency: "unbounded" },
             ).pipe(
               Effect.provideService(GitHubGraphQlClient.GitHubGraphQlTarget, {
+                cwd: input.cwd,
                 host: input.host,
                 operation: "listPullRequestStackMemberships",
               }),
@@ -1890,21 +1913,7 @@ export const make = Effect.gen(function* () {
       // GitHub answers a private repository the token cannot see as missing, and its error names
       // the credential that request carried. A personal credential is pinned for the whole
       // read, so a token changed mid-read does not split it; the app keeps the policy's fallback.
-      const host = normalizeHost(input.host);
-      return api.credential(host).pipe(
-        Effect.flatMap(({ token, fingerprint, source }) =>
-          source === undefined || source === "app"
-            ? listed
-            : listed.pipe(
-                Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
-                  host,
-                  token,
-                  credentialFingerprint: fingerprint,
-                  source,
-                }),
-              ),
-        ),
-      );
+      return GitHubRequestPolicy.withCredential(api, input, listed);
     }),
 
     searchPullRequests: Effect.fn("GitHubPullRequestApi.searchPullRequests")(function* (input) {
@@ -2103,6 +2112,7 @@ export const make = Effect.gen(function* () {
       const { owner, name } = parseRepositorySelector(input.repository);
       return api
         .rest({
+          cwd: input.cwd,
           host: input.host,
           operation: "getPullRequestDiff",
           path: `repos/${owner}/${name}/pulls/${input.number}`,
@@ -2293,6 +2303,7 @@ export const make = Effect.gen(function* () {
       const { owner, name } = parseRepositorySelector(input.repository);
       return api
         .rest({
+          cwd: input.cwd,
           host: input.host,
           operation: "setReviewerRequest",
           method: input.requested ? "POST" : "DELETE",
@@ -2346,6 +2357,7 @@ export const make = Effect.gen(function* () {
       if (input.applied) {
         return api
           .rest({
+            cwd: input.cwd,
             host: input.host,
             operation: "setLabels",
             method: "POST",
@@ -2358,6 +2370,7 @@ export const make = Effect.gen(function* () {
         input.labels,
         (label) =>
           api.rest({
+            cwd: input.cwd,
             host: input.host,
             operation: "setLabels",
             method: "DELETE",
@@ -2529,6 +2542,7 @@ export const make = Effect.gen(function* () {
                         currentRuns.some((current) => current.id === run.id)
                           ? api
                               .rest({
+                                cwd: input.cwd,
                                 host: input.host,
                                 operation: "approveWorkflowRun",
                                 method: "POST",
@@ -2639,6 +2653,7 @@ export const make = Effect.gen(function* () {
       const { owner, name } = parseRepositorySelector(input.repository);
       return api
         .rest({
+          cwd: input.cwd,
           host: input.host,
           operation: "submitReview",
           method: "POST",

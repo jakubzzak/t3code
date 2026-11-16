@@ -24,6 +24,8 @@ const isCredentialSource = Schema.is(GitHubCredentials.GitHubCredentialSource);
 export class GitHubGraphQlTarget extends Context.Service<
   GitHubGraphQlTarget,
   {
+    /** The checkout the call is for, whose `gh` credential it carries. */
+    readonly cwd?: string | undefined;
     readonly host: string;
     readonly operation: string;
     /** Overrides `SourceControlRateLimit.Interactive` for this one call. */
@@ -67,6 +69,7 @@ export class GitHubGraphQlAuth extends GraphQLMiddleware.Service<
           });
           return yield* policy.request(
             {
+              cwd: target.cwd,
               host,
               operation: target.operation,
               resource: "graphql",

@@ -88,6 +88,7 @@ export class GitHubCredentials extends Context.Service<
   {
     readonly get: (
       host: string,
+      cwd?: string,
     ) => Effect.Effect<GitHubCredential, GitHubCredentialUnavailableError>;
     /** The token saved in Settings for `host`, which outranks every other source. */
     readonly saved: (
@@ -97,7 +98,8 @@ export class GitHubCredentials extends Context.Service<
       GitHubHostDisabledError | GitHubNotSignedInError
     >;
     readonly fingerprint: (host: string, token: string) => Effect.Effect<string>;
-    readonly invalidate: (host: string) => Effect.Effect<void>;
+    /** Drops the held token after GitHub refused it, so the next read asks its source again. */
+    readonly invalidate: (host: string, cwd?: string) => Effect.Effect<void>;
   }
 >()("@t3tools/source-control-github/server/GitHubCredentials") {}
 
@@ -145,7 +147,7 @@ export const make = Effect.gen(function* () {
       Effect.orDie,
     );
 
-  const fromGh = (host: string, account: string | undefined) =>
+  const fromGh = (host: string, account: string | undefined, cwd: string) =>
     process
       .run({
         operation: "GitHubCredentials.get",
@@ -157,7 +159,7 @@ export const make = Effect.gen(function* () {
           host,
           ...(account === undefined ? [] : ["--user", account]),
         ],
-        cwd: workingDirectory,
+        cwd,
         // Never let gh print the token into a debug log.
         env: { GH_DEBUG: "", GH_PROMPT_DISABLED: "1" },
         timeoutMs: 10_000,
@@ -201,18 +203,20 @@ export const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => null),
     );
 
-  const cacheKey = (host: string, account: string | undefined) =>
-    account === undefined ? host : `${host}\u0000${account}`;
+  /** CLI wrappers may choose a repository-scoped token from cwd; checkouts cannot share it. */
+  const cacheKey = (host: string, account: string | undefined, cwd: string) =>
+    `${host}\u0000${account ?? ""}\u0000${cwd}`;
 
   const lookup = Effect.fn("GitHubCredentials.lookup")(function* (key: string) {
-    const [host = key, choice] = key.split("\u0000");
+    const [host = "", account = "", cwd = workingDirectory] = key.split("\u0000");
+    const choice = account || undefined;
     const fromEnv = environmentToken(host, environment);
     const token =
       fromEnv ??
-      (yield* fromGh(host, choice).pipe(
+      (yield* fromGh(host, choice, cwd).pipe(
         Effect.catchTags({
           GitHubNotSignedInError: (error) =>
-            choice === undefined ? Effect.fail(error) : fromGh(host, undefined),
+            choice === undefined ? Effect.fail(error) : fromGh(host, undefined, cwd),
         }),
       ));
     return {
@@ -252,18 +256,21 @@ export const make = Effect.gen(function* () {
   });
 
   return GitHubCredentials.of({
-    get: Effect.fn("GitHubCredentials.get")(function* (rawHost) {
+    get: Effect.fn("GitHubCredentials.get")(function* (rawHost, cwd = workingDirectory) {
       const host = normalizeHost(rawHost);
       const fromSettings = yield* saved(host);
       if (Option.isSome(fromSettings)) return fromSettings.value;
-      return yield* Cache.get(cache, cacheKey(host, (yield* hostChoice(host))?.account));
+      return yield* Cache.get(cache, cacheKey(host, (yield* hostChoice(host))?.account, cwd));
     }),
     saved,
     fingerprint: fingerprintOf,
-    invalidate: Effect.fn("GitHubCredentials.invalidate")(function (rawHost) {
+    invalidate: Effect.fn("GitHubCredentials.invalidate")(function (
+      rawHost,
+      cwd = workingDirectory,
+    ) {
       const host = normalizeHost(rawHost);
       return hostChoice(host).pipe(
-        Effect.flatMap((choice) => Cache.invalidate(cache, cacheKey(host, choice?.account))),
+        Effect.flatMap((choice) => Cache.invalidate(cache, cacheKey(host, choice?.account, cwd))),
       );
     }),
   });

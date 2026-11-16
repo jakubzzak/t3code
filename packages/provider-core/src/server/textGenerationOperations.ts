@@ -31,6 +31,8 @@ export interface Request<S extends Schema.Top> {
   readonly outputSchema: S;
   readonly modelSelection: ModelSelection;
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  /** Inline base64 source images for tool-free notification processing. */
+  readonly images?: ReadonlyArray<{ readonly data: string; readonly mimeType: string }> | undefined;
   /** Investigate cwd with read-only tools across turns; fail if the runner cannot guarantee read-only access. */
   readonly investigate?: { readonly timeoutMs: number } | undefined;
 }
@@ -179,6 +181,7 @@ export function fromRunner(
       capabilities?.toolFreeInboxAnalysis
         ? run({
             operation: "generateInboxResearch",
+            images: input.images,
             cwd: input.cwd,
             modelSelection: input.modelSelection,
             ...buildInboxResearchPrompt(input),
@@ -193,6 +196,7 @@ export function fromRunner(
       capabilities?.toolFreeInboxAnalysis
         ? run({
             operation: "generateInboxAnalysis",
+            images: input.images,
             cwd: input.cwd,
             modelSelection: input.modelSelection,
             ...buildInboxAnalysisPrompt(input),

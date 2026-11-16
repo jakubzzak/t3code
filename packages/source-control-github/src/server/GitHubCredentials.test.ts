@@ -9,6 +9,7 @@ import { ChildProcessSpawner } from "effect/process";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import type * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
 import * as GitHubCredentials from "./GitHubCredentials.ts";
 
@@ -30,6 +31,7 @@ function harness(
   hosts: Record<string, { readonly account?: string; readonly enabled?: boolean }> = {},
   signedOut: ReadonlyArray<string> = [],
   tokens: Record<string, string> = {},
+  checkoutTokens: Record<string, string> = {},
 ) {
   const calls: Array<ReadonlyArray<string>> = [];
   const run: SourceControlHost.SourceControlHost["Service"]["process"]["run"] = (input) =>
@@ -47,7 +49,9 @@ function harness(
       }
       return {
         exitCode: ChildProcessSpawner.ExitCode(0),
-        stdout: input.args.includes("--user") ? `token-for-${user}\n` : "active-token\n",
+        stdout:
+          checkoutTokens[input.cwd] ??
+          (input.args.includes("--user") ? `token-for-${user}\n` : "active-token\n"),
         stderr: "",
         stdoutTruncated: false,
         stderrTruncated: false,
@@ -79,6 +83,36 @@ describe("GitHubCredentials", () => {
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it.effect("keeps checkout-specific CLI credentials separate from the server login", () => {
+    const { layer, calls } = harness(
+      {},
+      [],
+      {},
+      {
+        "/personal": "personal-token",
+        "/work": "work-token",
+      },
+    );
+    return Effect.gen(function* () {
+      const credentials = yield* GitHubCredentials.GitHubCredentials;
+      const personal = yield* credentials.get("github.com", "/personal");
+      const work = yield* credentials.get("github.com", "/work");
+      const server = yield* credentials.get("github.com");
+      expect(Redacted.value(personal.token)).toBe("personal-token");
+      expect(Redacted.value(work.token)).toBe("work-token");
+      expect(Redacted.value(server.token)).toBe("active-token");
+      expect((yield* credentials.get("github.com", "/personal")).fingerprint).toBe(
+        personal.fingerprint,
+      );
+      expect(calls).toHaveLength(3);
+
+      yield* credentials.invalidate("github.com", "/personal");
+      yield* credentials.get("github.com", "/work");
+      yield* credentials.get("github.com", "/personal");
+      expect(calls).toHaveLength(4);
+    }).pipe(Effect.provide(layer), Effect.provideService(HostProcess.WorkingDirectory, "/server"));
   });
 
   it.effect("lets an environment token win over a pinned account, as gh does", () => {

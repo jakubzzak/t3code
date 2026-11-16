@@ -95,7 +95,13 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
           );
       }
 
-      yield* connection.request({ type: "prompt", message: prompt });
+      yield* connection.request({
+        type: "prompt",
+        message: prompt,
+        ...(request.images?.length
+          ? { images: request.images.map((image) => ({ type: "image", ...image })) }
+          : {}),
+      });
       // Provider failures (bad key, rate limit, 5xx) arrive on the assistant
       // `message_end`. Keep only the latest, since Pi can retry and still answer.
       let turnError: string | undefined;

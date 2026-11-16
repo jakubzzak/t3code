@@ -237,11 +237,23 @@ function harness(input: {
       ),
     ),
   );
+  // Credentials come from the policy, as they do in GitHubRest, unless a test mocks them.
+  const rest = Layer.effect(
+    GitHubRest.GitHubRest,
+    Effect.gen(function* () {
+      const requests = yield* GitHubRequestPolicy.GitHubRequestPolicy;
+      return GitHubRest.GitHubRest.of({
+        rest: (request) => Effect.die(new Error(`Unexpected REST read of ${request.path}`)),
+        credential: requests.credential,
+        appCredential: requests.appCredential,
+        ...input.api,
+      });
+    }),
+  ).pipe(Layer.provideMerge(policy));
   const layer = Layer.mergeAll(
     host,
     appSignedOut,
-    Layer.mock(GitHubRest.GitHubRest)(input.api ?? {}),
-    policy,
+    rest,
     Layer.succeed(HttpClient.HttpClient, graphQlHttp(graphql, graphqlCalls)),
     NodeServices.layer,
   );

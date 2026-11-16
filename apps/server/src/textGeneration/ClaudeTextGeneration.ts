@@ -130,12 +130,43 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     prompt,
     outputSchema: outputSchemaJson,
     modelSelection,
+    images,
     investigate,
   }: TextGenerationOperations.Request<S>): Effect.fn.Return<
     S["Type"],
     TextGenerationError,
     S["DecodingServices"]
   > {
+    const streamJson = (images?.length ?? 0) > 0;
+    const stdin = streamJson
+      ? `${yield* encodeJsonForOperation(
+          operation,
+          {
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                ...(images ?? []).map((image) => ({
+                  type: "image",
+                  source: { type: "base64", media_type: image.mimeType, data: image.data },
+                })),
+              ],
+            },
+            parent_tool_use_id: null,
+          },
+          "Failed to encode image input.",
+        )}\n`
+      : prompt;
+    // Claude requires stream-json output for image-bearing stream-json input.
+    // Normalize its JSON lines to the existing validated verbose-output envelope.
+    const outputJson = (stdout: string) =>
+      streamJson
+        ? `[${stdout
+            .split("\n")
+            .filter((line) => line.trim())
+            .join(",")}]`
+        : stdout;
     const catalog = yield* scopedModelCatalog;
     const resolvedModelSelection = {
       ...modelSelection,
@@ -215,7 +246,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         [
           "-p",
           "--output-format",
-          "json",
+          streamJson ? "stream-json" : "json",
+          ...(streamJson ? ["--input-format", "stream-json", "--verbose"] : []),
           "--json-schema",
           jsonSchemaStr,
           "--model",
@@ -247,7 +279,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         cwd: workingDirectory,
         shell: spawnCommand.shell,
         stdin: {
-          stream: Stream.encodeText(Stream.make(prompt)),
+          stream: Stream.encodeText(Stream.make(stdin)),
         },
         forceKillAfter: "1 second",
       });
@@ -283,11 +315,11 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         () => runClaudeCommand(false),
       ),
       Effect.flatMap(({ stdout, stderr, exitCode }) => {
-        if (exitCode === 0) return Effect.succeed(stdout);
+        if (exitCode === 0) return Effect.succeed(outputJson(stdout));
         const stderrDetail = stderr.trim();
         const stdoutDetail = stdout.trim();
         const detail =
-          claudeErrorResult(stdoutDetail) ??
+          claudeErrorResult(outputJson(stdoutDetail)) ??
           (stderrDetail.length > 0 ? stderrDetail : stdoutDetail);
         return Effect.fail(
           new TextGenerationError({

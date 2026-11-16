@@ -36,6 +36,7 @@ function remoteUrl(host: string, repository: string): string {
 }
 
 export const cascadeRebaseStack = Effect.fn("cascadeRebaseStack")(function* (input: {
+  readonly cwd?: string;
   readonly host: string;
   readonly repository: string;
   readonly base: string;
@@ -48,7 +49,7 @@ export const cascadeRebaseStack = Effect.fn("cascadeRebaseStack")(function* (inp
   const { process } = yield* SourceControlHost.SourceControlHost;
   const fileSystem = yield* FileSystem.FileSystem;
   // A push takes one credential up front, so it must be one that reaches the repository.
-  const { token } = yield* appAccess.credentialFor(input.host, input.repository);
+  const { token } = yield* appAccess.credentialFor(input.host, input.repository, input.cwd);
   const first = input.layers[0];
   if (first === undefined) return 0;
   const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-stack-rebase-" }).pipe(

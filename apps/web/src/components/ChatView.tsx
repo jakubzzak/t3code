@@ -157,6 +157,7 @@ import { type LegendListRef } from "@legendapp/list/react";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { DEFAULT_INTERACTION_MODE, type ChatMessage } from "../types";
 import { buildThreadRouteParams } from "../threadRoutes";
+import { useSettledRefreshToken } from "../hooks/useSettledRefreshToken";
 import { useTheme } from "../hooks/useTheme";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
@@ -1662,6 +1663,12 @@ export default function ChatView(props: ChatViewProps) {
     serverVisibleTurnItems,
     turnDiffSummaries.at(-1)?.completedAt ?? null,
   );
+
+  const fileWorkspaceMutationId = useSettledRefreshToken({
+    resourceKey: activeThreadKey,
+    refreshToken: workspaceMutationId,
+    isWorking,
+  });
 
   const gitCwd = activeProject
     ? projectScriptCwd({
@@ -3581,6 +3588,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestsSurfaceAvailable && visiblePullRequestCount > 1
             ? addPullRequestsSurfaceStable
             : undefined,
+        deferAutomaticRefresh: isWorking,
       }}
       files={{
         projectName: activeProject?.title ?? null,
@@ -3589,6 +3597,7 @@ export default function ChatView(props: ChatViewProps) {
         pendingSurfaceIds: pendingFileSurfaceIds,
         onOpenFile: openFileSurfaceStable,
         onPendingChange: handleFilePendingChangeStable,
+        workspaceMutationId: fileWorkspaceMutationId,
       }}
     />
   ) : null;

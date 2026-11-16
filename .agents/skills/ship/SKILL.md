@@ -5,6 +5,8 @@ description: Merge an authorized ready change, verify its deployed version and c
 
 # Ship
 
+For testing/review evidence, follow `~/.agents/personal-memory/AGENTS.md` ("Testing and review evidence: Linear only"). Publish evidence only through the Linear integration, to a single evidence comment on the work's Linear issue. Update that comment in place: the newest version stays open and older versions go into collapsed `+++` accordions. Never submit or check evidence through a browser or GitHub uploads. Preserve narrower publication limits, and carry this policy into delegated briefs.
+
 Merged is not delivered. Own the authorized change through production evidence and a clear observation outcome.
 
 Read [the delivery contract](../build/references/contract.md) and [incident memory](../build/references/incidents.md). Confirm existing merge/release authority, target, dependencies and recovery scope. Honor narrower verification-only requests. No arbitrary production writes or customer transactions. Data migrations require separate explicit scope, exact reviewed artifact and supported execution; naming a script in a brief is insufficient.

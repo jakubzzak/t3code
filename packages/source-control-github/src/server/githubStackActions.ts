@@ -128,6 +128,7 @@ export const runGitHubStackAction = Effect.fn("runGitHubStackAction")(function* 
     return yield* new GitHubStackUnsupportedError({ ...identity });
   const endpoint = `repos/${input.repository}`;
   const read = yield* api.rest({
+    cwd: input.cwd,
     host: input.host,
     operation: "runGitHubStackAction",
     path: `${endpoint}/stacks?pull_request=${input.number}`,
@@ -181,6 +182,7 @@ export const runGitHubStackAction = Effect.fn("runGitHubStackAction")(function* 
       { concurrency: "unbounded" },
     ).pipe(
       GitHubGraphQlClient.call({
+        cwd: input.cwd,
         host: input.host,
         operation: "runGitHubStackAction",
         allowReserve: true,
@@ -204,6 +206,7 @@ export const runGitHubStackAction = Effect.fn("runGitHubStackAction")(function* 
     const mergedHeadSha = stack.layers[stack.layers.indexOf(open[0]!) - 1]?.headSha;
     // GitHub has no stack-rebase API; per-PR updates replay lower layers' old commits.
     yield* cascadeRebaseStack({
+      cwd: input.cwd,
       host: input.host,
       repository: input.repository,
       base: stack.base,
@@ -235,6 +238,7 @@ export const runGitHubStackAction = Effect.fn("runGitHubStackAction")(function* 
       Effect.mapError((cause) => new GitHubStackResponseInvalidError({ ...identity, cause })),
     );
   const request = yield* api.rest({
+    cwd: input.cwd,
     host: input.host,
     operation: "runGitHubStackAction",
     method: "PUT",
@@ -256,6 +260,7 @@ export const runGitHubStackAction = Effect.fn("runGitHubStackAction")(function* 
     if (!uuid) return yield* new GitHubStackResponseInvalidError({ ...identity });
     yield* Effect.sleep(Math.min(1_000 * 2 ** attempt, 10_000));
     const poll = yield* api.rest({
+      cwd: input.cwd,
       host: input.host,
       operation: "runGitHubStackAction",
       path: `${endpoint}/pulls/${input.number}/merge-async/${encodeURIComponent(uuid)}`,

@@ -28,6 +28,8 @@ export interface GitHubRestResponse {
 }
 
 export interface GitHubRestInput {
+  /** The checkout the request is for, whose `gh` credential it carries. */
+  readonly cwd?: string;
   readonly host: string;
   readonly operation: string;
   readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -117,6 +119,7 @@ export const make = Effect.gen(function* () {
   const policy = yield* GitHubRequestPolicy.GitHubRequestPolicy;
 
   const send = Effect.fn("GitHubRest.send")(function* (input: {
+    readonly cwd?: string | undefined;
     readonly host: string;
     readonly operation: string;
     readonly request: HttpClientRequest.HttpClientRequest;
@@ -134,6 +137,7 @@ export const make = Effect.gen(function* () {
     });
     return yield* policy.request(
       {
+        cwd: input.cwd,
         host,
         operation: input.operation,
         // All current paths spend `core`; search would need a different resource.
@@ -196,6 +200,7 @@ export const make = Effect.gen(function* () {
     return SourceControlRateLimit.Interactive.pipe(
       Effect.flatMap((interactive) =>
         send({
+          cwd: input.cwd,
           host: input.host,
           operation: input.operation,
           request,

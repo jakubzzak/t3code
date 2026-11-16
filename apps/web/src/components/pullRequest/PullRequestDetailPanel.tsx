@@ -63,6 +63,7 @@ import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
+import { useSettledRefreshToken } from "~/hooks/useSettledRefreshToken";
 import { pullRequestEnvironment, usePullRequestTurnRefresh } from "~/state/pullRequests";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { PullRequestStackMenu } from "./PullRequestStackMenu";
@@ -261,6 +262,7 @@ function pullRequestStackReference(
 
 export function PullRequestDetailPanel({
   visible = true,
+  deferAutomaticRefresh = false,
   environmentId,
   shortcutsEnabled,
   getShortcutContext,
@@ -282,6 +284,8 @@ export function PullRequestDetailPanel({
   environmentId: EnvironmentId;
   shortcutsEnabled: boolean;
   visible?: boolean;
+  /** Keeps the code diff steady while the adjacent chat is working. Manual refresh still runs. */
+  deferAutomaticRefresh?: boolean;
   getShortcutContext: () => ShortcutMatchContext;
   onSelectPullRequest?: ((reference: PullRequestRef) => void) | undefined;
   threadRef?: ScopedThreadRef | null;
@@ -569,6 +573,17 @@ export function PullRequestDetailPanel({
     nativeStackQuery.refresh();
   };
   const [refreshToken, setRefreshToken] = useState(0);
+  const [activityRefreshToken, setActivityRefreshToken] = useState(0);
+  const settledActivityRefreshToken = useSettledRefreshToken({
+    resourceKey: tabScopeKey,
+    refreshToken: activityRefreshToken,
+    isWorking: deferAutomaticRefresh,
+  });
+  const settledTurnRefreshToken = useSettledRefreshToken({
+    resourceKey: tabScopeKey,
+    refreshToken: turnRefresh ?? 0,
+    isWorking: deferAutomaticRefresh,
+  });
   const [activityRevision, setActivityRevision] = useState<{
     readonly key: string;
     readonly updatedAt: string;
@@ -586,7 +601,7 @@ export function PullRequestDetailPanel({
       // Interrupting a mutation's activity refresh can leave SWR displaying stale data.
       setActivityRevision(next);
       setActivityRevalidations((count) => count + 1);
-      setRefreshToken((token) => token + 1);
+      setActivityRefreshToken((token) => token + 1);
     }
   }
   const revalidateActivity = useEffectEvent(() => activityQuery.refresh());
@@ -1835,8 +1850,8 @@ export function PullRequestDetailPanel({
                     fixFindingLabel={handoffLabels.fixFinding}
                     {...(canFixFindings ? { onFixFinding: startFixFinding } : {})}
                     onRefresh={refreshDetail}
-                    refreshToken={refreshToken}
-                    backgroundRefreshToken={turnRefresh ?? 0}
+                    refreshToken={refreshToken + settledActivityRefreshToken}
+                    backgroundRefreshToken={settledTurnRefreshToken}
                     revealRequest={codeRevealRequest}
                   />
                 </Suspense>
