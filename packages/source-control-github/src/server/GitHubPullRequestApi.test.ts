@@ -63,7 +63,8 @@ type ApiAnswer = Effect.Effect<GitHubApi.GitHubRestResponse, GitHubApi.GitHubApi
 const mockedExecute = vi.fn<(call: ApiCall) => ApiAnswer>();
 const defaultCredential = (host: string) =>
   Effect.succeed({ token: Redacted.make("token"), fingerprint: `${host}:token` });
-const mockedCredential = vi.fn(defaultCredential);
+const mockedCredential =
+  vi.fn<(host: string, cwd?: string) => ReturnType<typeof defaultCredential>>(defaultCredential);
 const mockedStackMemberships = vi.fn<(call: ApiCall) => ApiAnswer>(() =>
   Effect.succeed(output('{"data":{}}')),
 );
@@ -93,7 +94,7 @@ const mockApi = Layer.effect(
           Effect.map((answer) => answer.body),
         ),
       rest: (input) => mockedExecute({ kind: "rest", ...input }),
-      credential: (host) => mockedCredential(host),
+      credential: (host, cwd) => mockedCredential(host, cwd),
     });
   }),
 );
@@ -702,7 +703,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
       }),
   );
 
-  it.effect("reads linked pull requests on one host together, filed back by position", () =>
+  it.effect("batches linked pull requests across checkouts sharing a credential", () =>
     Effect.gen(function* () {
       const node = (number: number) => ({
         number,
@@ -739,7 +740,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
         [7, 8],
         (number) =>
           cli.getPullRequestSummary({
-            cwd: "/w",
+            cwd: `/w/${number}`,
             repository: "acme/web",
             host: "github.com",
             number,
@@ -830,6 +831,64 @@ layer("GitHubPullRequestApi.layer", (it) => {
       );
       expect(varsAt(0)).toMatchObject({ w1_owner: "acme", w1_name: "web", w1_number: 8 });
     }),
+  );
+
+  it.effect(
+    "keeps watched pull requests with different checkout credentials in separate batches",
+    () =>
+      Effect.gen(function* () {
+        mockedCredential.mockImplementation((host, cwd) =>
+          Effect.succeed({
+            token: Redacted.make(`token-${cwd}`),
+            fingerprint: `${host}:${cwd}`,
+          }),
+        );
+        mockedExecute.mockImplementation((call) =>
+          Effect.succeed(
+            output(
+              JSON.stringify({
+                data: {
+                  w0: {
+                    pullRequest: {
+                      state: "OPEN",
+                      mergeable: "MERGEABLE",
+                      headRefOid: "abc123",
+                      comments: {
+                        totalCount:
+                          call.kind === "graphql" && call.variables?.w0_owner === "personal"
+                            ? 1
+                            : 2,
+                        nodes: [],
+                      },
+                      reviews: { totalCount: 0, nodes: [] },
+                      reviewThreads: { totalCount: 0 },
+                      commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+                    },
+                  },
+                },
+              }),
+            ),
+          ),
+        );
+        const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+        const reads = yield* Effect.forEach(
+          ["personal", "work"],
+          (owner) =>
+            cli.getPullRequestWatchFingerprint({
+              cwd: `/${owner}`,
+              host: "github.com",
+              repository: `${owner}/repo`,
+              number: 7,
+            }),
+          { concurrency: 2 },
+        ).pipe(Effect.forkChild);
+        yield* TestClock.adjust("10 millis");
+        const [personal, work] = yield* Fiber.join(reads);
+        expect(personal?.remarks.startsWith("1 ")).toBe(true);
+        expect(work?.remarks.startsWith("2 ")).toBe(true);
+        expect(mockedExecute).toHaveBeenCalledTimes(2);
+        expect([varsAt(0).w0_owner, varsAt(1).w0_owner].toSorted()).toEqual(["personal", "work"]);
+      }),
   );
 
   it.effect("reads a pull request the batch said nothing about on its own", () =>
@@ -3517,7 +3576,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
       const login = yield* cli.getViewerLogin({ cwd: "/w", host: "github.acme.com" });
 
       expect(login).toBe("enterprise-user");
-      expect(mockedCredential).toHaveBeenCalledWith("github.acme.com");
+      expect(mockedCredential).toHaveBeenCalledWith("github.acme.com", "/w");
       expect(callAt(0)).toMatchObject({ kind: "rest", host: "github.acme.com", path: "user" });
     }),
   );
