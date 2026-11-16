@@ -9,12 +9,12 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -47,7 +47,7 @@ const isCleanupError = Schema.is(ThreadCleanupError);
 
 const make = Effect.gen(function* () {
   const scope = yield* Scope.Scope;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const terminals = yield* TerminalManager.TerminalManager;
   const previews = yield* PreviewManager.PreviewManager;
   const processes = yield* ThreadProcesses.ThreadProcesses;
@@ -128,7 +128,7 @@ const make = Effect.gen(function* () {
       }),
     );
   });
-  const commandId = crypto.randomUUIDv4().pipe(
+  const commandId = random.uuidV4().pipe(
     Effect.orDie,
     Effect.map((id) => CommandId.make(`cleanup:${id}`)),
   );
@@ -343,7 +343,7 @@ const make = Effect.gen(function* () {
       const afterPreflight = (yield* SubscriptionRef.get(states)).get(input.threadId);
       if (running.has(input.threadId) && afterPreflight?.status === "closing")
         return afterPreflight;
-      const operationId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+      const operationId = yield* random.uuidV4().pipe(Effect.orDie);
       shell = yield* queries.getThreadShellById(input.threadId);
       if (Option.isNone(shell) || shell.value.archivedAt !== null) {
         return yield* new ThreadCleanupError({

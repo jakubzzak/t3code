@@ -4,11 +4,9 @@ import { inboxEnvironment } from "~/state/inbox";
 import { useEnvironmentQuery } from "~/state/query";
 import { DEFAULT_SERVER_SETTINGS, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import {
-  applyProviderInstanceSettings,
-  deriveProviderInstanceEntries,
-  sortProviderInstanceEntries,
-} from "~/providerInstances";
+import { providerInstanceEntriesFor } from "~/providerInstances";
+import { useEnvironmentProviders } from "~/state/environments";
+import { EMPTY_SERVER_PROVIDERS } from "~/state/server";
 import { getCustomModelOptionsByInstance } from "~/modelSelection";
 import { useSettingsScope } from "../settings/SettingsScopeContext";
 import {
@@ -40,14 +38,12 @@ function InboxProcessingGroup({ kind }: { kind: "summary" | "agent" }) {
   const enabledMixed = useScopedSettingsMixed([enabledKey]);
   const modelMixed = useScopedSettingsMixed([modelKey]);
   const promptMixed = useScopedSettingsMixed([promptKey]);
-  const providers = environment?.serverConfig?.providers ?? [];
-  const entries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(providers),
-      settings,
-      target?.projectId ?? null,
-    ),
-  );
+  const providersByEnvironment = useEnvironmentProviders();
+  const providers =
+    (environment?.serverConfig
+      ? providersByEnvironment.get(environment.environmentId)
+      : undefined) ?? EMPTY_SERVER_PROVIDERS;
+  const entries = providerInstanceEntriesFor(providers, settings, target?.projectId ?? null);
   const disabledReason = useScopedModelDisabledReason(settings, entries);
   const selection =
     settings[modelKey] ??
@@ -126,7 +122,7 @@ function InboxProcessingGroup({ kind }: { kind: "summary" | "agent" }) {
                   aria-label={promptLabel}
                   defaultValue={promptMixed ? "" : prompt}
                   placeholder={
-                    promptMixed ? "Mixed — enter a prompt for selected projects" : undefined
+                    promptMixed ? "Mixed: enter a prompt for selected projects" : undefined
                   }
                   rows={4}
                   maxLength={8000}

@@ -139,8 +139,8 @@ export const layer = Layer.effect(
         for (const [state, flow] of pending)
           if (flow.projectId === projectId) pending.delete(state);
       });
-    const exchange = (params: Record<string, string>) =>
-      Effect.gen(function* () {
+    const exchange = Effect.fn("exchange")(
+      function* (params: Record<string, string>) {
         const response = yield* http
           .execute(
             HttpClientRequest.post("https://slack.com/api/oauth.v2.access").pipe(
@@ -165,12 +165,12 @@ export const layer = Layer.effect(
         });
         if (!result.ok) return yield* authorizationFailure(result.error);
         return result;
-      }).pipe(
-        Effect.timeoutOrElse({
-          duration: "30 seconds",
-          orElse: () => fail("Slack authorization timed out waiting for Slack. Connect again."),
-        }),
-      );
+      },
+      Effect.timeoutOrElse({
+        duration: "30 seconds",
+        orElse: () => fail("Slack authorization timed out waiting for Slack. Connect again."),
+      }),
+    );
     const save = (projectId: ProjectId, credential: typeof Credential.Type) =>
       secrets
         .set(credentialKey(projectId), new TextEncoder().encode(JSON.stringify(credential)))
@@ -178,24 +178,23 @@ export const layer = Layer.effect(
           Effect.mapError(() => fail("Could not save the Slack connection on this environment.")),
         );
     return SlackConnection.of({
-      status: (projectId) =>
-        Effect.gen(function* () {
-          const stored = yield* secrets
-            .get(credentialKey(projectId))
-            .pipe(Effect.mapError(() => fail("Could not read the Slack connection.")));
-          if (Option.isNone(stored)) return { canReply: false };
-          const text = new TextDecoder().decode(stored.value);
-          if (text.startsWith("xoxp-")) return {};
-          const credential = yield* Effect.try({
-            try: () => decodeCredential(text),
-            catch: () => fail("Reconnect Slack to repair its saved connection."),
-          });
-          return {
-            canReply: credential.scopes?.includes("chat:write") ?? false,
-            account: credential.account,
-          };
-        }),
-      begin: (projectId, origin) =>
+      status: Effect.fn("SlackConnection.status")(function* (projectId) {
+        const stored = yield* secrets
+          .get(credentialKey(projectId))
+          .pipe(Effect.mapError(() => fail("Could not read the Slack connection.")));
+        if (Option.isNone(stored)) return { canReply: false };
+        const text = new TextDecoder().decode(stored.value);
+        if (text.startsWith("xoxp-")) return {};
+        const credential = yield* Effect.try({
+          try: () => decodeCredential(text),
+          catch: () => fail("Reconnect Slack to repair its saved connection."),
+        });
+        return {
+          canReply: credential.scopes?.includes("chat:write") ?? false,
+          account: credential.account,
+        };
+      }),
+      begin: Effect.fn("SlackConnection.begin")((projectId, origin) =>
         lock(projectId)(
           Effect.gen(function* () {
             const config = resolveProjectSettings(
@@ -233,45 +232,46 @@ export const layer = Layer.effect(
             return url.toString();
           }),
         ),
-      complete: (state, code) =>
-        Effect.gen(function* () {
-          const flow = pending.get(state);
-          if (!flow)
-            return yield* fail("Slack sign-in expired or was already used. Connect again.");
-          return yield* lock(flow.projectId)(
-            Effect.gen(function* () {
-              if (pending.get(state) !== flow || flow.expiresAt <= clock.currentTimeMillisUnsafe())
-                return yield* fail("Slack sign-in expired or was already used. Connect again.");
-              pending.delete(state);
-              const result = yield* exchange({
-                client_id: flow.clientId,
-                redirect_uri: flow.redirectUri,
-                code,
-                grant_type: "authorization_code",
-                code_verifier: flow.verifier,
-              });
-              if (!result.authed_user || !result.team)
-                return yield* fail(
-                  "Slack did not grant a user connection. Authorize the requested user permissions.",
-                );
-              const user = result.authed_user;
-              const account = `${result.team.name} · ${user.id}`;
-              yield* save(flow.projectId, {
-                clientId: flow.clientId,
-                accessToken: user.access_token,
-                ...(user.refresh_token ? { refreshToken: user.refresh_token } : {}),
-                expiresAt: user.expires_in
-                  ? clock.currentTimeMillisUnsafe() + user.expires_in * 1000
-                  : null,
-                account,
-                scopes: user.scope?.split(",") ?? [],
-              });
-              return { projectId: flow.projectId, account };
-            }),
-          );
-        }),
-      cancel: (projectId) => lock(projectId)(cancel(projectId)),
-      disconnect: (projectId) =>
+      ),
+      complete: Effect.fn("SlackConnection.complete")(function* (state, code) {
+        const flow = pending.get(state);
+        if (!flow) return yield* fail("Slack sign-in expired or was already used. Connect again.");
+        return yield* lock(flow.projectId)(
+          Effect.gen(function* () {
+            if (pending.get(state) !== flow || flow.expiresAt <= clock.currentTimeMillisUnsafe())
+              return yield* fail("Slack sign-in expired or was already used. Connect again.");
+            pending.delete(state);
+            const result = yield* exchange({
+              client_id: flow.clientId,
+              redirect_uri: flow.redirectUri,
+              code,
+              grant_type: "authorization_code",
+              code_verifier: flow.verifier,
+            });
+            if (!result.authed_user || !result.team)
+              return yield* fail(
+                "Slack did not grant a user connection. Authorize the requested user permissions.",
+              );
+            const user = result.authed_user;
+            const account = `${result.team.name} · ${user.id}`;
+            yield* save(flow.projectId, {
+              clientId: flow.clientId,
+              accessToken: user.access_token,
+              ...(user.refresh_token ? { refreshToken: user.refresh_token } : {}),
+              expiresAt: user.expires_in
+                ? clock.currentTimeMillisUnsafe() + user.expires_in * 1000
+                : null,
+              account,
+              scopes: user.scope?.split(",") ?? [],
+            });
+            return { projectId: flow.projectId, account };
+          }),
+        );
+      }),
+      cancel: Effect.fn("SlackConnection.cancel")((projectId) =>
+        lock(projectId)(cancel(projectId)),
+      ),
+      disconnect: Effect.fn("SlackConnection.disconnect")((projectId) =>
         lock(projectId)(
           cancel(projectId).pipe(
             Effect.andThen(
@@ -281,7 +281,8 @@ export const layer = Layer.effect(
             ),
           ),
         ),
-      accessToken: (projectId) =>
+      ),
+      accessToken: Effect.fn("SlackConnection.accessToken")((projectId) =>
         lock(projectId)(
           Effect.gen(function* () {
             const stored = yield* secrets
@@ -321,6 +322,7 @@ export const layer = Layer.effect(
             return credential.accessToken;
           }),
         ),
+      ),
     });
   }),
 );

@@ -74,7 +74,7 @@ it.effect("does not replace a lost OS key when encrypted integration records rem
     let writes = 0;
     const key = yield* Vault.make.pipe(
       Effect.provideService(OsKeyring.IntegrationKeyring, {
-        read: () => Effect.succeed(undefined),
+        read: () => Effect.undefined,
         write: () =>
           Effect.sync(() => {
             writes++;

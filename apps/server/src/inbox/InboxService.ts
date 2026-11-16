@@ -122,66 +122,64 @@ const make = Effect.gen(function* () {
   const save = (notification: InboxNotification) =>
     repository.put({ ...notification, revision: notification.revision + 1 });
   // Queue research only once a client asks to display a completed summary, including old records.
-  const prepareResearch = (notification: InboxNotification) =>
-    Effect.gen(function* () {
-      if (!notification.analysis || notification.suggestionResearch) return notification;
-      const config = yield* readProjectSettings(notification.projectId);
-      if (!config.inboxSummaryEnabled || !config.inboxPreResolution) return notification;
-      const next: InboxNotification = {
-        ...notification,
-        suggestionResearch: {
-          status:
-            notification.analysis.suggestions.some((text) => text.trim()) ||
-            notification.analysis.replyDraft?.trim()
-              ? "ready"
-              : "researching",
-          attempts: 0,
-          version: 0,
-          retryAt: null,
+  const prepareResearch = Effect.fn("prepareResearch")(function* (notification: InboxNotification) {
+    if (!notification.analysis || notification.suggestionResearch) return notification;
+    const config = yield* readProjectSettings(notification.projectId);
+    if (!config.inboxSummaryEnabled || !config.inboxPreResolution) return notification;
+    const next: InboxNotification = {
+      ...notification,
+      suggestionResearch: {
+        status:
+          notification.analysis.suggestions.some((text) => text.trim()) ||
+          notification.analysis.replyDraft?.trim()
+            ? "ready"
+            : "researching",
+        attempts: 0,
+        version: 0,
+        retryAt: null,
+      },
+    };
+    yield* repository.put(next);
+    return next;
+  });
+  const reconcile = Effect.fn("reconcile")(function* (item: InboxNotification) {
+    let next = readableNotification(item);
+    if (
+      item.state.placement === "snoozed" &&
+      item.state.snoozedUntil !== null &&
+      Date.parse(item.state.snoozedUntil) <= (yield* Clock.currentTimeMillis)
+    ) {
+      next = {
+        ...next,
+        state: {
+          ...next.state,
+          placement: next.state.threadId ? "delegated" : "active",
+          snoozedUntil: null,
         },
       };
+    }
+    if (next.state.threadId && !["linking", "starting", "failed"].includes(next.agentStatus)) {
+      const status = yield* agent.status(next.state.threadId);
+      if (status.exists) {
+        if (next.agentStatus === "running" && status.error)
+          next = { ...next, agentStatus: "failed", agentError: status.error };
+        else if (next.agentStatus === "stop-requested" && !status.running)
+          next = { ...next, agentStatus: "stopped" };
+        else if (next.agentStatus === "running" && !status.running)
+          next = { ...next, agentStatus: "stopped" };
+        if (status.settled !== next.linkedChatSettled)
+          next = {
+            ...next,
+            linkedChatSettled: status.settled,
+          };
+      }
+    }
+    if (next !== item) {
+      next = { ...next, revision: item.revision + 1 };
       yield* repository.put(next);
-      return next;
-    });
-  const reconcile = (item: InboxNotification) =>
-    Effect.gen(function* () {
-      let next = readableNotification(item);
-      if (
-        item.state.placement === "snoozed" &&
-        item.state.snoozedUntil !== null &&
-        Date.parse(item.state.snoozedUntil) <= (yield* Clock.currentTimeMillis)
-      ) {
-        next = {
-          ...next,
-          state: {
-            ...next.state,
-            placement: next.state.threadId ? "delegated" : "active",
-            snoozedUntil: null,
-          },
-        };
-      }
-      if (next.state.threadId && !["linking", "starting", "failed"].includes(next.agentStatus)) {
-        const status = yield* agent.status(next.state.threadId);
-        if (status.exists) {
-          if (next.agentStatus === "running" && status.error)
-            next = { ...next, agentStatus: "failed", agentError: status.error };
-          else if (next.agentStatus === "stop-requested" && !status.running)
-            next = { ...next, agentStatus: "stopped" };
-          else if (next.agentStatus === "running" && !status.running)
-            next = { ...next, agentStatus: "stopped" };
-          if (status.settled !== next.linkedChatSettled)
-            next = {
-              ...next,
-              linkedChatSettled: status.settled,
-            };
-        }
-      }
-      if (next !== item) {
-        next = { ...next, revision: item.revision + 1 };
-        yield* repository.put(next);
-      }
-      return next;
-    });
+    }
+    return next;
+  });
   const drain = mutex.withPermits(1)(
     Effect.gen(function* () {
       for (const item of yield* repository.pending) {
@@ -556,10 +554,9 @@ const make = Effect.gen(function* () {
             : [];
         const analyzed = yield* analyzer.analyze(claimed, history, references).pipe(
           Effect.timeout("1 minute"),
-          Effect.flatMap((result) =>
-            result.summary.trim()
-              ? Effect.succeed(result)
-              : Effect.fail(new InboxError({ detail: "Empty summary" })),
+          Effect.filterOrFail(
+            (result) => result.summary.trim() !== "",
+            () => new InboxError({ detail: "Empty summary" }),
           ),
           Effect.result,
         );
@@ -751,7 +748,7 @@ const make = Effect.gen(function* () {
         if (delay !== null)
           yield* Effect.sleep(delay).pipe(
             Effect.andThen(drainResearch),
-            Effect.catch(() => Effect.void),
+            Effect.ignore,
             Effect.forkIn(scope),
           );
       }).pipe(
@@ -1031,11 +1028,12 @@ const make = Effect.gen(function* () {
     });
   return InboxService.of({
     reply,
-    references: (input) =>
+    references: Effect.fn("InboxService.references")((input) =>
       requireEnabled(input.projectId).pipe(
         Effect.andThen(repository.references(input.projectId, input.offset)),
       ),
-    list: (input) =>
+    ),
+    list: Effect.fn("InboxService.list")((input) =>
       mutex
         .withPermits(1)(
           Effect.gen(function* () {
@@ -1101,7 +1099,8 @@ const make = Effect.gen(function* () {
           }),
         )
         .pipe(Effect.tap(() => kickResearch)),
-    get: (input) =>
+    ),
+    get: Effect.fn("InboxService.get")((input) =>
       mutex
         .withPermits(1)(
           requireEnabled(input.projectId).pipe(
@@ -1112,7 +1111,8 @@ const make = Effect.gen(function* () {
           ),
         )
         .pipe(Effect.tap(() => kickResearch)),
-    cacheLinearIssue: (input) =>
+    ),
+    cacheLinearIssue: Effect.fn("InboxService.cacheLinearIssue")((input) =>
       mutex.withPermits(1)(
         Effect.gen(function* () {
           yield* requireEnabled(input.projectId);
@@ -1154,7 +1154,8 @@ const make = Effect.gen(function* () {
           return next;
         }),
       ),
-    cacheSlackThread: (input) =>
+    ),
+    cacheSlackThread: Effect.fn("InboxService.cacheSlackThread")((input) =>
       mutex.withPermits(1)(
         Effect.gen(function* () {
           yield* requireEnabled(input.projectId);
@@ -1162,9 +1163,9 @@ const make = Effect.gen(function* () {
           if (!current || current.source !== "slack") return null;
           const key = `${input.thread.channelId}:${input.thread.ts}`;
           if (current.groupId !== key)
-            return yield* Effect.fail(
-              new InboxError({ detail: "This thread does not belong to this notification." }),
-            );
+            return yield* new InboxError({
+              detail: "This thread does not belong to this notification.",
+            });
           // Hydration/history does not mark unread, clear analysis, or change triage state.
           const confirmed = confirmedSlackReplyCursor(current.slackThread, input.thread);
           if (
@@ -1199,7 +1200,8 @@ const make = Effect.gen(function* () {
           return next;
         }),
       ),
-    ingest: (projectId, items, options) =>
+    ),
+    ingest: Effect.fn("InboxService.ingest")((projectId, items, options) =>
       mutex
         .withPermits(1)(
           Effect.gen(function* () {
@@ -1277,6 +1279,7 @@ const make = Effect.gen(function* () {
           }),
         )
         .pipe(Effect.tap(() => kickAnalysis)),
+    ),
     mutate,
     drain,
     drainAnalysis,

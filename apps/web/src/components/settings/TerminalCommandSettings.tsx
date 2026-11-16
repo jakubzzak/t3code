@@ -11,6 +11,7 @@ export function TerminalCommandSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the desktop bridge's terminal command state, ignoring the reply after unmount
   useEffect(() => {
     if (!bridge) return;
     let active = true;
@@ -34,24 +35,28 @@ export function TerminalCommandSettings() {
   const run = async (action: "get" | "install" | "remove") => {
     setBusy(true);
     setError(null);
-    try {
-      setState(await bridge[action]());
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not update the terminal command. Try again.",
+    const next = await Promise.resolve()
+      .then(() => bridge[action]())
+      .then(
+        (value) => ({ value }),
+        (cause: unknown) => {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Could not update the terminal command. Try again.",
+          );
+          return null;
+        },
       );
-    } finally {
-      setBusy(false);
-    }
+    if (next) setState(next.value);
+    setBusy(false);
   };
 
   return (
     <SettingsSection id="terminal" title="Terminal">
       <SettingsRow
         {...searchableSetting("terminal-command")}
-        description="Open a project with a fresh chat using t3 . — even when the desktop app is closed."
+        description="Run t3 . in a terminal to open a project with a fresh chat, even when the desktop app is closed."
         control={
           state?.installed ? (
             <Button variant="outline" disabled={busy} onClick={() => void run("remove")}>

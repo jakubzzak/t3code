@@ -13,28 +13,27 @@ const headers = {
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const sources = yield* InboxSources;
-    const callback = (
+    const callback = Effect.fn("callback")(function* (
       name: string,
       complete: (state: string, code: string) => Effect.Effect<void, InboxError>,
-    ) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const params = new URL(request.url, "http://localhost").searchParams;
-        const code = params.get("code");
-        const state = params.get("state");
-        if (!code || !state || params.has("error"))
-          return HttpServerResponse.text(
-            "Authorization was cancelled or incomplete. Return to Blackbird Integrations and connect again.",
-            { status: 400, headers },
-          );
-        const result = yield* complete(state, code).pipe(Effect.result);
+    ) {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const params = new URL(request.url, "http://localhost").searchParams;
+      const code = params.get("code");
+      const state = params.get("state");
+      if (!code || !state || params.has("error"))
         return HttpServerResponse.text(
-          result._tag === "Success"
-            ? `${name} connected. Return to Blackbird Integrations to configure its notification sources.`
-            : result.failure.detail,
-          { status: result._tag === "Success" ? 200 : 400, headers },
+          "Authorization was cancelled or incomplete. Return to Blackbird Integrations and connect again.",
+          { status: 400, headers },
         );
-      });
+      const result = yield* complete(state, code).pipe(Effect.result);
+      return HttpServerResponse.text(
+        result._tag === "Success"
+          ? `${name} connected. Return to Blackbird Integrations to configure its notification sources.`
+          : result.failure.detail,
+        { status: result._tag === "Success" ? 200 : 400, headers },
+      );
+    });
     return Layer.mergeAll(
       HttpRouter.add("GET", SLACK_CALLBACK_PATH, callback("Slack", sources.completeSlack)),
       HttpRouter.add(

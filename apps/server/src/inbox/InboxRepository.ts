@@ -126,7 +126,7 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => rows[0]!.started_at),
       Effect.mapError(failed),
     ),
-    references: (projectId, offset = 0) =>
+    references: Effect.fn("InboxRepository.references")((projectId, offset = 0) =>
       sql<{
         payload_json: string;
       }>`SELECT current.payload_json FROM inbox_irrelevance_references AS current
@@ -140,7 +140,8 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError(failed),
       ),
-    replyReceipt: (commandId) =>
+    ),
+    replyReceipt: Effect.fn("InboxRepository.replyReceipt")((commandId) =>
       sql<{
         result_json: string;
       }>`SELECT result_json FROM inbox_commands WHERE command_id=${commandId}`.pipe(
@@ -149,7 +150,8 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError(failed),
       ),
-    recordReply: (notification, attempt) =>
+    ),
+    recordReply: Effect.fn("InboxRepository.recordReply")((notification, attempt) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -160,15 +162,18 @@ const make = Effect.gen(function* () {
           }),
         )
         .pipe(Effect.mapError(failed)),
-    forThread: (projectId, threadId) =>
+    ),
+    forThread: Effect.fn("InboxRepository.forThread")((projectId, threadId) =>
       rows(
         sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId} AND thread_id=${threadId} LIMIT 1`,
       ).pipe(Effect.map((items) => items[0] ?? null)),
-    get: (projectId, id) =>
+    ),
+    get: Effect.fn("InboxRepository.get")((projectId, id) =>
       rows(
         sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId} AND id=${id}`,
       ).pipe(Effect.map((items) => items[0] ?? null)),
-    list: (projectId, page) => {
+    ),
+    list: Effect.fn("InboxRepository.list")((projectId, page) => {
       const search = page?.search?.toLowerCase() ?? "";
       const sources = page?.sources ?? [];
       const include = page?.include;
@@ -223,15 +228,16 @@ const make = Effect.gen(function* () {
         ))
         ORDER BY CASE json_extract(payload_json, '$.state.placement') WHEN 'active' THEN 0 WHEN 'delegated' THEN 1 WHEN 'snoozed' THEN 2 ELSE 3 END, updated_at DESC, id
         LIMIT ${page ? Math.max(1, Math.min(page.limit ?? 100, 101)) : 500} OFFSET ${page?.offset ?? 0}`);
-    },
-    history: (projectId) =>
+    }),
+    history: Effect.fn("InboxRepository.history")((projectId) =>
       rows(sql`SELECT payload_json FROM inbox_notifications WHERE project_id=${projectId}
       AND length(trim(coalesce(json_extract(payload_json, '$.confirmedOutcome'), ''))) > 0
       ORDER BY updated_at DESC LIMIT 500`),
+    ),
     pending: rows(
       sql`SELECT payload_json FROM inbox_notifications WHERE json_extract(payload_json, '$.agentStatus') IN ('linking','starting','stop-requested') LIMIT 500`,
     ),
-    pendingAnalysis: (projects) =>
+    pendingAnalysis: Effect.fn("InboxRepository.pendingAnalysis")((projects) =>
       projects.length
         ? Effect.gen(function* () {
             const now = DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis));
@@ -241,7 +247,8 @@ const make = Effect.gen(function* () {
         ORDER BY updated_at ASC, id LIMIT 500`);
           })
         : Effect.succeed([]),
-    pendingResearch: (projects) =>
+    ),
+    pendingResearch: Effect.fn("InboxRepository.pendingResearch")((projects) =>
       projects.length
         ? Effect.gen(function* () {
             const now = DateTime.formatIso(DateTime.makeUnsafe(yield* Clock.currentTimeMillis));
@@ -252,8 +259,9 @@ const make = Effect.gen(function* () {
         ORDER BY updated_at DESC, id LIMIT 100`);
           })
         : Effect.succeed([]),
+    ),
     put,
-    receipt: (commandId) =>
+    receipt: Effect.fn("InboxRepository.receipt")((commandId) =>
       sql<{
         result_json: string;
         undone: number;
@@ -267,7 +275,8 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError(failed),
       ),
-    commit: (notification, receipt, undone, reference) =>
+    ),
+    commit: Effect.fn("InboxRepository.commit")((notification, receipt, undone, reference) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -289,6 +298,7 @@ const make = Effect.gen(function* () {
           }),
         )
         .pipe(Effect.mapError(failed)),
+    ),
   });
 });
 export const layer = Layer.effect(InboxRepository, make);

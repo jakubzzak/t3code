@@ -31,15 +31,17 @@ export const layer = Layer.sync(IntegrationKeyring, () => {
     return new AsyncEntry("T3 Code integration vault", account);
   };
   return IntegrationKeyring.of({
-    read: (account) =>
+    read: Effect.fn("IntegrationKeyring.read")((account) =>
       Effect.tryPromise({
         try: (signal) => entry(account).getPassword(signal),
         catch: (cause) => new IntegrationKeyringError({ cause }),
       }),
-    write: (account, value) =>
+    ),
+    write: Effect.fn("IntegrationKeyring.write")((account, value) =>
       Effect.tryPromise({
         try: (signal) => entry(account).setPassword(value, signal),
         catch: (cause) => new IntegrationKeyringError({ cause }),
       }),
+    ),
   });
 });

@@ -11,6 +11,7 @@ function ResearchProgress() {
   const [active, setActive] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [cycle, setCycle] = useState(() => nextResearchPhrase({ phrase: "", remaining: [] }));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows viewport intersection, page visibility and reduced-motion media queries while mounted.
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     let visible = true;
@@ -35,6 +36,7 @@ function ResearchProgress() {
       media?.removeEventListener("change", sync);
     };
   }, []);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- runs the phrase rotation timer only while the indicator is visible.
   useEffect(() => {
     if (!active) return;
     const timer = window.setInterval(() => setCycle(nextResearchPhrase), 3000);

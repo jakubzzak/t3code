@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProjectId, LinearDesktopResult } from "@t3tools/contracts";
 import { inboxEnvironment } from "~/state/inbox";
@@ -31,24 +31,47 @@ export function EnvironmentLinearSettings({
   const disconnect = useAtomCommand(inboxEnvironment.linearDisconnect);
   const prepare = useAtomCommand(inboxEnvironment.linearPrepareMigration);
   const importConnection = useAtomCommand(inboxEnvironment.linearImportMigration);
-  const refresh = useCallback(async () => {
+  const applyStatus = (next: LinearDesktopResult) => {
+    setStatus(next);
+    setError(null);
+    if (next.connection) setUrl(null);
+  };
+  const failStatus = (cause: unknown) =>
+    setError(cause instanceof Error ? cause.message : "Could not read Linear connection.");
+  const refresh = async () => {
     if (!workspace) return;
-    try {
-      const next = await requestLinear({ operation: "status", workspace, connectionKey });
-      setStatus(next);
-      setError(null);
-      if (next.connection) setUrl(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not read Linear connection.");
-    }
-  }, [workspace, connectionKey]);
+    await requestLinear({ operation: "status", workspace, connectionKey }).then(
+      applyStatus,
+      failStatus,
+    );
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls the environment's Linear connection status every 5s while the page is visible
   useEffect(() => {
-    void refresh();
+    if (!workspace) return;
+    let active = true;
+    const poll = () =>
+      void requestLinear({ operation: "status", workspace, connectionKey }).then(
+        (next) => {
+          if (!active) return;
+          setStatus(next);
+          setError(null);
+          if (next.connection) setUrl(null);
+        },
+        (cause: unknown) => {
+          if (active)
+            setError(cause instanceof Error ? cause.message : "Could not read Linear connection.");
+        },
+      );
+    poll();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") poll();
     }, 5000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [workspace, connectionKey]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the desktop app's older local Linear connection to offer migrating it
   useEffect(() => {
     let active = true;
     if (workspace && window.desktopBridge?.linearRequest)
@@ -68,29 +91,30 @@ export function EnvironmentLinearSettings({
     const popup = !window.desktopBridge ? window.open("", "_blank") : null;
     if (popup) popup.opener = null;
     setPending(true);
-    try {
-      const result = await begin({ environmentId, input: { projectId } });
-      if (result._tag !== "Success") {
-        popup?.close();
-        return;
-      }
-      setUrl(result.value);
-      if (popup) popup.location.href = result.value;
-      else await ensureLocalApi().shell.openExternal(result.value);
-    } catch {
-      setError("Open the sign-in link to finish connecting Linear.");
-    } finally {
-      setPending(false);
-    }
+    await begin({ environmentId, input: { projectId } })
+      .then(async (result) => {
+        if (result._tag !== "Success") {
+          popup?.close();
+          return;
+        }
+        setUrl(result.value);
+        if (popup) popup.location.href = result.value;
+        else await ensureLocalApi().shell.openExternal(result.value);
+      })
+      .catch(() => {
+        setError("Open the sign-in link to finish connecting Linear.");
+      });
+    setPending(false);
   }
   async function migrate() {
-    if (!window.desktopBridge?.linearRequest) return;
+    const request = window.desktopBridge?.linearRequest;
+    if (!request) return;
     setPending(true);
     setError(null);
-    try {
+    const run = async () => {
       const ticket = await prepare({ environmentId, input: { projectId } });
       if (ticket._tag !== "Success") return;
-      const exported = await window.desktopBridge.linearRequest({
+      const exported = await request({
         operation: "export",
         workspace,
         connectionKey,
@@ -103,15 +127,15 @@ export function EnvironmentLinearSettings({
         input: { projectId, ticket: ticket.value.ticket, envelope: exported.migration },
       });
       await refresh();
-    } catch (cause) {
+    };
+    await run().catch((cause: unknown) => {
       setError(
         cause instanceof Error
           ? cause.message
           : "Linear migration failed. The original connection remains on this desktop.",
       );
-    } finally {
-      setPending(false);
-    }
+    });
+    setPending(false);
   }
   return (
     <SettingsRow

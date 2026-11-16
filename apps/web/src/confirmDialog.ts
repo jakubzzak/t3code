@@ -6,18 +6,21 @@ export type ConfirmDialogState =
       readonly status: "confirming";
       readonly message: string;
       readonly variant: ConfirmDialogVariant;
+      readonly initialFocus: ConfirmDialogOptions["initialFocus"];
       readonly confirmLabel?: string;
     }
   | {
       readonly status: "closing";
       readonly message: string;
       readonly variant: ConfirmDialogVariant;
+      readonly initialFocus: ConfirmDialogOptions["initialFocus"];
       readonly confirmLabel?: string;
     };
 
 type PendingConfirmation = {
   readonly message: string;
   readonly variant: ConfirmDialogVariant;
+  readonly initialFocus: ConfirmDialogOptions["initialFocus"];
   readonly confirmLabel?: string;
   readonly resolve: (confirmed: boolean) => void;
 };
@@ -26,7 +29,6 @@ const idleState: ConfirmDialogState = { status: "idle" };
 let state: ConfirmDialogState = idleState;
 let activeConfirmation: PendingConfirmation | null = null;
 let queuedConfirmations: PendingConfirmation[] = [];
-let registeredHostCount = 0;
 const listeners = new Set<() => void>();
 
 function publish(next: ConfirmDialogState): void {
@@ -49,47 +51,31 @@ export function readConfirmDialogState(): ConfirmDialogState {
   return state;
 }
 
-export function subscribeConfirmDialog(listener: () => void): () => void {
+/**
+ * Only themed hosts subscribe, so a subscriber is a mounted host. When the last
+ * one leaves, pending confirmations resolve as cancelled.
+ */
+export function subscribeConfirmDialogHost(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
-    listeners.delete(listener);
+    if (!listeners.delete(listener) || listeners.size > 0) return;
+    resolvePendingConfirmations(false);
+    publish(idleState);
   };
 }
 
-/**
- * Registers the renderer host that can present themed confirmations. The
- * returned cleanup function also cancels any request left without a host.
- */
-export function registerConfirmDialogHost(): () => void {
-  registeredHostCount += 1;
-  let registered = true;
-
-  return () => {
-    if (!registered) return;
-    registered = false;
-    registeredHostCount = Math.max(0, registeredHostCount - 1);
-
-    if (registeredHostCount === 0) {
-      resolvePendingConfirmations(false);
-      publish(idleState);
-    }
-  };
-}
-
-/**
- * Requests a themed confirmation when a host is mounted. An undefined result
- * means no themed host is currently available.
- */
+/** Undefined means no themed host is available. */
 export function requestConfirmDialog(
   message: string,
   options?: ConfirmDialogOptions & { readonly confirmLabel?: string },
 ): Promise<boolean> | undefined {
-  if (registeredHostCount === 0) return undefined;
+  if (listeners.size === 0) return undefined;
 
   const confirmation = new Promise<boolean>((resolve) => {
     const pending = {
       message,
       variant: options?.variant ?? "default",
+      initialFocus: options?.initialFocus,
       ...(options?.confirmLabel ? { confirmLabel: options.confirmLabel } : {}),
       resolve,
     } satisfies PendingConfirmation;
@@ -103,6 +89,7 @@ export function requestConfirmDialog(
       status: "confirming",
       message,
       variant: pending.variant,
+      initialFocus: pending.initialFocus,
       ...(pending.confirmLabel ? { confirmLabel: pending.confirmLabel } : {}),
     });
   });
@@ -110,7 +97,6 @@ export function requestConfirmDialog(
   return confirmation;
 }
 
-/** True while a confirmation is shown, closing, or waiting to be shown. */
 export function isConfirmDialogActive(): boolean {
   return state.status !== "idle" || activeConfirmation !== null || queuedConfirmations.length > 0;
 }
@@ -125,6 +111,7 @@ export function respondToConfirmDialog(confirmed: boolean): void {
     status: "closing",
     message: state.message,
     variant: state.variant,
+    initialFocus: state.initialFocus,
     ...(state.confirmLabel ? { confirmLabel: state.confirmLabel } : {}),
   });
 }
@@ -143,13 +130,13 @@ export function completeConfirmDialogClose(): void {
     status: "confirming",
     message: next.message,
     variant: next.variant,
+    initialFocus: next.initialFocus,
     ...(next.confirmLabel ? { confirmLabel: next.confirmLabel } : {}),
   });
 }
 
 export function resetConfirmDialogForTests(): void {
-  resolvePendingConfirmations(false);
-  registeredHostCount = 0;
-  publish(idleState);
   listeners.clear();
+  resolvePendingConfirmations(false);
+  publish(idleState);
 }

@@ -16,7 +16,7 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { AppText } from "../../components/AppText";
+import { AppText } from "../../components/ui/AppText";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -59,6 +59,7 @@ function Progress({ request }: { request: CleanupRequest }) {
   const [visible, setVisible] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(true);
   const started = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the native reduce-motion setting while the modal is mounted
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
     const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
@@ -90,6 +91,7 @@ function Progress({ request }: { request: CleanupRequest }) {
       setError(failure instanceof Error ? failure.message : "Could not connect. Retry cleanup.");
     }
   }, [confirmationRequired, request, start, target]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the server cleanup operation once when the modal opens
   useEffect(() => {
     if (!started.current) {
       started.current = true;
@@ -101,6 +103,7 @@ function Progress({ request }: { request: CleanupRequest }) {
       ? stream.value
       : initial;
   const complete = progress?.status === "complete";
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds the close timers after cleanup completes
   useEffect(() => {
     if (!complete) return;
     const hide = setTimeout(() => setVisible(false), 350);

@@ -28,15 +28,8 @@ import {
   useLinearIssuePreferences,
   type LinearIssuePreferences,
 } from "./linearIssuePreferences";
-import {
-  type KeyboardEvent,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { useThreadShellsForProjectRefs } from "~/state/entities";
 import { ComposerContextLabel } from "../ComposerContextLabel";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
@@ -112,7 +105,8 @@ export function LinearIssuePicker(props: Props) {
   const creation = useLinearCreations((state) => state.entries[creationKey]);
   const error = actionError ?? creation?.error ?? loadError;
   const mounted = useRef(true);
-  const latest = useRef(props);
+  // Creation finishes in the background; its callback checks the picker is still mounted.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks mount so a background issue creation that resolves later knows whether this picker still exists
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -125,109 +119,94 @@ export function LinearIssuePicker(props: Props) {
   } | null>(null);
   const conflict = localConflict ?? creation?.conflict ?? null;
   const generation = useRef(0);
-  const refs = useMemo(
-    () =>
-      [
-        ...new Set([
-          props.projectId,
-          ...(conflict?.result.conflicts.map((item) => item.projectId) ?? []),
-        ]),
-      ].map((id) => scopeProjectRef(props.environmentId, id)),
-    [props.environmentId, props.projectId, conflict],
-  );
+  const refs = [
+    ...new Set([
+      props.projectId,
+      ...(conflict?.result.conflicts.map((item) => item.projectId) ?? []),
+    ]),
+  ].map((id) => scopeProjectRef(props.environmentId, id));
   const threads = useThreadShellsForProjectRefs(refs);
   const request = requestLinear;
   const connectionKey = JSON.stringify([props.environmentId, props.projectId]);
-  const load = useCallback(
-    async (after?: string, version = ++generation.current) => {
+  // Stable so the open effect and the page observer always run this render's query.
+  const load = useStableCallback(
+    async (after?: string, requestVersion?: number, requestKey?: string) => {
+      const version = requestVersion ?? ++generation.current;
+      const key = requestKey ?? debouncedKey;
       if (!request) return;
       setLoading(true);
       if (!after) setCursor(null);
       setLoadError(null);
-      try {
-        const result = await request({
-          operation: "issues",
-          workspace: props.workspace,
-          connectionKey,
-          query: debouncedQuery,
-          view,
-          sort: preferences.sort,
-          ...(preferences.stateIds.length ? { stateIds: preferences.stateIds } : {}),
-          ...(preferences.priorities.length ? { priorities: preferences.priorities } : {}),
-          ...(teamId ? { teamId } : {}),
-          ...(after ? { cursor: after } : {}),
-        });
-        if (version !== generation.current) return;
-        setIssues((previous) =>
-          after
-            ? [...previous, ...(result.issues ?? [])].filter(
-                (issue, index, all) => all.findIndex((entry) => entry.id === issue.id) === index,
-              )
-            : (result.issues ?? []),
-        );
-        setCursor(result.nextCursor === after ? null : (result.nextCursor ?? null));
-        setLoadedKey(debouncedKey);
-      } catch (cause) {
-        if (version === generation.current)
-          setLoadError(cause instanceof Error ? cause.message : "Unable to load Linear issues.");
-      } finally {
-        if (version === generation.current) setLoading(false);
-      }
+      await request({
+        operation: "issues",
+        workspace: props.workspace,
+        connectionKey,
+        query: debouncedQuery,
+        view,
+        sort: preferences.sort,
+        ...(preferences.stateIds.length ? { stateIds: preferences.stateIds } : {}),
+        ...(preferences.priorities.length ? { priorities: preferences.priorities } : {}),
+        ...(teamId ? { teamId } : {}),
+        ...(after ? { cursor: after } : {}),
+      }).then(
+        (result) => {
+          if (version !== generation.current) return;
+          setIssues((previous) =>
+            after
+              ? [...previous, ...(result.issues ?? [])].filter(
+                  (issue, index, all) => all.findIndex((entry) => entry.id === issue.id) === index,
+                )
+              : (result.issues ?? []),
+          );
+          setCursor(result.nextCursor === after ? null : (result.nextCursor ?? null));
+          setLoadedKey(key);
+        },
+        (cause: unknown) => {
+          if (version === generation.current)
+            setLoadError(cause instanceof Error ? cause.message : "Unable to load Linear issues.");
+        },
+      );
+      if (version === generation.current) setLoading(false);
     },
-    [
-      request,
-      props.workspace,
-      connectionKey,
-      debouncedQuery,
-      teamId,
-      view,
-      debouncedKey,
-      preferences,
-    ],
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the first page of Linear issues through the desktop bridge while open, dropping replies from older queries
   useEffect(() => {
     const version = ++generation.current;
-    if (open) void load(undefined, version);
+    if (open) void load(undefined, version, debouncedKey);
     return () => {
       generation.current++;
     };
-  }, [open, load]);
-  const observeNextPage = useCallback(
-    (sentinel: HTMLDivElement | null) => {
-      if (!sentinel || !open || loading || loadError || !cursor || loadedKey !== queryKey) return;
-      const key = JSON.stringify([queryKey, cursor]);
-      const version = generation.current;
-      const observer = new IntersectionObserver(
-        (entries) => {
-          if (
-            version !== generation.current ||
-            !entries.some((entry) => entry.isIntersecting) ||
-            pageRequest.current === key
-          )
-            return;
-          pageRequest.current = key;
-          void load(cursor).finally(() => {
-            if (pageRequest.current === key) pageRequest.current = null;
-          });
-        },
-        { root: listRef.current, rootMargin: "0px 0px 96px 0px" },
-      );
-      observer.observe(sentinel);
-      return () => observer.disconnect();
-    },
-    [open, loading, loadError, cursor, loadedKey, queryKey, load],
-  );
-  const changeTeam = useCallback(
-    (value: string) => {
-      if (value === teamId) return;
-      generation.current++;
-      setLoadedKey(null);
-      setCursor(null);
-      if (listRef.current) listRef.current.scrollTop = 0;
-      useLinearTeamFilters.getState().select(teamKey, value);
-    },
-    [teamKey, teamId],
-  );
+  }, [open, debouncedKey, load]);
+  const observeNextPage = (sentinel: HTMLDivElement | null) => {
+    if (!sentinel || !open || loading || loadError || !cursor || loadedKey !== queryKey) return;
+    const key = JSON.stringify([queryKey, cursor]);
+    const version = generation.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (
+          version !== generation.current ||
+          !entries.some((entry) => entry.isIntersecting) ||
+          pageRequest.current === key
+        )
+          return;
+        pageRequest.current = key;
+        void load(cursor).finally(() => {
+          if (pageRequest.current === key) pageRequest.current = null;
+        });
+      },
+      { root: listRef.current, rootMargin: "0px 0px 96px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  };
+  const changeTeam = (value: string) => {
+    if (value === teamId) return;
+    generation.current++;
+    setLoadedKey(null);
+    setCursor(null);
+    if (listRef.current) listRef.current.scrollTop = 0;
+    useLinearTeamFilters.getState().select(teamKey, value);
+  };
   const changePreferences = (value: LinearIssuePreferences) => {
     generation.current++;
     setLoadedKey(null);
@@ -241,7 +220,7 @@ export function LinearIssuePicker(props: Props) {
     setBusy(true);
     setActionError(null);
     setLoadError(null);
-    try {
+    const setup = async () => {
       const result = await props.onSelect(issue, takeover);
       setConflict(result.status === "conflict" ? { issue, result } : null);
       if (
@@ -250,28 +229,26 @@ export function LinearIssuePicker(props: Props) {
       )
         clearLinearCreation(creationKey);
       if (result.status === "linked") {
-        try {
-          await props.onOpenIssue?.(issue);
-        } catch (cause) {
-          throw new Error(
-            `Issue linked to this chat, but Linear could not open: ${cause instanceof Error ? cause.message : "Please retry opening the Linear panel."}`,
-            { cause },
-          );
-        }
+        await Promise.resolve()
+          .then(() => props.onOpenIssue?.(issue))
+          .catch((cause: unknown) => {
+            throw new Error(
+              `Issue linked to this chat, but Linear could not open: ${cause instanceof Error ? cause.message : "Please retry opening the Linear panel."}`,
+              { cause },
+            );
+          });
       }
-    } catch (cause) {
+    };
+    await setup().catch((cause: unknown) => {
       setActionError(
         cause instanceof Error ? cause.message : "Unable to set up the Linear issue. Try again.",
       );
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
   };
-  const selectCreated = useRef(select);
-  useLayoutEffect(() => {
-    latest.current = props;
-    selectCreated.current = select;
-  });
+  // A background creation can finish after props change; these read the latest render.
+  const selectCreated = useStableCallback(select);
+  const latestProps = useStableCallback(() => props);
   const createIssue = () => {
     if (!props.onCreate || props.running || busy) return;
     setOpen(false);
@@ -281,10 +258,11 @@ export function LinearIssuePicker(props: Props) {
       connectionKey,
       open: props.onCreate,
       onCreated: (issue) => {
+        const latest = latestProps();
         if (
           (!mounted.current ||
-            latest.current.environmentId !== props.environmentId ||
-            latest.current.threadId !== props.threadId) &&
+            latest.environmentId !== props.environmentId ||
+            latest.threadId !== props.threadId) &&
           props.onBackgroundCreated
         ) {
           void setupBackgroundLinearCreation(creationKey, issue, () =>
@@ -294,12 +272,12 @@ export function LinearIssuePicker(props: Props) {
         }
         if (
           mounted.current &&
-          latest.current.workspace === props.workspace &&
-          latest.current.projectId === props.projectId &&
-          !latest.current.running &&
-          !latest.current.linkedIssue
+          latest.workspace === props.workspace &&
+          latest.projectId === props.projectId &&
+          !latest.running &&
+          !latest.linkedIssue
         )
-          void selectCreated.current(issue);
+          void selectCreated(issue);
       },
     });
   };
@@ -372,7 +350,7 @@ export function LinearIssuePicker(props: Props) {
     variant: "outline" as const,
     tone: error ? ("destructive" as const) : ("default" as const),
     disabled: busy || creation?.status === "setting-up",
-    "aria-label": `${props.linkedIssue ? `Open Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"}${error ? (props.linkedIssue ? " — error, choose an issue for details" : " — error, open for details") : ""}`,
+    "aria-label": `${props.linkedIssue ? `Open Linear issue ${props.linkedIssue.identifier}` : "Link Linear issue"}${error ? (props.linkedIssue ? " (error, choose an issue for details)" : " (error, open for details)") : ""}`,
   };
   const issueLabel = (
     <>

@@ -59,6 +59,7 @@ it.effect(
               summary: "Review the reconnect behavior.",
               suggestions: ["Verify one reconnect retry."],
               precedentIds: [past.id, "unconfirmed"],
+              irrelevanceConfidence: null,
             };
           }),
       }),

@@ -1,4 +1,4 @@
-import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import { EllipsisVerticalIcon, type LucideIcon } from "lucide-react";
 import { observeResize } from "~/lib/observeResize";
 import { Button } from "../ui/button";
@@ -24,7 +24,7 @@ export function InboxActionStrip({
   hints: boolean;
 }) {
   const [slots, setSlots] = useState(Infinity);
-  const attach = useCallback((node: HTMLDivElement | null) => {
+  const attach = (node: HTMLDivElement | null) => {
     if (!node) return;
     const measure = () => {
       const buttonWidth = node.querySelector("button")?.getBoundingClientRect().width;
@@ -36,7 +36,7 @@ export function InboxActionStrip({
     };
     measure();
     return observeResize(node, measure);
-  }, []);
+  };
   // Once overflow is needed, reserve one of the available slots for the menu.
   const visibleCount = slots >= actions.length ? actions.length : Math.max(0, slots - 1);
   const hidden = actions.slice(visibleCount);

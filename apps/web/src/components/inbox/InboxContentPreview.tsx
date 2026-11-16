@@ -9,6 +9,7 @@ export function InboxContentPreview({ children, lines }: { children: ReactNode; 
   const content = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the rendered DOM and follows its resizes while mounted.
   useLayoutEffect(() => {
     const outer = viewport.current;
     const inner = content.current;

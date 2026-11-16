@@ -75,12 +75,15 @@ const make = Effect.gen(function* () {
     if (!session.storagePath) throw new Error("1Password needs a persistent browser profile.");
     return NodePath.join(session.storagePath, "t3-onepassword");
   };
+  const linuxConfigHome = environment.path.join(environment.homeDirectory, ".config");
   const roots = BROWSER_IMPORT_SOURCES.filter((source) => source.engine === "chromium")
     .map((source) =>
       source.userDataDirectory({
         path: environment.path,
         platform: environment.platform,
         home: environment.homeDirectory,
+        linuxConfigHome,
+        linuxChromeConfigHome: linuxConfigHome,
         appData: undefined,
         localAppData: undefined,
       }),
@@ -316,11 +319,17 @@ const make = Effect.gen(function* () {
 
   return OnePassword.of({
     prepare,
-    enable: (session, owner) => perform(session, () => enable(session, owner)),
-    disable: (session) => perform(session, () => disable(session)),
+    enable: Effect.fn("OnePassword.enable")((session, owner) =>
+      perform(session, () => enable(session, owner)),
+    ),
+    disable: Effect.fn("OnePassword.disable")((session) =>
+      perform(session, () => disable(session)),
+    ),
     track,
     isEnabled: (session) => profileFor(session).enabled,
-    open: (contents) => perform(contents.session, () => open(contents)),
+    open: Effect.fn("OnePassword.open")((contents) =>
+      perform(contents.session, () => open(contents)),
+    ),
     menuItems: (contents, owner) => {
       if (environment.platform !== "darwin") return [];
       const session = contents.session;

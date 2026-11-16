@@ -41,6 +41,7 @@ export function FileFilterControl({
   const busy = state.pending !== null;
   const count = `${visibleCount} of ${totalCount}${hasMore ? "+" : ""} files`;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels this control's pending filter request in the shared store when the scope changes or the control unmounts
   useEffect(
     () => () => {
       if (ownRequest.current) useFileFilterStore.getState().cancel(scopeKey, ownRequest.current);

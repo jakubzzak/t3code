@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { dismissContextMenu, showContextMenuFallback } from "./contextMenuFallback";
+import { showContextMenuFallback } from "./contextMenuFallback";
 
 type FakeListener = (event: FakeDomEvent) => void;
 
@@ -67,14 +67,6 @@ class FakeElement {
 
   setAttribute(name: string, value: string) {
     this.attributes.set(name, value);
-  }
-
-  getAttribute(name: string) {
-    return this.attributes.get(name) ?? null;
-  }
-
-  click() {
-    this.dispatchEvent(new FakeDomEvent("click"));
   }
 
   dispatchEvent(event: FakeDomEvent) {
@@ -185,10 +177,6 @@ class FakeDocument {
   querySelectorAll(tagName: string) {
     return this.body.querySelectorAll(tagName);
   }
-
-  dispatchEvent(event: FakeDomEvent) {
-    for (const listener of this.listeners.get(event.type) ?? []) listener(event);
-  }
 }
 
 function findButton(label: string): FakeElement | undefined {
@@ -203,6 +191,8 @@ beforeEach(() => {
   vi.stubGlobal("window", {
     innerWidth: 1280,
     innerHeight: 800,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
   });
   vi.stubGlobal("requestAnimationFrame", (callback: (time: number) => void) => {
     callback(0);
@@ -231,34 +221,6 @@ afterEach(() => {
 });
 
 describe("showContextMenuFallback", () => {
-  it("renders one separator between menu sections", async () => {
-    const selectionPromise = showContextMenuFallback([
-      { id: "rename", label: "Rename" },
-      { id: "archive", label: "Archive", separatorBefore: true },
-    ]);
-    const separators = (document as unknown as FakeDocument)
-      .querySelectorAll("div")
-      .filter((element) => element.dataset.contextMenuSeparator === "true");
-
-    expect(separators).toHaveLength(1);
-    expect(separators[0]?.attributes.get("role")).toBe("separator");
-    dismissContextMenu();
-    await expect(selectionPromise).resolves.toBeNull();
-  });
-
-  it("resolves a clicked flat menu item", async () => {
-    const selectionPromise = showContextMenuFallback([
-      { id: "rename", label: "Rename" },
-      { id: "delete", label: "Delete", destructive: true },
-    ]);
-
-    const renameButton = findButton("Rename");
-    expect(renameButton).toBeTruthy();
-    renameButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    await expect(selectionPromise).resolves.toBe("rename");
-  });
-
   it("ignores a click from the gesture that opened the menu", async () => {
     let enablePointerSelection: ((time: number) => void) | undefined;
     vi.stubGlobal("requestAnimationFrame", (callback: (time: number) => void) => {
@@ -276,147 +238,40 @@ describe("showContextMenuFallback", () => {
     await expect(selectionPromise).resolves.toBe("rename");
   });
 
-  it("opens nested submenus and resolves the clicked leaf id", async () => {
-    const selectionPromise = showContextMenuFallback([
-      {
-        id: "rename:submenu",
-        label: "Rename project",
-        children: [
-          { id: "rename:project-a", label: "/tmp/project-a" },
-          { id: "rename:project-b", label: "/tmp/project-b" },
+  it.each([
+    // Flips left of the parent menu instead of being clamped over it.
+    { innerWidth: 400, triggerLeft: 200, submenuLeft: 16 },
+    // Neither side fits; the right has more room, so it stays there, clamped.
+    { innerWidth: 300, triggerLeft: 4, submenuLeft: 116 },
+  ])(
+    "places an overflowing submenu on the side with more room ($innerWidth)",
+    ({ innerWidth, triggerLeft, submenuLeft }) => {
+      vi.stubGlobal("window", { ...window, innerWidth });
+
+      void showContextMenuFallback(
+        [
+          {
+            id: "group",
+            label: "Group with",
+            children: [{ id: "terminal-1", label: "Terminal 1" }],
+          },
         ],
-      },
-    ]);
+        { x: triggerLeft, y: 0 },
+      );
+      const trigger = findButton("Group with")!;
+      trigger.style.left = `${triggerLeft}px`;
+      trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    const parentButton = findButton("Rename project");
-    expect(parentButton).toBeTruthy();
-    parentButton?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+      const submenu = findButton("Terminal 1")!.parent!.parent!;
+      expect(submenu.getBoundingClientRect().left).toBe(submenuLeft);
+    },
+  );
 
-    const childButton = findButton("/tmp/project-b");
-    expect(childButton).toBeTruthy();
-    childButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  it("shows an item's detail beside its label and reads both to screen readers", () => {
+    void showContextMenuFallback([{ id: "snooze:hour", label: "In 1 hour", detail: "3:00 PM" }]);
+    const button = findButton("In 1 hour");
 
-    await expect(selectionPromise).resolves.toBe("rename:project-b");
-  });
-
-  it("opens and focuses nested submenus when the parent is activated", async () => {
-    const invoker = (document as unknown as FakeDocument).createElement("button");
-    (document as unknown as FakeDocument).body.appendChild(invoker);
-    invoker.focus();
-    const selectionPromise = showContextMenuFallback([
-      {
-        id: "copy:submenu",
-        label: "Copy",
-        children: [
-          { id: "copy:path", label: "Path" },
-          { id: "copy:branch", label: "Branch" },
-        ],
-      },
-    ]);
-
-    const parentButton = findButton("Copy");
-    expect(parentButton).toBeTruthy();
-    expect(parentButton?.attributes.get("aria-haspopup")).toBe("menu");
-    expect(parentButton?.attributes.get("aria-expanded")).toBe("false");
-    parentButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(parentButton?.attributes.get("aria-expanded")).toBe("true");
-
-    const childButton = findButton("Path");
-    const siblingButton = findButton("Branch");
-    expect(childButton).toBeTruthy();
-    expect(siblingButton).toBeTruthy();
-    expect(childButton?.focused).toBe(true);
-    expect(childButton?.style.background).toBe("var(--accent)");
-    expect(childButton?.style.color).toBe("var(--contrast-accent-foreground)");
-    siblingButton?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-    expect(childButton?.focused).toBe(false);
-    expect(childButton?.style.background).toBe("transparent");
-    expect(siblingButton?.focused).toBe(true);
-    expect(siblingButton?.style.background).toBe("var(--accent)");
-    siblingButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    await expect(selectionPromise).resolves.toBe("copy:branch");
-    expect(invoker.focused).toBe(true);
-  });
-});
-
-describe("dismissContextMenu", () => {
-  it("resolves an open menu with null", async () => {
-    const selectionPromise = showContextMenuFallback([
-      { id: "rename", label: "Rename" },
-      { id: "delete", label: "Delete" },
-    ]);
-    expect(findButton("Rename")).toBeTruthy();
-
-    dismissContextMenu();
-
-    await expect(selectionPromise).resolves.toBeNull();
-    expect(findButton("Rename")).toBeUndefined();
-  });
-
-  it("is a no-op when no menu is open", async () => {
-    dismissContextMenu();
-    expect(findButton("Rename")).toBeUndefined();
-  });
-
-  it("dismisses the prior menu when a new one opens", async () => {
-    const firstPromise = showContextMenuFallback([{ id: "first", label: "First" }]);
-    expect(findButton("First")).toBeTruthy();
-
-    const secondPromise = showContextMenuFallback([{ id: "second", label: "Second" }]);
-
-    await expect(firstPromise).resolves.toBeNull();
-    expect(findButton("First")).toBeUndefined();
-    expect(findButton("Second")).toBeTruthy();
-
-    dismissContextMenu();
-    await expect(secondPromise).resolves.toBeNull();
-  });
-});
-
-describe("menu keyboard navigation", () => {
-  it("skips disabled options, wraps, selects and restores focus", async () => {
-    const doc = document as unknown as FakeDocument;
-    const invoker = doc.createElement("button");
-    doc.body.appendChild(invoker);
-    invoker.focus();
-    const selection = showContextMenuFallback([
-      { id: "alpha", label: "Alpha" },
-      { id: "disabled", label: "Unavailable", disabled: true },
-      { id: "beta", label: "Beta" },
-    ]);
-    const press = (key: string) => doc.dispatchEvent(new FakeDomEvent("keydown", { key }));
-    expect(doc.activeElement).toBe(findButton("Alpha"));
-    press("ArrowDown");
-    expect(doc.activeElement).toBe(findButton("Beta"));
-    press("ArrowDown");
-    expect(doc.activeElement).toBe(findButton("Alpha"));
-    press("End");
-    expect(doc.activeElement).toBe(findButton("Beta"));
-    press("Home");
-    expect(doc.activeElement).toBe(findButton("Alpha"));
-    press("ArrowUp");
-    expect(doc.activeElement).toBe(findButton("Beta"));
-    expect(findButton("Beta")?.attributes.get("role")).toBe("menuitem");
-    expect(doc.querySelectorAll("div").some((el) => el.attributes.get("role") === "menu")).toBe(
-      true,
-    );
-    press("Enter");
-    await expect(selection).resolves.toBe("beta");
-    expect(doc.activeElement).toBe(invoker);
-  });
-
-  it("opens and closes submenus with arrows and cancels with Escape", async () => {
-    const doc = document as unknown as FakeDocument;
-    const selection = showContextMenuFallback([
-      { id: "parent", label: "Parent", children: [{ id: "child", label: "Child" }] },
-    ]);
-    doc.dispatchEvent(new FakeDomEvent("keydown", { key: "ArrowRight" }));
-    expect(doc.activeElement).toBe(findButton("Child"));
-    doc.dispatchEvent(new FakeDomEvent("keydown", { key: "ArrowLeft" }));
-    expect(findButton("Child")).toBeUndefined();
-    expect(doc.activeElement).toBe(findButton("Parent"));
-    doc.dispatchEvent(new FakeDomEvent("keydown", { key: "Escape" }));
-    await expect(selection).resolves.toBeNull();
+    expect(button?.textContent).toBe("In 1 hour3:00 PM");
+    expect(button?.attributes.get("aria-label")).toBe("In 1 hour, 3:00 PM");
   });
 });

@@ -99,7 +99,7 @@ export class InboxSources extends Context.Service<
     }) => Effect.Effect<InboxSourceConnection, InboxError>;
   }
 >()("t3/inbox/InboxSources") {}
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const settings = yield* ServerSettings.ServerSettingsService;
   const secrets = yield* Secrets.ServerSecretStore;
@@ -475,147 +475,140 @@ export const make = Effect.gen(function* () {
     }
   }).pipe(Effect.catch(() => Effect.logWarning("Inbox sources could not be refreshed.")));
   yield* poll.pipe(Effect.repeat(Schedule.spaced("15 seconds")), Effect.forkIn(scope));
-  const get = (input: InboxGetInput) =>
-    Effect.gen(function* () {
-      const item = yield* inbox.get(input);
-      if (item?.source === "linear") {
-        const issue =
-          item.linearIssue ?? item.items.findLast((entry) => entry.linearIssue)?.linearIssue;
-        const isLegacyIssue =
-          !issue &&
-          item.items.some((entry) => /^https:\/\/linear\.app\/[^/]+\/issue\//.test(entry.url));
-        if (
-          issue?.commentMetadataVersion === 1 &&
-          issue.agentMetadataVersion === 1 &&
-          ((!input.loadPreviousComments && !isLegacyIssue && issue.commentCount !== undefined) ||
-            issue.commentsComplete)
-        )
-          return item;
-        if (!issue && !isLegacyIssue) return item;
-        return yield* lock({ projectId: input.projectId, source: "linear" })(
-          Effect.gen(function* () {
-            const current = yield* inbox.get(input);
-            if (
-              !current ||
-              (current.linearIssue?.commentMetadataVersion === 1 &&
-                current.linearIssue.agentMetadataVersion === 1 &&
-                (current.linearIssue.commentsComplete ||
-                  (!input.loadPreviousComments && current.linearIssue.commentCount !== undefined)))
-            )
-              return current;
-            const detail = yield* linear
-              .readIssue(
-                input.projectId,
-                current.groupId,
-                !!input.loadPreviousComments || isLegacyIssue || !!issue?.commentsComplete,
-              )
-              .pipe(
-                Effect.catchTags({
-                  InboxError: (cause) =>
-                    !input.loadPreviousComments && issue
-                      ? Effect.succeed(null)
-                      : Effect.fail(cause),
-                }),
-              );
-            if (!detail) return current;
-            return yield* inbox.cacheLinearIssue({
-              ...input,
-              issue: detail,
-              expectedAnalysisVersion: current.analysisVersion,
-              expectedRevision: current.revision,
-            });
-          }),
-        );
-      }
-      if (!item || item.source !== "slack" || !/^[CDG][A-Z0-9]+:\d+(?:\.\d+)?$/.test(item.groupId))
-        return item;
+  const get = Effect.fn("get")(function* (input: InboxGetInput) {
+    const item = yield* inbox.get(input);
+    if (item?.source === "linear") {
+      const issue =
+        item.linearIssue ?? item.items.findLast((entry) => entry.linearIssue)?.linearIssue;
+      const isLegacyIssue =
+        !issue &&
+        item.items.some((entry) => /^https:\/\/linear\.app\/[^/]+\/issue\//.test(entry.url));
       if (
-        item.slackThread?.formatVersion === 2 &&
-        item.slackThread.root.images !== undefined &&
-        (!input.loadPreviousComments || !item.slackThread.nextCursor)
+        issue?.commentMetadataVersion === 1 &&
+        issue.agentMetadataVersion === 1 &&
+        ((!input.loadPreviousComments && !isLegacyIssue && issue.commentCount !== undefined) ||
+          issue.commentsComplete)
       )
         return item;
-      return yield* lock({ projectId: input.projectId, source: "slack" })(
+      if (!issue && !isLegacyIssue) return item;
+      return yield* lock({ projectId: input.projectId, source: "linear" })(
         Effect.gen(function* () {
-          let current = yield* inbox.get(input);
-          if (!current) return null;
+          const current = yield* inbox.get(input);
           if (
-            current.slackThread?.formatVersion === 2 &&
-            current.slackThread.root.images !== undefined &&
-            (!input.loadPreviousComments || !current.slackThread.nextCursor)
+            !current ||
+            (current.linearIssue?.commentMetadataVersion === 1 &&
+              current.linearIssue.agentMetadataVersion === 1 &&
+              (current.linearIssue.commentsComplete ||
+                (!input.loadPreviousComments && current.linearIssue.commentCount !== undefined)))
           )
             return current;
-          const [channelId, ts] = current.groupId.split(":");
-          const token = yield* slack.accessToken(input.projectId);
-          const seen = new Set<string>();
-          let pages = 0;
-          while (
-            current.slackThread?.formatVersion !== 2 ||
-            current.slackThread.root.images === undefined ||
-            (input.loadPreviousComments && current.slackThread.nextCursor)
-          ) {
-            const cursor = current.slackThread?.nextCursor;
-            if ((cursor && seen.has(cursor)) || pages++ >= 100)
-              return yield* Effect.fail(
-                new InboxError({
-                  detail: "Thread history is too large to load at once. Open the original thread.",
-                }),
-              );
-            if (cursor) seen.add(cursor);
-            const thread: InboxSlackThread = yield* transport.readThread(
-              token,
-              channelId!,
-              ts!,
-              current.slackThread,
+          const detail = yield* linear
+            .readIssue(
+              input.projectId,
+              current.groupId,
+              !!input.loadPreviousComments || isLegacyIssue || !!issue?.commentsComplete,
+            )
+            .pipe(
+              Effect.catchTags({
+                InboxError: (cause) =>
+                  !input.loadPreviousComments && issue ? Effect.succeed(null) : Effect.fail(cause),
+              }),
             );
-            current = yield* inbox.cacheSlackThread({
-              projectId: input.projectId,
-              id: input.id,
-              thread,
-            });
-            if (!current) return null;
-          }
-          return current;
+          if (!detail) return current;
+          return yield* inbox.cacheLinearIssue({
+            ...input,
+            issue: detail,
+            expectedAnalysisVersion: current.analysisVersion,
+            expectedRevision: current.revision,
+          });
         }),
       );
-    });
-  return InboxSources.of({
-    image: (input) =>
+    }
+    if (!item || item.source !== "slack" || !/^[CDG][A-Z0-9]+:\d+(?:\.\d+)?$/.test(item.groupId))
+      return item;
+    if (
+      item.slackThread?.formatVersion === 2 &&
+      item.slackThread.root.images !== undefined &&
+      (!input.loadPreviousComments || !item.slackThread.nextCursor)
+    )
+      return item;
+    return yield* lock({ projectId: input.projectId, source: "slack" })(
       Effect.gen(function* () {
-        const notification = yield* inbox.get({
-          projectId: input.projectId,
-          id: input.notificationId,
-        });
-        const thread = notification?.slackThread;
-        const image =
-          thread &&
-          [thread.root, ...thread.messages, ...(thread.pendingMessages ?? [])]
-            .flatMap((message) => message.images ?? [])
-            .find((image) => image.id === input.fileId);
-        if (!image?.url || notification?.source !== "slack")
-          return yield* new InboxError({ detail: "Image unavailable." });
+        let current = yield* inbox.get(input);
+        if (!current) return null;
+        if (
+          current.slackThread?.formatVersion === 2 &&
+          current.slackThread.root.images !== undefined &&
+          (!input.loadPreviousComments || !current.slackThread.nextCursor)
+        )
+          return current;
+        const [channelId, ts] = current.groupId.split(":");
         const token = yield* slack.accessToken(input.projectId);
-        return yield* transport.readImage(token, image.url, notification.connectionId);
+        const seen = new Set<string>();
+        let pages = 0;
+        while (
+          current.slackThread?.formatVersion !== 2 ||
+          current.slackThread.root.images === undefined ||
+          (input.loadPreviousComments && current.slackThread.nextCursor)
+        ) {
+          const cursor = current.slackThread?.nextCursor;
+          if ((cursor && seen.has(cursor)) || pages++ >= 100)
+            return yield* new InboxError({
+              detail: "Thread history is too large to load at once. Open the original thread.",
+            });
+          if (cursor) seen.add(cursor);
+          const thread: InboxSlackThread = yield* transport.readThread(
+            token,
+            channelId!,
+            ts!,
+            current.slackThread,
+          );
+          current = yield* inbox.cacheSlackThread({
+            projectId: input.projectId,
+            id: input.id,
+            thread,
+          });
+          if (!current) return null;
+        }
+        return current;
       }),
+    );
+  });
+  return InboxSources.of({
+    image: Effect.fn("InboxSources.image")(function* (input) {
+      const notification = yield* inbox.get({
+        projectId: input.projectId,
+        id: input.notificationId,
+      });
+      const thread = notification?.slackThread;
+      const image =
+        thread &&
+        [thread.root, ...thread.messages, ...(thread.pendingMessages ?? [])]
+          .flatMap((message) => message.images ?? [])
+          .find((image) => image.id === input.fileId);
+      if (!image?.url || notification?.source !== "slack")
+        return yield* new InboxError({ detail: "Image unavailable." });
+      const token = yield* slack.accessToken(input.projectId);
+      return yield* transport.readImage(token, image.url, notification.connectionId);
+    }),
     get,
-    linearAgentThread: (input) =>
-      Effect.gen(function* () {
-        const item = yield* inbox.get(input);
-        if (item?.source !== "linear") return null;
-        const target = item.items.at(-1)?.replyTarget;
-        if (target?.source !== "linear" || !target.parentId) return null;
-        return yield* Cache.get(
-          agentThreads,
-          new AgentThreadKey({ projectId: input.projectId, commentId: target.parentId }),
-        );
-      }),
+    linearAgentThread: Effect.fn("InboxSources.linearAgentThread")(function* (input) {
+      const item = yield* inbox.get(input);
+      if (item?.source !== "linear") return null;
+      const target = item.items.at(-1)?.replyTarget;
+      if (target?.source !== "linear" || !target.parentId) return null;
+      return yield* Cache.get(
+        agentThreads,
+        new AgentThreadKey({ projectId: input.projectId, commentId: target.parentId }),
+      );
+    }),
     list,
     configure,
     disconnect,
-    refresh: (input) => refresh(input, true),
+    refresh: Effect.fn("InboxSources.refresh")((input) => refresh(input, true)),
     beginSlack: slack.begin,
     cancelSlack: slack.cancel,
-    completeSlack: (state, code) =>
+    completeSlack: Effect.fn("InboxSources.completeSlack")((state, code) =>
       slack.complete(state, code).pipe(
         Effect.flatMap(({ projectId, account }) =>
           lock({ projectId, source: "slack" })(
@@ -635,9 +628,10 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    ),
     beginSuperhuman: superhuman.begin,
     superhumanCatalog: superhuman.catalog,
-    completeSuperhuman: (state, code) =>
+    completeSuperhuman: Effect.fn("InboxSources.completeSuperhuman")((state, code) =>
       superhuman.complete(state, code).pipe(
         Effect.flatMap((projectId) =>
           lock({ projectId, source: "superhuman" })(
@@ -650,6 +644,7 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    ),
   });
 });
 export const layer: Layer.Layer<

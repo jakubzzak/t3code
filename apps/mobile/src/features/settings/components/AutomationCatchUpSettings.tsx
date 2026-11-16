@@ -13,7 +13,7 @@ import {
 import { SettingsProjectOverridesSection } from "./SettingsProjectOverridesSection";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
-import { AppText } from "../../../components/AppText";
+import { AppText } from "../../../components/ui/AppText";
 
 export function AutomationCatchUpSettings() {
   const { selectedTargets, selectedProjectKey, projectGroups } = useSettingsEnvironmentFilter();
@@ -69,10 +69,10 @@ export function AutomationCatchUpSettings() {
       {projectSelected ? (
         <SettingsProjectOverridesSection
           projectLabel={project?.label ?? "Unavailable project"}
-          supportsOverrides={supported}
-          hasOverrides={targets.some(
-            (target) => target.sources.automationCatchUpEnabled === "project",
-          )}
+          hasOverrides={
+            supported &&
+            targets.some((target) => target.sources.automationCatchUpEnabled === "project")
+          }
           pending={pending}
           disabled={disabled}
           onClear={() => save(null)}

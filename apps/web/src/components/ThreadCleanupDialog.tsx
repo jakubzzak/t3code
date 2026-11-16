@@ -7,7 +7,7 @@ import {
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { THREAD_CLEANUP_OWNERSHIP_NOTICE, type ThreadCleanupSnapshot } from "@t3tools/contracts";
 import { CheckIcon, LoaderCircleIcon, CircleAlertIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -48,7 +48,7 @@ function CleanupProgress({ request }: { request: CleanupRequest }) {
   const [confirmationRequired, setConfirmationRequired] = useState(false);
   const [open, setOpen] = useState(true);
   const started = useRef(false);
-  const retry = useCallback(async () => {
+  const retry = async () => {
     let interruptAgent = request.interruptAgent;
     if (confirmationRequired) {
       interruptAgent =
@@ -76,7 +76,8 @@ function CleanupProgress({ request }: { request: CleanupRequest }) {
       );
       setError(failure instanceof Error ? failure.message : "Could not connect. Retry cleanup.");
     }
-  }, [confirmationRequired, request, start, target]);
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the server cleanup operation once when the dialog mounts for a request
   useEffect(() => {
     if (!started.current) {
       started.current = true;
@@ -88,6 +89,7 @@ function CleanupProgress({ request }: { request: CleanupRequest }) {
       ? stream.value
       : initial;
   const complete = progress?.status === "complete";
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes the chat's tool stores once cleanup completes, then a timer closes the dialog; cleared on unmount
   useEffect(() => {
     if (!complete) return;
     useRightPanelStore.getState().closeAllSurfaces(target);

@@ -82,6 +82,11 @@ export const makeProbeSpawner = Effect.fnUntraced(function* (
                   });
                 case "account/rateLimits/read":
                   return Effect.succeed({ result: { rateLimits: { planType: "pro" } } });
+                case "config/read":
+                  // The probe treats config as optional; answer so it never waits on a timeout.
+                  return Effect.succeed({
+                    error: { code: -32601, message: "config/read is not mocked" },
+                  });
                 case "skills/list":
                   return Deferred.succeed(requested, undefined).pipe(Effect.andThen(skills));
                 default:

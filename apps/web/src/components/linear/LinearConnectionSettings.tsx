@@ -14,6 +14,7 @@ export function LinearConnectionSettings({
   const [busy, setBusy] = useState<"connect" | "disconnect" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const request = window.desktopBridge?.linearRequest;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the Linear connection status from the desktop bridge, ignoring replies after the workspace changes
   useEffect(() => {
     let current = true;
     if (!request || !workspace || !connectionKey) return;
@@ -36,20 +37,18 @@ export function LinearConnectionSettings({
     if (!request || !connectionKey) return;
     if (operation !== "cancel") setBusy(operation);
     setError(null);
-    try {
-      await request({ operation, workspace, connectionKey });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Linear connection failed.");
-    } finally {
-      if (operation !== "cancel") {
-        setBusy(null);
-        try {
-          setStatus(await request({ operation: "status", workspace, connectionKey }));
-        } catch {
-          /* Keep the original failure visible. */
-        }
-      }
-    }
+    await Promise.resolve()
+      .then(() => request({ operation, workspace, connectionKey }))
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "Linear connection failed.");
+      });
+    if (operation === "cancel") return;
+    setBusy(null);
+    await Promise.resolve()
+      .then(() => request({ operation: "status", workspace, connectionKey }))
+      .then(setStatus, () => {
+        /* Keep the original failure visible. */
+      });
   };
   return (
     <SettingsRow

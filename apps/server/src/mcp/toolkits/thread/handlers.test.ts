@@ -49,7 +49,7 @@ it.effect(
             } as OrchestrationV2ThreadShell),
         }),
         Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
-        Layer.succeed(ThreadSearch.ThreadSearch, {
+        Layer.mock(ThreadSearch.ThreadSearch)({
           search: (input) => {
             received.push(input);
             return Effect.succeed({ matches: [], hasMore: false });

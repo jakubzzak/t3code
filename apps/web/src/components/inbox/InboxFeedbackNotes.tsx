@@ -1,6 +1,7 @@
-import { createRef, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { CommandId, type EnvironmentId, type InboxNotification } from "@t3tools/contracts";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { randomUUID } from "~/lib/utils";
 import { inboxEnvironment } from "~/state/inbox";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -23,50 +24,44 @@ export function InboxFeedbackNotes({
   const [draft, setDraft] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
-  const current = useRef({ revision, canWrite, onSaved });
+  const savedRevision = useRef(revision);
+  const expectedRevision = useStableCallback(() => Math.max(savedRevision.current, revision));
+  const canPersist = useStableCallback(() => canWrite);
+  const saved = useStableCallback((next: number) => {
+    savedRevision.current = next;
+    onSaved();
+  });
+  const coordinator = useRef<FileSaveCoordinator | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the debounced save coordinator for this note and flushes it when the note changes or unmounts.
   useEffect(() => {
-    current.current = { revision: Math.max(current.current.revision, revision), canWrite, onSaved };
-  }, [revision, canWrite, onSaved]);
-  const session = useMemo(() => {
-    const coordinator = createRef<FileSaveCoordinator>();
-    return {
-      change: (text: string) => coordinator.current?.change(text),
-      setup: () => {
-        const save = new FileSaveCoordinator({
-          debounceMs: 500,
-          canPersist: () => current.current.canWrite,
-          onPendingChange: setPending,
-          persist: async (text) => {
-            setFailed(false);
-            const result = await command({
-              environmentId,
-              input: {
-                projectId,
-                id,
-                expectedRevision: current.current.revision,
-                commandId: CommandId.make(randomUUID()),
-                action: { type: "outcome", text },
-              },
-            });
-            if (result._tag === "Success") {
-              current.current.revision = result.value.notification.revision;
-              current.current.onSaved();
-            } else {
-              setFailed(true);
-            }
-            return result;
+    const save = new FileSaveCoordinator({
+      debounceMs: 500,
+      canPersist,
+      onPendingChange: setPending,
+      persist: async (text) => {
+        setFailed(false);
+        const result = await command({
+          environmentId,
+          input: {
+            projectId,
+            id,
+            expectedRevision: expectedRevision(),
+            commandId: CommandId.make(randomUUID()),
+            action: { type: "outcome", text },
           },
-          onConfirmed: () => {},
         });
-        coordinator.current = save;
-        return () => {
-          coordinator.current = null;
-          save.dispose();
-        };
+        if (result._tag === "Success") saved(result.value.notification.revision);
+        else setFailed(true);
+        return result;
       },
+      onConfirmed: () => {},
+    });
+    coordinator.current = save;
+    return () => {
+      coordinator.current = null;
+      save.dispose();
     };
-  }, [command, environmentId, id, projectId]);
-  useEffect(session.setup, [session]);
+  }, [canPersist, command, environmentId, expectedRevision, id, projectId, saved]);
   return (
     <details className="mt-2 text-xs">
       <summary className="cursor-pointer text-muted-foreground">Feedback &amp; notes</summary>
@@ -81,7 +76,7 @@ export function InboxFeedbackNotes({
             const text = event.target.value;
             setDraft(text);
             setFailed(false);
-            session.change(text);
+            coordinator.current?.change(text);
           }}
           placeholder="Add feedback or notes…"
         />
@@ -92,7 +87,7 @@ export function InboxFeedbackNotes({
               type="button"
               className="ml-1 underline"
               disabled={!canWrite}
-              onClick={() => session.change(draft ?? confirmedOutcome ?? "")}
+              onClick={() => coordinator.current?.change(draft ?? confirmedOutcome ?? "")}
             >
               Retry
             </button>

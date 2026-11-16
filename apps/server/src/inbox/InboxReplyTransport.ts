@@ -77,8 +77,8 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const config = yield* ServerConfig.ServerConfig;
   return InboxReplyTransport.of({
-    send: (input, connectionId) =>
-      Effect.gen(function* () {
+    send: Effect.fn("InboxReplyTransport.send")(
+      function* (input, connectionId) {
         if (input.target.source === "linear") {
           if (input.images?.length) return yield* new InboxReplyError({ reason: "rejected" });
           return yield* linear.createComment(input.projectId, connectionId, {
@@ -123,50 +123,49 @@ const make = Effect.gen(function* () {
               .includes("files:write")
           )
             return yield* new InboxReplyError({ reason: "permission" });
-          const call = (method: string, body: unknown, final = false) =>
-            Effect.gen(function* () {
-              const response = yield* http
-                .execute(
-                  HttpClientRequest.post(`https://slack.com/api/${method}`).pipe(
-                    HttpClientRequest.setHeader("Authorization", `Bearer ${token}`),
-                    HttpClientRequest.bodyJsonUnsafe(body),
-                  ),
-                )
-                .pipe(
-                  Effect.mapError(
-                    () => new InboxReplyError({ reason: final ? "uncertain" : "rejected" }),
-                  ),
-                );
-              if (response.status === 429)
-                return yield* new InboxReplyError({ reason: "rate-limit" });
-              if (response.status !== 200)
-                return yield* new InboxReplyError({ reason: final ? "uncertain" : "rejected" });
-              const result = yield* response.json.pipe(
-                Effect.flatMap(Schema.decodeUnknownEffect(Uploaded)),
+          const call = Effect.fn("call")(function* (method: string, body: unknown, final = false) {
+            const response = yield* http
+              .execute(
+                HttpClientRequest.post(`https://slack.com/api/${method}`).pipe(
+                  HttpClientRequest.setHeader("Authorization", `Bearer ${token}`),
+                  HttpClientRequest.bodyJsonUnsafe(body),
+                ),
+              )
+              .pipe(
                 Effect.mapError(
                   () => new InboxReplyError({ reason: final ? "uncertain" : "rejected" }),
                 ),
               );
-              if (!result.ok)
-                return yield* new InboxReplyError({
-                  reason: [
-                    "missing_scope",
-                    "invalid_auth",
-                    "token_revoked",
-                    "token_expired",
-                  ].includes(result.error ?? "")
-                    ? "permission"
-                    : ["ratelimited", "rate_limited"].includes(result.error ?? "")
-                      ? "rate-limit"
-                      : final &&
-                          ["fatal_error", "internal_error", "service_unavailable"].includes(
-                            result.error ?? "",
-                          )
-                        ? "uncertain"
-                        : "rejected",
-                });
-              return result;
-            });
+            if (response.status === 429)
+              return yield* new InboxReplyError({ reason: "rate-limit" });
+            if (response.status !== 200)
+              return yield* new InboxReplyError({ reason: final ? "uncertain" : "rejected" });
+            const result = yield* response.json.pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Uploaded)),
+              Effect.mapError(
+                () => new InboxReplyError({ reason: final ? "uncertain" : "rejected" }),
+              ),
+            );
+            if (!result.ok)
+              return yield* new InboxReplyError({
+                reason: [
+                  "missing_scope",
+                  "invalid_auth",
+                  "token_revoked",
+                  "token_expired",
+                ].includes(result.error ?? "")
+                  ? "permission"
+                  : ["ratelimited", "rate_limited"].includes(result.error ?? "")
+                    ? "rate-limit"
+                    : final &&
+                        ["fatal_error", "internal_error", "service_unavailable"].includes(
+                          result.error ?? "",
+                        )
+                      ? "uncertain"
+                      : "rejected",
+              });
+            return result;
+          });
           const files: { id: string; title: string }[] = [];
           for (const image of input.images) {
             const path = resolveAttachmentPathById({
@@ -311,12 +310,15 @@ const make = Effect.gen(function* () {
           text: result.message?.text ?? input.text,
           occurredAt: DateTime.formatIso(DateTime.makeUnsafe(Number(result.ts) * 1000)),
         };
-      }).pipe(
-        Effect.timeoutOrElse({
-          duration: input.images?.length ? "3 minutes" : "45 seconds",
-          orElse: () => new InboxReplyError({ reason: "uncertain" }),
-        }),
-      ),
+      },
+      (effect, input) =>
+        effect.pipe(
+          Effect.timeoutOrElse({
+            duration: input.images?.length ? "3 minutes" : "45 seconds",
+            orElse: () => new InboxReplyError({ reason: "uncertain" }),
+          }),
+        ),
+    ),
   });
 });
 export const layer = Layer.effect(InboxReplyTransport, make);

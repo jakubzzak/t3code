@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { InboxIcon, ReplyIcon } from "lucide-react";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { CommandId } from "@t3tools/contracts";
@@ -33,7 +33,7 @@ export function InboxThreadDetails({
   const sourceRef = useRef<HTMLDetailsElement>(null);
   const replyRef = useRef<HTMLButtonElement>(null);
   const loadThread = useLoadInboxThread();
-  const threadRef = useMemo(() => ({ environmentId, threadId }), [environmentId, threadId]);
+  const threadRef = { environmentId, threadId };
   const thread = useThreadShell({ environmentId, threadId });
   const config = useServerConfigs().get(environmentId);
   const enabled =
@@ -58,23 +58,26 @@ export function InboxThreadDetails({
         })
       : null,
   );
+  const refreshList = list.refresh;
+  const refreshDetail = detail.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls the notification on a timer while the details panel is mounted and visible.
   useEffect(() => {
     if (!enabled) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") {
-        list.refresh();
-        detail.refresh();
+        refreshList();
+        refreshDetail();
       }
     }, 5_000);
     return () => window.clearInterval(timer);
-  }, [enabled, list.refresh, detail.refresh]);
+  }, [enabled, refreshList, refreshDetail]);
   const canReply = useAtomValue(inboxEnvironment.reply.permissionAtom(environmentId));
   const canWrite = useAtomValue(inboxEnvironment.mutate.permissionAtom(environmentId));
   const command = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
-  const refresh = useCallback(() => {
-    detail.refresh();
-    list.refresh();
-  }, [detail, list]);
+  const refresh = () => {
+    refreshDetail();
+    refreshList();
+  };
   const n = detail.data ?? notification;
   if (!n) return null;
   return (

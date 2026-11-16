@@ -219,7 +219,7 @@ it.effect("shares a single pending authorization across concurrent project clien
             Layer.mergeAll(
               settings,
               Layer.mock(Secrets.ServerSecretStore)({
-                get: () => Effect.succeed(Option.none()),
+                get: () => Effect.succeedNone,
                 set: () => Effect.void,
               }),
             ),

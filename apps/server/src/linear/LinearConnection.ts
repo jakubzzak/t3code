@@ -195,34 +195,36 @@ export const layer = Layer.effect(
       clients.set(projectId, { clientId: effectiveClientId, client });
       return client;
     };
-    const request = (projectId: ProjectId, input: LinearDesktopRequest) =>
-      Effect.gen(function* () {
-        const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
-        if (!slug || slug !== input.workspace)
-          return yield* new InboxError({
-            detail: "Set this project's Linear workspace in Integrations.",
-          });
-        if (!["status", "issues", "issue", "teams", "states"].includes(input.operation))
-          return yield* new InboxError({
-            detail: "Use the project connection controls for authorization.",
-          });
-        if (input.operation === "status" && connecting.has(projectId))
-          return connecting.get(projectId)!.status;
-        if (input.operation === "status" && errors.has(projectId))
-          return yield* new InboxError({ detail: errors.get(projectId)! });
-        return yield* Effect.tryPromise({
-          try: () =>
-            getClient(projectId, linearClientId).request({
-              ...input,
-              connectionKey: projectId,
-              workspace: slug,
-            }),
-          catch: wrap,
+    const request = Effect.fn("request")(function* (
+      projectId: ProjectId,
+      input: LinearDesktopRequest,
+    ) {
+      const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
+      if (!slug || slug !== input.workspace)
+        return yield* new InboxError({
+          detail: "Set this project's Linear workspace in Integrations.",
         });
+      if (!["status", "issues", "issue", "teams", "states"].includes(input.operation))
+        return yield* new InboxError({
+          detail: "Use the project connection controls for authorization.",
+        });
+      if (input.operation === "status" && connecting.has(projectId))
+        return connecting.get(projectId)!.status;
+      if (input.operation === "status" && errors.has(projectId))
+        return yield* new InboxError({ detail: errors.get(projectId)! });
+      return yield* Effect.tryPromise({
+        try: () =>
+          getClient(projectId, linearClientId).request({
+            ...input,
+            connectionKey: projectId,
+            workspace: slug,
+          }),
+        catch: wrap,
       });
+    });
     return LinearConnection.of({
-      createComment: (projectId, connectionId, input) =>
-        Effect.gen(function* () {
+      createComment: Effect.fn("LinearConnection.createComment")(
+        function* (projectId, connectionId, input) {
           const { linearWorkspace, linearClientId } = yield* projectConfiguration(projectId).pipe(
             Effect.mapError(() => new InboxReplyError({ reason: "permission" })),
           );
@@ -237,9 +239,10 @@ export const layer = Layer.effect(
             catch: (error) =>
               isReplyError(error) ? error : new InboxReplyError({ reason: "permission" }),
           });
-        }),
+        },
+      ),
       request,
-      begin: (projectId, origin) =>
+      begin: Effect.fn("LinearConnection.begin")((projectId, origin) =>
         beginLock(projectId)(
           Effect.gen(function* () {
             if (connecting.has(projectId))
@@ -293,55 +296,53 @@ export const layer = Layer.effect(
             return yield* Effect.tryPromise({ try: () => url, catch: wrap });
           }),
         ),
-      complete: (state, code) =>
-        Effect.gen(function* () {
-          const flow = flows.get(state);
-          if (!flow)
-            return yield* new InboxError({
-              detail: "Linear sign-in expired or was already used. Connect again.",
-            });
-          flow.accept(code);
-          yield* Effect.promise(() => flow.finished);
-          if (errors.has(flow.projectId))
-            return yield* new InboxError({ detail: errors.get(flow.projectId)! });
-        }),
-      cancel: (projectId) =>
-        Effect.gen(function* () {
-          const pending = connecting.get(projectId);
-          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
-          yield* Effect.tryPromise({
-            try: () =>
-              getClient(projectId, linearClientId).request({
-                operation: "cancel",
-                workspace: slug,
-                connectionKey: projectId,
-              }),
-            catch: wrap,
+      ),
+      complete: Effect.fn("LinearConnection.complete")(function* (state, code) {
+        const flow = flows.get(state);
+        if (!flow)
+          return yield* new InboxError({
+            detail: "Linear sign-in expired or was already used. Connect again.",
           });
-          if (pending) yield* Effect.promise(() => pending.finished);
-          errors.delete(projectId);
-        }).pipe(Effect.asVoid),
-      disconnect: (projectId) =>
-        Effect.gen(function* () {
-          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
-          const client = getClient(projectId, linearClientId);
-          yield* Effect.tryPromise({
-            try: () =>
-              client.request({ operation: "cancel", workspace: slug, connectionKey: projectId }),
-            catch: wrap,
-          });
-          errors.delete(projectId);
-          yield* Effect.tryPromise({
-            try: () =>
-              client.request({
-                operation: "disconnect",
-                workspace: slug,
-                connectionKey: projectId,
-              }),
-            catch: wrap,
-          });
-        }).pipe(Effect.asVoid),
-      prepareMigration: (projectId) =>
+        flow.accept(code);
+        yield* Effect.promise(() => flow.finished);
+        if (errors.has(flow.projectId))
+          return yield* new InboxError({ detail: errors.get(flow.projectId)! });
+      }),
+      cancel: Effect.fn("LinearConnection.cancel")(function* (projectId) {
+        const pending = connecting.get(projectId);
+        const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
+        yield* Effect.tryPromise({
+          try: () =>
+            getClient(projectId, linearClientId).request({
+              operation: "cancel",
+              workspace: slug,
+              connectionKey: projectId,
+            }),
+          catch: wrap,
+        });
+        if (pending) yield* Effect.promise(() => pending.finished);
+        errors.delete(projectId);
+      }, Effect.asVoid),
+      disconnect: Effect.fn("LinearConnection.disconnect")(function* (projectId) {
+        const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
+        const client = getClient(projectId, linearClientId);
+        yield* Effect.tryPromise({
+          try: () =>
+            client.request({ operation: "cancel", workspace: slug, connectionKey: projectId }),
+          catch: wrap,
+        });
+        errors.delete(projectId);
+        yield* Effect.tryPromise({
+          try: () =>
+            client.request({
+              operation: "disconnect",
+              workspace: slug,
+              connectionKey: projectId,
+            }),
+          catch: wrap,
+        });
+      }, Effect.asVoid),
+      prepareMigration: Effect.fn("LinearConnection.prepareMigration")((projectId) =>
         Effect.sync(() => {
           const now = clock.currentTimeMillisUnsafe();
           for (const [ticket, value] of transfers)
@@ -354,8 +355,9 @@ export const layer = Layer.effect(
             publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"),
           };
         }),
-      importMigration: (projectId, ticket, envelope) =>
-        Effect.gen(function* () {
+      ),
+      importMigration: Effect.fn("LinearConnection.importMigration")(
+        function* (projectId, ticket, envelope) {
           const transfer = transfers.get(ticket);
           if (
             !transfer ||
@@ -378,9 +380,10 @@ export const layer = Layer.effect(
             catch: wrap,
           });
           errors.delete(projectId);
-        }),
-      readAgentThread: (projectId, commentId) =>
-        Effect.gen(function* () {
+        },
+      ),
+      readAgentThread: Effect.fn("LinearConnection.readAgentThread")(
+        function* (projectId, commentId) {
           const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           return yield* Effect.tryPromise({
             try: () =>
@@ -392,9 +395,10 @@ export const layer = Layer.effect(
             catch: (cause) =>
               new InboxError({ detail: "Could not read the Linear agent session.", cause }),
           });
-        }),
-      readIssue: (projectId, issueId, includeComments) =>
-        Effect.gen(function* () {
+        },
+      ),
+      readIssue: Effect.fn("LinearConnection.readIssue")(
+        function* (projectId, issueId, includeComments) {
           const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
           return yield* Effect.tryPromise({
             try: () =>
@@ -406,22 +410,22 @@ export const layer = Layer.effect(
               ),
             catch: wrap,
           });
-        }),
-      read: (projectId, categories, since, tracked) =>
-        Effect.gen(function* () {
-          const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
-          return yield* Effect.tryPromise({
-            try: () =>
-              readLinearInbox(
-                (query, variables) =>
-                  getClient(projectId, linearClientId).query(projectId, slug, query, variables),
-                categories,
-                since,
-                tracked,
-              ),
-            catch: wrap,
-          });
-        }),
+        },
+      ),
+      read: Effect.fn("LinearConnection.read")(function* (projectId, categories, since, tracked) {
+        const { linearWorkspace: slug, linearClientId } = yield* projectConfiguration(projectId);
+        return yield* Effect.tryPromise({
+          try: () =>
+            readLinearInbox(
+              (query, variables) =>
+                getClient(projectId, linearClientId).query(projectId, slug, query, variables),
+              categories,
+              since,
+              tracked,
+            ),
+          catch: wrap,
+        });
+      }),
     });
   }),
 );

@@ -35,14 +35,15 @@ export function LinearTeamSelect(props: {
   onChange: (teamId: string) => void;
 }) {
   const [teams, setTeams] = useState<readonly LinearTeam[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [settled, setSettled] = useState<{ key: string; error: boolean } | null>(null);
+  const loadKey = JSON.stringify([props.workspace, props.connectionKey, attempt]);
+  const loading = settled?.key !== loadKey;
+  const error = settled?.key === loadKey && settled.error;
   const request = requestLinear;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the workspace's teams through the desktop Linear bridge, ignoring replies after the inputs change
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(false);
     void (async () => {
       if (!request) throw new Error("Linear is unavailable.");
       const loaded: LinearTeam[] = [];
@@ -66,17 +67,18 @@ export function LinearTeamSelect(props: {
           a.name.localeCompare(b.name),
         ),
       );
-    })()
-      .catch(() => {
-        if (!cancelled) setError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    })().then(
+      () => {
+        if (!cancelled) setSettled({ key: loadKey, error: false });
+      },
+      () => {
+        if (!cancelled) setSettled({ key: loadKey, error: true });
+      },
+    );
     return () => {
       cancelled = true;
     };
-  }, [request, props.workspace, props.connectionKey, attempt]);
+  }, [props.workspace, props.connectionKey, loadKey]);
   const selected = teams.find((team) => team.id === props.value);
   return (
     <div className="flex w-28 shrink-0 flex-col">

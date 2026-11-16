@@ -105,8 +105,8 @@ export const layer: Layer.Layer<
         }),
       );
     return InboxSourceTransport.of({
-      readImage: (token, url, connectionId) =>
-        Effect.gen(function* () {
+      readImage: Effect.fn("InboxSourceTransport.readImage")(
+        function* (token, url, connectionId) {
           if (!isSlackFileUrl(url))
             return yield* new InboxError({ detail: "This image is not hosted by Slack." });
           const identityResponse = yield* client.execute(
@@ -160,18 +160,19 @@ export const layer: Layer.Layer<
             offset += chunk.length;
           }
           return { bytes, mimeType };
-        }).pipe(
-          Effect.timeout("30 seconds"),
-          Effect.mapError(
-            () =>
-              new InboxError({
-                detail: "Could not load Slack image. Check file access or open it in Slack.",
-              }),
-          ),
+        },
+        Effect.timeout("30 seconds"),
+        Effect.mapError(
+          () =>
+            new InboxError({
+              detail: "Could not load Slack image. Check file access or open it in Slack.",
+            }),
         ),
-      readThread: (token, channelId, ts, cached) =>
+      ),
+      readThread: Effect.fn("InboxSourceTransport.readThread")((token, channelId, ts, cached) =>
         slackRead((read) => readSlackThread(read, channelId, ts, cached), token),
-      read: (connection, token, since, tracked) =>
+      ),
+      read: Effect.fn("InboxSourceTransport.read")((connection, token, since, tracked) =>
         connection.source === "linear"
           ? linear
               .read(connection.projectId, connection.categories, since, tracked)
@@ -197,6 +198,7 @@ export const layer: Layer.Layer<
                   ),
                 token,
               ),
+      ),
     });
   }),
 );

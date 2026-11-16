@@ -8,9 +8,11 @@ import { HttpClient, HttpClientResponse } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
-import * as GitHubApi from "./GitHubApi.ts";
+import * as GitHubAppAccess from "./GitHubAppAccess.ts";
 import * as GitHubPullRequestApi from "./GitHubPullRequestApi.ts";
+import * as GitHubRest from "./GitHubRest.ts";
 
 const decodeDocument = Schema.decodeUnknownSync(
   Schema.fromJsonString(
@@ -23,6 +25,8 @@ const decodeDocument = Schema.decodeUnknownSync(
     }),
   ),
 );
+
+const jsonHeaders = { "content-type": "application/json" };
 
 it.effect("merges in personal and work checkouts using their own CLI credentials", () => {
   const merged: string[] = [];
@@ -37,7 +41,9 @@ it.effect("merges in personal and work checkouts using their own CLI credentials
         if (request.headers.authorization !== `Bearer ${owner}-token`) {
           return HttpClientResponse.fromWeb(
             request,
-            new Response('{"errors":[{"message":"Resource not accessible by integration"}]}'),
+            new Response('{"errors":[{"message":"Resource not accessible by integration"}]}', {
+              headers: jsonHeaders,
+            }),
           );
         }
         if (document.query.includes("mergePullRequest(")) merged.push(owner!);
@@ -46,11 +52,20 @@ it.effect("merges in personal and work checkouts using their own CLI credentials
           : {
               data: {
                 repository: {
-                  pullRequest: { id: owner, headRefOid: "head-sha", mergeStateStatus: "CLEAN" },
+                  pullRequest: {
+                    id: owner,
+                    headRefOid: "head-sha",
+                    isMergeQueueEnabled: false,
+                    mergeStateStatus: "CLEAN",
+                    baseRef: null,
+                  },
                 },
               },
             };
-        return HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body)));
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response(JSON.stringify(body), { headers: jsonHeaders }),
+        );
       }),
     ),
   );
@@ -70,7 +85,9 @@ it.effect("merges in personal and work checkouts using their own CLI credentials
     },
   });
   const layer = GitHubPullRequestApi.layer.pipe(
-    Layer.provide(GitHubApi.layerWithDependencies),
+    Layer.provide(GitHubAppAccess.layer),
+    Layer.provideMerge(GitHubRest.layerWithDependencies),
+    Layer.provideMerge(SourceControlRateLimit.layer),
     Layer.provide(Layer.mergeAll(host, http, NodeCrypto.layer, NodeServices.layer)),
     Layer.provide(Layer.succeed(HostProcess.Environment, {})),
     Layer.provide(Layer.succeed(HostProcess.WorkingDirectory, "/server")),

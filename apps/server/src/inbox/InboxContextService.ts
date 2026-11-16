@@ -18,7 +18,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const repository = yield* Repository.InboxRepository;
     return InboxContext.of({
-      forThread: (projectId, threadId) =>
+      forThread: Effect.fn("InboxContext.forThread")((projectId, threadId) =>
         repository
           .forThread(projectId, threadId)
           .pipe(
@@ -28,6 +28,7 @@ export const layer = Layer.effect(
                 : "",
             ),
           ),
+      ),
     });
   }),
 ).pipe(Layer.provide(Repository.layer));

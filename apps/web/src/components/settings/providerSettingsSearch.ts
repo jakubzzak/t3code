@@ -1,5 +1,5 @@
 import type { EnvironmentId, ProviderInstanceId, ServerSettings } from "@t3tools/contracts";
-import { derivePhysicalProjectKey } from "../../logicalProject";
+import { derivePhysicalProjectKey } from "@t3tools/client-runtime/state/project-grouping";
 import type { Project } from "../../types";
 
 /** Open the setting that disabled this provider, without broadening a checkout override. */

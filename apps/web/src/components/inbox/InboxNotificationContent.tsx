@@ -2,7 +2,6 @@ import {
   createContext,
   useContext,
   useId,
-  useMemo,
   useState,
   useRef,
   type ComponentProps,
@@ -144,23 +143,21 @@ function emailDisplayBody(content: string) {
 
 /** Add links without treating plain notification text as Markdown or HTML. */
 function InboxLinkedText({ text }: { text: string }) {
-  return useMemo(() => {
-    const nodes: ReactNode[] = [];
-    let offset = 0;
-    for (const match of find(text, "url", { defaultProtocol: "https" })) {
-      const href = slackLinkUrl(match.href);
-      if (!href) continue;
-      nodes.push(text.slice(offset, match.start));
-      nodes.push(
-        <InboxMarkdownLink key={match.start} href={href}>
-          {compactInboxUrl(href)}
-        </InboxMarkdownLink>,
-      );
-      offset = match.end;
-    }
-    nodes.push(text.slice(offset));
-    return nodes;
-  }, [text]);
+  const nodes: ReactNode[] = [];
+  let offset = 0;
+  for (const match of find(text, "url", { defaultProtocol: "https" })) {
+    const href = slackLinkUrl(match.href);
+    if (!href) continue;
+    nodes.push(text.slice(offset, match.start));
+    nodes.push(
+      <InboxMarkdownLink key={match.start} href={href}>
+        {compactInboxUrl(href)}
+      </InboxMarkdownLink>,
+    );
+    offset = match.end;
+  }
+  nodes.push(text.slice(offset));
+  return nodes;
 }
 
 function InboxBlockquote({ children }: { children?: ReactNode }) {
@@ -319,6 +316,23 @@ function LinearMarkdown({ content }: { content: string }) {
 
 type LoadComments = () => Promise<InboxSlackThread | InboxLinearIssue>;
 
+/** Older history enriches the current snapshot; it must not mask accepted replies. */
+function mergeLoadedIssue(initial: InboxLinearIssue, loaded: InboxLinearIssue | null) {
+  if (!loaded || initial.commentsComplete) return initial;
+  const comments = [
+    ...new Map(
+      [...loaded.comments, ...initial.comments].map((comment) => [comment.id, comment]),
+    ).values(),
+  ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
+  return {
+    ...loaded,
+    ...initial,
+    comments,
+    commentsComplete: loaded.commentsComplete,
+    commentCount: Math.max(loaded.commentCount ?? 0, initial.commentCount ?? 0, comments.length),
+  };
+}
+
 function LinearIssueContent({
   issue: initial,
   onLoadPrevious,
@@ -338,22 +352,7 @@ function LinearIssueContent({
   const section = useRef<HTMLDivElement>(null);
   const target = notification.items.at(-1)?.replyTarget;
   const commentId = target?.source === "linear" ? target.parentId : null;
-  const issue = useMemo(() => {
-    if (!loaded || initial.commentsComplete) return initial;
-    // Older history enriches the current snapshot; it must not mask accepted replies.
-    const comments = [
-      ...new Map(
-        [...loaded.comments, ...initial.comments].map((comment) => [comment.id, comment]),
-      ).values(),
-    ].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
-    return {
-      ...loaded,
-      ...initial,
-      comments,
-      commentsComplete: loaded.commentsComplete,
-      commentCount: Math.max(loaded.commentCount ?? 0, initial.commentCount ?? 0, comments.length),
-    };
-  }, [initial, loaded]);
+  const issue = mergeLoadedIssue(initial, loaded);
   const initialIdentity =
     issue.comments.find((comment) => comment.id === commentId)?.agentThread ??
     issue.comments.find((comment) => comment.agentThread?.rootCommentId === commentId)?.agentThread;
@@ -383,16 +382,19 @@ function LinearIssueContent({
     if (pending) return;
     setPending(true);
     setError(null);
-    try {
-      const result = await onLoadPrevious();
-      if (!("description" in result)) throw new Error("Issue comments could not be loaded.");
-      setLoaded(result);
-      setExpanded(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not load issue comments.");
-    } finally {
-      setPending(false);
-    }
+    await onLoadPrevious()
+      .then((result) => {
+        if (!("description" in result)) {
+          setError("Issue comments could not be loaded.");
+          return;
+        }
+        setLoaded(result);
+        setExpanded(true);
+      })
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : "Could not load issue comments."),
+      )
+      .finally(() => setPending(false));
   }
   return (
     <div className={`${styles.slackContent} ${styles.linearContent}`}>
@@ -575,10 +577,7 @@ export function InboxSummary({
   onRetrySuggestion?: (() => void) | undefined;
 }) {
   const openLink = useInboxLink(threadRef);
-  const suggestions = useMemo(
-    () => notification.analysis?.suggestions.filter((text) => text.trim()) ?? [],
-    [notification.analysis?.suggestions],
-  );
+  const suggestions = notification.analysis?.suggestions.filter((text) => text.trim()) ?? [];
   const suggestionStatus =
     notification.suggestionResearch?.status ?? (suggestions.length ? "ready" : undefined);
   return (
@@ -722,16 +721,19 @@ function SlackThreadContent({
     if (!onLoadPrevious || pending) return;
     setPending(true);
     setError(null);
-    try {
-      const result = await onLoadPrevious();
-      if (!("channelId" in result)) throw new Error("Thread comments could not be loaded.");
-      setLoaded(result);
-      setExpanded(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not load previous comments.");
-    } finally {
-      setPending(false);
-    }
+    await onLoadPrevious()
+      .then((result) => {
+        if (!("channelId" in result)) {
+          setError("Thread comments could not be loaded.");
+          return;
+        }
+        setLoaded(result);
+        setExpanded(true);
+      })
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : "Could not load previous comments."),
+      )
+      .finally(() => setPending(false));
   }
   return (
     <div className={styles.slackContent}>
@@ -818,10 +820,7 @@ export function InboxSourceContent({
   onLoadPrevious?: LoadComments | undefined;
 }) {
   const openLink = useInboxLink(threadRef);
-  const imageContext = useMemo(
-    () => (environmentId ? { environmentId, notification } : null),
-    [environmentId, notification],
-  );
+  const imageContext = environmentId ? { environmentId, notification } : null;
   if (notification.source === "superhuman") {
     return (
       <InboxLinkContext value={openLink}>

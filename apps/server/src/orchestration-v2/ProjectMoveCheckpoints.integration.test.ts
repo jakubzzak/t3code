@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { NodeId, ProviderThreadId, RunId, ThreadId } from "@t3tools/contracts";
@@ -32,7 +33,7 @@ const layer = CheckpointService.layer.pipe(
   Layer.provideMerge(storeLayer),
   Layer.provideMerge(vcsLayer),
   Layer.provideMerge(IdAllocator.layer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 it.effect(
@@ -79,6 +80,8 @@ it.effect(
       const sourceBaseline = yield* service.materializeBaselineCheckpoint({
         scope: sourceScope,
         ordinalWithinScope: 0,
+        nodeId: input.rootNodeId,
+        capturedAt: now,
       });
       yield* fs.writeFileString(path.join(source, "file.txt"), "source edit\n");
       const first = yield* service.capture({
@@ -101,6 +104,8 @@ it.effect(
       const destinationBaseline = yield* service.materializeBaselineCheckpoint({
         scope: destinationScope,
         ordinalWithinScope: 1,
+        nodeId: NodeId.make("move-node-2"),
+        capturedAt: now,
       });
       yield* fs.writeFileString(path.join(destination, "file.txt"), "destination edit\n");
       const second = yield* service.capture({

@@ -14,6 +14,7 @@ export function InboxIntegrationStatus({
   const [now, setNow] = useState(Date.now);
   const [open, setOpen] = useState(false);
   const hasErrors = connections.some((connection) => connection.enabled && connection.error);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- ages the delay cue from a local clock and page visibility while errors are shown.
   useEffect(() => {
     if (!hasErrors) return;
     const update = () => {

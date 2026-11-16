@@ -65,6 +65,7 @@ export function LinearIssueControls({
   const generation = useRef(0);
   const request = requestLinear;
   const filtered = value.stateIds.length > 0 || value.priorities.length > 0;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drops replies from in-flight Linear state requests after unmount
   useEffect(
     () => () => {
       generation.current++;

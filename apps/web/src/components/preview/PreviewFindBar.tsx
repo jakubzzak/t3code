@@ -1,116 +1,139 @@
-import { useEffect, useRef, useState } from "react";
-import type { DesktopPreviewBridge, DesktopPreviewFindResult } from "@t3tools/contracts";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
-import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { ChevronDownIcon, ChevronUpIcon, XIcon } from "lucide-react";
+import { Button } from "../ui/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { cn } from "~/lib/utils";
+import { previewBridge } from "./previewBridge";
 
-/** Search belongs to this mounted page; unmounting cancels it and clears highlights. */
-export function PreviewFindBar({
-  tabId,
-  bridge,
-  focusNonce,
-  onClose,
-}: {
-  tabId: string;
-  bridge: Pick<DesktopPreviewBridge, "findInPage" | "stopFindInPage">;
-  focusNonce: number;
-  onClose: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const generation = useRef(0);
+interface PreviewFindBarProps {
+  readonly tabId: string;
+  readonly focusRequestId: number;
+  readonly onClose: () => void;
+}
+
+export function PreviewFindBar({ tabId, focusRequestId, onClose }: PreviewFindBarProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
-  const [result, setResult] = useState<DesktopPreviewFindResult | null>(null);
-  const [error, setError] = useState(false);
-  const search = (text: string, forward = true, findNext = false) => {
-    const request = ++generation.current;
-    setError(false);
-    setResult(null);
-    void bridge.findInPage(tabId, text, { forward, findNext }).then(
-      (next) => {
-        if (request === generation.current) setResult(next);
-      },
-      () => {
-        if (request === generation.current) setError(true);
-      },
-    );
-  };
+  const [result, setResult] = useState<{ active: number; matches: number } | null>(null);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses and selects the input DOM node when the bar opens or a find shortcut fires
   useEffect(() => {
-    if (focusNonce === 0) return;
     inputRef.current?.focus();
     inputRef.current?.select();
-  }, [focusNonce]);
-  useEffect(
-    () => () => {
-      generation.current += 1;
-      void bridge.stopFindInPage(tabId).catch(() => undefined);
-    },
-    [bridge, tabId],
-  );
-  const status = error
-    ? "Unable to search page"
-    : !query
-      ? ""
-      : result
-        ? result.matches === 0
-          ? "No matches"
-          : `${result.activeMatchOrdinal} of ${result.matches}`
-        : "Searching…";
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each find shortcut bumps the request id, so an already-open bar refocuses and reselects its query.
+  }, [focusRequestId]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to Chromium find results for this tab and stops the search on unmount
+  useEffect(() => {
+    if (!previewBridge) return;
+    const unsubscribe = previewBridge.onFindResult((event) => {
+      if (event.tabId !== tabId) return;
+      // Chromium reports -1 for a field an update leaves unchanged.
+      setResult((previous) => ({
+        active: event.activeMatchOrdinal >= 0 ? event.activeMatchOrdinal : (previous?.active ?? 0),
+        matches: event.matches >= 0 ? event.matches : (previous?.matches ?? 0),
+      }));
+    });
+    return () => {
+      unsubscribe();
+      void previewBridge?.stopFindInPage(tabId).catch(() => undefined);
+    };
+  }, [tabId]);
+
+  const search = (text: string, options: { forward: boolean; newSession: boolean }) => {
+    if (!previewBridge) return;
+    void previewBridge.findInPage(tabId, text, options).catch(() => undefined);
+  };
+
+  const handleQueryChange = (next: string) => {
+    setQuery(next);
+    if (next.length === 0) {
+      setResult(null);
+      void previewBridge?.stopFindInPage(tabId).catch(() => undefined);
+      return;
+    }
+    search(next, { forward: true, newSession: true });
+  };
+
+  const step = (forward: boolean) => {
+    if (query.length === 0) return;
+    search(query, { forward, newSession: false });
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      step(!event.shiftKey);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    }
+  };
+
+  const hasQuery = query.length > 0;
+  const noResults = hasQuery && result !== null && result.matches === 0;
+  const label =
+    hasQuery && result ? `${result.matches === 0 ? 0 : result.active}/${result.matches}` : "";
+  const navigationDisabled = !result || result.matches === 0;
+
   return (
-    <div
-      role="search"
-      aria-label="Find in page"
-      className="flex items-center gap-1 border-b border-border px-2 py-1.5"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          onClose();
-        }
-      }}
-    >
-      <div className="min-w-0 flex-1">
-        <Input
+    <div className="absolute top-3 right-3 z-40 w-[min(22rem,calc(100%-1.5rem))]">
+      <InputGroup
+        variant="popover"
+        size="lg"
+        role="search"
+        aria-label="Find in page"
+        className="w-full"
+      >
+        <InputGroupInput
           ref={inputRef}
-          size="compact"
+          type="search"
+          size="sm"
+          value={query}
           aria-label="Find in page"
           placeholder="Find in page"
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            search(event.target.value);
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            event.stopPropagation();
-            if (query) search(query, !event.shiftKey, true);
-          }}
+          maxLength={200}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(event) => handleQueryChange(event.target.value)}
+          onKeyDown={handleKeyDown}
         />
-      </div>
-      <span role="status" className="shrink-0 text-xs text-muted-foreground">
-        {status}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Previous match"
-        disabled={!query}
-        onClick={() => search(query, false, true)}
-      >
-        <ArrowUp />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Next match"
-        disabled={!query}
-        onClick={() => search(query, true, true)}
-      >
-        <ArrowDown />
-      </Button>
-      <Button variant="ghost" size="icon-sm" aria-label="Close Find" onClick={onClose}>
-        <X />
-      </Button>
+        <InputGroupAddon align="inline-end" inset="pill">
+          <span
+            aria-live="polite"
+            className={cn(
+              "min-w-10 text-center text-xs tabular-nums",
+              noResults ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {label}
+          </span>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Previous match"
+            disabled={navigationDisabled}
+            onClick={() => step(false)}
+          >
+            <ChevronUpIcon />
+          </Button>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Next match"
+            disabled={navigationDisabled}
+            onClick={() => step(true)}
+          >
+            <ChevronDownIcon />
+          </Button>
+          <Button size="icon-xs" variant="ghost" aria-label="Close find" onClick={onClose}>
+            <XIcon />
+          </Button>
+        </InputGroupAddon>
+      </InputGroup>
     </div>
   );
 }

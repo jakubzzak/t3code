@@ -36,7 +36,7 @@ export class DesktopLinear extends Context.Service<
   }
 >()("@t3tools/desktop/linear/DesktopLinear") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const clock = yield* Clock.Clock;
   const environment = yield* DesktopEnvironment;
   const fs = yield* FileSystem.FileSystem;
@@ -99,20 +99,25 @@ export const make = Effect.gen(function* () {
       runPromise(
         Effect.gen(function* () {
           yield* protectedStorage;
-          return yield* Effect.tryPromise(() =>
-            receiveLinearCallback({
-              redirectUri,
-              authorizationUrl: url,
-              state,
-              signal,
-              openExternal: (address) => runPromise(shell.openExternal(address)),
-            }),
-          );
+          return yield* Effect.tryPromise({
+            try: () =>
+              receiveLinearCallback({
+                redirectUri,
+                authorizationUrl: url,
+                state,
+                signal,
+                openExternal: (address) => runPromise(shell.openExternal(address)),
+              }),
+            catch: (cause) =>
+              new LinearConnectionError({
+                detail: cause instanceof Error ? cause.message : "Linear sign-in failed.",
+              }),
+          });
         }),
       ),
   });
   return DesktopLinear.of({
-    request: (input) =>
+    request: Effect.fn("DesktopLinear.request")((input) =>
       Effect.tryPromise({
         try: () => client.request(input),
         catch: (error) =>
@@ -120,6 +125,7 @@ export const make = Effect.gen(function* () {
             detail: error instanceof Error ? error.message : "Linear connection failed. Try again.",
           }),
       }),
+    ),
   });
 });
 export const layer = Layer.effect(DesktopLinear, make);

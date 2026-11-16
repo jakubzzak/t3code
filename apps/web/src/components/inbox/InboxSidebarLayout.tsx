@@ -2,6 +2,7 @@ import { useDebouncedValue } from "@tanstack/react-pacer";
 import { matchesInboxListFilters } from "@t3tools/shared/inboxVisibility";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { inboxSuggestedPrompt } from "@t3tools/shared/inboxSuggestions";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { clearSectionSelection } from "~/sectionNavigation";
 import { dispatchSnapShotComposerFocus } from "~/lib/desktopSnapShot";
@@ -45,14 +46,13 @@ import {
 import {
   Children,
   isValidElement,
-  useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
   type KeyboardEvent,
+  type Ref,
 } from "react";
 import { flushSync } from "react-dom";
 import { createSidebarListMotion } from "../Sidebar.motion";
@@ -97,15 +97,16 @@ const shelfLabels = { delegated: "Delegated", snoozed: "Snoozed", resolved: "Set
 
 export function InboxAnimatedList({ children }: { children: ReactNode }) {
   const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
-  const attach = useCallback((node: HTMLDivElement | null) => {
+  const attach = (node: HTMLDivElement | null) => {
     motion.current?.dispose();
     motion.current = node ? createSidebarListMotion(node) : null;
     motion.current?.update(false);
-  }, []);
+  };
   // Polling and read-state updates must not restart list motion or measure layout.
   const orderKey = Children.toArray(children)
     .map((child) => (isValidElement(child) ? child.key : ""))
     .join("\0");
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drives the imperative list motion when row membership or order changes.
   useLayoutEffect(() => {
     void orderKey;
     motion.current?.update(true);
@@ -156,20 +157,18 @@ export function InboxRow({
       ? inboxEnvironment.get({ environmentId, input: { projectId: n.projectId, id: n.id } })
       : null,
   );
+  const refreshDetail = detail.refresh;
+  const detailVersion = `${n.revision}:${n.suggestionResearch?.status}:${n.suggestionResearch?.version}`;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refetches the cached detail query when the open row's server revision moves.
   useEffect(() => {
-    if (opened || focused) detail.refresh();
-  }, [
-    opened,
-    focused,
-    n.revision,
-    n.suggestionResearch?.status,
-    n.suggestionResearch?.version,
-    detail.refresh,
-  ]);
+    if (opened || focused) refreshDetail();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Revision and research changes make the cached detail stale.
+  }, [opened, focused, detailVersion, refreshDetail]);
   const item = n.items.at(-1);
   const fullDetail = isInboxDetailCurrent(n, detail.data) ? detail.data : null;
   const content = fullDetail ?? n;
   const detailReady = fullDetail !== null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the focused row's DOM node scrolled into view.
   useLayoutEffect(() => {
     if (focused && rowRef.current) return keepInboxRowVisible(rowRef.current);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A late detail response can move a bottom-anchored row after focus.
@@ -402,12 +401,15 @@ export function InboxSidebarLayout({
   threadRef,
   chatCount,
   chatHeader,
+  contentRef,
   children,
 }: {
   projects: ReadonlyArray<ScopedProjectRef>;
   threadRef: ScopedThreadRef | null;
   chatCount: number;
   chatHeader: ReactNode;
+  /** The chat list's sidebar content, which the sidebar scrolls when its scope changes. */
+  contentRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
   const openLink = useInboxLink(threadRef);
@@ -441,10 +443,7 @@ export function InboxSidebarLayout({
   const searchRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const command = useAtomCommand(inboxEnvironment.mutate, { reportFailure: true });
-  const filters = useMemo<InboxListFilters>(
-    () => ({ sources: selectedSources, include }),
-    [selectedSources, include],
-  );
+  const filters: InboxListFilters = { sources: selectedSources, include };
   const hasFilters =
     selectedSources.length !== sources.length ||
     !include.unread ||
@@ -461,46 +460,39 @@ export function InboxSidebarLayout({
     resetFilterFocus();
   }
 
-  const atoms = useMemo(
-    () =>
-      projects.flatMap(({ environmentId, projectId }) =>
-        Array.from({ length: pages }, (_, page) => ({
-          environmentId,
-          sourcesAtom: inboxEnvironment.sources({ environmentId, input: { projectId } }),
-          atom: inboxEnvironment.list({
-            environmentId,
-            input: {
-              projectId,
-              visibility: "all",
-              ...filters,
-              offset: page * 100,
-              // One overlapping item lets the tab detect overflow without loading another page.
-              limit: 101,
-              ...(debouncedQuery ? { search: debouncedQuery } : {}),
-            },
-          }),
-        })),
-      ),
-    [projects, debouncedQuery, pages, filters],
+  const atoms = projects.flatMap(({ environmentId, projectId }) =>
+    Array.from({ length: pages }, (_, page) => ({
+      environmentId,
+      sourcesAtom: inboxEnvironment.sources({ environmentId, input: { projectId } }),
+      atom: inboxEnvironment.list({
+        environmentId,
+        input: {
+          projectId,
+          visibility: "all",
+          ...filters,
+          offset: page * 100,
+          // One overlapping item lets the tab detect overflow without loading another page.
+          limit: 101,
+          ...(debouncedQuery ? { search: debouncedQuery } : {}),
+        },
+      }),
+    })),
   );
-  const results = useAtomValue(
-    useMemo(
-      () =>
-        Atom.make((get) =>
-          atoms.map(({ environmentId, atom, sourcesAtom }) => ({
-            environmentId,
-            result: get(atom),
-            connections: get(sourcesAtom),
-          })),
-        ),
-      [atoms],
-    ),
+  // The compiler keeps this combined atom stable until the page atoms change.
+  const resultsAtom = Atom.make((get) =>
+    atoms.map(({ environmentId, atom, sourcesAtom }) => ({
+      environmentId,
+      result: get(atom),
+      connections: get(sourcesAtom),
+    })),
   );
+  const results = useAtomValue(resultsAtom);
   const refresh = () => {
     for (const { atom } of atoms) appAtomRegistry.refresh(atom);
     for (const atom of new Set(atoms.map(({ sourcesAtom }) => sourcesAtom)))
       appAtomRegistry.refresh(atom);
   };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls the visible inbox pages on a timer while the sidebar is mounted.
   useEffect(() => {
     if (!projects.length) return;
     const timer = window.setInterval(
@@ -641,15 +633,26 @@ export function InboxSidebarLayout({
     clearSectionSelection();
     dispatchSnapShotComposerFocus();
   }
-  const entriesRef = useRef(entries);
-  entriesRef.current = entries;
+  // Queued mutations run after later renders, so they read the newest entries.
+  const latestEntries = useStableCallback(() => entries);
+  // A reveal request clears the search and opens the row's shelf once its entry is known.
+  const [revealing, setRevealing] = useState<string | null>(null);
+  if (revealId !== revealing) {
+    const entry = revealId
+      ? entries.find((candidate) => candidate.notification.id === revealId)
+      : undefined;
+    if (!revealId || entry) setRevealing(revealId);
+    if (entry) {
+      setQuery("");
+      const placement = entry.notification.state.placement;
+      setOpenSection(placement === "active" ? null : placement);
+    }
+  }
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves DOM focus to the revealed row once it renders, then clears the shared reveal request.
   useEffect(() => {
-    if (!revealId) return;
+    if (!revealId || revealing !== revealId) return;
     const entry = entries.find((candidate) => candidate.notification.id === revealId);
     if (!entry) return;
-    setQuery("");
-    const placement = entry.notification.state.placement;
-    setOpenSection(placement === "active" ? null : placement);
     const row = [
       ...(listRef.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") ?? []),
     ].find((element) => element.dataset.inboxRow === keyOf(entry));
@@ -657,7 +660,7 @@ export function InboxSidebarLayout({
       row.focus({ preventScroll: true });
       useInboxNavigation.setState({ revealId: null });
     }
-  }, [revealId, entries, openSection]);
+  }, [revealId, revealing, entries]);
   async function mutate(entry: Entry, action: InboxMutation, recordUndo = true) {
     if (!appAtomRegistry.get(inboxEnvironment.mutate.permissionAtom(entry.environmentId)))
       return false;
@@ -667,7 +670,7 @@ export function InboxSidebarLayout({
       await previous;
       setPending((current) => new Set(current).add(key));
       const latest =
-        entriesRef.current.find((candidate) => keyOf(candidate) === key)?.notification ??
+        latestEntries().find((candidate) => keyOf(candidate) === key)?.notification ??
         entry.notification;
       const own = overridesRef.current[key];
       const n = own && own.revision > latest.revision ? own : latest;
@@ -727,7 +730,7 @@ export function InboxSidebarLayout({
             ];
             const visibleKeys = new Set(rows.map((row) => row.dataset.inboxRow));
             const candidates = new Map(
-              entriesRef.current
+              latestEntries()
                 .filter(
                   (candidate) =>
                     candidate.notification.state.placement !== "resolved" &&
@@ -816,6 +819,7 @@ export function InboxSidebarLayout({
     if (value !== "snooze-menu") return mutate(entry, value);
     if (entry.notification.state.placement === "snoozed")
       return mutate(entry, { type: "snooze", until: null });
+    // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
     const presets = resolveSnoozePresets(new Date());
     const selected = await readLocalApi()?.contextMenu.show([
       ...presets.map((preset) => ({ id: preset.id, label: preset.label })),
@@ -937,7 +941,7 @@ export function InboxSidebarLayout({
   const enabled = projects.length > 0;
   if (!enabled)
     return (
-      <SidebarContent className="min-h-full" fixedHeader={chatHeader}>
+      <SidebarContent ref={contentRef} className="min-h-full" fixedHeader={chatHeader}>
         {children}
       </SidebarContent>
     );
@@ -1085,7 +1089,9 @@ export function InboxSidebarLayout({
       <div className={styles.viewport}>
         <div className={styles.track} data-inbox={inbox}>
           <div className={styles.pane} inert={inbox} aria-hidden={inbox}>
-            <SidebarContent className="min-h-full">{children}</SidebarContent>
+            <SidebarContent ref={contentRef} className="min-h-full">
+              {children}
+            </SidebarContent>
           </div>
           <div className={styles.pane} inert={!inbox} aria-hidden={!inbox}>
             <SidebarContent className="min-h-full">
@@ -1181,9 +1187,7 @@ export function InboxSidebarLayout({
                                     ).length,
                                   }
                                 : {})}
-                              tone={
-                                placement === "snoozed" ? "info" : expanded ? "emphasized" : "muted"
-                              }
+                              tone={expanded ? "emphasized" : "muted"}
                               onClick={() =>
                                 setOpenSection((current) =>
                                   current === placement ? null : placement,

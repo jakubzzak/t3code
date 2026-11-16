@@ -19,14 +19,26 @@ import type { SubscriptionUsageSnapshot as SubscriptionUsageProps } from "./subs
 export function SubscriptionUsage(props: SubscriptionUsageProps, environment: WidgetEnvironment) {
   "widget";
   // The widget runtime evaluates this function without the app's module scope.
-  // Android has no timeline, so freshness is decided on every render; the
-  // expiry alarm and each tap trigger one while the app is closed.
   const now = Date.now();
-  // The 4x3 default cell fits two quotas per provider with their reset text.
   const limit = 2;
-  const colors = getMaterialColors({
-    scheme: environment.colorScheme === "dark" ? "dark" : "light",
-  });
+  const mode = props.theme?.mode;
+  const appearance =
+    mode === "light" || mode === "dark"
+      ? mode
+      : environment.colorScheme === "dark"
+        ? "dark"
+        : "light";
+  const palette = props.theme?.[appearance];
+  const colors = palette
+    ? {
+        surface: palette.background,
+        onSurface: palette.foreground,
+        onSurfaceVariant: palette.secondary,
+        surfaceVariant: palette.track,
+        primary: palette.accent,
+        error: palette.danger,
+      }
+    : getMaterialColors({ scheme: appearance });
   const muted = colors.onSurfaceVariant;
   const providers = props.providers ?? [
     {
@@ -45,8 +57,7 @@ export function SubscriptionUsage(props: SubscriptionUsageProps, environment: Wi
     },
   ];
   return (
-    // The card is one Button so a tap reaches the app's interaction listener,
-    // which opens props.url. expo-widgets has no Android counterpart to widgetURL.
+    // Android lacks widgetURL; one card Button routes taps to the app listener opening props.url.
     <Button
       colors={{ containerColor: colors.surface }}
       modifiers={[fillMaxSize()]}

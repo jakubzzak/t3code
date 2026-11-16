@@ -12,6 +12,7 @@ import { readableSlackItem } from "../notificationContent.ts";
 import type { InboxSourceItem, InboxSourceConnection } from "@t3tools/contracts";
 import type { SlackNames } from "@t3tools/shared/slackText";
 
+// @effect-diagnostics-next-line extendsNativeError:off - thrown from the plain async Slack client, outside Effect.
 export class SlackReadError extends Error {
   readonly code: string;
   constructor(method: string, code: string) {

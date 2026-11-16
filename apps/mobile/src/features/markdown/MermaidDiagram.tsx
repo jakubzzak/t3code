@@ -13,6 +13,26 @@ export default function MermaidDiagram(props: { code: string; children: ReactNod
   );
 }
 
+/** Reads a WebView message: "failed" for an error or bad JSON, a content height, or null. */
+function readDiagramMessage(data: string): "failed" | number | null {
+  let message: unknown;
+  try {
+    message = JSON.parse(data);
+  } catch {
+    return "failed";
+  }
+  if (!message || typeof message !== "object") return null;
+  if ("error" in message) return "failed";
+  if (
+    "height" in message &&
+    typeof message.height === "number" &&
+    Number.isFinite(message.height)
+  ) {
+    return message.height;
+  }
+  return null;
+}
+
 function DiagramDocument(props: { code: string; theme: "dark" | "light"; children: ReactNode }) {
   const [height, setHeight] = useState(160);
   const [failed, setFailed] = useState(false);
@@ -58,19 +78,9 @@ function DiagramDocument(props: { code: string; theme: "dark" | "light"; childre
         onContentProcessDidTerminate={() => setFailed(true)}
         onRenderProcessGone={() => setFailed(true)}
         onMessage={(event) => {
-          try {
-            const message: unknown = JSON.parse(event.nativeEvent.data);
-            if (!message || typeof message !== "object") return;
-            if ("error" in message) setFailed(true);
-            else if (
-              "height" in message &&
-              typeof message.height === "number" &&
-              Number.isFinite(message.height)
-            )
-              setHeight(Math.min(800, Math.max(80, message.height + 24)));
-          } catch {
-            setFailed(true);
-          }
+          const message = readDiagramMessage(event.nativeEvent.data);
+          if (message === "failed") setFailed(true);
+          else if (message !== null) setHeight(Math.min(800, Math.max(80, message + 24)));
         }}
       />
     </View>

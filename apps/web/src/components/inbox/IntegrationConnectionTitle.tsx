@@ -1,9 +1,20 @@
-import { useRelativeTimeTick } from "../settings/settingsLayout";
+import { useEffect, useState } from "react";
 import { InboxTimestampLabel } from "./InboxTimestampLabel";
 import { formatInboxSyncTimestamp } from "./inboxTimestampFormat";
 
+/** Ticks a minute after each mount, so labels age from the sync rather than the wall clock. */
+function useSyncAgeClock() {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps a minute timer running while this sync label is mounted.
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return nowMs;
+}
+
 function SyncTimestamp({ timestamp }: { timestamp: string }) {
-  const nowMs = useRelativeTimeTick(60_000);
+  const nowMs = useSyncAgeClock();
   const value = formatInboxSyncTimestamp(timestamp, nowMs);
   if (!value) return null;
   return (

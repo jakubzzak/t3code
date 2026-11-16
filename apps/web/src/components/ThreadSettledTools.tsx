@@ -9,6 +9,7 @@ import { usePreviewMiniPlayerStore } from "../previewMiniPlayerStore";
 export function ThreadSettledTools() {
   const threads = useThreadShells();
   const observed = useRef(new Map<string, string | null>());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes panel, terminal and mini-player stores when the server settles a thread, including settles from another client
   useEffect(() => {
     const next = new Map<string, string | null>();
     for (const thread of threads) {

@@ -11,21 +11,15 @@ import {
 } from "./rightPanelStore";
 
 export interface ReopenOwnerState {
-  /** False when the entry's environment is not in the catalog. */
   environmentKnown: boolean;
   catalogReady: boolean;
-  /** Whether the owning thread or draft still exists locally. */
   ownerExists: boolean;
-  /** A live shell that lacks the thread means it was deleted; a cached one may just be stale. */
+  /** False only for a side chat tab whose thread is gone from the shell. */
+  sideChatExists: boolean;
   shellLive: boolean;
   panel: ThreadRightPanelState;
 }
 
-/**
- * Picks the history entry the next reopen press restores, newest first. Entries whose
- * environment is gone or whose tab is already open are dropped. A thread missing from a
- * live shell is skipped but kept; anything not yet knowable stops the scan with no restore.
- */
 export function planNextReopen(
   entries: readonly ClosedViewEntry[],
   ownerState: (entry: ClosedViewEntry) => ReopenOwnerState,
@@ -38,7 +32,7 @@ export function planNextReopen(
       drop.push(entry);
       continue;
     }
-    if (!owner.ownerExists) {
+    if (!owner.ownerExists || !owner.sideChatExists) {
       if (owner.shellLive) continue;
       break;
     }
@@ -65,7 +59,6 @@ type PullRequestsSearchLike = Partial<PullRequestListPreferences> & {
   selectedEnvironmentId?: EnvironmentId;
 };
 
-/** Selects the restored pull request on the Pull Requests page, keeping the list filters. */
 export function pullRequestsSearchForRestore<S extends PullRequestsSearchLike>(
   previous: S,
   selected: RightPanelSurface | null,
@@ -114,6 +107,10 @@ export async function reopenClosedView(
       ...(url === undefined ? {} : { url }),
       ...(view.snapshot.viewport === undefined ? {} : { viewport: view.snapshot.viewport }),
       ...(view.snapshot.profileId === undefined ? {} : { profileId: view.snapshot.profileId }),
+      ...(view.snapshot.zoomFactor === undefined ? {} : { zoomFactor: view.snapshot.zoomFactor }),
+      ...(view.snapshot.colorScheme === undefined
+        ? {}
+        : { colorScheme: view.snapshot.colorScheme }),
     });
     if (result._tag === "Failure") return false;
     panels.openBrowser(ref, result.value.tabId);
@@ -135,6 +132,7 @@ export async function reopenClosedView(
       else panels.restoreFileTab(ref, surface);
       break;
     case "files":
+      // A tab that is still open keeps its own trail; otherwise the captured tab returns as it was.
       panels.restoreFileTab(ref, surface);
       break;
     case "device":
@@ -145,6 +143,9 @@ export async function reopenClosedView(
       break;
     case "pull-request":
       panels.openPullRequest(ref, surface);
+      break;
+    case "side-chat":
+      panels.openSideChat(ref, surface.threadId);
       break;
     default:
       panels.open(ref, surface.kind);

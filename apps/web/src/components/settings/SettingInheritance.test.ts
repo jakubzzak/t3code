@@ -7,6 +7,36 @@ import { settingInheritanceLayers } from "./SettingInheritance";
 const environmentId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project");
 
+describe("worktree cleanup inheritance", () => {
+  it("distinguishes project and environment worktree cleanup policies", () => {
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      worktreeCleanup: {
+        mode: "custom" as const,
+        rules: DEFAULT_SERVER_SETTINGS.storageCleanup,
+      },
+      projectSettingsOverrides: {
+        [projectId]: { worktreeCleanup: { mode: "off" as const } },
+      },
+    };
+    const layers = settingInheritanceLayers(
+      {
+        environmentId,
+        label: "Laptop",
+        projectId,
+        ...resolveProjectSettings(settings, projectId),
+      },
+      settings,
+      "worktreeCleanup",
+    );
+    expect(layers.map((layer) => [layer.key, layer.value, layer.effective])).toEqual([
+      ["project", "Off", true],
+      ["environment", "Custom", false],
+      ["built-in", "Not set", false],
+    ]);
+  });
+});
+
 describe("settingInheritanceLayers", () => {
   it("does not reveal client IDs in the inheritance inspector", () => {
     const settings = {
@@ -36,50 +66,28 @@ describe("settingInheritanceLayers", () => {
     }
   });
 
-  it("marks the built-in default effective when nothing is set", () => {
-    const resolved = resolveProjectSettings(DEFAULT_SERVER_SETTINGS, null);
-    const layers = settingInheritanceLayers(
-      { environmentId, label: "Laptop", projectId: null, ...resolved },
-      DEFAULT_SERVER_SETTINGS,
-      "defaultAutoPull",
-    );
-    expect(layers.map((layer) => [layer.label, layer.value, layer.effective])).toEqual([
-      ["Laptop", "Inherits", false],
-      ["Default", "Off", true],
-    ]);
-  });
-
-  it("walks project override, environment value, then built-in default", () => {
+  it("identifies the background activity profile supplied by each layer", () => {
     const settings = {
       ...DEFAULT_SERVER_SETTINGS,
-      defaultAutoPull: true,
-      projectSettingsOverrides: { [projectId]: { defaultAutoPull: false } },
+      backgroundActivity: {
+        schemaVersion: 1 as const,
+        profile: "performance" as const,
+        overrides: {},
+      },
     };
-    const resolved = resolveProjectSettings(settings, projectId);
     const layers = settingInheritanceLayers(
-      { environmentId, label: "Laptop", projectId, ...resolved },
-      settings,
-      "defaultAutoPull",
-    );
-    expect(layers.map((layer) => [layer.label, layer.value, layer.effective])).toEqual([
-      ["Project", "Off", true],
-      ["Laptop", "On", false],
-      ["Default", "Off", false],
-    ]);
-    const inherited = settingInheritanceLayers(
       {
         environmentId,
         label: "Laptop",
-        projectId,
-        ...resolveProjectSettings(settings, ProjectId.make("other")),
+        projectId: null,
+        ...resolveProjectSettings(settings, projectId),
       },
       settings,
-      "defaultAutoPull",
+      "backgroundActivity",
     );
-    expect(inherited.map((layer) => [layer.value, layer.effective])).toEqual([
-      ["Inherits", false],
-      ["On", true],
-      ["Off", false],
+    expect(layers.map((layer) => [layer.key, layer.value, layer.effective])).toEqual([
+      ["environment", "Performance", true],
+      ["built-in", "Balanced", false],
     ]);
   });
 

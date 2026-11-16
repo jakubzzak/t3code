@@ -37,15 +37,20 @@ export default function PullRequestPreviewBrowser({
   const [tabId, setTabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds an ephemeral server preview session for this URL and closes it on change or unmount
   useEffect(() => {
     let cancelled = false;
+    const fail = (message: string) => {
+      setError(message);
+      toastManager.add({ type: "error", title: "Unable to open preview", description: message });
+    };
     const close = (snapshot: PreviewSessionSnapshot) =>
       closePullRequestPreviewSession({ threadRef, tabId: snapshot.tabId, closePreview });
     void openPreviewSession({ threadRef, url, openPreview })
       .then(async (result) => {
         if (result._tag === "Failure") {
           if (!cancelled && !isAtomCommandInterrupted(result))
-            setError(String(squashAtomCommandFailure(result)));
+            fail(String(squashAtomCommandFailure(result)));
           return;
         }
         if (cancelled) {
@@ -55,7 +60,7 @@ export default function PullRequestPreviewBrowser({
         setTabId(result.value.tabId);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) fail(cause instanceof Error ? cause.message : String(cause));
       });
     return () => {
       cancelled = true;
@@ -63,11 +68,6 @@ export default function PullRequestPreviewBrowser({
         void close(snapshot);
     };
   }, [threadRef, url, openPreview, closePreview]);
-
-  useEffect(() => {
-    if (error)
-      toastManager.add({ type: "error", title: "Unable to open preview", description: error });
-  }, [error]);
 
   return (
     <section className="flex h-full min-h-0 flex-col" aria-label="PR preview browser">

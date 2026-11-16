@@ -2,26 +2,19 @@ import {
   FILL_PREVIEW_VIEWPORT,
   type EnvironmentId,
   type PreviewCloseInput,
-  type PreviewNavigateInput,
-  type PreviewSessionSnapshot,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import {
-  squashAtomCommandFailure,
-  type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 
 import { linearInitialUrl } from "~/browser/linear";
+import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import type { OpenPreviewMutation } from "~/browser/openFileInPreview";
 import { isElectron } from "~/env";
 import { readLinearViewEnabled } from "./linearViewEnabled";
-import {
-  readThreadPreviewState,
-  beginPreviewSessionClose,
-  applyPreviewServerSnapshot,
-} from "~/previewStateStore";
+import { readThreadPreviewState, beginPreviewSessionClose } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { openPreviewSession } from "../preview/openPreviewSession";
+import { previewBridge } from "../preview/previewBridge";
 
 /** Reuse the Linear tab; only an explicitly selected issue retargets it. */
 export async function openLinearSurface<E>(input: {
@@ -30,10 +23,6 @@ export async function openLinearSurface<E>(input: {
   branch: string | null | undefined;
   url?: string;
   openPreview: OpenPreviewMutation<E>;
-  navigatePreview: (input: {
-    environmentId: EnvironmentId;
-    input: PreviewNavigateInput;
-  }) => Promise<AtomCommandResult<PreviewSessionSnapshot, E>>;
   closePreview: (input: {
     environmentId: EnvironmentId;
     input: PreviewCloseInput;
@@ -44,7 +33,8 @@ export async function openLinearSurface<E>(input: {
       "Enable Linear view for this project in Settings → Features in the desktop app.",
     );
   }
-  const existing = Object.values(readThreadPreviewState(input.threadRef).sessions).find(
+  const previewState = readThreadPreviewState(input.threadRef);
+  const existing = Object.values(previewState.sessions).find(
     (session) => session.surface === "linear",
   );
   if (existing && !input.url) {
@@ -64,12 +54,13 @@ export async function openLinearSurface<E>(input: {
     }
   }
   if (existing && input.url) {
-    const result = await input.navigatePreview({
-      environmentId: input.threadRef.environmentId,
-      input: { threadId: input.threadRef.threadId, tabId: existing.tabId, url: input.url },
-    });
-    if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-    applyPreviewServerSnapshot(input.threadRef, result.value);
+    // Linear tabs are desktop tabs, so navigate the native view; its status reports
+    // update the server snapshot.
+    if (!previewBridge) throw new Error("Linear view needs the desktop app.");
+    await previewBridge.navigate(
+      previewRuntimeTabId(input.threadRef, previewState.serverEpoch, existing.tabId),
+      input.url,
+    );
     useRightPanelStore.getState().openBrowser(input.threadRef, existing.tabId);
     return existing.tabId;
   }

@@ -1,22 +1,16 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off
 // @effect-diagnostics globalDateInEffect:off
-// The helpers mirror the inline Node snippets the SSH launch script used to
-// run, byte for byte in behaviour, so they stay on plain Node APIs.
 import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
 
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { Argument, Command } from "effect/cli";
 
-/**
- * Small helpers the SSH launch script needs on the remote host. The script
- * used to run these as inline `node -` snippets; archive-distributed runtimes
- * have no Node on the remote, so the executable provides them instead. Output
- * and exit codes match the snippets exactly because the shell script parses
- * them.
- */
+import * as DesktopUpdateMarker from "../desktopUpdate/DesktopUpdateMarker.ts";
+import { serviceLauncherIsServing, stateDirOwned } from "../serviceLauncher.ts";
 
 const canBind = (port: number) =>
   new Promise<boolean>((resolve) => {
@@ -28,8 +22,7 @@ const canBind = (port: number) =>
     });
   });
 
-// macOS lets the bind above succeed while another process listens on
-// *:<port>, so also skip any port that already answers on loopback.
+// macOS permits this bind over a wildcard listener, so also check loopback connectivity.
 const answersOnLoopback = (port: number) =>
   new Promise<boolean>((resolve) => {
     const socket = NodeNet.connect({ port, host: "127.0.0.1" });
@@ -45,7 +38,6 @@ const answersOnLoopback = (port: number) =>
     socket.once("error", () => resolve(false));
   });
 
-/** Prints the first free loopback port from the preferred one, scanning `window` ports. */
 const pickPort = Command.make("pick-port", {
   portFile: Argument.String("port-file"),
   defaultPort: Argument.Int("default-port"),
@@ -86,7 +78,6 @@ const probe = (port: number, probeTimeoutMs: number) =>
     request.once("error", () => resolve(false));
   });
 
-/** Exits 0 once the loopback server answers, 1 when the deadline passes first. */
 const waitReady = Command.make("wait-ready", {
   port: Argument.Int("port"),
   timeoutMs: Argument.Int("timeout-ms"),
@@ -111,7 +102,7 @@ const runtimePort = Command.make("runtime-port", {
   Command.withHandler(({ runtimeFile }) =>
     Effect.sync(() => {
       try {
-        // @effect-diagnostics-next-line preferSchemaOverJson:off - mirrors the shell snippet's loose parse.
+        // @effect-diagnostics-next-line globalJsonInEffect:off - mirrors the shell snippet's loose parse.
         const runtime = JSON.parse(NodeFS.readFileSync(runtimeFile, "utf8")) as {
           pid?: unknown;
           port?: unknown;
@@ -137,7 +128,35 @@ const runtimePort = Command.make("runtime-port", {
   ),
 );
 
+const updateRemaining = Command.make("update-remaining", {
+  markerFile: Argument.String("marker-file"),
+}).pipe(
+  Command.withHandler(({ markerFile }) =>
+    DesktopUpdateMarker.DesktopUpdateMarker.use((marker) => marker.remainingWait(markerFile)).pipe(
+      Effect.flatMap((remaining) =>
+        Effect.sync(() => {
+          process.stdout.write(Option.match(remaining, { onNone: () => "", onSome: String }));
+        }),
+      ),
+    ),
+  ),
+  Command.provide(DesktopUpdateMarker.layer),
+);
+
+/** Exits 0 while a server holds this home or a boot service is about to start one. */
+const homeOwned = Command.make("home-owned", {
+  baseDir: Argument.String("base-dir"),
+}).pipe(
+  Command.withHandler(({ baseDir }) =>
+    Effect.promise(async () => {
+      if (!((await serviceLauncherIsServing(baseDir)) || (await stateDirOwned(baseDir)))) {
+        process.exitCode = 1;
+      }
+    }),
+  ),
+);
+
 export const sshHelperCommand = Command.make("__ssh-helper").pipe(
   Command.unlisted,
-  Command.withSubcommands([pickPort, waitReady, runtimePort]),
+  Command.withSubcommands([pickPort, waitReady, runtimePort, updateRemaining, homeOwned]),
 );
