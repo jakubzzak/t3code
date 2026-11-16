@@ -22,7 +22,9 @@ import {
   defaultScheduledTaskProjectId,
   matchesScheduledTaskScope,
   scheduleFromDraft,
+  scheduleLabel,
   taskToDraft,
+  unbindDraftFromThread,
 } from "./scheduledTasksSettings.logic";
 
 const laptopId = EnvironmentId.make("laptop");
@@ -168,6 +170,41 @@ describe("editing scheduled task branch settings", () => {
     const draft = taskToDraft(legacyTask);
     expect(draft.baseRef).toBe("release");
     expect(draft.startFromOrigin).toBe(false);
+  });
+});
+
+describe("fixed-time scheduled tasks", () => {
+  it("pads a stored single-digit hour so the time input shows it", () => {
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "fixed_time", timeOfDay: "9:05" },
+    });
+    expect(draft.timeOfDay).toBe("09:05");
+  });
+
+  it("keeps a fixed run time and rejects a cleared one", () => {
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "fixed_time", timeOfDay: "14:30" },
+    });
+    expect(scheduleFromDraft(draft)).toEqual({ type: "fixed_time", timeOfDay: "14:30" });
+    // A native time input reports "" when it is cleared or only partly filled.
+    expect(scheduleFromDraft({ ...draft, timeOfDay: "" })).toBeNull();
+  });
+});
+
+describe("scheduled task destination", () => {
+  it("unbinding leaves the shared checkout for a new worktree from the remote", () => {
+    const rootBound = taskToDraft({
+      ...legacyTask,
+      threadId: ThreadId.make("thread:bound"),
+      workspaceStrategy: { type: "root" },
+    });
+    expect(unbindDraftFromThread(rootBound)).toMatchObject({
+      threadId: "",
+      workspaceMode: "worktree",
+      startFromOrigin: true,
+    });
   });
 });
 
@@ -382,9 +419,19 @@ it("rejects dedupe templates without a request placeholder", () => {
   expect(scheduleFromDraft({ ...draft, coalesceKey: "{{body.bad" })).toBeNull();
 });
 
-it("opens a bound automation in existing-chat mode without changing its destination", () => {
+it("opens a bound automation continuing its chat without changing its destination", () => {
   const draft = taskToDraft({ ...legacyTask, threadId: ThreadId.make("daily-brief") });
-  expect(draft.workspaceMode).toBe("thread");
+  expect(draft.threadMode).toBe("continue");
+  expect(draft.workspaceMode).toBe(legacyTask.workspaceStrategy.type);
   expect(draft.threadId).toBe("daily-brief");
   expect(draft.prompt).toBe(legacyTask.prompt);
+});
+
+it("appends the server zone only to fixed-time schedule labels", () => {
+  expect(scheduleLabel({ type: "fixed_time", timeOfDay: "16:31" }, "Etc/UTC")).toBe(
+    "Daily at 16:31 UTC",
+  );
+  expect(scheduleLabel({ type: "fixed_time", timeOfDay: "09:00" })).toBe("Daily at 09:00");
+  expect(scheduleLabel({ type: "interval", everyMs: 60_000 }, "Etc/UTC")).toBe("Every 1 min");
+  expect(scheduleLabel({ type: "webhook", signature: null }, "Etc/UTC")).toBe("On webhook");
 });

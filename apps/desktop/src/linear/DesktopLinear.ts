@@ -99,15 +99,20 @@ const make = Effect.gen(function* () {
       runPromise(
         Effect.gen(function* () {
           yield* protectedStorage;
-          return yield* Effect.tryPromise(() =>
-            receiveLinearCallback({
-              redirectUri,
-              authorizationUrl: url,
-              state,
-              signal,
-              openExternal: (address) => runPromise(shell.openExternal(address)),
-            }),
-          );
+          return yield* Effect.tryPromise({
+            try: () =>
+              receiveLinearCallback({
+                redirectUri,
+                authorizationUrl: url,
+                state,
+                signal,
+                openExternal: (address) => runPromise(shell.openExternal(address)),
+              }),
+            catch: (cause) =>
+              new LinearConnectionError({
+                detail: cause instanceof Error ? cause.message : "Linear sign-in failed.",
+              }),
+          });
         }),
       ),
   });

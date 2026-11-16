@@ -75,12 +75,15 @@ const make = Effect.gen(function* () {
     if (!session.storagePath) throw new Error("1Password needs a persistent browser profile.");
     return NodePath.join(session.storagePath, "t3-onepassword");
   };
+  const linuxConfigHome = environment.path.join(environment.homeDirectory, ".config");
   const roots = BROWSER_IMPORT_SOURCES.filter((source) => source.engine === "chromium")
     .map((source) =>
       source.userDataDirectory({
         path: environment.path,
         platform: environment.platform,
         home: environment.homeDirectory,
+        linuxConfigHome,
+        linuxChromeConfigHome: linuxConfigHome,
         appData: undefined,
         localAppData: undefined,
       }),

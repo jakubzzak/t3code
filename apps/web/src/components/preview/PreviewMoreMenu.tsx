@@ -6,6 +6,7 @@ import {
   Menu,
   MenuItem,
   MenuPopup,
+  MenuShortcut,
   MenuRadioGroup,
   MenuRadioItem,
   MenuGroup,
@@ -38,10 +39,10 @@ export interface PreviewMoreMenuActions {
   readonly openDevTools?: () => void;
   readonly openOnePassword?: () => void;
   readonly toggleNativePictureInPicture?: () => void;
+  readonly find?: () => void;
 }
 
 interface Props {
-  onFind?: (() => void) | undefined;
   onCopyUrl?: (() => void) | undefined;
   enabled: boolean;
   actions: PreviewMoreMenuActions;
@@ -51,6 +52,7 @@ interface Props {
   onToggleDeviceToolbar: () => void;
   nativePictureInPicture: boolean;
   profileName: string | undefined;
+  findShortcutLabel?: string | null;
   move?: { readonly label: string; readonly onMove: () => void };
 }
 
@@ -70,7 +72,6 @@ const MenuTriggerButton = () => (
 );
 
 export function PreviewMoreMenu({
-  onFind,
   onCopyUrl,
   enabled,
   actions,
@@ -80,6 +81,7 @@ export function PreviewMoreMenu({
   onToggleDeviceToolbar,
   nativePictureInPicture,
   profileName,
+  findShortcutLabel,
   move,
 }: Props) {
   const zoomLabel = `${Math.round(zoomFactor * 100)}%`;
@@ -88,18 +90,23 @@ export function PreviewMoreMenu({
     <Menu>
       <MenuTriggerButton />
       <MenuPopup align="end" sideOffset={6}>
-        <MenuItem onClick={onFind} disabled={disabled || !onFind}>
-          Find in page
-        </MenuItem>
-        <MenuItem onClick={onCopyUrl} disabled={disabled || !onCopyUrl}>
-          Copy URL
-        </MenuItem>
+        {actions.find ? (
+          <MenuItem onClick={actions.find} disabled={disabled}>
+            Find on page
+            {findShortcutLabel ? <MenuShortcut>{findShortcutLabel}</MenuShortcut> : null}
+          </MenuItem>
+        ) : null}
+        {onCopyUrl ? (
+          <MenuItem onClick={onCopyUrl} disabled={disabled}>
+            Copy URL
+          </MenuItem>
+        ) : null}
         {actions.openOnePassword ? (
           <MenuItem onClick={actions.openOnePassword} disabled={disabled}>
             1Password
           </MenuItem>
         ) : null}
-        <MenuSeparator />
+        {actions.find || onCopyUrl || actions.openOnePassword ? <MenuSeparator /> : null}
         <MenuItem onClick={actions.hardReload} disabled={disabled}>
           Hard reload
         </MenuItem>

@@ -23,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { DesktopLauncherRegistration } from "@t3tools/contracts";
+import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/cli";
 import { afterEach, describe, expect, vi } from "vite-plus/test";
 
@@ -69,6 +70,16 @@ const liveProcess = Effect.acquireRelease(
 );
 
 const encodeRuntimeState = Schema.encodeEffect(Schema.fromJsonString(PersistedServerRuntimeState));
+
+// Node reads this variable itself, so the test must set the real process environment.
+const setProcessEnv = (name: string, value: string) => {
+  const previous = process.env[name];
+  process.env[name] = value;
+  return () => {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  };
+};
 
 const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
   Command.runWith(makeCli(), { version: "0.0.0" })(args).pipe(
@@ -305,6 +316,15 @@ describe("t3 directory", () => {
 });
 
 describe("t3 server command safety", () => {
+  it.effect("does not offer auto-bootstrap in serve help, since serve never bootstraps", () =>
+    Effect.gen(function* () {
+      yield* runCli(["serve", "--help"]);
+      const help = (yield* TestConsole.logLines).join("\n");
+      expect(help).toContain("--no-browser");
+      expect(help).not.toContain("--auto-bootstrap-project-from-cwd");
+    }).pipe(Effect.provide(Layer.fresh(TestConsole.layer))),
+  );
+
   // Bare `t3 <directory>` opens the desktop app here, so only `t3 start` reaches the server.
   it.effect("refuses manual startup over a live server before creating directories", () =>
     withTempDirectory("t3-cli-running-", (root) =>
@@ -350,16 +370,9 @@ describe("t3 app", () => {
           "t3-app-unsafe-",
           (root) =>
             Effect.gen(function* () {
-              const previousTmpdir = process.env.TMPDIR;
               yield* Effect.acquireRelease(
-                Effect.sync(() => {
-                  process.env.TMPDIR = root;
-                }),
-                () =>
-                  Effect.sync(() => {
-                    if (previousTmpdir === undefined) delete process.env.TMPDIR;
-                    else process.env.TMPDIR = previousTmpdir;
-                  }),
+                Effect.sync(() => setProcessEnv("TMPDIR", root)),
+                (restore) => Effect.sync(restore),
               );
               const baseDir = NodePath.join(root, ".t3");
               const userId = yield* HostProcessUserId;

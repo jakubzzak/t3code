@@ -72,6 +72,7 @@ function fixture(rows: TestRow[]) {
     children: rows,
     ownerDocument: { defaultView: { matchMedia: () => media } },
     getBoundingClientRect: () => ({ top: 0 }),
+    getClientRects: () => [{}],
     append(node: TestRow) {
       parent.children.push(node);
       node.remove.mockImplementation(() => {

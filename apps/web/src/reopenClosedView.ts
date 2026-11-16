@@ -107,6 +107,10 @@ export async function reopenClosedView(
       ...(url === undefined ? {} : { url }),
       ...(view.snapshot.viewport === undefined ? {} : { viewport: view.snapshot.viewport }),
       ...(view.snapshot.profileId === undefined ? {} : { profileId: view.snapshot.profileId }),
+      ...(view.snapshot.zoomFactor === undefined ? {} : { zoomFactor: view.snapshot.zoomFactor }),
+      ...(view.snapshot.colorScheme === undefined
+        ? {}
+        : { colorScheme: view.snapshot.colorScheme }),
     });
     if (result._tag === "Failure") return false;
     panels.openBrowser(ref, result.value.tabId);
@@ -128,6 +132,7 @@ export async function reopenClosedView(
       else panels.restoreFileTab(ref, surface);
       break;
     case "files":
+      // A tab that is still open keeps its own trail; otherwise the captured tab returns as it was.
       panels.restoreFileTab(ref, surface);
       break;
     case "device":

@@ -8,24 +8,25 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { migrationManifest, runMigrations } from "./Migrations.ts";
-import ProjectionThreadLinearIssue from "./Migrations/080_ProjectionThreadLinearIssue.ts";
-import NotificationInbox from "./Migrations/081_NotificationInbox.ts";
-import InboxSources from "./Migrations/082_InboxSources.ts";
-import ScheduledTaskCatchUpRecord from "./Migrations/083_ScheduledTaskCatchUpRecord.ts";
-import SlackSendAttempts from "./Migrations/084_SlackSendAttempts.ts";
-import InboxRelevance from "./Migrations/085_InboxRelevance.ts";
+import ProjectionThreadLinearIssue from "./Migrations/097_ProjectionThreadLinearIssue.ts";
+import NotificationInbox from "./Migrations/098_NotificationInbox.ts";
+import InboxSources from "./Migrations/099_InboxSources.ts";
+import ScheduledTaskCatchUpRecord from "./Migrations/100_ScheduledTaskCatchUpRecord.ts";
+import SlackSendAttempts from "./Migrations/101_SlackSendAttempts.ts";
+import InboxRelevance from "./Migrations/102_InboxRelevance.ts";
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
-// Ids earlier Blackbird builds recorded before upstream claimed 63-68.
-const blackbirdLegacyMigrations = [
-  [63, "ProjectionThreadLinearIssue", ProjectionThreadLinearIssue],
-  [64, "NotificationInbox", NotificationInbox],
-  [65, "InboxSources", InboxSources],
-  [66, "ScheduledTaskCatchUpRecord", ScheduledTaskCatchUpRecord],
-  [67, "SlackSendAttempts", SlackSendAttempts],
-  [68, "InboxRelevance", InboxRelevance],
+// Earlier Blackbird builds recorded these from id 63, then from 80, before upstream claimed both.
+const blackbirdMigrations = [
+  ["ProjectionThreadLinearIssue", ProjectionThreadLinearIssue],
+  ["NotificationInbox", NotificationInbox],
+  ["InboxSources", InboxSources],
+  ["ScheduledTaskCatchUpRecord", ScheduledTaskCatchUpRecord],
+  ["SlackSendAttempts", SlackSendAttempts],
+  ["InboxRelevance", InboxRelevance],
 ] as const;
+const firstBlackbirdMigrationId = 97;
 
 const history = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -51,7 +52,7 @@ describe("runMigrations", () => {
         const sql = yield* SqlClient.SqlClient;
         yield* runMigrations();
         yield* sql`INSERT INTO slack_send_attempts(command_id,project_id,input_json,result_json) VALUES('send','p','{}','{"status":"pending"}')`;
-        assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 83 }), []);
+        assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 100 }), []);
         assert.deepStrictEqual(
           yield* sql`SELECT result_json FROM slack_send_attempts WHERE command_id='send'`,
           [{ result_json: '{"status":"pending"}' }],
@@ -69,11 +70,11 @@ describe("runMigrations", () => {
     () =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        yield* runMigrations({ toMigrationInclusive: 83 });
+        yield* runMigrations({ toMigrationInclusive: 100 });
         yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES('p','slack','{"connected":true}')`;
         assert.deepStrictEqual(yield* runMigrations(), [
-          [84, "SlackSendAttempts"],
-          [85, "InboxRelevance"],
+          [101, "SlackSendAttempts"],
+          [102, "InboxRelevance"],
         ]);
         assert.deepStrictEqual(
           yield* sql`SELECT payload_json FROM inbox_sources WHERE project_id='p'`,
@@ -84,30 +85,32 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("relocates Blackbird migrations an earlier fork build recorded at ids 63-68", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 62 });
-      // Recreate the fork's schema exactly as its migrations wrote it under the legacy ids.
-      for (const [legacyId, name, migration] of blackbirdLegacyMigrations) {
-        yield* migration;
-        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${legacyId}, ${name})`;
-      }
-      yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES('p','slack','{"connected":true}')`;
+  it.effect.each([63, 80])(
+    "relocates Blackbird migrations a fork build recorded from id %s",
+    (legacyId) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: legacyId - 1 });
+        // Recreate the fork's schema exactly as its migrations wrote it under the legacy ids.
+        for (const [offset, [name, migration]] of blackbirdMigrations.entries()) {
+          yield* migration;
+          yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${legacyId + offset}, ${name})`;
+        }
+        yield* sql`INSERT INTO inbox_sources(project_id,source,payload_json) VALUES('p','slack','{"connected":true}')`;
 
-      const executed = yield* runMigrations();
+        const executed = yield* runMigrations();
 
-      assert.deepStrictEqual(
-        executed,
-        migrationManifest.filter(([id]) => id >= 63 && id < 80),
-      );
-      assert.deepStrictEqual(yield* history, migrationManifest);
-      assert.deepStrictEqual(
-        yield* sql`SELECT payload_json FROM inbox_sources WHERE project_id='p'`,
-        [{ payload_json: '{"connected":true}' }],
-      );
-      assert.deepStrictEqual(yield* runMigrations(), []);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+        assert.deepStrictEqual(
+          executed,
+          migrationManifest.filter(([id]) => id >= legacyId && id < firstBlackbirdMigrationId),
+        );
+        assert.deepStrictEqual(yield* history, migrationManifest);
+        assert.deepStrictEqual(
+          yield* sql`SELECT payload_json FROM inbox_sources WHERE project_id='p'`,
+          [{ payload_json: '{"connected":true}' }],
+        );
+        assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
   it.effect("refuses to start when another migration took a V2 id", () =>
@@ -150,12 +153,18 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("upgrades a database at exactly 54", () =>
+  it.effect("upgrades a database at exactly 54, then rechecks it without a write lock", () =>
     Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 54 });
       assert.deepStrictEqual(yield* runMigrations(), v2Migrations);
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.isAbove(yield* v2TableCount, 0);
+
+      // query_only rejects BEGIN IMMEDIATE, which CLI startup would otherwise take on the live database.
+      yield* sql`PRAGMA query_only = ON`;
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* history, migrationManifest);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
@@ -229,6 +238,36 @@ describe("runMigrations", () => {
       );
       assert.notInclude(String(exit), "57_ScheduledTaskWebhooks");
       assert.deepStrictEqual(yield* history, before);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("keeps the migrations that finished before a later one failed", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 81 });
+      yield* sql`CREATE TABLE orchestration_v2_projection_turn_item_counts (thread_id TEXT)`;
+
+      const exit = yield* Effect.exit(runMigrations());
+
+      assert.isTrue(Exit.isFailure(exit));
+      assert.deepStrictEqual(
+        yield* history,
+        migrationManifest.filter(([id]) => id <= 84),
+      );
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("reapplies peer link migrations whose ledger rows are missing", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 72 });
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id BETWEEN 70 AND 72`;
+
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id >= 70),
+      );
+      assert.deepStrictEqual(yield* history, migrationManifest);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 

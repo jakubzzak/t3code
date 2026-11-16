@@ -16,6 +16,7 @@ import * as CloneTracker from "../project/ProjectCloneTracker.ts";
 import * as SetupScripts from "../project/ProjectSetupScriptRunner.ts";
 import * as Git from "../git/GitWorkflowService.ts";
 import * as Terminals from "../terminal/Manager.ts";
+import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -102,10 +103,13 @@ function makeLayer(
     }),
     Layer.mock(CloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(Terminals.TerminalManager)({ close: () => Effect.void }),
+    Layer.mock(CheckpointStore.CheckpointStore)({
+      isGitRepository: () => Effect.succeed(true),
+    }),
     Layer.mock(SetupScripts.ProjectSetupScriptRunner)({
       runForThread: () => Effect.succeed({ status: "no-script" as const }),
     }),
-    Layer.mock(Git.GitWorkflowService)({}),
+    Layer.mock(Git.GitWorkflowService)({ currentBranch: () => Effect.succeed(null) }),
     Layer.mock(TextGeneration.TextGeneration)({}),
     ProviderRegistryMock.layer(),
   );

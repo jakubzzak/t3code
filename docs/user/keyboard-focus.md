@@ -60,8 +60,8 @@ expand and collapse groups. `F2` renames the focused thread.
 Press `Shift+F10` or the Context Menu key to open the focused thread's menu. Use the arrow
 keys to move through it, Enter to choose, and Escape to close it.
 
-The Settings section list works the same way: Up and Down move between sections, and Enter
-opens one.
+The Settings section list works the same way: Tab moves through each section, Up and Down
+also move between sections without opening them, and Enter opens one.
 
 ## Browser shortcuts
 
@@ -70,6 +70,5 @@ through the current tab's history. Command+Shift+C copies the current page URL a
 confirms when it has been copied. These shortcuts apply only while the browser page
 or toolbar has focus.
 
-Command+F opens Find in the current page. Enter moves to the next match,
-Shift+Enter to the previous match, and Escape closes Find. Find and Copy URL are
-also available from the browser menu.
+Copy URL is also available from the browser menu. To search the page, see
+[Find on a browser page](keybindings.md#find-on-a-browser-page).

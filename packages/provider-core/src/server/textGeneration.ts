@@ -6,6 +6,7 @@ import type {
   BranchNamingOptions,
   ChatAttachment,
   ModelSelection,
+  ProjectId,
   PullRequestReviewGuide,
   TextGenerationError,
 } from "@t3tools/contracts";
@@ -22,6 +23,7 @@ export interface CommitMessageGenerationInput {
   includeBranch?: boolean;
   policy?: TextGenerationPolicy | undefined;
   modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface CommitMessageGenerationResult {
@@ -41,6 +43,7 @@ export interface PrContentGenerationInput {
   threadContext?: string | undefined;
   policy?: TextGenerationPolicy | undefined;
   modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface PrContentGenerationResult {
@@ -54,6 +57,7 @@ export interface BranchNameGenerationInput {
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface BranchNameGenerationResult {
@@ -64,11 +68,13 @@ export interface ThreadTitleGenerationInput {
   linkedContext?: string | undefined;
   cwd: string;
   message: string;
+  projectTitle?: string | undefined;
   previousTitle?: string | undefined;
   forkSource?: ThreadTitleForkSource | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   instructions?: string | undefined;
   modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface ThreadTitleGenerationResult {
@@ -94,6 +100,7 @@ export interface ReviewGuideGenerationInput {
   instructions?: string | undefined;
   stack?: ReadonlyArray<ReviewGuideStackLayer> | undefined;
   modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
 }
 
 export type ReviewGuideGenerationResult = Omit<
@@ -114,7 +121,21 @@ export interface InboxAnalysisInput {
   instructions?: string;
 }
 
+export interface TranscriptionPostProcessingInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+}
+
+export interface TranscriptionPostProcessingResult {
+  transcription: string;
+}
+
 export interface ProviderTextGeneration {
+  readonly generateTranscriptionPostProcessing: (
+    input: TranscriptionPostProcessingInput,
+  ) => Effect.Effect<TranscriptionPostProcessingResult, TextGenerationError>;
+
   /** Tool requests are validated and executed by the server; the model itself remains tool-free. */
   readonly generateInboxResearch?: (
     input: InboxAnalysisInput,

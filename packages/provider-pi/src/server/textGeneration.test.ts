@@ -20,6 +20,9 @@ const makeFakePi = (
   reply: string,
   setModelError?: string,
   turnEvents: ReadonlyArray<Record<string, unknown>> = [],
+  models?: ReadonlyArray<Record<string, unknown>>,
+  version = "0.84.3",
+  thinkingError?: string,
 ) =>
   Effect.gen(function* () {
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
@@ -42,8 +45,12 @@ const makeFakePi = (
             yield* emit({ type: "agent_settled" });
           } else if (record["type"] === "get_last_assistant_text") {
             yield* emit({ ...response, success: true, data: { text: reply } });
+          } else if (record["type"] === "get_available_models" && models !== undefined) {
+            yield* emit({ ...response, success: true, data: { models } });
           } else if (record["type"] === "set_model" && setModelError !== undefined) {
             yield* emit({ ...response, success: false, error: setModelError });
+          } else if (record["type"] === "set_thinking_level" && thinkingError !== undefined) {
+            yield* emit({ ...response, success: false, error: thinkingError });
           } else {
             yield* emit({ ...response, success: true });
           }
@@ -51,18 +58,22 @@ const makeFakePi = (
       });
     const launches: Array<{ cwd: string | undefined; args: ReadonlyArray<string> }> = [];
     const spawner = ChildProcessSpawner.make((command) => {
-      if (ChildProcess.isStandardCommand(command))
+      const versionProbe =
+        ChildProcess.isStandardCommand(command) && command.args.includes("--version");
+      if (ChildProcess.isStandardCommand(command) && !versionProbe)
         launches.push({ cwd: command.options.cwd, args: command.args.map(String) });
       return Effect.succeed(
         ChildProcessSpawner.makeHandle({
           // Outside the valid pid range, so PiRpc's process-group kill never lands.
           pid: ChildProcessSpawner.ProcessId(999_999_999),
-          exitCode: Effect.never,
+          exitCode: versionProbe ? Effect.succeed(ChildProcessSpawner.ExitCode(0)) : Effect.never,
           isRunning: Effect.succeed(true),
           kill: () => Effect.void,
           unref: Effect.succeed(Effect.void),
           stdin: Sink.forEach(onStdin),
-          stdout: Stream.fromQueue(stdout),
+          stdout: versionProbe
+            ? Stream.make(new TextEncoder().encode(version))
+            : Stream.fromQueue(stdout),
           stderr: Stream.empty,
           all: Stream.empty,
           getInputFd: () => Sink.drain,
@@ -125,6 +136,36 @@ it.effect("names the model and the disabled extensions when Pi cannot load it", 
     assert.include(error.detail, "Model not found: demo/demo-model");
     assert.include(error.detail, "--no-extensions");
     assert.isUndefined(pi.received.find((record) => record["type"] === "prompt"));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("selects the provider and id Pi reported when the provider contains a slash", () =>
+  Effect.gen(function* () {
+    const provider = "llama-server=http://127.0.0.1:8080";
+    const pi = yield* makeFakePi(
+      JSON.stringify({ subject: "Update README", body: "" }),
+      undefined,
+      [],
+      [{ provider, id: "qwen3" }],
+    );
+    const textGeneration = yield* makePiTextGeneration(
+      { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] },
+      {},
+    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
+
+    yield* textGeneration.generateCommitMessage({
+      cwd: process.cwd(),
+      branch: "main",
+      stagedSummary: "M README.md",
+      stagedPatch: "diff --git a/README.md b/README.md",
+      modelSelection: createModelSelection(ProviderInstanceId.make("pi"), `${provider}/qwen3`),
+    });
+
+    const setModel = pi.received.find((record) => record["type"] === "set_model");
+    assert.deepEqual(
+      { provider: setModel?.["provider"], modelId: setModel?.["modelId"] },
+      { provider, modelId: "qwen3" },
+    );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -269,4 +310,102 @@ it.effect.each(["summary", "research"] as const)(
       assert.include(pi.launches[0]!.args, "--no-extensions");
       assert.notInclude(pi.launches[0]!.args, "read");
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each([
+  { model: "demo/demo-model", thinking: "off", expected: "off", version: "0.84.3" },
+  { model: "demo/demo-model", thinking: "max", expected: "max", version: "1.4.0" },
+  { model: "demo/demo-model", thinking: "invalid", expected: undefined, version: "0.84.3" },
+  { model: "demo/demo-model", thinking: undefined, expected: undefined, version: "0.84.3" },
+  { model: "default", thinking: "off", expected: "off", version: "0.84.3" },
+  { model: "demo/demo-model", thinking: "low", expected: undefined, version: "0.84.2" },
+])(
+  "handles thinking=$thinking for $model on Pi $version",
+  ({ model, thinking, expected, version }) =>
+    Effect.gen(function* () {
+      const pi = yield* makeFakePi(
+        JSON.stringify({ subject: "Update README", body: "" }),
+        undefined,
+        [],
+        undefined,
+        version,
+      );
+      const textGeneration = yield* makePiTextGeneration(
+        { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] },
+        {},
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
+
+      const generation = textGeneration.generateCommitMessage({
+        cwd: process.cwd(),
+        branch: "main",
+        stagedSummary: "M README.md",
+        stagedPatch: "diff --git a/README.md b/README.md",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("pi"),
+          model,
+          thinking === undefined ? [] : [{ id: "thinking", value: thinking }],
+        ),
+      });
+      if (version === "0.84.2") {
+        const error = yield* generation.pipe(Effect.flip);
+        assert.include(error.detail, "Pi 0.84.3 or newer");
+        assert.deepEqual(pi.received, []);
+        return;
+      }
+      const result = yield* generation;
+
+      assert.equal(result.subject, "Update README");
+      assert.deepEqual(
+        pi.received.map((record) => record["type"]),
+        [
+          ...(model === "default" ? [] : ["get_available_models", "set_model"]),
+          ...(expected === undefined ? [] : ["set_thinking_level"]),
+          "prompt",
+          "get_last_assistant_text",
+        ],
+      );
+      assert.equal(
+        pi.received.find((record) => record["type"] === "set_thinking_level")?.["level"],
+        expected,
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("generates at Pi's default level when Pi rejects the saved thinking level", () =>
+  Effect.gen(function* () {
+    const pi = yield* makeFakePi(
+      JSON.stringify({ subject: "Update README", body: "" }),
+      undefined,
+      [],
+      undefined,
+      "1.4.0",
+      'Thinking level "max" is not supported by demo/demo-model',
+    );
+    const textGeneration = yield* makePiTextGeneration(
+      { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] },
+      {},
+    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
+
+    const result = yield* textGeneration.generateCommitMessage({
+      cwd: process.cwd(),
+      branch: "main",
+      stagedSummary: "M README.md",
+      stagedPatch: "diff --git a/README.md b/README.md",
+      modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "demo/demo-model", [
+        { id: "thinking", value: "max" },
+      ]),
+    });
+
+    assert.equal(result.subject, "Update README");
+    assert.deepEqual(
+      pi.received.map((record) => record["type"]),
+      [
+        "get_available_models",
+        "set_model",
+        "set_thinking_level",
+        "prompt",
+        "get_last_assistant_text",
+      ],
+    );
+  }).pipe(Effect.provide(NodeServices.layer)),
 );

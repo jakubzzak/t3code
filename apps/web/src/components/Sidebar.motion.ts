@@ -122,6 +122,12 @@ export function createSidebarListMotion(parent: HTMLElement) {
   return {
     update(animate: boolean) {
       if (disposed) return;
+      // A hidden list (the closed narrow sheet stays mounted) reports zero
+      // offsets, which would make the first pass after it opens animate every row.
+      if (parent.getClientRects().length === 0) {
+        suspend();
+        return;
+      }
       // Bottom-anchored shelves move their container as rows leave. Compare in
       // one coordinate space so that displacement is not animated a second time.
       const originDelta = parentTop - parent.offsetTop;

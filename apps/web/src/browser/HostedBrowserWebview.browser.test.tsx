@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   closeTab: vi.fn<DesktopPreviewBridge["closeTab"]>(),
   registerWebview: vi.fn<DesktopPreviewBridge["registerWebview"]>(),
   navigate: vi.fn<DesktopPreviewBridge["navigate"]>(),
+  setShown: vi.fn<DesktopPreviewBridge["setShown"]>(async () => undefined),
   getPreviewConfig: vi.fn<DesktopPreviewBridge["getPreviewConfig"]>(),
   automationActive: false,
 }));
@@ -40,6 +41,7 @@ vi.mock(import("~/components/preview/previewBridge"), async (original) => ({
     closeTab: mocks.closeTab,
     registerWebview: mocks.registerWebview,
     navigate: mocks.navigate,
+    setShown: mocks.setShown,
     getPreviewConfig: mocks.getPreviewConfig,
   } as unknown as NonNullable<typeof previewBridge>,
 }));

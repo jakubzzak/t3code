@@ -80,6 +80,8 @@ it.effect(
       const sourceBaseline = yield* service.materializeBaselineCheckpoint({
         scope: sourceScope,
         ordinalWithinScope: 0,
+        nodeId: input.rootNodeId,
+        capturedAt: now,
       });
       yield* fs.writeFileString(path.join(source, "file.txt"), "source edit\n");
       const first = yield* service.capture({
@@ -102,6 +104,8 @@ it.effect(
       const destinationBaseline = yield* service.materializeBaselineCheckpoint({
         scope: destinationScope,
         ordinalWithinScope: 1,
+        nodeId: NodeId.make("move-node-2"),
+        capturedAt: now,
       });
       yield* fs.writeFileString(path.join(destination, "file.txt"), "destination edit\n");
       const second = yield* service.capture({

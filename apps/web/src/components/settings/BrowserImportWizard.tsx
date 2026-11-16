@@ -12,6 +12,7 @@ import {
   Dialog,
   DialogClose,
   DialogDescription,
+  DialogAction,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -201,7 +202,7 @@ function QuitStep({
         <Button variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button onClick={onRechecked}>I&rsquo;ve quit it</Button>
+        <DialogAction onClick={onRechecked}>I&rsquo;ve quit it</DialogAction>
       </DialogFooter>
     </>
   );
@@ -265,9 +266,9 @@ function FullDiskAccessStep({
       <DialogHeader>
         <DialogTitle>Let Blackbird read {source.name}&rsquo;s cookies</DialogTitle>
         <DialogDescription>
-          To import cookies from {source.name}, Blackbird needs Full Disk Access. Turn it on in System
-          Settings, then come back to finish the import. You can revoke it again once the import is
-          done.
+          To import cookies from {source.name}, Blackbird needs Full Disk Access. Turn it on in
+          System Settings, then come back to finish the import. You can revoke it again once the
+          import is done.
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>
@@ -575,7 +576,7 @@ function BlockedStep({
         <Button variant="outline" onClick={onClose}>
           Close
         </Button>
-        {onRetry ? <Button onClick={onRetry}>Try again</Button> : null}
+        {onRetry ? <DialogAction onClick={onRetry}>Try again</DialogAction> : null}
       </DialogFooter>
     </>
   );

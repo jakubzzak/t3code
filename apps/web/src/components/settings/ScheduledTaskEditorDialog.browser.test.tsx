@@ -72,7 +72,7 @@ vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
   useProjects: (() => [project]) as never,
   useThreadShell: () => null,
-  useThreadShells: () => [],
+  useVisibleThreadShells: () => [],
 }));
 vi.mock(import("../../state/managedPolicy"), async (original) => ({
   ...(await original()),
@@ -92,10 +92,6 @@ vi.mock(import("../../hooks/useSettings"), async (original) => ({
     ...DEFAULT_SERVER_SETTINGS,
     projectSettingsOverrides: { [projectId]: { providerInstances: { codex: { enabled: false } } } },
   })) as never,
-}));
-vi.mock(import("../../lib/archivedThreadsState"), async (original) => ({
-  ...(await original()),
-  useArchivedThreadSnapshots: (() => ({ snapshots: [] })) as never,
 }));
 vi.mock(import("./SettingsScopeContext"), async (original) => ({
   ...(await original()),

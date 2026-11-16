@@ -236,9 +236,9 @@ const legacyTask: ScheduledTask = {
   runCount: 0,
 };
 
-it("edits a bound automation as an existing chat and tracks destination changes", () => {
+it("edits a bound automation as a continued thread and tracks destination changes", () => {
   const draft = editDraft({ ...legacyTask, threadId: ThreadId.make("daily-brief") });
-  expect(draft.workspace).toBe("thread");
+  expect(draft.threadMode).toBe("continue");
   expect(draft.threadId).toBe("daily-brief");
   expect(
     hasScheduledTaskDraftChanges(draft, { ...draft, threadId: ThreadId.make("another-chat") }),

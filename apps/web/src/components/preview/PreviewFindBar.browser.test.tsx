@@ -1,70 +1,85 @@
-import type { DesktopPreviewFindResult } from "@t3tools/contracts";
+import type { DesktopPreviewFindResultEvent } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { act, render } from "../../../test/render";
 import { PreviewFindBar } from "./PreviewFindBar";
 
-it("searches, ignores stale results, moves between matches, and clears on close", async () => {
-  const requests: Array<(result: DesktopPreviewFindResult | null) => void> = [];
-  const bridge = {
-    findInPage: vi.fn(
-      () => new Promise<DesktopPreviewFindResult | null>((resolve) => requests.push(resolve)),
-    ),
-    stopFindInPage: vi.fn(async () => undefined),
+const bridge = vi.hoisted(() => ({
+  listeners: new Set<(event: DesktopPreviewFindResultEvent) => void>(),
+  findInPage: vi.fn(async (..._args: ReadonlyArray<unknown>) => undefined),
+  stopFindInPage: vi.fn(async (_tabId: string) => undefined),
+}));
+
+vi.mock("./previewBridge", () => ({
+  previewBridge: {
+    findInPage: bridge.findInPage,
+    stopFindInPage: bridge.stopFindInPage,
+    onFindResult: (listener: (event: DesktopPreviewFindResultEvent) => void) => {
+      bridge.listeners.add(listener);
+      return () => bridge.listeners.delete(listener);
+    },
+  },
+}));
+
+const emit = (event: DesktopPreviewFindResultEvent) =>
+  act(() => {
+    for (const listener of bridge.listeners) listener(event);
+  });
+
+function freshBridge(): Disposable {
+  return {
+    [Symbol.dispose]: () => {
+      bridge.listeners.clear();
+      bridge.findInPage.mockClear();
+      bridge.stopFindInPage.mockClear();
+    },
   };
+}
+
+it("searches, ignores other tabs, moves between matches, and stops on close", async () => {
+  using _bridge = freshBridge();
   const close = vi.fn();
   await using screen = await render(
-    <PreviewFindBar tabId="tab" bridge={bridge} focusNonce={1} onClose={close} />,
+    <PreviewFindBar tabId="tab" focusRequestId={1} onClose={close} />,
   );
-  const input = screen.getByRole("textbox", { name: "Find in page" });
-  const status = screen.getByRole("status");
+  const input = screen.getByRole("searchbox", { name: "Find in page" });
   expect(document.activeElement).toBe(input.element());
-  await userEvent.fill(input, "old");
+
   await userEvent.fill(input, "new");
   expect(bridge.findInPage).toHaveBeenLastCalledWith("tab", "new", {
     forward: true,
-    findNext: false,
+    newSession: true,
   });
-  // The stale "old" result lands after the current one and must not replace it.
-  await act(() => {
-    requests[1]!({ matches: 3, activeMatchOrdinal: 1 });
-    requests[0]!({ matches: 9, activeMatchOrdinal: 7 });
-  });
-  await expect.element(status).toHaveTextContent("1 of 3");
+  await emit({ tabId: "other", matches: 9, activeMatchOrdinal: 7 });
+  await emit({ tabId: "tab", matches: 3, activeMatchOrdinal: 1 });
+  await expect.element(screen.getByText("1/3")).toBeInTheDocument();
+
   await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
   expect(bridge.findInPage).toHaveBeenLastCalledWith("tab", "new", {
     forward: false,
-    findNext: true,
+    newSession: false,
   });
-  await act(() => requests[2]!({ matches: 0, activeMatchOrdinal: 0 }));
-  await expect.element(status).toHaveTextContent("No matches");
+  // Chromium reports -1 for fields an update leaves unchanged.
+  await emit({ tabId: "tab", matches: -1, activeMatchOrdinal: 3 });
+  await expect.element(screen.getByText("3/3")).toBeInTheDocument();
+
   await userEvent.keyboard("{Escape}");
   expect(close).toHaveBeenCalledOnce();
   await screen.unmount();
   expect(bridge.stopFindInPage).toHaveBeenCalledWith("tab");
 });
 
-it("reports search failure and allows a new search to recover", async () => {
-  const bridge = {
-    findInPage: vi
-      .fn()
-      .mockRejectedValueOnce(new Error("Guest unavailable"))
-      .mockResolvedValue({ matches: 2, activeMatchOrdinal: 1 }),
-    stopFindInPage: vi.fn(async () => undefined),
-  };
+it("refocuses and selects the query when find is requested again", async () => {
+  using _bridge = freshBridge();
   await using screen = await render(
-    <PreviewFindBar tabId="tab" bridge={bridge} focusNonce={1} onClose={() => undefined} />,
+    <PreviewFindBar tabId="tab" focusRequestId={1} onClose={() => undefined} />,
   );
-  const input = screen.getByRole("textbox", { name: "Find in page" });
-  const status = screen.getByRole("status");
-  await userEvent.fill(input, "first");
-  await expect.element(status).toHaveTextContent("Unable to search page");
+  const input = screen.getByRole("searchbox", { name: "Find in page" });
   await userEvent.fill(input, "retry");
-  await expect.element(status).toHaveTextContent("1 of 2");
   input.element().blur();
   await screen.rerender(
-    <PreviewFindBar tabId="tab" bridge={bridge} focusNonce={2} onClose={() => undefined} />,
+    <PreviewFindBar tabId="tab" focusRequestId={2} onClose={() => undefined} />,
   );
   const field = input.element() as HTMLInputElement;
   expect(document.activeElement).toBe(field);

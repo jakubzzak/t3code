@@ -36,6 +36,7 @@ it.each(["url", "files"])(
           onBack={noop}
           onForward={noop}
           onRefresh={noop}
+          onStopLoading={noop}
           onSubmit={noop}
         />
       ) : (

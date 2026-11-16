@@ -88,10 +88,10 @@ function listenForHostKeys() {
 it("dismisses the host menu on guest pointer presses without a new focus event", async () => {
   await using _screen = await renderBrowser();
   await openMenu();
-  await guestMessage("t3:preview-pointerdown");
+  await guestMessage("preview:pointer-down");
   expect(menu()).toBeNull();
   await openMenu();
-  await guestMessage("t3:preview-pointerdown");
+  await guestMessage("preview:pointer-down");
   expect(menu()).toBeNull();
 });
 
@@ -140,7 +140,7 @@ it("does not let a hidden guest dismiss the active menu", async () => {
   await using _screen = await renderBrowser();
   await act(() => useBrowserSurfaceStore.getState().release("tab", surfaceOwner));
   await openMenu();
-  await guestMessage("t3:preview-pointerdown");
+  await guestMessage("preview:pointer-down");
   expect(menu()).not.toBeNull();
 });
 

@@ -1,10 +1,9 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildInboxAnalysisPrompt } from "./textGenerationPrompts.ts";
+import { buildInboxAnalysisPrompt, buildThreadTitlePrompt } from "./textGenerationPrompts.ts";
 import { normalizeCliError, toJsonSchemaObject } from "./textGenerationUtils.ts";
 import { ProviderInstanceId } from "@t3tools/contracts";
-
 describe("buildInboxAnalysisPrompt", () => {
   it("includes summary preferences without replacing the source-data and suggestion rules", () => {
     const result = buildInboxAnalysisPrompt({
@@ -75,4 +74,23 @@ it("shares relevance output with the summary schema only for eligible incoming c
   expect(() => decode(summary)).toThrow();
   for (const confidence of [-1, 101, 97.5, "99"])
     expect(() => decode({ ...summary, irrelevanceConfidence: confidence })).toThrow();
+});
+
+describe("buildThreadTitlePrompt", () => {
+  it("names the project to leave out and puts the user's instructions above the limits", () => {
+    for (const previousTitle of [undefined, "Hyperdrive Config Crash"]) {
+      const { prompt } = buildThreadTitlePrompt({
+        message: "hyperdrive init crashes without a config",
+        previousTitle,
+        projectTitle: "Hyperdrive",
+        instructions: "Prefix every title with the team name.",
+      });
+      expect(prompt).toContain('Never include the project name ("Hyperdrive")');
+      expect(prompt).not.toContain("fewer than 40 characters");
+      expect(prompt).toContain("Title instructions from the user:\nPrefix every title");
+    }
+    expect(buildThreadTitlePrompt({ message: "Fix login", instructions: " " }).prompt).toContain(
+      "3-8 words, fewer than 40 characters.",
+    );
+  });
 });

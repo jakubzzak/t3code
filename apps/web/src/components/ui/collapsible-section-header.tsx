@@ -37,7 +37,7 @@ export function CollapsibleSectionHeader({
         tones[tone].label,
       )}
     >
-      <span className="shrink-0">
+      <span className="min-w-0 truncate">
         {children}
         {!expanded && count !== undefined ? ` (${count})` : null}
       </span>

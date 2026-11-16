@@ -107,9 +107,10 @@ const build = (
           Layer.mock(Scheduler.Scheduler)({ register: (_name, work) => work.pipe(Effect.orDie) }),
           Layer.mock(ServerSettings.ServerSettingsService)({ getSettings: settings }),
           Layer.mock(ThreadLaunchService.ThreadLaunchService)({ launch }),
-          Layer.mock(ThreadManagementService.ThreadManagementService)(
-            sendToThread ? { sendToThread } : {},
-          ),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            ...(sendToThread ? { sendToThread } : {}),
+            getThreadRecords: () => Effect.succeed({ runs: [], messages: [] } as never),
+          }),
           Layer.mock(EventSink.EventSinkV2)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
           ManagedPolicy.layerTest(),
@@ -161,7 +162,8 @@ it.effect.each([
     }>`SELECT * FROM scheduled_tasks WHERE task_id = 'brief'`;
     expect(row?.run_count).toBe(expected);
     expect(Date.parse(row!.next_run_at)).toBeGreaterThan(Date.parse(now));
-    expect(row?.last_run_status).toBe(expected ? "succeeded" : "never");
+    // Without catch-up, the skipped slot shows on the task as a missed run.
+    expect(row?.last_run_status).toBe(expected ? "succeeded" : "failed");
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
