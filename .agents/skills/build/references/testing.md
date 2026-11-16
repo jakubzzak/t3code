@@ -1,5 +1,7 @@
 # Product acceptance
 
+For testing/review evidence, follow `~/.agents/personal-memory/AGENTS.md` ("Testing and review evidence: Linear only"). Publish evidence only through the Linear integration, to a single evidence comment on the work's Linear issue. Update that comment in place: the newest version stays open and older versions go into collapsed `+++` accordions. Never submit or check evidence through a browser or GitHub uploads. Preserve narrower publication limits, and carry this policy into delegated briefs.
+
 Read for baseline, post-implementation and testing-only work. The tester reports and does not repair implementation, tracked tests, snapshots or configuration.
 
 Create a scenario ledger covering every changed feature/entry point/option and relevant adjacent behavior. Record requirement/assumption, preconditions, fixture provenance, ordered actions, meaningful expected/actual outcomes, revision, evidence and status (`passed`, `failed`, `blocked`, `not run`). Explain exclusions. Inspect the actual test assertions and data, not just filenames or coverage totals.
@@ -9,6 +11,7 @@ Read the incident registry yourself, including the lead's selected records and a
 ## Execute the behavior
 
 - Capture/reuse reproducible before and after behavior. If baseline is missing, use an isolated base checkout with separate local state; never run old code against shared writable data. For new features label prior absence honestly.
+- For UI changes, capture comparable before/after screenshots and recordings where interaction or timing needs them. Inspect the images and play back recordings for readable, faithful evidence without private data. Return scenario/revision mappings, asset paths and any existing hosted links to the Build lead; distinguish captured locally from published and verified. After fixes, refresh affected captures or document why they remain valid. Follow Build's publication gate without expanding a testing-only assignment's authority.
 - Use real routes and the host-approved browser/CLI/API workflow, supported roles and fixtures. Assert state at meaningful steps, persistence after reload and downstream effects, not merely successful clicks.
 - Exercise applicable alternate/cancel/undo/retry/duplicate-submit/error/interruption/permission paths. Include accessibility, narrow screens and important loading/empty states where relevant.
 - Assess clarity of actions, copy, feedback, density and layout as well as functional outcomes. Report concrete minor UI issues; do not silently turn preference into a requirement.
