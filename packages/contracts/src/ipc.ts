@@ -124,6 +124,8 @@ export const DesktopAwakeState = Schema.Struct({
   status: Schema.Literals(["off", "starting", "active", "paused", "error"]),
   lowPower: Schema.Boolean,
   message: Schema.NullOr(Schema.String),
+  // Absent on older desktop builds that do not support hotspot failover.
+  hotspotMessage: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type DesktopAwakeState = typeof DesktopAwakeState.Type;
 

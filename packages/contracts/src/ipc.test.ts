@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { DesktopEnvironmentBootstrapSchema } from "./ipc.ts";
+import { DesktopAwakeState, DesktopEnvironmentBootstrapSchema } from "./ipc.ts";
 
 describe("DesktopEnvironmentBootstrapSchema", () => {
   const decode = Schema.decodeUnknownSync(DesktopEnvironmentBootstrapSchema);
@@ -34,5 +34,35 @@ describe("DesktopEnvironmentBootstrapSchema", () => {
         wsBaseUrl: null,
       }).runningDistro,
     ).toBeNull();
+  });
+});
+
+describe("DesktopAwakeState hotspot compatibility", () => {
+  const decode = Schema.decodeUnknownSync(DesktopAwakeState);
+  const oldState = {
+    supported: true,
+    installed: true,
+    status: "active",
+    lowPower: false,
+    message: null,
+  };
+
+  it("keeps an older desktop's missing capability distinguishable from an idle helper", () => {
+    expect(decode(oldState)).not.toHaveProperty("hotspotMessage");
+    expect(decode({ ...oldState, hotspotMessage: null }).hotspotMessage).toBeNull();
+  });
+
+  it("preserves hotspot status separately from power safeguards", () => {
+    expect(
+      decode({
+        ...oldState,
+        status: "paused",
+        message: "Battery is low.",
+        hotspotMessage: "Allow Location Services for Blackbird Hotspot.",
+      }),
+    ).toMatchObject({
+      message: "Battery is low.",
+      hotspotMessage: "Allow Location Services for Blackbird Hotspot.",
+    });
   });
 });

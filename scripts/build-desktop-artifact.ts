@@ -468,6 +468,15 @@ const desktopIconPlatformNames = {
   win: "Windows",
 } satisfies Record<typeof BuildPlatform.Type, string>;
 
+export class MacHotspotHostError extends Schema.TaggedError<MacHotspotHostError>()(
+  "MacHotspotHostError",
+  { hostPlatform: Schema.String },
+) {
+  override get message() {
+    return "The macOS hotspot helper requires a macOS host with Xcode Command Line Tools.";
+  }
+}
+
 export class LinuxBrowserSecretHostError extends Schema.TaggedError<LinuxBrowserSecretHostError>()(
   "LinuxBrowserSecretHostError",
   { hostPlatform: Schema.String },
@@ -981,6 +990,10 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!**/*.d.cts",
   "!apps/desktop/resources/browser-secret",
   "!apps/desktop/resources/browser-secret/**/*",
+  "!apps/desktop/prod-resources/hotspot",
+  "!apps/desktop/prod-resources/hotspot/**/*",
+  "!apps/desktop/resources/hotspot",
+  "!apps/desktop/resources/hotspot/**/*",
   "!apps/desktop/prod-resources/browser-secret",
   "!apps/desktop/prod-resources/browser-secret/**/*",
   // Windows stages the server sidecar below prod-resources so electron-builder
@@ -1128,6 +1141,9 @@ export const LINUX_CAPTURE_EXTRA_RESOURCES = [
     to: "gnome-extension",
     filter: gnomeCaptureBundle.files,
   },
+] as const;
+export const MAC_HOTSPOT_EXTRA_RESOURCES = [
+  { from: "apps/desktop/prod-resources/hotspot", to: "hotspot" },
 ] as const;
 export const LINUX_BROWSER_SECRET_EXTRA_RESOURCES = [
   { from: "apps/desktop/prod-resources/browser-secret", to: "browser-secret" },
@@ -2399,6 +2415,35 @@ export const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* 
   }
 });
 
+export const stageHotspotHelper = Effect.fn("stageHotspotHelper")(function* (input: {
+  readonly repoRoot: string;
+  readonly stageResourcesDir: string;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly arch: typeof BuildArch.Type;
+  readonly verbose: boolean;
+}) {
+  if (input.platform !== "mac") return;
+  const hostPlatform = yield* HostProcess.Platform;
+  if (hostPlatform !== "darwin") {
+    return yield* new MacHotspotHostError({ hostPlatform });
+  }
+  const path = yield* Path.Path;
+  yield* runCommand(
+    ChildProcess.make(
+      "node",
+      [
+        path.join(input.repoRoot, "apps/desktop/scripts/build-hotspot.mjs"),
+        "--arch",
+        input.arch,
+        "--output",
+        path.join(input.stageResourcesDir, "hotspot", "Blackbird Hotspot.app"),
+      ],
+      { cwd: input.repoRoot },
+    ),
+    { label: "build macOS hotspot helper", verbose: input.verbose },
+  );
+});
+
 export const stageBrowserSecret = Effect.fn("stageBrowserSecret")(function* (input: {
   readonly repoRoot: string;
   readonly stageResourcesDir: string;
@@ -2784,6 +2829,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       : {}),
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
+      ...(platform === "mac" ? MAC_HOTSPOT_EXTRA_RESOURCES : []),
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
@@ -3767,6 +3813,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         verbose: options.verbose,
       });
   }
+  yield* stageHotspotHelper({
+    repoRoot,
+    stageResourcesDir,
+    platform: options.platform,
+    arch: options.arch,
+    verbose: options.verbose,
+  });
   yield* stageBrowserSecret({
     repoRoot,
     stageResourcesDir,

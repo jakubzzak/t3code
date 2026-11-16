@@ -16,6 +16,7 @@ import { DesktopClientSettings } from "../settings/DesktopClientSettings.ts";
 import { ElectronWindow } from "../electron/ElectronWindow.ts";
 import { AWAKE_STATE_CHANNEL } from "../ipc/channels.ts";
 import { AwakeError, AwakeSystem } from "./AwakeSystem.ts";
+import { DesktopHotspot } from "./DesktopHotspot.ts";
 import { decideAwake } from "./AwakePolicy.ts";
 
 export class DesktopAwake extends Context.Service<
@@ -35,6 +36,7 @@ const sameState = Schema.toEquivalence(DesktopAwakeState);
 /** @public Main-process ownership keeps closed windows and renderer reloads irrelevant. */
 export const make = Effect.gen(function* () {
   const system = yield* AwakeSystem;
+  const hotspot = yield* DesktopHotspot;
   const clientSettings = yield* DesktopClientSettings;
   const windows = yield* ElectronWindow;
   const crypto = yield* Crypto.Crypto;
@@ -47,17 +49,20 @@ export const make = Effect.gen(function* () {
     status: "off",
     lowPower: false,
     message: null,
+    hotspotMessage: null,
   };
   let ownsSession = false;
   let failed = false;
   let lidWasClosed = false;
 
   const publish = Effect.fnUntraced(function* (next: DesktopAwakeState) {
+    next = { ...next, hotspotMessage: yield* hotspot.message };
     if (sameState(next, current)) return;
     current = next;
     yield* windows.sendAll(AWAKE_STATE_CHANNEL, next);
   });
   const release = Effect.gen(function* () {
+    yield* hotspot.setActive(false);
     yield* system.holdApp(false);
     if (ownsSession) {
       yield* system.release(token);
@@ -111,6 +116,7 @@ export const make = Effect.gen(function* () {
     if (closed === true && !lidWasClosed) yield* system.sleepDisplay;
     if (closed === false && lidWasClosed) yield* system.wakeDisplay;
     if (closed !== null) lidWasClosed = closed;
+    yield* hotspot.setActive(settings.awakeHotspotFailover);
     yield* publish({ ...current, status: "active", lowPower: decision.lowPower, message: null });
   });
   const tick = reconcile.pipe(Effect.catch(onError));
@@ -123,6 +129,7 @@ export const make = Effect.gen(function* () {
     state: Effect.sync(() => current),
     initialize: Effect.gen(function* () {
       if (!system.supported) return;
+      yield* hotspot.initialize;
       yield* Effect.addFinalizer(() => lock.withPermits(1)(release).pipe(Effect.catch(onError)));
       yield* lock.withPermits(1)(
         Effect.gen(function* () {
@@ -151,6 +158,7 @@ export const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const changed =
             settings.awakeEnabled !== next.awakeEnabled ||
+            settings.awakeHotspotFailover !== next.awakeHotspotFailover ||
             settings.awakeHeatRules !== next.awakeHeatRules ||
             settings.awakeLowPowerBelowPercent !== next.awakeLowPowerBelowPercent ||
             settings.awakeSleepBelowPercent !== next.awakeSleepBelowPercent;

@@ -22,6 +22,7 @@ export function AwakeSettings() {
   const [pending, setPending] = useState(false);
   const available = Boolean(bridge) && state?.supported === true;
   const installed = state?.installed === true;
+  const hotspotAvailable = available && state?.hotspotMessage !== undefined;
 
   async function perform(action: () => Promise<unknown>) {
     if (pending) return;
@@ -101,6 +102,32 @@ export function AwakeSettings() {
           />
         ) : null}
       </SettingsSection>
+      {available ? (
+        <SettingsSection id="awake-hotspot" title="Hotspot failover">
+          <SettingsRow
+            {...searchableSetting("awake-hotspot")}
+            description="When the internet drops while Keep awake is active, turn on and join your nearby iPhone’s Personal Hotspot, then return to known Wi-Fi when available. Uses mobile data. Both devices need the same Apple Account. Allow Location Services for Blackbird Hotspot to discover Wi-Fi networks. Turning this off stops checks without disconnecting your current network."
+            status={
+              !hotspotAvailable
+                ? "Update the desktop app to use hotspot failover."
+                : !settings.awakeHotspotFailover
+                  ? "Off. Your Mac manages network connections."
+                  : (state?.hotspotMessage ??
+                    (state?.status === "active"
+                      ? "Watching the internet connection."
+                      : "Waiting for Keep awake to become active. Your preference is saved."))
+            }
+            control={
+              <Switch
+                aria-label="Hotspot failover"
+                checked={settings.awakeHotspotFailover}
+                disabled={!hotspotAvailable || pending}
+                onCheckedChange={(checked) => update({ awakeHotspotFailover: checked })}
+              />
+            }
+          />
+        </SettingsSection>
+      ) : null}
       {available ? (
         <SettingsSection id="awake-power" title="Battery and heat">
           <SettingsRow
