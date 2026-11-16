@@ -85,6 +85,7 @@ import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
+import { useSettledRefreshToken } from "~/hooks/useSettledRefreshToken";
 import {
   pullRequestEnvironment,
   pullRequestListEntryToSummary,
@@ -414,6 +415,7 @@ function PullRequestBaseFreshnessWarning({
 
 export function PullRequestDetailPanel({
   visible = true,
+  deferAutomaticRefresh = false,
   environmentId,
   shortcutsEnabled,
   getShortcutContext,
@@ -432,6 +434,8 @@ export function PullRequestDetailPanel({
   environmentId: EnvironmentId;
   shortcutsEnabled: boolean;
   visible?: boolean;
+  /** Keeps the code diff steady while the adjacent chat is working. Manual refresh still runs. */
+  deferAutomaticRefresh?: boolean;
   getShortcutContext: () => ShortcutMatchContext;
   onSelectPullRequest?: ((reference: PullRequestRef) => void) | undefined;
   /**
@@ -881,7 +885,13 @@ export function PullRequestDetailPanel({
     nativeStackQuery.refresh();
   }, [activityQuery.refresh, detailQuery.refresh, nativeStackQuery.refresh]);
   const [refreshToken, setRefreshToken] = useState(0);
-  const codeRefreshToken = refreshToken + (turnRefresh ?? 0);
+  const [activityRefreshToken, setActivityRefreshToken] = useState(0);
+  const automaticCodeRefreshToken = useSettledRefreshToken({
+    resourceKey: tabScopeKey,
+    refreshToken: activityRefreshToken + (turnRefresh ?? 0),
+    isWorking: deferAutomaticRefresh,
+  });
+  const codeRefreshToken = refreshToken + automaticCodeRefreshToken;
   const activityRevision = useRef<{ readonly key: string; readonly updatedAt: string } | null>(
     null,
   );
@@ -893,7 +903,7 @@ export function PullRequestDetailPanel({
       // mutation's activity refresh can leave SWR displaying its previous value.
       if (activityQuery.isPending) return;
       activityQuery.refresh();
-      setRefreshToken((token) => token + 1);
+      setActivityRefreshToken((token) => token + 1);
     }
     activityRevision.current = next;
   }, [activityQuery.isPending, activityQuery.refresh, coreDetail, tabScopeKey]);

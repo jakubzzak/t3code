@@ -242,6 +242,7 @@ import {
 import { seedUserInputDraftAnswers } from "@t3tools/client-runtime/state/thread-requests";
 import { useUiStateStore } from "../uiStateStore";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
+import { useSettledRefreshToken } from "../hooks/useSettledRefreshToken";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -4252,6 +4253,12 @@ export default function ChatView(props: ChatViewProps) {
       ? null
       : JSON.stringify([itemId, latestCheckpointCompletedAt]);
   }, [serverVisibleTurnItems, turnDiffSummaries]);
+
+  const fileWorkspaceMutationId = useSettledRefreshToken({
+    resourceKey: activeThreadKey,
+    refreshToken: workspaceMutationId,
+    isWorking,
+  });
 
   const gitCwd = activeProject
     ? projectScriptCwd({
@@ -11112,6 +11119,7 @@ export default function ChatView(props: ChatViewProps) {
       // checkable out like it is anywhere else.
       <PullRequestDetailPanel
         visible={rightPanelOpen && activeRightPanelSurface?.id === renderedRightPanelSurface.id}
+        deferAutomaticRefresh={isWorking}
         getShortcutContext={getShortcutContextStable}
         shortcutsEnabled={
           rightPanelOpen && activeRightPanelSurface?.id === renderedRightPanelSurface.id
@@ -11209,7 +11217,7 @@ export default function ChatView(props: ChatViewProps) {
             renderedRightPanelSurface.kind === "file" &&
             pendingFileSurfaceIds.has(`file:${renderedRightPanelSurface.relativePath}`)
           }
-          workspaceMutationId={workspaceMutationId}
+          workspaceMutationId={fileWorkspaceMutationId}
         />
       </Suspense>
     ) : null
